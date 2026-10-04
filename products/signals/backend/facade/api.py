@@ -57,7 +57,7 @@ from products.signals.backend.report_page_source import (
     ReportArtefactText as ReportArtefactText,
     ReportPageSource as ReportPageSource,
     ReportSignal as ReportSignal,
-    report_artefact_texts as report_artefact_texts,
+    report_agent_texts as report_agent_texts,
     report_page_source as report_page_source,
 )
 from products.signals.backend.report_sections import (
@@ -342,15 +342,6 @@ def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel
 
     return report_id_for_slack_thread_impl(
         team_id=team_id, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
-    )
-
-
-def report_summary(*, team_id: int, report_id: str) -> str | None:
-    return (
-        SignalReport.objects.filter(team_id=team_id, id=report_id)
-        .exclude(status=SignalReport.Status.DELETED)
-        .values_list("summary", flat=True)
-        .first()
     )
 
 

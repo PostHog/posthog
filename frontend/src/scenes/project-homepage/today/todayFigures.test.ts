@@ -9,6 +9,12 @@ describe('todayFigures', () => {
             ['4', '12', '31'],
         ],
         ['an amount of money with its currency sign', 'About $4.2K in seven-day spend.', ['4.2'], ['$4.2K']],
+        [
+            'numbers in the order the text states them',
+            '30,000 calls at 120 ms each.',
+            ['120', '30,000'],
+            ['30,000', '120 ms'],
+        ],
     ])('emphasizes %s', (_, text, values, expected) => {
         const segments = highlightSegments(text, values)
         expect(segments.filter((segment) => segment.marked).map((segment) => segment.text)).toEqual(expected)

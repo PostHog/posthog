@@ -404,119 +404,6 @@ export const FigureSourceKindEnumApi = {
     Research: 'research',
 } as const
 
-export interface FigureQuoteApi {
-    /** Where the number comes from: a signal or the agent's research.
-     *
-     * * `signal` - Signal
-     * * `research` - Agent's research */
-    kind: FigureSourceKindEnumApi
-    /**
-     * The signal that states the number. Null when the agent's research states it.
-     * @nullable
-     */
-    signal_id: string | null
-    /** When the source was written. */
-    at: string
-    /** The source sentence that states the number. */
-    sentence: string
-    /** Where the number starts in the sentence. */
-    start: number
-    /** Where the number ends in the sentence. */
-    end: number
-}
-
-export interface FigureMarkApi {
-    /** The page text the number is in: the lead or the impact sentence.
-     *
-     * * `lead` - Lead
-     * * `impact` - Impact */
-    text: FigureTextEnumApi
-    /** Where the number starts in that text, as the reader sees it. */
-    start: number
-    /** Where the number ends in that text. */
-    end: number
-    /** The number as the page shows it. */
-    figure: string
-    /** The sentence that states the same result. */
-    quote: FigureQuoteApi
-}
-
-export interface FigureMarksApi {
-    /** The numbers to mark, at most 4, each with its source. */
-    marks: FigureMarkApi[]
-}
-
-/**
- * * `problem` - Problem
- * * `cause` - Cause
- * * `fix` - Fix
- */
-export type KeyClauseRoleEnumApi = (typeof KeyClauseRoleEnumApi)[keyof typeof KeyClauseRoleEnumApi]
-
-export const KeyClauseRoleEnumApi = {
-    Problem: 'problem',
-    Cause: 'cause',
-    Fix: 'fix',
-} as const
-
-export interface KeyClauseRequestApi {
-    /**
-     * A text the page shows, as the reader sees it.
-     * @maxLength 4000
-     */
-    text: string
-    /**
-     * The roles to look for in this text: problem, cause or fix. Repeated roles count once.
-     * @minItems 1
-     * @maxItems 3
-     */
-    roles: KeyClauseRoleEnumApi[]
-}
-
-export interface KeyClausesRequestApi {
-    /**
-     * The texts to mark, at most 3.
-     * @maxItems 3
-     */
-    requests: KeyClauseRequestApi[]
-}
-
-export interface KeyClauseApi {
-    /** Where the clause starts in its text. */
-    start: number
-    /** Where the clause ends in its text. */
-    end: number
-    /** The clause as it appears in the text. */
-    text: string
-    /** What the clause tells the reader.
-     *
-     * * `problem` - Problem
-     * * `cause` - Cause
-     * * `fix` - Fix */
-    role: KeyClauseRoleEnumApi
-    /** Sentences from the report that explain the clause further. */
-    expansion: string[]
-}
-
-export interface TextKeyClausesApi {
-    /** The text the clauses belong to, as it was sent. */
-    text: string
-    /** The clauses worth marking in the text. */
-    key_clauses: KeyClauseApi[]
-}
-
-export interface KeyClausesApi {
-    /** The marks for each text, in the order they were sent. */
-    texts: TextKeyClausesApi[]
-}
-
-export interface PullRequestLinkApi {
-    /** The pull request on GitHub. */
-    url: string
-    /** The pull request number. */
-    number: number
-}
-
 /**
  * * `code` - Code
  * * `slack` - Slack
@@ -541,6 +428,11 @@ export interface RecordingTargetApi {
      * @nullable
      */
     offset: string | null
+    /**
+     * Where the player starts, in seconds from the recording start. Null without an offset.
+     * @nullable
+     */
+    seek_seconds: number | null
 }
 
 export interface PageLinkApi {
@@ -623,6 +515,89 @@ export interface SignalViewApi {
     preview: SignalPreviewApi | null
 }
 
+export interface FigureQuoteApi {
+    /** Where the number comes from: a signal or the agent's research.
+     *
+     * * `signal` - Signal
+     * * `research` - Agent's research */
+    kind: FigureSourceKindEnumApi
+    /** The signal that states the number. Null when the agent's research states it. */
+    signal: SignalViewApi | null
+    /** When the source was written. */
+    at: string
+    /** The source sentence that states the number. */
+    sentence: string
+    /** Where the number starts in the sentence. */
+    start: number
+    /** Where the number ends in the sentence. */
+    end: number
+}
+
+export interface FigureMarkApi {
+    /** The page text the number is in: the lead or the impact sentence.
+     *
+     * * `lead` - Lead
+     * * `impact` - Impact */
+    text: FigureTextEnumApi
+    /** Where the number starts in that text, as the reader sees it. */
+    start: number
+    /** Where the number ends in that text. */
+    end: number
+    /** The number as the page shows it. */
+    figure: string
+    /** The sentence that states the same result. */
+    quote: FigureQuoteApi
+}
+
+export interface FigureMarksApi {
+    /** The numbers to mark, at most 4, each with its source. */
+    marks: FigureMarkApi[]
+}
+
+/**
+ * * `problem` - Problem
+ * * `cause` - Cause
+ * * `fix` - Fix
+ */
+export type KeyClauseRoleEnumApi = (typeof KeyClauseRoleEnumApi)[keyof typeof KeyClauseRoleEnumApi]
+
+export const KeyClauseRoleEnumApi = {
+    Problem: 'problem',
+    Cause: 'cause',
+    Fix: 'fix',
+} as const
+
+export interface KeyClauseApi {
+    /** Where the clause starts in its text, as the reader sees it. */
+    start: number
+    /** Where the clause ends in its text. */
+    end: number
+    /** What the clause tells the reader.
+     *
+     * * `problem` - Problem
+     * * `cause` - Cause
+     * * `fix` - Fix */
+    role: KeyClauseRoleEnumApi
+    /** Sentences from the report that explain the clause further. */
+    expansion: string[]
+}
+
+export interface ReportKeyClausesApi {
+    /** The clauses that state the problem or its cause in the lead. */
+    lead: KeyClauseApi[]
+    /** The clauses that state the problem or its cause in the impact sentence. */
+    impact: KeyClauseApi[]
+    /** The clause that states the fix in the proposal. */
+    proposal: KeyClauseApi[]
+}
+
+export interface PullRequestLinkApi {
+    /** The pull request on GitHub. */
+    url: string
+    /** The pull request number. */
+    number: number
+}
+
 /**
  * * `tickets` - Support tickets
  * * `query-hours` - Database hours
@@ -651,14 +626,9 @@ export interface ImpactNumberApi {
     value: string
     /** The sentence that follows the number. */
     sentence: string
-    /**
-     * The signal the number comes from, if one does.
-     * @nullable
-     */
-    signal_id: string | null
-    /** That signal as one short line. */
-    excerpt: string
-    /** The figures in the excerpt to mark. */
+    /** The signal the number comes from, if one does. */
+    signal: SignalViewApi | null
+    /** The figures in the signal's headline to mark. */
     values: string[]
     /** How the number is worked out, if it is. */
     working: ImpactWorkingApi | null
@@ -675,11 +645,9 @@ export interface ReportPageApi {
     named_pull_request: PullRequestLinkApi | null
     /** Whether the proposal names any pull request. */
     solution_names_pull_request: boolean
-    /** The report's signals, newest first, ready to show. */
-    signals: SignalViewApi[]
-    /** The ids of the signals to show as evidence, at most 3. */
-    evidence_signal_ids: string[]
-    /** How many distinct source objects the signals come from. */
+    /** The signals to show as evidence, at most 3, newest first, one per source first. */
+    evidence: SignalViewApi[]
+    /** How many distinct source objects the report's newest 100 signals come from. The impact numbers and last seen use the same signals. */
     source_count: number
     /** Numbers the signals size the problem with, such as distinct support tickets. */
     impact_numbers: ImpactNumberApi[]
@@ -712,4 +680,11 @@ export type TodayCandidatesRetrieveParams = {
      * @maxLength 64
      */
     timezone?: string
+}
+
+export type TodayReportsKeyClausesRetrieveParams = {
+    /**
+     * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
+     */
+    include_impact?: boolean
 }

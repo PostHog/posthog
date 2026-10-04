@@ -48,7 +48,7 @@ def may_get_briefing(user: User, team: Team) -> bool:
 
 
 def may_ask_jev(user: User, team: Team) -> bool:
-    return _may_use_ai(user, team, TODAY_REPORT_JEV_FLAG)
+    return _may_use_ai(user, team, TODAY_REPORT_JEV_FLAG) and _flag_on(TODAY_RAIL_NAV_FLAG, user, team)
 
 
 def _may_use_ai(user: User, team: Team, flag: str) -> bool:

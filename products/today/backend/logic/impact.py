@@ -6,7 +6,8 @@ from posthog.dataclasses import frozen
 
 from ..facade import contracts
 from ..facade.enums import ImpactNumberKey
-from .signal_text import RECORDING_SOURCES, TICKET_SOURCES, SignalInput, headline, js_number, text_of
+from .evidence import signal_view
+from .signal_text import RECORDING_SOURCES, SignalInput, js_number, text_of
 
 _MIN_TICKETS = 2
 _WEEKS_FROM_DAYS = 14
@@ -17,6 +18,7 @@ _TIME_TAIL = "ms on average"
 _CALLS_TAIL = " calls in last 24h"
 _TIME_CHARS = frozenset("0123456789.,")
 _CALLS_CHARS = frozenset("0123456789,")
+_TICKET_TYPE = "ticket"
 _QUERY_HOURS_SENTENCE = "database time a day, worked out from the query’s pganalyze stats."
 
 
@@ -45,9 +47,9 @@ def _occurrence_of(signal: SignalInput) -> _Occurrence | None:
     if signal.source_product in RECORDING_SOURCES:
         session = text_of(signal.extra.get("session_id"))
         return _Occurrence(kind="sessions", key=session) if session else None
-    if signal.source_product in TICKET_SOURCES:
+    if signal.source_type == _TICKET_TYPE:
         ticket = js_number(signal.extra.get("ticket_number")) or signal.source_id
-        return _Occurrence(kind="tickets", key=ticket) if ticket else None
+        return _Occurrence(kind="tickets", key=f"{signal.source_product}:{ticket}") if ticket else None
     if signal.source_product == "analytics" and signal.source_type == "anomaly_investigation":
         return _Occurrence(kind="alerts", key=text_of(signal.extra.get("alert_check_id")) or signal.source_id)
     return None
@@ -73,8 +75,8 @@ def _occurrences_by_kind(signals: list[SignalInput]) -> dict[str, _Occurrences]:
 
 
 def last_occurrence(signals: list[SignalInput]) -> datetime | None:
-    newest = [occurrences.newest for occurrences in _occurrences_by_kind(signals).values()]
-    return max(newest) if newest else None
+    occurrences = [signal.timestamp for signal in signals if _occurrence_of(signal) is not None]
+    return max(occurrences) if occurrences else None
 
 
 def _amount(text: str) -> float:
@@ -153,8 +155,7 @@ def _ticket_number(signals: list[SignalInput]) -> contracts.ImpactNumber | None:
         key=ImpactNumberKey.TICKETS,
         value=str(tickets.count),
         sentence=f"support tickets {_occurrence_span(tickets)}.",
-        signal_id=ticket.signal_id if ticket else None,
-        excerpt=headline(ticket) if ticket else "",
+        signal=signal_view(ticket) if ticket else None,
         values=[],
         working=None,
     )
@@ -169,8 +170,7 @@ def _query_hours_number(signals: list[SignalInput]) -> contracts.ImpactNumber | 
         key=ImpactNumberKey.QUERY_HOURS,
         value=f"{hours} {'hour' if hours == '1' else 'hours'}",
         sentence=_QUERY_HOURS_SENTENCE,
-        signal_id=cost.signal.signal_id,
-        excerpt=headline(cost.signal),
+        signal=signal_view(cost.signal),
         values=[cost.average_ms, cost.calls_per_day],
         working=contracts.ImpactWorking(
             expression=f"{cost.average_ms} ms × {cost.calls_per_day} calls",

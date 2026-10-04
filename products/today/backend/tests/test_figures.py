@@ -10,6 +10,7 @@ class TestFigures(SimpleTestCase):
         [
             ("keeps a scaled range as one number", "about 18.6K–21.4K signups", ["18.6K–21.4K"]),
             ("keeps a percent range as one number", "17–21% of loads", ["17–21%"]),
+            ("keeps a range with a sign on both ends as one number", "17%–21% of loads", ["17%–21%"]),
             ("adds a duration word only to a bare count", "for 40 minutes, then 1.3% weeks", ["40 minutes", "1.3%"]),
             ("skips numbers joined to other characters", "v1.2 at 10:30 for #123", []),
         ]

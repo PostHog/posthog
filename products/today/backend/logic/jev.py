@@ -56,6 +56,7 @@ class GatewayJev:
         self._team_id = team_id
         self._distinct_id = distinct_id
         self._model = model or settings.HOGQL_PROMPT_JEV_MODEL
+        self._deadline: float | None = None
 
     @cached_property
     def _client(self) -> GatewaySystemOneClient:
@@ -87,7 +88,10 @@ class GatewayJev:
 
     async def _ask(self, batches: list[list[str]], question: Question) -> list[list[Answer] | BaseException]:
         semaphore = asyncio.Semaphore(_CONCURRENCY)
-        deadline = time.monotonic() + _DEADLINE_SECONDS
+        self._deadline = self._deadline or time.monotonic() + _DEADLINE_SECONDS
+        deadline = self._deadline
+        if deadline <= time.monotonic():
+            return [contracts.JevTimedOut() for _ in batches]
 
         async def ask_batch(batch: list[str]) -> list[Answer]:
             async with semaphore:
@@ -95,7 +99,7 @@ class GatewayJev:
 
         tasks = [asyncio.create_task(ask_batch(batch)) for batch in batches]
         try:
-            await asyncio.wait(tasks, timeout=_DEADLINE_SECONDS)
+            await asyncio.wait(tasks, timeout=max(deadline - time.monotonic(), 0))
         finally:
             for task in tasks:
                 task.cancel()

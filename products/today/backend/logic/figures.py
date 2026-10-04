@@ -82,15 +82,13 @@ def _unit(text: str, index: int) -> tuple[str | None, int]:
 def _token(text: str, number_end: int) -> _Token:
     upper, range_end = _range_upper(text, number_end)
     unit, end = _unit(text, range_end)
-    if upper is not None or unit not in _SCALES:
+    if upper is not None or unit is None:
         return _Token(upper=upper, unit=unit, end=end)
-    scaled_upper, scaled_range_end = _range_upper(text, end)
-    if scaled_upper is None:
+    unit_upper, unit_range_end = _range_upper(text, end)
+    upper_unit, upper_end = _unit(text, unit_range_end)
+    if unit_upper is None or upper_unit != unit:
         return _Token(upper=None, unit=unit, end=end)
-    upper_unit, upper_end = _unit(text, scaled_range_end)
-    if upper_unit != unit:
-        return _Token(upper=None, unit=unit, end=end)
-    return _Token(upper=scaled_upper, unit=unit, end=upper_end)
+    return _Token(upper=unit_upper, unit=unit, end=upper_end)
 
 
 def _free_after(text: str, end: int) -> bool:
@@ -190,7 +188,7 @@ def numbers_in(text: str) -> list[Figure]:
 
 
 def is_zero(amount: Amount) -> bool:
-    return amount.high == 0 and amount.upper is None
+    return amount.low <= 0 <= amount.high and not amount.upper
 
 
 def same_amount(claim: Amount, source: Amount) -> bool:

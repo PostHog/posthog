@@ -1,5 +1,5 @@
 import { Popover } from '@base-ui/react/popover'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useCallback, useState } from 'react'
 
 import { Card, cn } from '@posthog/quill'
 
@@ -42,6 +42,10 @@ export function TodayHoverMark({
 }): JSX.Element {
     const [trigger, setTrigger] = useState<HTMLElement | null>(null)
     const [open, setOpen] = useState(false)
+    const triggerRef = useCallback((node: HTMLElement | null): void => {
+        trackPointerMoves()
+        setTrigger(node)
+    }, [])
     return (
         <Popover.Root
             open={open}
@@ -61,10 +65,7 @@ export function TodayHoverMark({
                 delay={OPEN_DELAY_MS}
                 closeDelay={CLOSE_DELAY_MS}
                 nativeButton={false}
-                ref={(node: HTMLElement | null) => {
-                    trackPointerMoves()
-                    setTrigger(node)
-                }}
+                ref={triggerRef}
                 render={<span />}
                 className={cn('TodayHoverMark', className)}
                 data-attr={dataAttr}

@@ -7,13 +7,18 @@ import { todayReportLogic } from './todayReportLogic'
 import { TodayReportSectionTitle } from './TodayReportSectionTitle'
 
 export function TodayReportProposal({ reportId }: { reportId: string }): JSX.Element {
-    const { proposal } = useValues(todayReportLogic({ reportId }))
+    const { proposal, shownKeyClauses } = useValues(todayReportLogic({ reportId }))
     return (
         <div className="flex flex-col gap-2">
             <TodayReportSectionTitle>Proposal</TodayReportSectionTitle>
             {proposal ? (
                 <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
-                    <TodayMarkedText markdown={proposal} marked={[]} reportId={reportId} />
+                    <TodayMarkedText
+                        markdown={proposal}
+                        marked={[]}
+                        keyClauses={shownKeyClauses?.proposal ?? []}
+                        reportId={reportId}
+                    />
                 </Text>
             ) : (
                 <Text size="sm" variant="muted" render={<p />}>

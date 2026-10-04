@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
-import type { KeyClausesRequestApi, ReportPageApi } from 'products/today/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 
 import { todayReportLogic } from './todayReportLogic'
 
@@ -19,8 +19,7 @@ const PAGE: ReportPageApi = {
     impact_sentence: '',
     named_pull_request: null,
     solution_names_pull_request: false,
-    signals: [],
-    evidence_signal_ids: [],
+    evidence: [],
     source_count: 0,
     impact_numbers: [],
     last_seen: null,
@@ -77,12 +76,9 @@ describe('todayReportLogic', () => {
                     calls.figureMarks += 1
                     return [200, { marks: [] }]
                 },
-            },
-            post: {
-                '/api/projects/:team_id/today/reports/:id/key_clauses/': async ({ request }) => {
+                '/api/projects/:team_id/today/reports/:id/key_clauses/': () => {
                     calls.keyClauses += 1
-                    const { requests } = (await request.json()) as KeyClausesRequestApi
-                    return [200, { texts: requests.map(({ text }) => ({ text, key_clauses: [] })) }]
+                    return [200, { lead: [], impact: [], proposal: [] }]
                 },
             },
         })
@@ -103,7 +99,7 @@ describe('todayReportLogic', () => {
         expect(logic.values.shownKeyClauses).toEqual(logic.values.keyClauses)
 
         featureFlagLogic.actions.setFeatureFlags([], {})
-        expect(logic.values.shownKeyClauses).toEqual({})
+        expect(logic.values.shownKeyClauses).toBeNull()
         expect(logic.values.shownFigureMarks).toBeNull()
     })
 })

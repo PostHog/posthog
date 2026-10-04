@@ -1,14 +1,13 @@
-import { useValues } from 'kea'
 import { Fragment } from 'react'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import type { KeyClauseApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayFigureMark } from './TodayFigureMark'
 import type { TodayMarkedFigure } from './todayFigureSources'
 import { TodayKeyClauseMark } from './TodayKeyClauseMark'
 import { TodayMarkedPiece, markedRuns } from './todayMarkedRuns'
-import { renderedText } from './todayProse'
-import { todayReportLogic } from './todayReportLogic'
 
 function MarkedPiece({ piece, reportId }: { piece: TodayMarkedPiece; reportId: string }): JSX.Element {
     switch (piece.kind) {
@@ -40,14 +39,15 @@ function MarkedPiece({ piece, reportId }: { piece: TodayMarkedPiece; reportId: s
 export function TodayMarkedText({
     markdown,
     marked,
+    keyClauses,
     reportId,
 }: {
     markdown: string
     marked: TodayMarkedFigure[]
+    keyClauses: KeyClauseApi[]
     reportId: string
 }): JSX.Element {
-    const { shownKeyClauses } = useValues(todayReportLogic({ reportId }))
-    const runs = markedRuns(markdown, marked, shownKeyClauses[renderedText(markdown)] ?? [])
+    const runs = markedRuns(markdown, marked, keyClauses)
     return (
         <>
             {runs.map(({ keyClause, pieces }) => {

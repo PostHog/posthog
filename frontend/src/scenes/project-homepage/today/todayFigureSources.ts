@@ -31,47 +31,39 @@ export type TodayFigureCardContent =
           caption: string | null
           window: string | null
           trend: number[] | null
+          chartType: 'bar' | 'line'
           link: { url: string; label: string } | null
       }
     | { kind: 'none' }
 
 export interface TodayMarkedFigure extends TodayTextSpan {
-    segment: number
     text: string
     content: TodayFigureCardContent
 }
 
-function quoteContent(quote: FigureQuoteApi, signals: SignalViewApi[]): TodayFigureCardContent | null {
+function quoteContent(quote: FigureQuoteApi): TodayFigureCardContent | null {
     const quoted = { excerpt: quote.sentence, highlight: { start: quote.start, end: quote.end } }
     if (quote.kind === 'research') {
         return { kind: 'research', at: quote.at, ...quoted }
     }
-    const signal = signals.find((candidate) => candidate.signal_id === quote.signal_id)
-    return signal ? { kind: 'signal', signal, ...quoted } : null
+    return quote.signal ? { kind: 'signal', signal: quote.signal, ...quoted } : null
 }
 
-export function markedFigures(markdown: string, marks: FigureMarkApi[], signals: SignalViewApi[]): TodayMarkedFigure[] {
+export function markedFigures(markdown: string, marks: FigureMarkApi[]): TodayMarkedFigure[] {
     let offset = 0
-    const segments = inlineSegments(markdown).map((segment) => {
+    const prose = inlineSegments(markdown).flatMap((segment) => {
         const start = offset
         offset += segment.text.length
-        return { ...segment, start }
+        return segment.kind === 'text' ? [{ start, text: segment.text }] : []
     })
     return marks.flatMap((mark) => {
-        const segment = segments.findIndex(
-            (candidate) =>
-                candidate.kind === 'text' &&
-                candidate.start <= mark.start &&
-                mark.end <= candidate.start + candidate.text.length
+        const segment = prose.find(
+            (candidate) => candidate.start <= mark.start && mark.end <= candidate.start + candidate.text.length
         )
-        const content = quoteContent(mark.quote, signals)
-        if (segment < 0 || !content) {
-            return []
-        }
-        const start = mark.start - segments[segment].start
-        const end = mark.end - segments[segment].start
-        const placed = segments[segment].text.slice(start, end) === mark.figure
-        return placed ? [{ segment, start, end, text: mark.figure, content }] : []
+        const content = quoteContent(mark.quote)
+        const placed =
+            segment?.text.slice(mark.start - segment.start, mark.end - segment.start) === mark.figure && content
+        return placed ? [{ start: mark.start, end: mark.end, text: mark.figure, content }] : []
     })
 }
 

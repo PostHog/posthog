@@ -25,10 +25,10 @@ from ..facade.contracts import (
     PreviewLine,
     PullRequestLink,
     RecordingTarget,
+    ReportKeyClauses,
     ReportPage,
     SignalPreview,
     SignalView,
-    TextKeyClauses,
 )
 from ..facade.enums import CitedSource, FigureSourceKind, FigureText, ImpactNumberKey, KeyClauseRole
 
@@ -193,83 +193,6 @@ class CandidateListSerializer(DataclassSerializer):
         dataclass = CandidateList
 
 
-class KeyClauseRequestSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=4000, help_text="A text the page shows, as the reader sees it.")
-    roles = serializers.ListField(
-        child=serializers.ChoiceField(choices=KeyClauseRole.choices),
-        min_length=1,
-        max_length=3,
-        help_text="The roles to look for in this text: problem, cause or fix. Repeated roles count once.",
-    )
-
-    def validate_roles(self, roles: list[str]) -> list[str]:
-        return list(dict.fromkeys(roles))
-
-
-class KeyClausesRequestSerializer(serializers.Serializer):
-    requests = serializers.ListField(
-        child=KeyClauseRequestSerializer(), max_length=3, help_text="The texts to mark, at most 3."
-    )
-
-
-class KeyClauseSerializer(DataclassSerializer):
-    start = serializers.IntegerField(help_text="Where the clause starts in its text.")
-    end = serializers.IntegerField(help_text="Where the clause ends in its text.")
-    text = serializers.CharField(help_text="The clause as it appears in the text.")
-    role = serializers.ChoiceField(choices=KeyClauseRole.choices, help_text="What the clause tells the reader.")
-    expansion = serializers.ListField(
-        child=serializers.CharField(), help_text="Sentences from the report that explain the clause further."
-    )
-
-    class Meta:
-        dataclass = KeyClause
-
-
-class TextKeyClausesSerializer(DataclassSerializer):
-    text = serializers.CharField(help_text="The text the clauses belong to, as it was sent.")
-    key_clauses = KeyClauseSerializer(many=True, help_text="The clauses worth marking in the text.")
-
-    class Meta:
-        dataclass = TextKeyClauses
-
-
-class KeyClausesSerializer(serializers.Serializer):
-    texts = TextKeyClausesSerializer(many=True, help_text="The marks for each text, in the order they were sent.")
-
-
-class FigureQuoteSerializer(DataclassSerializer):
-    kind = serializers.ChoiceField(
-        choices=FigureSourceKind.choices, help_text="Where the number comes from: a signal or the agent's research."
-    )
-    signal_id = serializers.CharField(
-        allow_null=True, help_text="The signal that states the number. Null when the agent's research states it."
-    )
-    at = serializers.DateTimeField(help_text="When the source was written.")
-    sentence = serializers.CharField(help_text="The source sentence that states the number.")
-    start = serializers.IntegerField(help_text="Where the number starts in the sentence.")
-    end = serializers.IntegerField(help_text="Where the number ends in the sentence.")
-
-    class Meta:
-        dataclass = FigureQuote
-
-
-class FigureMarkSerializer(DataclassSerializer):
-    text = serializers.ChoiceField(
-        choices=FigureText.choices, help_text="The page text the number is in: the lead or the impact sentence."
-    )
-    start = serializers.IntegerField(help_text="Where the number starts in that text, as the reader sees it.")
-    end = serializers.IntegerField(help_text="Where the number ends in that text.")
-    figure = serializers.CharField(help_text="The number as the page shows it.")
-    quote = FigureQuoteSerializer(help_text="The sentence that states the same result.")
-
-    class Meta:
-        dataclass = FigureMark
-
-
-class FigureMarksSerializer(serializers.Serializer):
-    marks = FigureMarkSerializer(many=True, help_text="The numbers to mark, at most 4, each with its source.")
-
-
 class ExcerptChoiceRequestSerializer(serializers.Serializer):
     finding = serializers.CharField(max_length=6000, help_text="The finding the code excerpts should show.")
     excerpts = serializers.ListField(
@@ -339,6 +262,10 @@ class RecordingTargetSerializer(DataclassSerializer):
         allow_null=True, help_text="Where the player starts, a few seconds before the finding."
     )
     offset = serializers.CharField(allow_null=True, help_text="The finding's time in the recording, as MM:SS.")
+    seek_seconds = serializers.IntegerField(
+        allow_null=True,
+        help_text="Where the player starts, in seconds from the recording start. Null without an offset.",
+    )
 
     class Meta:
         dataclass = RecordingTarget
@@ -384,9 +311,10 @@ class ImpactNumberSerializer(DataclassSerializer):
     )
     value = serializers.CharField(help_text="The number as shown, such as '2' or '1 hour'.")
     sentence = serializers.CharField(help_text="The sentence that follows the number.")
-    signal_id = serializers.CharField(allow_null=True, help_text="The signal the number comes from, if one does.")
-    excerpt = serializers.CharField(help_text="That signal as one short line.")
-    values = serializers.ListField(child=serializers.CharField(), help_text="The figures in the excerpt to mark.")
+    signal = SignalViewSerializer(allow_null=True, help_text="The signal the number comes from, if one does.")
+    values = serializers.ListField(
+        child=serializers.CharField(), help_text="The figures in the signal's headline to mark."
+    )
     working = ImpactWorkingSerializer(allow_null=True, help_text="How the number is worked out, if it is.")
 
     class Meta:
@@ -406,11 +334,12 @@ class ReportPageSerializer(DataclassSerializer):
         help_text="The pull request the proposal names, or else the summary, when it names exactly one.",
     )
     solution_names_pull_request = serializers.BooleanField(help_text="Whether the proposal names any pull request.")
-    signals = SignalViewSerializer(many=True, help_text="The report's signals, newest first, ready to show.")
-    evidence_signal_ids = serializers.ListField(
-        child=serializers.CharField(), help_text="The ids of the signals to show as evidence, at most 3."
+    evidence = SignalViewSerializer(
+        many=True, help_text="The signals to show as evidence, at most 3, newest first, one per source first."
     )
-    source_count = serializers.IntegerField(help_text="How many distinct source objects the signals come from.")
+    source_count = serializers.IntegerField(
+        help_text="How many distinct source objects the report's newest 100 signals come from. The impact numbers and last seen use the same signals."
+    )
     impact_numbers = ImpactNumberSerializer(
         many=True, help_text="Numbers the signals size the problem with, such as distinct support tickets."
     )
@@ -420,3 +349,66 @@ class ReportPageSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = ReportPage
+
+
+class KeyClausesQuerySerializer(serializers.Serializer):
+    include_impact = serializers.BooleanField(
+        default=True,
+        help_text="Whether to mark the impact sentence. Pass false when the page shows an impact number instead.",
+    )
+
+
+class KeyClauseSerializer(DataclassSerializer):
+    start = serializers.IntegerField(help_text="Where the clause starts in its text, as the reader sees it.")
+    end = serializers.IntegerField(help_text="Where the clause ends in its text.")
+    role = serializers.ChoiceField(choices=KeyClauseRole.choices, help_text="What the clause tells the reader.")
+    expansion = serializers.ListField(
+        child=serializers.CharField(), help_text="Sentences from the report that explain the clause further."
+    )
+
+    class Meta:
+        dataclass = KeyClause
+
+
+class ReportKeyClausesSerializer(DataclassSerializer):
+    lead = KeyClauseSerializer(many=True, help_text="The clauses that state the problem or its cause in the lead.")
+    impact = KeyClauseSerializer(
+        many=True, help_text="The clauses that state the problem or its cause in the impact sentence."
+    )
+    proposal = KeyClauseSerializer(many=True, help_text="The clause that states the fix in the proposal.")
+
+    class Meta:
+        dataclass = ReportKeyClauses
+
+
+class FigureQuoteSerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=FigureSourceKind.choices, help_text="Where the number comes from: a signal or the agent's research."
+    )
+    signal = SignalViewSerializer(
+        allow_null=True, help_text="The signal that states the number. Null when the agent's research states it."
+    )
+    at = serializers.DateTimeField(help_text="When the source was written.")
+    sentence = serializers.CharField(help_text="The source sentence that states the number.")
+    start = serializers.IntegerField(help_text="Where the number starts in the sentence.")
+    end = serializers.IntegerField(help_text="Where the number ends in the sentence.")
+
+    class Meta:
+        dataclass = FigureQuote
+
+
+class FigureMarkSerializer(DataclassSerializer):
+    text = serializers.ChoiceField(
+        choices=FigureText.choices, help_text="The page text the number is in: the lead or the impact sentence."
+    )
+    start = serializers.IntegerField(help_text="Where the number starts in that text, as the reader sees it.")
+    end = serializers.IntegerField(help_text="Where the number ends in that text.")
+    figure = serializers.CharField(help_text="The number as the page shows it.")
+    quote = FigureQuoteSerializer(help_text="The sentence that states the same result.")
+
+    class Meta:
+        dataclass = FigureMark
+
+
+class FigureMarksSerializer(serializers.Serializer):
+    marks = FigureMarkSerializer(many=True, help_text="The numbers to mark, at most 4, each with its source.")

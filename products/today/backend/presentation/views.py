@@ -25,15 +25,14 @@ from posthog.utils import UUID_REGEX
 from products.signals.backend.facade import api as signals
 
 from ..facade import api, contracts
-from ..facade.enums import KeyClauseRole
 from .serializers import (
     BriefingSerializer,
     CandidateListSerializer,
     ExcerptChoiceRequestSerializer,
     ExcerptChoiceSerializer,
     FigureMarksSerializer,
-    KeyClausesRequestSerializer,
-    KeyClausesSerializer,
+    KeyClausesQuerySerializer,
+    ReportKeyClausesSerializer,
     ReportPageSerializer,
     TodayQuerySerializer,
 )
@@ -174,30 +173,33 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(ReportPageSerializer(page).data)
 
     @validated_request(
-        request_serializer=KeyClausesRequestSerializer,
-        responses={200: OpenApiResponse(response=KeyClausesSerializer), 402: JEV_OUT_OF_CREDITS, 503: JEV_UNAVAILABLE},
+        query_serializer=KeyClausesQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=ReportKeyClausesSerializer),
+            402: JEV_OUT_OF_CREDITS,
+            503: JEV_UNAVAILABLE,
+        },
         summary="Mark the key clauses of a report",
-        description="For each text the report page shows, the clauses that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.",
+        description="The clauses in the report page's lead, impact sentence and proposal that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.",
     )
     @action(
         detail=False,
-        methods=["post"],
+        methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX})/key_clauses",
         required_scopes=["today:read", "task:read"],
         throttle_classes=JEV_THROTTLES,
     )
     def key_clauses(self, request: Request, report_id: str, **kwargs) -> Response:
-        requests = [
-            contracts.KeyClauseRequest(text=item["text"], roles=[KeyClauseRole(role) for role in item["roles"]])
-            for item in request.validated_data["requests"]
-        ]
         user = self._jev_user()
         self._check_report_access(user)
+        include_impact = request.validated_query_data["include_impact"]
         with _jev_errors_as_responses(self.team.id):
-            texts = api.report_key_clauses(team=self.team, user=user, report_id=report_id, requests=requests)
-        if texts is None:
+            found = api.report_key_clauses(
+                team=self.team, user=user, report_id=report_id, include_impact=include_impact
+            )
+        if found is None:
             raise NotFound()
-        return Response(KeyClausesSerializer({"texts": texts}).data)
+        return Response(ReportKeyClausesSerializer(found).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=FigureMarksSerializer), 402: JEV_OUT_OF_CREDITS, 503: JEV_UNAVAILABLE},

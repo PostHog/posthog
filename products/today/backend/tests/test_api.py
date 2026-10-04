@@ -47,8 +47,13 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-    def _flag(self, enabled: bool):
-        return patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=enabled)
+    def _flag(self, enabled: bool | frozenset[str]):
+        if isinstance(enabled, bool):
+            return patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=enabled)
+        return patch(
+            "products.today.backend.feature_flags.feature_enabled_or_false",
+            side_effect=lambda flag, *args, **kwargs: flag in enabled,
+        )
 
     @parameterized.expand(
         [
@@ -180,6 +185,13 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("flag on", True, REPORT_ID, None, status.HTTP_200_OK),
             ("flag off", False, REPORT_ID, None, status.HTTP_404_NOT_FOUND),
+            (
+                "the jev flag without the new navigation",
+                frozenset({"today-report-jev"}),
+                REPORT_ID,
+                None,
+                status.HTTP_404_NOT_FOUND,
+            ),
             ("not a report id", True, "report-1", None, status.HTTP_404_NOT_FOUND),
             ("no gateway", True, REPORT_ID, SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
             (
@@ -195,29 +207,31 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         self,
         _sync_connect: MagicMock,
         _name: str,
-        flag: bool,
+        flag: bool | frozenset[str],
         report_id: str,
         gateway_error: Exception | None,
         expected: int,
     ) -> None:
         jev = FakeJev([CART_TEXT], {CAUSE: JevPick(label="cause", probability=0.9)}, {CAUSE: CAUSE_EXPLAINED})
+        page = replace(
+            page_source(summary=SUMMARY),
+            sections=signals.ReportSections(lead=CART_TEXT, impact=None, solution=None),
+        )
         with (
             self._flag(flag),
-            patch("products.today.backend.facade.api.signals.report_summary", return_value=SUMMARY),
+            patch("products.today.backend.facade.api.signals.report_page_source", return_value=page),
             patch("products.today.backend.facade.api.GatewayJev", return_value=jev, side_effect=gateway_error),
         ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/today/reports/{report_id}/key_clauses/",
-                {"requests": [{"text": CART_TEXT, "roles": ["problem", "cause"]}]},
-                format="json",
-            )
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report_id}/key_clauses/")
 
         assert response.status_code == expected
         if expected == status.HTTP_200_OK:
-            [text] = response.json()["texts"]
-            assert [(clause["text"], clause["role"], clause["expansion"]) for clause in text["key_clauses"]] == [
-                (CAUSE, "cause", [CAUSE_EXPLAINED])
-            ]
+            found = response.json()
+            assert (found["impact"], found["proposal"]) == ([], [])
+            assert [
+                (CART_TEXT[clause["start"] : clause["end"]], clause["role"], clause["expansion"])
+                for clause in found["lead"]
+            ] == [(CAUSE, "cause", [CAUSE_EXPLAINED])]
 
     @parameterized.expand(
         [
@@ -250,7 +264,6 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             type="signal_finding",
             content=json.dumps({"data_queried": FIGURE_SOURCE}),
             created_at=WRITTEN_AT,
-            written_by_person=False,
         )
         page = replace(
             page_source(),
@@ -261,7 +274,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             self._flag(flag),
             patch("products.today.backend.facade.api.signals.report_page_source", return_value=page),
             patch(
-                "products.today.backend.facade.api.signals.report_artefact_texts",
+                "products.today.backend.facade.api.signals.report_agent_texts",
                 return_value=[finding] if source_kind == "research" else [],
             ),
             patch(
@@ -274,7 +287,10 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
         assert response.status_code == expected
         if expected == status.HTTP_200_OK:
-            assert response.json()["marks"] == [
+            marks = response.json()["marks"]
+            quote_signal = marks[0]["quote"].pop("signal")
+            assert (quote_signal or {}).get("signal_id") == ("signal-1" if source_kind == "signal" else None)
+            assert marks == [
                 {
                     "text": "lead",
                     "start": FIGURE_LEAD.index("212") + 1,
@@ -282,7 +298,6 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
                     "figure": "212",
                     "quote": {
                         "kind": source_kind,
-                        "signal_id": "signal-1" if source_kind == "signal" else None,
                         "at": "2026-10-01T09:00:00Z",
                         "sentence": FIGURE_SOURCE,
                         "start": FIGURE_SOURCE.index("212") + 1,
@@ -358,7 +373,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("the page with only today", "get", "page", ["today:read"], status.HTTP_403_FORBIDDEN),
             ("the page with today and signals", "get", "page", ["today:read", "task:read"], status.HTTP_200_OK),
-            ("key clauses with only today", "post", "key_clauses", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("key clauses with only today", "get", "key_clauses", ["today:read"], status.HTTP_403_FORBIDDEN),
             ("figure marks with only today", "get", "figure_marks", ["today:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
@@ -404,12 +419,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             self._flag(True),
             patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
         ):
-            if endpoint == "key_clauses":
-                response = self.client.post(
-                    url, {"requests": [{"text": CART_TEXT, "roles": ["problem"]}]}, format="json"
-                )
-            else:
-                response = self.client.get(url)
+            response = self.client.get(url)
 
         assert response.status_code == expected
 

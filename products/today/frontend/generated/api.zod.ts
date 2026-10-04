@@ -31,36 +31,3 @@ export const TodayExcerptChoiceCreateBody = /* @__PURE__ */ zod.object({
         .max(todayExcerptChoiceCreateBodyExcerptsMax)
         .describe('Candidate code excerpts, best scored first.'),
 })
-
-/**
- * For each text the report page shows, the clauses that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.
- * @summary Mark the key clauses of a report
- */
-export const todayReportsKeyClausesCreateBodyRequestsItemTextMax = 4000
-
-export const todayReportsKeyClausesCreateBodyRequestsItemRolesMax = 3
-
-export const todayReportsKeyClausesCreateBodyRequestsMax = 3
-
-export const TodayReportsKeyClausesCreateBody = /* @__PURE__ */ zod.object({
-    requests: zod
-        .array(
-            zod.object({
-                text: zod
-                    .string()
-                    .max(todayReportsKeyClausesCreateBodyRequestsItemTextMax)
-                    .describe('A text the page shows, as the reader sees it.'),
-                roles: zod
-                    .array(
-                        zod
-                            .enum(['problem', 'cause', 'fix'])
-                            .describe('\* `problem` - Problem\n\* `cause` - Cause\n\* `fix` - Fix')
-                    )
-                    .min(1)
-                    .max(todayReportsKeyClausesCreateBodyRequestsItemRolesMax)
-                    .describe('The roles to look for in this text: problem, cause or fix. Repeated roles count once.'),
-            })
-        )
-        .max(todayReportsKeyClausesCreateBodyRequestsMax)
-        .describe('The texts to mark, at most 3.'),
-})

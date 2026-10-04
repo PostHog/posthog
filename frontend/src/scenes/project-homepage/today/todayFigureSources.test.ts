@@ -8,7 +8,7 @@ import { signal } from './todayTestFixtures'
 const LEAD = 'Since `syncCart` shipped, [checkout](https://example.com) fails for 212 users.'
 const SHOWN = 'Since syncCart shipped, checkout fails for 212 users.'
 
-function mark(figure: string, at: number, signalId: string = 'carts'): FigureMarkApi {
+function mark(figure: string, at: number): FigureMarkApi {
     return {
         text: 'lead',
         start: at,
@@ -16,7 +16,7 @@ function mark(figure: string, at: number, signalId: string = 'carts'): FigureMar
         figure,
         quote: {
             kind: 'signal',
-            signal_id: signalId,
+            signal: signal({ signal_id: 'carts' }),
             at: '2026-10-01T10:00:00Z',
             sentence: 'Checkout failed for 212 users.',
             start: 20,
@@ -39,11 +39,11 @@ describe('todayFigureSources', () => {
     })
 
     test.each([
-        ['a number after code and a link', mark('212', SHOWN.indexOf('212')), [[4, 11, '212']]],
+        ['a number after code and a link', mark('212', SHOWN.indexOf('212')), [[SHOWN.indexOf('212'), '212']]],
         ['no number where the page text differs', mark('212', SHOWN.indexOf('212') + 1), []],
-        ['no number whose signal the page does not list', mark('212', SHOWN.indexOf('212'), 'gone'), []],
+        ['no number inside code', mark('Cart', SHOWN.indexOf('Cart')), []],
     ])('places %s', (_, figureMark, expected) => {
-        const placed = markedFigures(LEAD, [figureMark], [signal({ signal_id: 'carts' })])
-        expect(placed.map((figure) => [figure.segment, figure.start, figure.text])).toEqual(expected)
+        const placed = markedFigures(LEAD, [figureMark])
+        expect(placed.map((figure) => [figure.start, figure.text])).toEqual(expected)
     })
 })

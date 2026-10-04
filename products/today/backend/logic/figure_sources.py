@@ -1,6 +1,5 @@
 import json
-from collections.abc import Sequence
-from dataclasses import replace
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from posthog.dataclasses import frozen
@@ -18,8 +17,9 @@ FIGURE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 KIND_THRESHOLD = 0.7
 SOURCE_THRESHOLD = 0.6
 RELATION_THRESHOLD = 0.6
-UNNAMED_THRESHOLD = 0.75
+NAMED_THRESHOLD = 0.75
 _MAX_MARKS = 4
+_MAX_CLAIMS = 12
 _MAX_CANDIDATES = 6
 _WINDOW = 200
 _LETTERS = "ABCDEF"
@@ -61,7 +61,8 @@ RELATION_LABELS = [
 ]
 NAMED_QUESTION = "Does this source sentence say what the number marked with [[ ]] counts?"
 UNNAMED = "unnamed: a reader needs other sentences to know what the number counts"
-NAMED_LABELS = ["named: the sentence alone says what the number counts", UNNAMED]
+NAMED = "named: the sentence alone says what the number counts"
+NAMED_LABELS = [NAMED, UNNAMED]
 
 
 @frozen
@@ -94,14 +95,6 @@ class FigureClaim:
 
 
 @frozen
-class JevAnswers:
-    kind: dict[str, JevPick | None]
-    source: dict[str, JevPick | None]
-    relation: dict[str, JevPick | None]
-    named: dict[str, JevPick | None]
-
-
-@frozen
 class FigureMatch:
     claim: FigureClaim
     source: Candidate
@@ -121,7 +114,7 @@ def research_notes(artefacts: Sequence[signals.ReportArtefactText]) -> list[Rese
         field = _RESEARCH_FIELDS.get(artefact.type)
         value = _content_dict(artefact.content).get(field or "")
         text = value.strip() if isinstance(value, str) else ""
-        if not text or artefact.written_by_person or text.lstrip("# ").lower().startswith(_PLAN_HEADING):
+        if not text or text.lstrip("# ").lower().startswith(_PLAN_HEADING):
             continue
         notes.append(ResearchNote(artefact_id=artefact.artefact_id, text=text, at=artefact.created_at))
     return notes
@@ -172,10 +165,12 @@ def _candidates(figure: Figure, sources: list[SourceSentence]) -> list[Candidate
     return candidates[:_MAX_CANDIDATES]
 
 
-def figure_claims(texts: dict[FigureText, str], sources: list[SourceSentence]) -> list[FigureClaim]:
+def figure_claims(
+    texts: dict[FigureText, str], sources: list[SourceSentence], prose: dict[FigureText, str]
+) -> list[FigureClaim]:
     claims: list[FigureClaim] = []
     for name, text in texts.items():
-        for figure in numbers_in(text):
+        for figure in numbers_in(prose[name]):
             candidates = [] if is_zero(figure.amount) else _candidates(figure, sources)
             if candidates:
                 claims.append(
@@ -230,48 +225,27 @@ def _sure(pick: JevPick | None, label: str, threshold: float) -> bool:
     return pick is not None and pick.label == label and pick.probability >= threshold
 
 
-def _picked(claim: FigureClaim, ordered: list[Candidate], answers: JevAnswers) -> Candidate | None:
-    pick = answers.source.get(source_item(claim, ordered))
+def _picked(claim: FigureClaim, ordered: list[Candidate], picks: dict[str, JevPick | None]) -> Candidate | None:
+    pick = picks.get(source_item(claim, ordered))
     letters = _LETTERS[: len(ordered)]
     if pick is None or pick.probability < SOURCE_THRESHOLD or pick.label not in letters:
         return None
     return ordered[letters.index(pick.label)]
 
 
-def _unnamed(pick: JevPick | None) -> bool:
-    return pick is None or _sure(pick, UNNAMED, UNNAMED_THRESHOLD)
-
-
-def _measured(claim: FigureClaim, answers: JevAnswers) -> bool:
-    return _sure(answers.kind.get(kind_item(claim)), KIND_MEASURED, KIND_THRESHOLD)
-
-
-def _agreed_source(claim: FigureClaim, answers: JevAnswers) -> Candidate | None:
-    forward, backward = (_picked(claim, ordered, answers) for ordered in _orders(claim))
+def _agreed_source(claim: FigureClaim, picks: dict[str, JevPick | None]) -> Candidate | None:
+    forward, backward = (_picked(claim, ordered, picks) for ordered in _orders(claim))
     return forward if forward is not None and forward == backward else None
-
-
-def _same_result(claim: FigureClaim, candidate: Candidate, answers: JevAnswers) -> bool:
-    return _sure(answers.relation.get(relation_item(claim, candidate)), RELATION_SAME, RELATION_THRESHOLD)
-
-
-def decide(claim: FigureClaim, answers: JevAnswers) -> Candidate | None:
-    if not _measured(claim, answers):
-        return None
-    agreed = _agreed_source(claim, answers)
-    if agreed is None or not _same_result(claim, agreed, answers):
-        return None
-    return None if _unnamed(answers.named.get(named_item(agreed))) else agreed
 
 
 def _about_people(figure: Figure) -> bool:
     return (figure.noun or "").lower() in _AUDIENCE_NOUNS
 
 
-def shown_marks(matches: list[FigureMatch]) -> list[FigureMatch]:
-    order = sorted(range(len(matches)), key=lambda index: (not _about_people(matches[index].claim.figure), index))
-    kept = set(order[:_MAX_MARKS])
-    return [match for index, match in enumerate(matches) if index in kept]
+def _people_first[T](items: list[T], figure: Callable[[T], Figure], limit: int) -> list[T]:
+    order = sorted(range(len(items)), key=lambda index: (not _about_people(figure(items[index])), index))
+    kept = set(order[:limit])
+    return [item for index, item in enumerate(items) if index in kept]
 
 
 def _picks(jev: JevClient, items: list[str], question: str, labels: list[str]) -> dict[str, JevPick | None]:
@@ -297,26 +271,25 @@ def match_figures(
     report_signals: Sequence[SignalInput],
     notes: Sequence[ResearchNote],
     jev: JevClient,
+    prose: dict[FigureText, str],
 ) -> list[FigureMatch]:
-    claims = figure_claims(texts, source_sentences(report_signals, notes))
-    kinds = JevAnswers(
-        kind=_picks(jev, [kind_item(claim) for claim in claims], KIND_QUESTION, KIND_LABELS),
-        source={},
-        relation={},
-        named={},
-    )
-    measured = [claim for claim in claims if _measured(claim, kinds)]
-    sources = replace(kinds, source=_source_picks(jev, measured))
-    agreed = [(claim, candidate) for claim in measured if (candidate := _agreed_source(claim, sources))]
-    relations = replace(
-        sources,
-        relation=_picks(
-            jev, [relation_item(claim, candidate) for claim, candidate in agreed], RELATION_QUESTION, RELATION_LABELS
-        ),
-    )
-    same = [candidate for claim, candidate in agreed if _same_result(claim, candidate, relations)]
-    answers = replace(
-        relations, named=_picks(jev, [named_item(candidate) for candidate in same], NAMED_QUESTION, NAMED_LABELS)
-    )
-    matches = [FigureMatch(claim=claim, source=source) for claim in measured if (source := decide(claim, answers))]
-    return shown_marks(matches)
+    sources = source_sentences(report_signals, notes)
+    claims = _people_first(figure_claims(texts, sources, prose), lambda claim: claim.figure, _MAX_CLAIMS)
+    kinds = _picks(jev, [kind_item(claim) for claim in claims], KIND_QUESTION, KIND_LABELS)
+    measured = [claim for claim in claims if _sure(kinds.get(kind_item(claim)), KIND_MEASURED, KIND_THRESHOLD)]
+    picks = _source_picks(jev, measured)
+    agreed = [(claim, candidate) for claim in measured if (candidate := _agreed_source(claim, picks))]
+    relation_items = [relation_item(claim, candidate) for claim, candidate in agreed]
+    relations = _picks(jev, relation_items, RELATION_QUESTION, RELATION_LABELS)
+    same = [
+        (claim, candidate)
+        for claim, candidate in agreed
+        if _sure(relations.get(relation_item(claim, candidate)), RELATION_SAME, RELATION_THRESHOLD)
+    ]
+    named = _picks(jev, [named_item(candidate) for _, candidate in same], NAMED_QUESTION, NAMED_LABELS)
+    matches = [
+        FigureMatch(claim=claim, source=candidate)
+        for claim, candidate in same
+        if _sure(named.get(named_item(candidate)), NAMED, NAMED_THRESHOLD)
+    ]
+    return _people_first(matches, lambda match: match.claim.figure, _MAX_MARKS)

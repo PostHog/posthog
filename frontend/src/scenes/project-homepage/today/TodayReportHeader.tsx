@@ -24,7 +24,9 @@ import { priorityBadgeVariant, reportSourceLine, reportTitle } from './todaySign
 
 export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
     const { requestReportVerdict } = useActions(todayLogic)
-    const { lead, leadMarks, reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
+    const { lead, leadMarks, shownKeyClauses, reportState, isSample } = useValues(
+        todayReportLogic({ reportId: report.id })
+    )
     const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
     const stateLabel = itemStateLabel({ state: reportState })
     const sources = reportSourceLine(report)
@@ -112,7 +114,12 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                 {lead && (
                     <div data-today-figures>
                         <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
-                            <TodayMarkedText markdown={lead} marked={leadMarks} reportId={report.id} />
+                            <TodayMarkedText
+                                markdown={lead}
+                                marked={leadMarks}
+                                keyClauses={shownKeyClauses?.lead ?? []}
+                                reportId={report.id}
+                            />
                         </Text>
                     </div>
                 )}

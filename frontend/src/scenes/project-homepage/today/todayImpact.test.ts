@@ -17,6 +17,11 @@ describe('todayImpact', () => {
             { series: [0, 2, 3], value_at: '2026-10-01T12:00:00Z', query: { source: { interval: 'week' } } },
             { data: [0, 2, 3], since: null, start: null },
         ],
+        [
+            'keeps a negative first day and reads a missing interval as daily',
+            { series: [-2, 0, 3], value_at: '2026-10-01T12:00:00Z', query: { source: {} } },
+            { data: [-2, 0, 3], since: null, start: '2026-09-29' },
+        ],
     ])('builds a daily trend that %s', (_, metric, expected) => {
         expect(dailyTrend(metric as never)).toEqual(expected)
     })

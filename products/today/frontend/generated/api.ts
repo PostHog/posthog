@@ -14,12 +14,12 @@ import type {
     ExcerptChoiceApi,
     ExcerptChoiceRequestApi,
     FigureMarksApi,
-    KeyClausesApi,
-    KeyClausesRequestApi,
+    ReportKeyClausesApi,
     ReportPageApi,
     TodayBriefingRefreshCreateParams,
     TodayBriefingRetrieveParams,
     TodayCandidatesRetrieveParams,
+    TodayReportsKeyClausesRetrieveParams,
 } from './api.schemas'
 
 export const getTodayBriefingRetrieveUrl = (projectId: string, params?: TodayBriefingRetrieveParams) => {
@@ -155,25 +155,39 @@ export const todayReportsFigureMarksRetrieve = async (
     })
 }
 
-export const getTodayReportsKeyClausesCreateUrl = (projectId: string, reportId: string) => {
-    return `/api/projects/${projectId}/today/reports/${reportId}/key_clauses/`
+export const getTodayReportsKeyClausesRetrieveUrl = (
+    projectId: string,
+    reportId: string,
+    params?: TodayReportsKeyClausesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/today/reports/${reportId}/key_clauses/?${stringifiedParams}`
+        : `/api/projects/${projectId}/today/reports/${reportId}/key_clauses/`
 }
 
 /**
- * For each text the report page shows, the clauses that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.
+ * The clauses in the report page's lead, impact sentence and proposal that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.
  * @summary Mark the key clauses of a report
  */
-export const todayReportsKeyClausesCreate = async (
+export const todayReportsKeyClausesRetrieve = async (
     projectId: string,
     reportId: string,
-    keyClausesRequestApi: KeyClausesRequestApi,
+    params?: TodayReportsKeyClausesRetrieveParams,
     options?: RequestInit
-): Promise<KeyClausesApi> => {
-    return apiMutator<KeyClausesApi>(getTodayReportsKeyClausesCreateUrl(projectId, reportId), {
+): Promise<ReportKeyClausesApi> => {
+    return apiMutator<ReportKeyClausesApi>(getTodayReportsKeyClausesRetrieveUrl(projectId, reportId, params), {
         ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(keyClausesRequestApi),
+        method: 'GET',
     })
 }
 

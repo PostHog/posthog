@@ -11,9 +11,9 @@ import { daysAgo } from './todayFigureSources'
 import { shortDate } from './todayProse'
 import { todayReportLogic } from './todayReportLogic'
 
-export function TodayEvidenceAge({ report }: { report: Pick<SignalReport, 'id' | 'updated_at'> }): JSX.Element | null {
+export function TodayEvidenceAge({ report }: { report: Pick<SignalReport, 'id'> }): JSX.Element | null {
     const { lastSeen, staleFiguresDate: date } = useValues(todayReportLogic({ reportId: report.id }))
-    if (!date || daysAgo(date) <= daysAgo(report.updated_at)) {
+    if (!date) {
         return null
     }
     const seenSince = lastSeen && dayjs(lastSeen).isAfter(date, 'day') ? lastSeen : null

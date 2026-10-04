@@ -12,6 +12,13 @@ const OWN_READ = read(OWN.path, ['export function Cards(): JSX.Element {', '    
 const SIBLING_READ = read(SIBLING.path, ['const PAGE_SIZE = 50', 'export const CARDS_MAX = 120'])
 
 describe('todayQuotedCode', () => {
+    test('keeps member expressions and drops file names and blank spans', () => {
+        expect(codeIdentifiers('`response.json` and `Math.max` in `Cards.tsx`, then `   `.')).toEqual([
+            'response.json',
+            'Math.max',
+        ])
+    })
+
     test('picks the lines a finding quotes and marks the quoted code', () => {
         const file = [
             "import { useValues } from 'kea'",
@@ -91,8 +98,13 @@ describe('todayQuotedCode', () => {
         expect(chosen?.file.path.split('/').pop() ?? null).toEqual(expected)
     })
 
-    test('offers the excerpts of every file that holds the quote', () => {
-        const quote = findCodeQuote([OWN, SIBLING], [SIBLING_READ, SIBLING_READ], ['CARDS_MAX = 120'])
-        expect(quote?.candidates.map((candidate) => candidate.file)).toEqual([OWN, SIBLING])
+    test('offers the excerpts of every file that holds the quote, taking turns between files', () => {
+        const twice = read(OWN.path, ['export const CARDS_MAX = 120', ...Array(12).fill(''), 'use(CARDS_MAX)'])
+        const quote = findCodeQuote([OWN, SIBLING], [twice, SIBLING_READ], ['CARDS_MAX'])
+        expect(quote?.candidates.map((candidate) => [candidate.file, candidate.excerpt.startLine])).toEqual([
+            [OWN, 1],
+            [SIBLING, 1],
+            [OWN, 14],
+        ])
     })
 })

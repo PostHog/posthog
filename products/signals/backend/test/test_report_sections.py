@@ -33,6 +33,16 @@ class TestReportSections(SimpleTestCase):
                 "**One-page checkout won. It is safe to ship.**\n\nThe shorter checkout completed more often.",
                 ReportSections(lead="**One-page checkout won. It is safe to ship.**", impact=None, solution=None),
             ),
+            (
+                "a summary that opens with its problem heading",
+                "## Problem\n\nCheckout drops the coupon.\n\n## Solution\n\nKeep it in the cart.",
+                ReportSections(lead="Checkout drops the coupon.", impact=None, solution="Keep it in the cart."),
+            ),
+            (
+                "a bold label inside a fenced example",
+                "Lead.\n\n**Fix**\n\nRun this:\n\n```\n**Solution**\nmigrate\n```",
+                ReportSections(lead="Lead.", impact=None, solution="Run this:\n\n```\n**Solution**\nmigrate\n```"),
+            ),
             ("no summary", None, ReportSections(lead="", impact=None, solution=None)),
         ]
     )

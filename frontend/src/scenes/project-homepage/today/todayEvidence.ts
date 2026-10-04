@@ -46,11 +46,22 @@ const APP_LINKS: Record<string, AppLink> = {
     analytics: analyticsView,
 }
 
+function recordingDestination(recording: NonNullable<SignalViewApi['recording']>): TodaySignalDestination {
+    if (!recording.start_at && recording.seek_seconds !== null) {
+        return {
+            kind: 'link',
+            to: urls.replaySingle(recording.session_id, { secondsOffsetFromStart: recording.seek_seconds }),
+            external: false,
+            label: `Play at ${recording.offset}`,
+        }
+    }
+    const startAt = recording.start_at ? Date.parse(recording.start_at) : null
+    return { kind: 'recording', sessionId: recording.session_id, startAt, offset: recording.offset }
+}
+
 export function signalDestination(signal: SignalViewApi): TodaySignalDestination {
-    const recording = signal.recording
-    if (recording) {
-        const startAt = recording.start_at ? Date.parse(recording.start_at) : null
-        return { kind: 'recording', sessionId: recording.session_id, startAt, offset: recording.offset }
+    if (signal.recording) {
+        return recordingDestination(signal.recording)
     }
     const own =
         link(signal.link?.url ?? null, signal.link?.text ?? '', true) ?? APP_LINKS[signal.source_product]?.(signal)

@@ -13,7 +13,6 @@ from ..logic import (
     briefings,
     code_excerpts,
     figure_sources,
-    key_clauses,
     report_page as report_pages,
 )
 from ..logic.jev import GatewayJev
@@ -61,12 +60,10 @@ def _jev(team: Team, user: User, model: str | None = None) -> GatewayJev:
 
 
 def report_key_clauses(
-    *, team: Team, user: User, report_id: str, requests: list[contracts.KeyClauseRequest]
-) -> list[contracts.TextKeyClauses] | None:
-    summary = signals.report_summary(team_id=team.id, report_id=report_id)
-    if summary is None:
-        return None
-    return key_clauses.find_key_clauses(requests, summary, _jev(team, user))
+    *, team: Team, user: User, report_id: str, include_impact: bool
+) -> contracts.ReportKeyClauses | None:
+    page = signals.report_page_source(team=team, report_id=report_id, with_signals=False)
+    return report_pages.key_clauses(page, include_impact, _jev(team, user)) if page is not None else None
 
 
 def pick_code_excerpt(*, team: Team, user: User, finding: str, excerpts: list[str]) -> int | None:
@@ -82,5 +79,5 @@ def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contr
     page = signals.report_page_source(team=team, report_id=report_id)
     if page is None:
         return None
-    artefacts = signals.report_artefact_texts(team=team, report_id=report_id, types=figure_sources.RESEARCH_TYPES)
+    artefacts = signals.report_agent_texts(team=team, report_id=report_id, types=figure_sources.RESEARCH_TYPES)
     return report_pages.figure_marks(page, artefacts, _jev(team, user, figure_sources.FIGURE_MODEL))

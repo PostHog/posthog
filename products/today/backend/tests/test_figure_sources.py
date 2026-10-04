@@ -6,6 +6,7 @@ from products.today.backend.facade.enums import FigureText
 from products.today.backend.logic.figure_sources import (
     KIND_LABELS,
     KIND_QUESTION,
+    NAMED_LABELS,
     NAMED_QUESTION,
     RELATION_QUESTION,
     SOURCE_QUESTION,
@@ -38,6 +39,14 @@ class TestFigureSources(SimpleTestCase):
                 [],
             ),
             (
+                "never marks a scaled zero or a zero range",
+                "The scanner saw 0K sessions and 0–0 errors.",
+                ["The scanner saw 0K sessions and 0–0 errors."],
+                {},
+                [],
+                [],
+            ),
+            (
                 "drops the mark when Jev does not read the number as a measured result",
                 "The export failed for 212 users.",
                 ["On Monday the export failed for 212 users."],
@@ -61,6 +70,14 @@ class TestFigureSources(SimpleTestCase):
                 [],
                 ALL_QUESTIONS,
             ),
+            (
+                "drops the mark when Jev is unsure the source says what the number counts",
+                "The export failed for 212 users.",
+                ["On Monday the export failed for 212 users."],
+                {NAMED_QUESTION: JevPick(label=NAMED_LABELS[0], probability=0.6)},
+                [],
+                ALL_QUESTIONS,
+            ),
         ]
     )
     def test_marks_only_proven_numbers_and_asks_only_what_the_next_step_needs(
@@ -74,6 +91,6 @@ class TestFigureSources(SimpleTestCase):
     ) -> None:
         signals = [signal(content=text, signal_id=f"signal-{index}") for index, text in enumerate(sources)]
         jev = SameAnswerJev({**AGREEING, **answers})
-        matches = match_figures({FigureText.LEAD: lead}, signals, [], jev)
+        matches = match_figures({FigureText.LEAD: lead}, signals, [], jev, {FigureText.LEAD: lead})
         assert [(match.claim.figure.text, match.source.source.sentence) for match in matches] == expected
         assert jev.asked == asked

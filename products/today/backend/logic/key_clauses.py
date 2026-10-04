@@ -30,12 +30,19 @@ _MAX_EXPANSION_SENTENCES = 2
 _MIN_EXPANSION_PROBABILITY = 0.6
 _MIN_SECOND_EXPANSION_PROBABILITY = 0.75
 _MAX_KEY_CLAUSES = 2
+_CANDIDATES_PER_ROLE = 2
 _EXPANSION_QUESTION = "Answer true if the sentence explains the marked part in more detail."
 _ROLE_LABELS = ["problem", "cause", "fix", "detail"]
 _ROLE_QUESTION = (
     "What does this part tell the reader? problem: what goes wrong or who is hurt. cause: why it happens. "
     "fix: what to change. detail: anything else, such as numbers, background, tests, or follow-ups."
 )
+
+
+@frozen
+class KeyClauseRequest:
+    text: str
+    roles: list[KeyClauseRole]
 
 
 @frozen
@@ -118,20 +125,21 @@ def _is_sure_role(pick: JevPick, role: KeyClauseRole, clause: Clause) -> bool:
     return pick.label == role and pick.probability >= _MIN_ROLE_PROBABILITY and clause.words <= _MAX_KEY_CLAUSE_WORDS
 
 
-def _surest_clause(clauses: list[Clause], picks: list[JevPick | None], role: KeyClauseRole) -> _ScoredClause | None:
+def _surest_clauses(clauses: list[Clause], picks: list[JevPick | None], role: KeyClauseRole) -> list[_ScoredClause]:
     sure = [
         (pick, clause) for clause, pick in zip(clauses, picks) if pick is not None and _is_sure_role(pick, role, clause)
     ]
-    if not sure:
-        return None
-    pick, clause = max(sure, key=lambda candidate: candidate[0].probability)
-    return _ScoredClause(
-        start=clause.start, end=clause.end, text=clause.text, role=role, confidence=pick.probability, expansion=[]
-    )
+    sure.sort(key=lambda candidate: -candidate[0].probability)
+    return [
+        _ScoredClause(
+            start=clause.start, end=clause.end, text=clause.text, role=role, confidence=pick.probability, expansion=[]
+        )
+        for pick, clause in sure[:_CANDIDATES_PER_ROLE]
+    ]
 
 
 def _key_clauses(clauses: list[Clause], roles: list[KeyClauseRole], picks: list[JevPick | None]) -> list[_ScoredClause]:
-    chosen = [key_clause for role in roles if (key_clause := _surest_clause(clauses, picks, role)) is not None]
+    chosen = [key_clause for role in roles for key_clause in _surest_clauses(clauses, picks, role)]
     return sorted(chosen, key=lambda key_clause: key_clause.start)
 
 
@@ -180,27 +188,28 @@ def _expansion_for(sentences: list[str], probabilities: Sequence[float | None]) 
     return [sentences[index] for index in sorted(kept[:_MAX_EXPANSION_SENTENCES])]
 
 
-def _worth_showing(key_clauses: list[_ScoredClause]) -> list[_ScoredClause]:
-    explained = [key_clause for key_clause in key_clauses if key_clause.expansion]
-    return sorted(explained, key=lambda key_clause: -key_clause.confidence)[:_MAX_KEY_CLAUSES]
+def _best_explained(key_clauses: list[_ScoredClause]) -> list[_ScoredClause]:
+    best: dict[KeyClauseRole, _ScoredClause] = {}
+    for key_clause in key_clauses:
+        current = best.get(key_clause.role)
+        if key_clause.expansion and (current is None or key_clause.confidence > current.confidence):
+            best[key_clause.role] = key_clause
+    return sorted(best.values(), key=lambda key_clause: key_clause.start)
 
 
 def _contract(text: str, key_clause: _ScoredClause) -> contracts.KeyClause:
     return contracts.KeyClause(
         start=utf16_offset(text, key_clause.start),
         end=utf16_offset(text, key_clause.end),
-        text=key_clause.text,
         role=key_clause.role,
         expansion=key_clause.expansion,
     )
 
 
-def find_key_clauses(
-    requests: list[contracts.KeyClauseRequest], summary: str, jev: JevClient
-) -> list[contracts.TextKeyClauses]:
+def find_key_clauses(requests: list[KeyClauseRequest], summary: str, jev: JevClient) -> list[list[contracts.KeyClause]]:
     sentences = _report_sentences(summary, [request.text for request in requests])
     if not sentences:
-        return [contracts.TextKeyClauses(text=request.text, key_clauses=[]) for request in requests]
+        return [[] for _ in requests]
     clauses = [text_clauses(request.text) for request in requests]
     picks = jev.choice(
         [_clause_role_input(request.text, clause) for request, own in zip(requests, clauses) for clause in own],
@@ -220,11 +229,9 @@ def find_key_clauses(
         replace(key_clause, expansion=_expansion_for(sentences, own_answers))
         for key_clause, own_answers in zip(flat, _chunked(answers, [len(sentences)] * len(flat)))
     ]
-    shown = _worth_showing(expanded)
+    best = [_best_explained(own) for own in _chunked(expanded, [len(own) for own in picked])]
+    shown = sorted((key_clause for own in best for key_clause in own), key=lambda k: -k.confidence)[:_MAX_KEY_CLAUSES]
     return [
-        contracts.TextKeyClauses(
-            text=request.text,
-            key_clauses=[_contract(request.text, key_clause) for key_clause in own if key_clause in shown],
-        )
-        for request, own in zip(requests, _chunked(expanded, [len(own) for own in picked]))
+        [_contract(request.text, key_clause) for key_clause in own if key_clause in shown]
+        for request, own in zip(requests, best)
     ]

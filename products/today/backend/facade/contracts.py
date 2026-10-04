@@ -124,46 +124,6 @@ class CandidateList:
 
 
 @dataclass(frozen=True)
-class KeyClauseRequest:
-    text: str
-    roles: list[KeyClauseRole]
-
-
-@dataclass(frozen=True)
-class KeyClause:
-    start: int
-    end: int
-    text: str
-    role: KeyClauseRole
-    expansion: list[str]
-
-
-@dataclass(frozen=True)
-class TextKeyClauses:
-    text: str
-    key_clauses: list[KeyClause]
-
-
-@dataclass(frozen=True)
-class FigureQuote:
-    kind: FigureSourceKind
-    signal_id: str | None
-    at: datetime
-    sentence: str
-    start: int
-    end: int
-
-
-@dataclass(frozen=True)
-class FigureMark:
-    text: FigureText
-    start: int
-    end: int
-    figure: str
-    quote: FigureQuote
-
-
-@dataclass(frozen=True)
 class PullRequestLink:
     url: str
     number: int
@@ -203,6 +163,7 @@ class RecordingTarget:
     session_id: str
     start_at: datetime | None
     offset: str | None
+    seek_seconds: int | None
 
 
 @dataclass(frozen=True)
@@ -234,8 +195,7 @@ class ImpactNumber:
     key: ImpactNumberKey
     value: str
     sentence: str
-    signal_id: str | None
-    excerpt: str
+    signal: SignalView | None
     values: list[str]
     working: ImpactWorking | None
 
@@ -247,11 +207,44 @@ class ReportPage:
     impact_sentence: str
     named_pull_request: PullRequestLink | None
     solution_names_pull_request: bool
-    signals: list[SignalView]
-    evidence_signal_ids: list[str]
+    evidence: list[SignalView]
     source_count: int
     impact_numbers: list[ImpactNumber]
     last_seen: datetime | None
+
+
+@dataclass(frozen=True)
+class KeyClause:
+    start: int
+    end: int
+    role: KeyClauseRole
+    expansion: list[str]
+
+
+@dataclass(frozen=True)
+class ReportKeyClauses:
+    lead: list[KeyClause]
+    impact: list[KeyClause]
+    proposal: list[KeyClause]
+
+
+@dataclass(frozen=True)
+class FigureQuote:
+    kind: FigureSourceKind
+    signal: SignalView | None
+    at: datetime
+    sentence: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class FigureMark:
+    text: FigureText
+    start: int
+    end: int
+    figure: str
+    quote: FigureQuote
 
 
 class JevTimedOut(Exception):

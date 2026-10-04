@@ -4,6 +4,7 @@ _CONTINUE = set(",;:-")
 _MARKDOWN_CLOSE = _CLOSE | set("*_`~")
 _BACKTICK = "`"
 _CODE_MASK = "x"
+_TITLES = frozenset({"dr", "mr", "mrs", "ms", "prof", "st", "jr", "sr"})
 
 
 def _continues_sentence(rest: str) -> bool:
@@ -15,11 +16,21 @@ def _continues_sentence(rest: str) -> bool:
     return False
 
 
+def _ends_with_title(text: str, term_start: int) -> bool:
+    word_start = term_start
+    while word_start > 0 and text[word_start - 1].isalpha():
+        word_start -= 1
+    starts_word = word_start == 0 or not text[word_start - 1].isalnum()
+    return starts_word and text[word_start:term_start].lower() in _TITLES
+
+
 def _period_continues(text: str, term_start: int, term_end: int, next_index: int) -> bool:
     following = text[next_index] if next_index < len(text) else ""
     preceding = text[term_start - 1] if term_start > 0 else ""
     touching = next_index == term_end
     if touching and (following.isdigit() or (preceding.isalpha() and following.isupper())):
+        return True
+    if term_end - term_start == 1 and text[term_start] == "." and _ends_with_title(text, term_start):
         return True
     return _continues_sentence(text[next_index:])
 

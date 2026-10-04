@@ -2,12 +2,11 @@ import type { KeyClauseApi, KeyClauseRoleEnumApi } from 'products/today/frontend
 
 import type { TodayMarkedFigure } from './todayFigureSources'
 import { TodayMarkedPiece, markedRuns } from './todayMarkedRuns'
-import { inlineSegments, renderedText } from './todayProse'
+import { renderedText } from './todayProse'
 
 function figureIn(markdown: string, text: string): TodayMarkedFigure {
-    const segment = inlineSegments(markdown).findIndex((candidate) => candidate.text.includes(text))
-    const start = inlineSegments(markdown)[segment].text.indexOf(text)
-    return { segment, start, end: start + text.length, text, content: { kind: 'none' } }
+    const start = renderedText(markdown).indexOf(text)
+    return { start, end: start + text.length, text, content: { kind: 'none' } }
 }
 
 function keyClausesIn(markdown: string, picks: [KeyClauseRoleEnumApi, string][]): KeyClauseApi[] {
@@ -15,7 +14,6 @@ function keyClausesIn(markdown: string, picks: [KeyClauseRoleEnumApi, string][])
     return picks.map(([role, text]) => ({
         start: shown.indexOf(text),
         end: shown.indexOf(text) + text.length,
-        text,
         role,
         expansion: ['The report explains it.'],
     }))
@@ -80,7 +78,6 @@ describe('todayMarkedRuns', () => {
         ],
     ])('places the pieces of %s', (_, markdown, picks, expected) => {
         const keyClauses = keyClausesIn(markdown, picks)
-        expect(keyClauses.map((keyClause) => keyClause.text)).toEqual(picks.map(([, text]) => text))
         const runs = markedRuns(markdown, [figureIn(markdown, '41')], keyClauses)
         expect(runs.map((run) => [run.keyClause?.role ?? null, run.pieces.map(described)])).toEqual(expected)
     })

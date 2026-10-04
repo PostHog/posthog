@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from unittest.mock import AsyncMock, patch
 
 from django.core.cache import cache
@@ -6,6 +8,7 @@ from django.test import SimpleTestCase, override_settings
 from posthog.llm.system_one import NoulAnswer, Question, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 from posthog.llm.system_one_client import GatewaySystemOneClient
 
+from products.today.backend.facade.contracts import JevTimedOut
 from products.today.backend.logic.jev import GatewayJev
 
 LOCAL_CACHE = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
@@ -57,6 +60,19 @@ class TestGatewayJev(SimpleTestCase):
 
         assert self._ask(retry, items) == [0.8] * 40
         assert [len(call.kwargs["state"]) for call in retry.await_args_list] == [32]
+
+    def test_stops_asking_once_the_request_deadline_passes(self) -> None:
+        clock = SimpleNamespace(now=0.0)
+        with (
+            patch("products.today.backend.logic.jev.build_system_one_client", return_value=CLIENT),
+            patch.object(GatewaySystemOneClient, "adecide", AsyncMock(side_effect=answered)),
+            patch("products.today.backend.logic.jev.time", SimpleNamespace(monotonic=lambda: clock.now)),
+        ):
+            jev = GatewayJev(team_id=1, distinct_id="person")
+            jev.yes_probability(["cart"], "Is it broken?")
+            clock.now = 60.0
+            with self.assertRaises(JevTimedOut):
+                jev.yes_probability(["spinner"], "Is it broken?")
 
     def test_answers_from_the_cache_without_a_gateway(self) -> None:
         self._ask(AsyncMock(side_effect=answered), ["cart"])

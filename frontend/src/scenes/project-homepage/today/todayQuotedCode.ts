@@ -2,10 +2,22 @@ import type { RepositoryFileApi } from 'products/business_knowledge/frontend/gen
 import type { CodeFileApi } from 'products/today/frontend/generated/api.schemas'
 
 const CODE_SPAN = /`([^`\n]{3,80})`/g
+const FILE_NAME = /^[\w-]+\.(?:tsx?|jsx?|mjs|py|rb|go|rs|java|kt|swift|css|scss|html|md|ya?ml|toml|sql|sh)$/i
+const MAX_IDENTIFIERS = 12
+const MAX_MARKS = 12
 
 export function codeIdentifiers(content: string): string[] {
     const spans = [...content.matchAll(CODE_SPAN)].map((match) => match[1].trim())
-    return [...new Set(spans.filter((span) => !/\//.test(span) && !/^[\w-]+\.[a-z]{1,5}$/i.test(span)))]
+    const identifiers = spans.filter((span) => span && !span.includes('/') && !FILE_NAME.test(span))
+    return [...new Set(identifiers)].slice(0, MAX_IDENTIFIERS)
+}
+
+function occurrences(text: string, part: string): number {
+    let count = 0
+    for (let at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + part.length)) {
+        count++
+    }
+    return count
 }
 
 export interface TodayCodeWindow {
@@ -28,7 +40,7 @@ interface ScoredAnchor {
 
 function scoredAnchors(fileLines: string[], content: string, identifiers: string[]): ScoredAnchor[] {
     const weight = new Map(
-        identifiers.map((identifier) => [identifier, 1 / Math.max(1, content.split(identifier).length - 1)])
+        identifiers.map((identifier) => [identifier, 1 / Math.max(1, occurrences(content, identifier))])
     )
     const anchors: ScoredAnchor[] = []
     fileLines.forEach((line, index) => {
@@ -71,7 +83,7 @@ function excerptAt(fileLines: string[], identifiers: string[], anchor: number): 
         })
     )
     marks.sort((first, second) => first.line - second.line || first.start - second.start)
-    return { startLine: start + 1, lines, marks }
+    return { startLine: start + 1, lines, marks: marks.slice(0, MAX_MARKS) }
 }
 
 export function codeExcerptCandidates(
@@ -135,6 +147,8 @@ export function findCodeQuote(
     const best = perFile.reduce((chosen, candidates) =>
         distinctMarked(candidates[0].excerpt) > distinctMarked(chosen[0].excerpt) ? candidates : chosen
     )
-    const candidates = [...best, ...perFile.filter((own) => own !== best).flat()]
-    return { ...best[0], candidates }
+    const ordered = [best, ...perFile.filter((own) => own !== best)]
+    const depth = Math.max(...ordered.map((own) => own.length))
+    const candidates = Array.from({ length: depth }, (_, rank) => ordered.flatMap((own) => own[rank] ?? []))
+    return { ...best[0], candidates: candidates.flat() }
 }

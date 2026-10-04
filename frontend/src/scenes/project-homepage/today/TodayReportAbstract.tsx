@@ -14,6 +14,7 @@ export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.E
         impactNumbers: numbers,
         impactText,
         impactMarks,
+        shownKeyClauses,
         leadStatesNumber,
     } = useValues(todayReportLogic({ reportId: report.id }))
 
@@ -32,7 +33,12 @@ export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.E
         return (
             <div data-attr="today-report-abstract" data-today-figures>
                 <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
-                    <TodayMarkedText markdown={impactText} marked={impactMarks} reportId={report.id} />
+                    <TodayMarkedText
+                        markdown={impactText}
+                        marked={impactMarks}
+                        keyClauses={shownKeyClauses?.impact ?? []}
+                        reportId={report.id}
+                    />
                 </Text>
             </div>
         )

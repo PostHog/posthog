@@ -17,7 +17,7 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 import {
     todayExcerptChoiceCreate,
     todayReportsFigureMarksRetrieve,
-    todayReportsKeyClausesCreate,
+    todayReportsKeyClausesRetrieve,
     todayReportsPageRetrieve,
 } from 'products/today/frontend/generated/api'
 import type {
@@ -25,8 +25,7 @@ import type {
     CodeFileApi,
     FigureMarkApi,
     FigureTextEnumApi,
-    KeyClauseApi,
-    KeyClauseRequestApi,
+    ReportKeyClausesApi,
     ReportPageApi,
     SignalViewApi,
 } from 'products/today/frontend/generated/api.schemas'
@@ -34,7 +33,6 @@ import {
     todayExcerptChoiceCreateBodyExcerptsItemMax,
     todayExcerptChoiceCreateBodyExcerptsMax,
     todayExcerptChoiceCreateBodyFindingMax,
-    todayReportsKeyClausesCreateBodyRequestsItemTextMax,
 } from 'products/today/frontend/generated/api.zod'
 
 import { reportItemState } from './todayBriefingItems'
@@ -84,8 +82,8 @@ export interface todayReportLogicValues {
     impactNumbers: TodayImpactNumber[]
     impactText: string
     isSample: boolean
-    keyClauseRequests: KeyClauseRequestApi[]
-    keyClauses: Record<string, KeyClauseApi[]>
+    keyClauses: ReportKeyClausesApi | null
+    keyClausesLoading: boolean
     lastSeen: string | null
     lead: string
     leadMarks: TodayMarkedFigure[]
@@ -98,8 +96,7 @@ export interface todayReportLogicValues {
     reportUrl: string
     shownEvidence: SignalViewApi[]
     shownFigureMarks: FigureMarkApi[] | null
-    shownKeyClauses: Record<string, KeyClauseApi[]>
-    signals: SignalViewApi[]
+    shownKeyClauses: ReportKeyClausesApi | null
     staleFiguresDate: string | null
 }
 
@@ -144,6 +141,12 @@ export interface todayReportLogicActions {
     askAboutReport: (question: string) => {
         question: string
     }
+    codeQuoteCleared: (signalId: string) => {
+        signalId: string
+    }
+    codeQuotePicksCleared: () => {
+        value: true
+    }
     codeQuoteRead: (
         signalId: string,
         quote: TodayCodeQuoteState
@@ -166,9 +169,6 @@ export interface todayReportLogicActions {
     }
     focusFeedbackNote: () => {
         value: true
-    }
-    keyClausesLoaded: (found: Record<string, KeyClauseApi[]>) => {
-        found: Record<string, KeyClauseApi[]>
     }
     loadFigureMarks: () => any
     loadFigureMarksFailure: (
@@ -200,8 +200,20 @@ export interface todayReportLogicActions {
         fullReport: SignalReport
         payload?: any
     }
-    loadKeyClauses: () => {
-        value: true
+    loadKeyClauses: () => any
+    loadKeyClausesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadKeyClausesSuccess: (
+        keyClauses: ReportKeyClausesApi | null,
+        payload?: any
+    ) => {
+        keyClauses: ReportKeyClausesApi | null
+        payload?: any
     }
     loadPage: () => any
     loadPageFailure: (
@@ -249,15 +261,10 @@ export interface todayReportLogicMeta {
             reportFailed: boolean
         ) => SignalReport | null
         lead: (page: ReportPageApi | null) => string
-        signals: (page: ReportPageApi | null) => SignalViewApi[]
-        shownEvidence: (page: ReportPageApi | null, signals: SignalViewApi[]) => SignalViewApi[]
+        shownEvidence: (page: ReportPageApi | null) => SignalViewApi[]
         evidenceCount: (page: ReportPageApi | null) => number
         lastSeen: (page: ReportPageApi | null) => string | null
-        impactNumbers: (
-            currentReport: SignalReport | null,
-            page: ReportPageApi | null,
-            signals: SignalViewApi[]
-        ) => TodayImpactNumber[]
+        impactNumbers: (currentReport: SignalReport | null, page: ReportPageApi | null) => TodayImpactNumber[]
         reportState: (
             currentReport: SignalReport | null,
             reportStateOverrides: Record<string, BriefingItemStateEnumApi>
@@ -267,23 +274,11 @@ export interface todayReportLogicMeta {
         proposal: (page: ReportPageApi | null) => string
         impactText: (page: ReportPageApi | null, impactNumbers: TodayImpactNumber[]) => string
         shownFigureMarks: (asksJev: boolean, figureMarks: FigureMarkApi[] | null) => FigureMarkApi[] | null
-        shownKeyClauses: (
-            asksJev: boolean,
-            keyClauses: Record<string, KeyClauseApi[]>
-        ) => Record<string, KeyClauseApi[]>
-        leadMarks: (
-            lead: string,
-            shownFigureMarks: FigureMarkApi[] | null,
-            signals: SignalViewApi[]
-        ) => TodayMarkedFigure[]
-        impactMarks: (
-            impactText: string,
-            shownFigureMarks: FigureMarkApi[] | null,
-            signals: SignalViewApi[]
-        ) => TodayMarkedFigure[]
+        shownKeyClauses: (asksJev: boolean, keyClauses: ReportKeyClausesApi | null) => ReportKeyClausesApi | null
+        leadMarks: (lead: string, shownFigureMarks: FigureMarkApi[] | null) => TodayMarkedFigure[]
+        impactMarks: (impactText: string, shownFigureMarks: FigureMarkApi[] | null) => TodayMarkedFigure[]
         staleFiguresDate: (leadMarks: TodayMarkedFigure[], impactMarks: TodayMarkedFigure[]) => string | null
         leadStatesNumber: (lead: string) => boolean
-        keyClauseRequests: (lead: string, impactText: string, proposal: string) => KeyClauseRequestApi[]
         reportUrl: (currentTeamId: number | null) => string
     }
 }
@@ -322,9 +317,9 @@ export const todayReportLogic = kea<todayReportLogicType>([
         }),
         readCode: (signal: SignalViewApi, files: CodeFileApi[]) => ({ signal, files }),
         codeQuoteRead: (signalId: string, quote: TodayCodeQuoteState) => ({ signalId, quote }),
-        loadKeyClauses: true,
+        codeQuoteCleared: (signalId: string) => ({ signalId }),
+        codeQuotePicksCleared: true,
         askAboutReport: (question: string) => ({ question }),
-        keyClausesLoaded: (found: Record<string, KeyClauseApi[]>) => ({ found }),
         expandEvidence: (signalId: string) => ({ signalId }),
         collapseEvidence: (signalId: string) => ({ signalId }),
         openComposer: true,
@@ -378,6 +373,25 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 },
             },
         ],
+        keyClauses: [
+            null as ReportKeyClausesApi | null,
+            {
+                loadKeyClauses: async (): Promise<ReportKeyClausesApi | null> => {
+                    if (!values.asksJev || !values.fullReport || !values.page) {
+                        return values.keyClauses
+                    }
+                    cache.keyClauses ??= todayReportsKeyClausesRetrieve(
+                        String(values.currentProjectId),
+                        props.reportId,
+                        { include_impact: !!values.impactText }
+                    ).catch((): null => {
+                        cache.keyClauses = null
+                        return null
+                    })
+                    return await cache.keyClauses
+                },
+            },
+        ],
     })),
     reducers({
         reportFailed: [
@@ -391,11 +405,20 @@ export const todayReportLogic = kea<todayReportLogicType>([
         ],
         codeQuotes: [
             {} as Record<string, TodayCodeQuoteState>,
-            { codeQuoteRead: (state, { signalId, quote }) => ({ ...state, [signalId]: quote }) },
-        ],
-        keyClauses: [
-            {} as Record<string, KeyClauseApi[]>,
-            { keyClausesLoaded: (state, { found }) => ({ ...state, ...found }) },
+            {
+                codeQuoteRead: (state, { signalId, quote }) => ({ ...state, [signalId]: quote }),
+                codeQuoteCleared: (state, { signalId }) => {
+                    const { [signalId]: _, ...rest } = state
+                    return rest
+                },
+                codeQuotePicksCleared: (state) =>
+                    Object.fromEntries(
+                        Object.entries(state).map(([signalId, quote]) => [
+                            signalId,
+                            quote && quote !== 'loading' ? { ...quote, ...quote.candidates[0] } : quote,
+                        ])
+                    ),
+            },
         ],
         expandedEvidence: [
             {} as Record<string, boolean>,
@@ -423,21 +446,13 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 reportFailed ? null : (fullReport ?? reports.find((report) => report.id === props.reportId) ?? null),
         ],
         lead: [(s) => [s.page], (page: ReportPageApi | null): string => page?.lead ?? ''],
-        signals: [(s) => [s.page], (page: ReportPageApi | null): SignalViewApi[] => page?.signals ?? []],
-        shownEvidence: [
-            (s) => [s.page, s.signals],
-            (page: ReportPageApi | null, signals: SignalViewApi[]): SignalViewApi[] =>
-                signals.filter((signal) => page?.evidence_signal_ids.includes(signal.signal_id)),
-        ],
+        shownEvidence: [(s) => [s.page], (page: ReportPageApi | null): SignalViewApi[] => page?.evidence ?? []],
         evidenceCount: [(s) => [s.page], (page: ReportPageApi | null): number => page?.source_count ?? 0],
         lastSeen: [(s) => [s.page], (page: ReportPageApi | null): string | null => page?.last_seen ?? null],
         impactNumbers: [
-            (s) => [s.currentReport, s.page, s.signals],
-            (
-                currentReport: SignalReport | null,
-                page: ReportPageApi | null,
-                signals: SignalViewApi[]
-            ): TodayImpactNumber[] => (currentReport ? impactNumbers(currentReport, page, signals) : []),
+            (s) => [s.currentReport, s.page],
+            (currentReport: SignalReport | null, page: ReportPageApi | null): TodayImpactNumber[] =>
+                currentReport ? impactNumbers(currentReport, page) : [],
         ],
         // A verdict given from Today shows before the report reloads.
         reportState: [
@@ -468,18 +483,18 @@ export const todayReportLogic = kea<todayReportLogicType>([
         ],
         shownKeyClauses: [
             (s) => [s.asksJev, s.keyClauses],
-            (asksJev: boolean, keyClauses: Record<string, KeyClauseApi[]>): Record<string, KeyClauseApi[]> =>
-                asksJev ? keyClauses : {},
+            (asksJev: boolean, keyClauses: ReportKeyClausesApi | null): ReportKeyClausesApi | null =>
+                asksJev ? keyClauses : null,
         ],
         leadMarks: [
-            (s) => [s.lead, s.shownFigureMarks, s.signals],
-            (lead: string, figureMarks: FigureMarkApi[] | null, signals: SignalViewApi[]): TodayMarkedFigure[] =>
-                markedFigures(lead, marksIn(figureMarks, 'lead'), signals),
+            (s) => [s.lead, s.shownFigureMarks],
+            (lead: string, figureMarks: FigureMarkApi[] | null): TodayMarkedFigure[] =>
+                markedFigures(lead, marksIn(figureMarks, 'lead')),
         ],
         impactMarks: [
-            (s) => [s.impactText, s.shownFigureMarks, s.signals],
-            (impactText: string, figureMarks: FigureMarkApi[] | null, signals: SignalViewApi[]): TodayMarkedFigure[] =>
-                markedFigures(impactText, marksIn(figureMarks, 'impact'), signals),
+            (s) => [s.impactText, s.shownFigureMarks],
+            (impactText: string, figureMarks: FigureMarkApi[] | null): TodayMarkedFigure[] =>
+                markedFigures(impactText, marksIn(figureMarks, 'impact')),
         ],
         staleFiguresDate: [
             (s) => [s.leadMarks, s.impactMarks],
@@ -487,18 +502,6 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 staleEvidenceDate([...leadMarks, ...impactMarks]),
         ],
         leadStatesNumber: [(s) => [s.lead], (lead: string): boolean => /\d/.test(renderedText(lead))],
-        keyClauseRequests: [
-            (s) => [s.lead, s.impactText, s.proposal],
-            (lead: string, impactText: string, proposal: string): KeyClauseRequestApi[] =>
-                [
-                    { text: renderedText(lead), roles: ['problem', 'cause'] },
-                    { text: renderedText(impactText), roles: ['problem', 'cause'] },
-                    { text: renderedText(proposal), roles: ['fix'] },
-                ].filter(
-                    (request): request is KeyClauseRequestApi =>
-                        !!request.text && request.text.length <= todayReportsKeyClausesCreateBodyRequestsItemTextMax
-                ),
-        ],
         reportUrl: [
             (s) => [s.currentTeamId],
             (currentTeamId: number | null): string =>
@@ -518,7 +521,10 @@ export const todayReportLogic = kea<todayReportLogicType>([
             if (!cache.fileReads.has(key)) {
                 cache.fileReads.set(
                     key,
-                    businessKnowledgeRepositoriesFileRetrieve(String(values.currentProjectId), file).catch(() => null)
+                    businessKnowledgeRepositoriesFileRetrieve(String(values.currentProjectId), file).catch(() => {
+                        cache.fileReads.delete(key)
+                        return null
+                    })
                 )
             }
             return cache.fileReads.get(key)
@@ -532,25 +538,8 @@ export const todayReportLogic = kea<todayReportLogicType>([
             [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
                 actions.loadKeyClauses()
                 actions.loadFigureMarks()
-            },
-            loadKeyClauses: async () => {
-                const loaded = values.fullReport !== null && values.page !== null
-                const pending: Set<string> = (cache.keyClausesPending ??= new Set<string>())
-                const missing = values.keyClauseRequests.filter(
-                    (request) => !(request.text in values.keyClauses) && !pending.has(request.text)
-                )
-                if (!loaded || !missing.length || !values.asksJev) {
-                    return
-                }
-                missing.forEach((request) => pending.add(request.text))
-                const response = await todayReportsKeyClausesCreate(String(values.currentProjectId), props.reportId, {
-                    requests: missing,
-                }).catch(() => null)
-                missing.forEach((request) => pending.delete(request.text))
-                if (response) {
-                    actions.keyClausesLoaded(
-                        Object.fromEntries(response.texts.map((found) => [found.text, found.key_clauses]))
-                    )
+                if (!values.asksJev) {
+                    actions.codeQuotePicksCleared()
                 }
             },
             readCode: async ({ signal, files }) => {
@@ -560,6 +549,10 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 actions.codeQuoteRead(signal.signal_id, 'loading')
                 const reads = await Promise.all(files.map(readFile))
                 const quote = findCodeQuote(files, reads, codeIdentifiers(signal.content))
+                if (!quote && reads.includes(null)) {
+                    actions.codeQuoteCleared(signal.signal_id)
+                    return
+                }
                 if (!quote || quote.candidates.length < 2 || !values.asksJev) {
                     actions.codeQuoteRead(signal.signal_id, quote)
                     return
@@ -572,7 +565,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
                     finding: signal.content.slice(0, todayExcerptChoiceCreateBodyFindingMax),
                     excerpts,
                 }).catch(() => ({ index: null }))
-                const chosen = pick === null ? null : choices[pick]
+                const chosen = pick === null || !values.asksJev ? null : choices[pick]
                 actions.codeQuoteRead(signal.signal_id, chosen ? { ...quote, ...chosen } : quote)
             },
             askAboutReport: ({ question }) => {

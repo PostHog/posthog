@@ -2,10 +2,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.today.backend.facade.contracts import KeyClauseRequest, TextKeyClauses
+from products.today.backend.facade.contracts import KeyClause
 from products.today.backend.facade.enums import KeyClauseRole
 from products.today.backend.logic.jev import JevPick
-from products.today.backend.logic.key_clauses import find_key_clauses, text_clauses
+from products.today.backend.logic.key_clauses import KeyClauseRequest, find_key_clauses, text_clauses
 from products.today.backend.tests.factories import FakeJev
 
 CART_TEXT = "Shoppers see an empty cart, a frozen spinner, and a blank receipt because the cart service drops the session token."
@@ -21,8 +21,11 @@ CAUSE = "because the cart service drops the session token"
 FIX = "Keep the token in a cookie"
 
 
-def shown(found: list[TextKeyClauses]) -> dict[str, list[tuple[str, list[str]]]]:
-    return {texts.text: [(clause.text, clause.expansion) for clause in texts.key_clauses] for texts in found}
+def shown(requests: list[KeyClauseRequest], found: list[list[KeyClause]]) -> dict[str, list[tuple[str, list[str]]]]:
+    return {
+        request.text: [(request.text[clause.start : clause.end], clause.expansion) for clause in own]
+        for request, own in zip(requests, found)
+    }
 
 
 PROBLEM_AND_CAUSE = [KeyClauseRole.PROBLEM, KeyClauseRole.CAUSE]
@@ -74,6 +77,15 @@ class TestKeyClauses(SimpleTestCase):
                 [(FROZEN_SPINNER, [SPINNER_EXPLAINED]), (CAUSE, [CAUSE_EXPLAINED])],
             ),
             (
+                "a less sure clause the report explains, over a surer one it does not",
+                {
+                    FROZEN_SPINNER: JevPick(label="problem", probability=0.95),
+                    EMPTY_CART: JevPick(label="problem", probability=0.8),
+                },
+                {EMPTY_CART: CART_EXPLAINED},
+                [(EMPTY_CART, [CART_EXPLAINED])],
+            ),
+            (
                 "only a clause the report explains",
                 {
                     FROZEN_SPINNER: JevPick(label="problem", probability=0.95),
@@ -100,19 +112,17 @@ class TestKeyClauses(SimpleTestCase):
         explanations: dict[str, str],
         expected: list[tuple[str, list[str]]],
     ) -> None:
-        found = find_key_clauses(
-            [KeyClauseRequest(text=CART_TEXT, roles=PROBLEM_AND_CAUSE)],
-            SUMMARY,
-            FakeJev([CART_TEXT], roles, explanations),
-        )
-        assert shown(found) == {CART_TEXT: expected}
+        requests = [KeyClauseRequest(text=CART_TEXT, roles=PROBLEM_AND_CAUSE)]
+        found = find_key_clauses(requests, SUMMARY, FakeJev([CART_TEXT], roles, explanations))
+        assert shown(requests, found) == {CART_TEXT: expected}
 
     def test_gives_each_text_its_own_clauses_and_at_most_two_across_all_texts(self) -> None:
+        requests = [
+            KeyClauseRequest(text=CART_TEXT, roles=PROBLEM_AND_CAUSE),
+            KeyClauseRequest(text=FIX_TEXT, roles=[KeyClauseRole.FIX]),
+        ]
         found = find_key_clauses(
-            [
-                KeyClauseRequest(text=CART_TEXT, roles=PROBLEM_AND_CAUSE),
-                KeyClauseRequest(text=FIX_TEXT, roles=[KeyClauseRole.FIX]),
-            ],
+            requests,
             SUMMARY,
             FakeJev(
                 [CART_TEXT, FIX_TEXT],
@@ -124,17 +134,17 @@ class TestKeyClauses(SimpleTestCase):
                 {FROZEN_SPINNER: SPINNER_EXPLAINED, CAUSE: CAUSE_EXPLAINED, FIX: FIX_EXPLAINED},
             ),
         )
-        assert shown(found) == {
+        assert shown(requests, found) == {
             CART_TEXT: [(FROZEN_SPINNER, [SPINNER_EXPLAINED])],
             FIX_TEXT: [(FIX, [FIX_EXPLAINED])],
         }
 
     def test_places_clauses_by_the_offsets_the_browser_counts(self) -> None:
         text = f"🛒 {CART_TEXT}"
-        [found] = find_key_clauses(
+        [clauses] = find_key_clauses(
             [KeyClauseRequest(text=text, roles=[KeyClauseRole.CAUSE])],
             SUMMARY,
             FakeJev([text], {CAUSE: JevPick(label="cause", probability=0.9)}, {CAUSE: CAUSE_EXPLAINED}),
         )
-        [clause] = found.key_clauses
+        [clause] = clauses
         assert (clause.start, clause.end) == (text.index(CAUSE) + 1, text.index(CAUSE) + 1 + len(CAUSE))
