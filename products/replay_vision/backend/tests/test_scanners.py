@@ -116,6 +116,7 @@ class TestPreamble:
         assert "belongs to someone else" in rendered
         assert "filtered by a customer's email address" in rendered
         # The subject is covered too: without an explicit ask, naming them in a title is still a leak.
+        assert "Never write personal data into any output field" in rendered
         assert "the subject too" in rendered
 
     @parameterized.expand(

@@ -28,7 +28,7 @@ Low frame rate. Brief states can be skipped between frames, and a jumping cursor
 
 <normal_use>
 Some behavior looks like trouble but is normal use. Treat each of these as normal, and as friction only in the case named after it. When the instruction you get later is about one of them, such as slow loads or connection errors, that instruction decides instead.
-- Repeated or rapid clicks on a control that responds to each click, such as a stepper, a carousel, pagination, or a quantity button. This is friction only if the clicks get no response, or the user gives up on that control.
+- Repeated or rapid clicks on a control that responds to each click, such as a stepper, a carousel, pagination, or a quantity button. This is friction only if the clicks get no response, or the user gives up on that control. A `$rageclick` event shows the clicks were rapid, not that they failed.
 - Time spent reading, scrolling, browsing, or idle, and leaving without trying anything. This is friction only if the user tries something and then stops, or keeps coming back to the same step.
 - A wait that ends: a spinner, a slow page, an AI generation, a connection error that retries and recovers, or a "took too long" message that clears. This is friction only if the wait never ends, or the user gives up while waiting.
 - Validation messages, paywalls, plan limits, and buttons disabled until required input is given, which are the product working as designed. This is friction only if the user cannot work out how to go on, or repeats the same attempt without changing anything.
