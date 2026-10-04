@@ -1034,31 +1034,39 @@ def _pinned_models(
     pinned: list[dict[str, Any]] = []
     dropped: dict[str, str] = {}
     for key in keys:
-        model_name, model_version = key.split("@", 1)
-        metadata = _read_json_if_exists(
-            client, bucket, model_object_key(prefix, model_name, model_version, METADATA_FILE)
-        )
+        try:
+            metadata, reason = _pin_metadata(client, bucket, prefix, key)
+        # S3 answers 403, not 404, for a missing key when the role cannot list the prefix, and a
+        # pin must cost only itself, so every read error drops the pin.
+        except (ClientError, ValueError) as error:
+            metadata, reason = None, f"could not read the model: {error!r}"
         if metadata is None:
-            dropped[key] = f"no {METADATA_FILE} in the dataset bucket"
-            continue
-        if (metadata.get("model_name"), metadata.get("model_version")) != (model_name, model_version):
-            dropped[key] = f"{METADATA_FILE} describes another model"
-            continue
-        mismatch = model_mismatch(metadata)
-        if mismatch is not None:
-            dropped[key] = mismatch
-            continue
-        heads = trained_head_files(metadata, HEADS_BY_NAME)
-        missing = [
-            f"{head}.ubj"
-            for head in sorted(heads)
-            if not _object_exists(client, bucket, model_object_key(prefix, model_name, model_version, f"{head}.ubj"))
-        ]
-        if not heads or missing:
-            dropped[key] = f"missing boosters {missing}" if missing else "no trained head"
+            dropped[key] = reason or "unknown"
             continue
         pinned.append(metadata)
     return pinned, dropped
+
+
+def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str, Any] | None, str | None]:
+    """The metadata of one pinned model, or None and the reason it cannot be served."""
+    model_name, model_version = key.split("@", 1)
+    metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, model_version, METADATA_FILE))
+    if metadata is None:
+        return None, f"no {METADATA_FILE} in the dataset bucket"
+    if (metadata.get("model_name"), metadata.get("model_version")) != (model_name, model_version):
+        return None, f"{METADATA_FILE} describes another model"
+    mismatch = model_mismatch(metadata)
+    if mismatch is not None:
+        return None, mismatch
+    heads = trained_head_files(metadata, HEADS_BY_NAME)
+    missing = [
+        f"{head}.ubj"
+        for head in sorted(heads)
+        if not _object_exists(client, bucket, model_object_key(prefix, model_name, model_version, f"{head}.ubj"))
+    ]
+    if not heads or missing:
+        return None, f"missing boosters {missing}" if missing else "no trained head"
+    return metadata, None
 
 
 def _publish_mirror(

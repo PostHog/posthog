@@ -78,6 +78,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     _EXTRA_SNAPSHOT_TABLES,
     METADATA_FILE,
     _delete_other_objects,
+    _pinned_models,
     _publish_manifest,
     _train_candidate,
     candidate_metadata,
@@ -1396,6 +1397,22 @@ class _ModelStoreS3:
         if Key not in self.objects:
             raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
         return {"Body": io.BytesIO(self.objects[Key])}
+
+
+class _DeniedPrefixS3(_ModelStoreS3):
+    def __init__(self, objects: dict[str, bytes], *, denied_prefix: str):
+        super().__init__(objects)
+        self.denied_prefix = denied_prefix
+
+    def head_object(self, *, Bucket, Key):
+        if Key.startswith(self.denied_prefix):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "HeadObject")
+        return super().head_object(Bucket=Bucket, Key=Key)
+
+    def get_object(self, *, Bucket, Key):
+        if Key.startswith(self.denied_prefix):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")
+        return super().get_object(Bucket=Bucket, Key=Key)
 
 
 def test_load_unseen_models_skips_a_family_with_nothing_to_score_that_day(monkeypatch):
@@ -2905,6 +2922,7 @@ def _run_serving_manifest(
     store: _AppObjectStore,
     dataset_objects: dict[str, bytes] | None = None,
     mirror: _AppObjectStore | None = None,
+    dataset_client: _ModelStoreS3 | None = None,
 ) -> _FakeClient:
     partition_key = "2026-08-19"
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
@@ -2914,7 +2932,7 @@ def _run_serving_manifest(
         "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
         (ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),),
     )
-    client = (
+    client = dataset_client or (
         _ModelStoreS3(dataset_objects) if dataset_objects is not None else _serving_dataset_s3(prefix, partition_key)
     )
     monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: client)
@@ -3045,17 +3063,27 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     ).encode()
     missing_key = model_key(EMBEDDINGS_MODEL_NAME, pin_version)
     absent_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-07-01")
+    denied_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-06-01")
+    pins = (missing_key, absent_key, denied_key)
     monkeypatch.setattr(
         "products.signals.dags.inbox_ranking.training.dag.read_ranking_overrides",
-        lambda now: RankingOverrides(pin=(missing_key, absent_key)),
+        lambda now: RankingOverrides(pin=pins),
+    )
+    denied_client = _DeniedPrefixS3(
+        client.objects, denied_prefix=model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-06-01", "")
     )
     store = _AppObjectStore()
 
-    _run_serving_manifest(monkeypatch, store, dataset_objects=client.objects)
+    _run_serving_manifest(monkeypatch, store, dataset_client=denied_client)
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
-    assert missing_key not in {entry.key for entry in manifest.models}
+    assert not set(pins) & {entry.key for entry in manifest.models}
     assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
+    _, dropped = _pinned_models(denied_client, "bucket", prefix, pins)
+    assert dropped.keys() == set(pins)
+    assert "missing boosters" in dropped[missing_key]
+    assert METADATA_FILE in dropped[absent_key]
+    assert "AccessDenied" in dropped[denied_key]
 
 
 def test_the_serving_prefix_layout_is_stable():
