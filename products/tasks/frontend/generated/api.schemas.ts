@@ -2015,6 +2015,7 @@ export interface PaginatedTaskListItemListApi {
 
 /**
  * * `onboarding` - Onboarding
+ * * `onboarding_audit` - Onboarding Audit
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
@@ -2043,6 +2044,7 @@ export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof t
 
 export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
+    OnboardingAudit: 'onboarding_audit',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -2103,6 +2105,7 @@ export interface TaskCreateApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
+     * * `onboarding_audit` - Onboarding Audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2331,6 +2334,7 @@ export interface TaskWriteApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
+     * * `onboarding_audit` - Onboarding Audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2466,6 +2470,7 @@ export interface PatchedTaskWriteApi {
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
+     * * `onboarding_audit` - Onboarding Audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5850,6 +5855,7 @@ export type TasksListParams = {
      * Exclude tasks with this origin product from the results
      *
      * * `onboarding` - Onboarding
+     * * `onboarding_audit` - Onboarding Audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5992,6 +5998,7 @@ export type TasksListExcludeOriginProduct =
 
 export const TasksListExcludeOriginProduct = {
     Onboarding: 'onboarding',
+    OnboardingAudit: 'onboarding_audit',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',

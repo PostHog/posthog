@@ -1,3 +1,5 @@
+import base64
+import secrets
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
@@ -8,7 +10,8 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
 from django.db.models.fields import BLANK_CHOICE_DASH
-from django.http import HttpRequest, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
@@ -18,10 +21,12 @@ import structlog
 from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
+from posthog.utils import absolute_uri
 
 from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS, RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
 from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
 from products.growth.backend.models import (
+    AccountAuditCredential,
     EnrichmentLabelResult,
     EnrichmentPromptConfig,
     IcpScoringConfig,
@@ -29,6 +34,60 @@ from products.growth.backend.models import (
 )
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
+
+
+class AccountAuditCredentialForm(forms.ModelForm):
+    class Meta:
+        model = AccountAuditCredential
+        fields = ("is_active",)
+        help_texts = {
+            "is_active": "Disable to revoke access. To rotate, configure the workflow with a new credential before disabling this one.",
+        }
+
+
+@admin.register(AccountAuditCredential)
+class AccountAuditCredentialAdmin(admin.ModelAdmin):
+    form = AccountAuditCredentialForm
+    readonly_fields = ("public_key_id", "created_by", "created_at")
+    list_display = ("public_key_id", "created_by", "is_active", "created_at")
+    list_filter = ("is_active",)
+    list_select_related = ("created_by",)
+    search_fields = ("public_key_id", "created_by__email")
+    actions = None
+
+    def get_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
+        if obj is None:
+            return ("is_active",)
+        return ("public_key_id", "created_by", "is_active", "created_at")
+
+    def has_delete_permission(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> bool:
+        return False
+
+    def save_model(
+        self, request: HttpRequest, obj: AccountAuditCredential, form: forms.ModelForm, change: bool
+    ) -> None:
+        if not change:
+            obj.created_by_id = request.user.pk
+            obj.signing_secret = f"whsec_{base64.b64encode(secrets.token_bytes(32)).decode()}"
+        super().save_model(request, obj, form, change)
+
+    def response_add(
+        self, request: HttpRequest, obj: AccountAuditCredential, post_url_continue: str | None = None
+    ) -> HttpResponse:
+        return TemplateResponse(
+            request,
+            "admin/growth/account_audit_credential_created.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Account audit credential created",
+                "opts": self.model._meta,
+                "key_id": obj.public_key_id,
+                "signing_secret": obj.signing_secret,
+                "credential_url": reverse("admin:growth_accountauditcredential_change", args=[obj.pk]),
+                "api_url": absolute_uri(reverse("growth_account_audits-start")),
+            },
+        )
+
 
 # The classifier's only valid output types (enrichment/labels.py's _OUTPUT_FIELD_COERCERS).
 ALLOWED_OUTPUT_FIELD_TYPES = frozenset({"boolean", "number", "string"})

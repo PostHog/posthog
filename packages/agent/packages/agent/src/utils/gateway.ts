@@ -24,6 +24,7 @@ export function resolveGatewayProduct({
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
     loop: "posthog_code",
     onboarding: "onboarding",
+    onboarding_audit: "onboarding",
     posthog_ai: "posthog_ai",
     review_hog: "review_hog",
     scout_suggestions: "signals",
@@ -39,7 +40,10 @@ export function resolveGatewayProduct({
     const mapped = originProductToGatewayProductMap[originProduct];
     // Stored rows may carry a caller-set review_hog origin predating its
     // reservation; only the server-stamped `internal` flag admits the mintable product.
-    if (mapped === "review_hog" && !isInternal) {
+    if (
+      (mapped === "review_hog" || originProduct === "onboarding_audit") &&
+      !isInternal
+    ) {
       return "posthog_code";
     }
     return mapped;

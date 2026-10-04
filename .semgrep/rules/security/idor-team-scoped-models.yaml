@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountAuditAdmission
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipControl
@@ -505,6 +506,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountAuditAdmission
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipControl
@@ -1159,7 +1161,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CommunitySkillVote
+                              AccountAuditCredential
+                              |CommunitySkillVote
                               |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
@@ -1216,7 +1219,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CommunitySkillVote
+                        AccountAuditCredential
+                        |CommunitySkillVote
                         |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey

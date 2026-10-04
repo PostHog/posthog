@@ -51,6 +51,7 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
+    "onboarding_audit": "onboarding",
     "posthog_ai": "posthog_ai",
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
@@ -87,6 +88,7 @@ _SCOUT_STAGE_PREFIX = "scout:"
 MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
+        "onboarding",
         "posthog_code",
         "review_hog",
         "slack_app",
@@ -127,6 +129,9 @@ def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None,
     # reservation; only the server-stamped `internal` flag admits the mintable product.
     if gateway_product == "review_hog" and not internal:
         logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
+    if origin_product == "onboarding_audit" and not internal:
+        logger.warning("onboarding_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
@@ -208,9 +213,12 @@ def mint_refusal(
     runtime: str | None,
     internal: bool = False,
     prior_slack_run: bool = False,
+    origin_product: str | None = None,
     distinct_id: str | None = None,
 ) -> str | None:
     """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    if ai_product == "onboarding" and (origin_product != "onboarding_audit" or not internal):
+        return "no_onboarding_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
         state, internal=internal, prior_slack_run=prior_slack_run
     ):

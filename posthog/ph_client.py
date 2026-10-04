@@ -133,11 +133,14 @@ class ScopedCapture:
 
 
 @contextmanager
-def ph_scoped_capture(region: str = "US", *, raise_on_error: bool = False) -> Iterator[ScopedCapture]:
+def ph_scoped_capture(
+    region: str = "US", *, raise_on_error: bool = False, event_region: str | None = None
+) -> Iterator[ScopedCapture]:
     """Use this instead of posthoganalytics.capture() in Celery tasks — the global
     client's background flush may never run before the worker exits, silently losing events.
     This creates a dedicated client and flushes on context-manager exit.
     Pass the deployment region when events must stay in their regional project.
+    Set event_region when the event's region differs from its destination.
 
     In a long-lived worker (e.g. Temporal activities), prefer `ph_background_capture` —
     the client setup and synchronous flush here add seconds of blocking per call.
@@ -153,6 +156,8 @@ def ph_scoped_capture(region: str = "US", *, raise_on_error: bool = False) -> It
         errors.append(error)
 
     ph_client = get_client(region, on_error=on_error) if raise_on_error else get_client(region)
+    if ph_client and event_region is not None:
+        ph_client.super_properties["region"] = event_region
 
     # Flush even when the caller's block raises — events already captured
     # before the exception shouldn't be dropped with the buffer.

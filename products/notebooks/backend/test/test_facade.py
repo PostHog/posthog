@@ -23,14 +23,18 @@ class TestNotebooksFacade(BaseTest):
     def _doc(self, text: str = "hello") -> dict:
         return {"type": "doc", "content": [content.create_paragraph_with_text(text)]}
 
-    def test_create_notebook_returns_contract(self):
-        data = api.create_notebook(
-            self.team.id,
-            title="My notebook",
-            content=self._doc(),
-            created_by_id=self.user.id,
-            last_modified_by_id=self.user.id,
-        )
+    @patch("products.notebooks.backend.facade.api.capture_notebook_created")
+    def test_create_notebook_returns_contract(self, capture):
+        with self.captureOnCommitCallbacks(execute=True):
+            data = api.create_notebook(
+                self.team.id,
+                title="My notebook",
+                content=self._doc(),
+                created_by_id=self.user.id,
+                last_modified_by_id=self.user.id,
+            )
+            capture.assert_not_called()
+        capture.assert_called_once()
         self.assertEqual(data.title, "My notebook")
         self.assertEqual(data.visibility, Notebook.Visibility.DEFAULT)
         self.assertEqual(data.created_by_id, self.user.id)
