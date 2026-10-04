@@ -1,4 +1,5 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
@@ -11,7 +12,7 @@ import { mswDecorator } from '~/mocks/browser'
 import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { expect, userEvent, waitFor, within } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
