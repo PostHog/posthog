@@ -7556,6 +7556,30 @@ class TestSurveyLifecycleActions(APIBaseTest):
         self.survey.refresh_from_db()
         self.assertEqual(self.survey.end_date, original_end)
 
+    def test_repeated_launch_activates_flags_left_inactive_on_a_running_survey(self):
+        original_start = datetime(2024, 1, 1, tzinfo=UTC)
+        targeting_flag = FeatureFlag.objects.create(
+            team=self.team, key="survey-targeting-repeat", created_by=self.user, active=False
+        )
+        internal_flag = FeatureFlag.objects.create(
+            team=self.team, key="survey-targeting-repeat-custom", created_by=self.user, active=False
+        )
+        self.survey.start_date = original_start
+        self.survey.targeting_flag = targeting_flag
+        self.survey.internal_targeting_flag = internal_flag
+        self.survey.save()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/launch/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        targeting_flag.refresh_from_db()
+        internal_flag.refresh_from_db()
+        self.survey.refresh_from_db()
+        self.assertTrue(targeting_flag.active)
+        self.assertTrue(internal_flag.active)
+        self.assertEqual(self.survey.start_date, original_start)
+        self.assertTrue(response.json()["internal_targeting_flag"]["active"])
+
 
 class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
     def setUp(self):
@@ -7603,16 +7627,28 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
         assert self.survey.internal_targeting_flag is not None
         return self.survey.targeting_flag.active, self.survey.internal_targeting_flag.active
 
-    @parameterized.expand([("feature_flag.enable",), ("feature_flag.disable",), ("feature_flag.update",)])
-    def test_start_and_stop_mirror_flag_state_without_a_change_request(self, action_key: str) -> None:
+    @parameterized.expand(
+        [
+            (action_key, via)
+            for action_key in ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
+            for via in ("patch", "lifecycle_endpoint")
+        ]
+    )
+    def test_start_and_stop_mirror_flag_state_without_a_change_request(self, action_key: str, via: str) -> None:
         self._create_policy(action_key)
         url = f"/api/projects/{self.team.id}/surveys/{self.survey.id}/"
 
-        response = self.client.patch(url, data={"start_date": datetime.now(UTC) - timedelta(days=1)}, format="json")
+        if via == "patch":
+            response = self.client.patch(url, data={"start_date": datetime.now(UTC) - timedelta(days=1)}, format="json")
+        else:
+            response = self.client.post(f"{url}launch/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._flag_states() == (True, True)
 
-        response = self.client.patch(url, data={"end_date": datetime.now(UTC) - timedelta(hours=1)}, format="json")
+        if via == "patch":
+            response = self.client.patch(url, data={"end_date": datetime.now(UTC) - timedelta(hours=1)}, format="json")
+        else:
+            response = self.client.post(f"{url}stop/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._flag_states() == (False, False)
 
