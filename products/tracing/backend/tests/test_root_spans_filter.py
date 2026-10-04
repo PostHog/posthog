@@ -11,6 +11,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
+from products.tracing.backend.count_query_runner import TraceSpansCountQueryRunner
 from products.tracing.backend.logic import TraceSpansQueryRunner
 
 DATE_FROM = "2026-06-02T07:00:00Z"
@@ -20,6 +21,8 @@ ROOT_NAME = "GET /api"
 CHILD_NAME = "redis_cluster.discovery"
 # Trace B: its root runs on service "worker" (won't match a "web" filter), but a child runs on "web".
 OTHER_ROOT_NAME = "POST /webhook"
+# Trace C: its root never reached PostHog, so both its spans point at a parent that is not stored.
+ORPHAN_NAME = "GET /orphan"
 
 
 def _b64(raw: bytes) -> str:
@@ -44,6 +47,9 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
 
         trace_a = _b64((1).to_bytes(16, "big"))
         trace_b = _b64((2).to_bytes(16, "big"))
+        trace_c = _b64((3).to_bytes(16, "big"))
+        missing_root_c = _b64((6).to_bytes(8, "big"))
+        orphan_c = _b64((7).to_bytes(8, "big"))
         root_a = _b64((1).to_bytes(8, "big"))
         root_b = _b64((4).to_bytes(8, "big"))
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
@@ -68,6 +74,9 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             # Trace B: root on "worker" (won't match a "web" filter), child on "web" (will).
             _row(4, trace_b, root_b, "", OTHER_ROOT_NAME, "worker", 0),
             _row(5, trace_b, _b64((5).to_bytes(8, "big")), root_b, CHILD_NAME, "web", 10),
+            # Trace C: no root span stored; both spans on "web".
+            _row(6, trace_c, orphan_c, missing_root_c, ORPHAN_NAME, "web", 30),
+            _row(7, trace_c, _b64((8).to_bytes(8, "big")), orphan_c, "orphan.child", "web", 40),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -111,7 +120,15 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         # waterfall regardless of rootSpans — this is the regression guard for the root_filter fix.
         self.assertIn(ROOT_NAME, names)
         self.assertIn(CHILD_NAME, names)
+        # A trace with no stored root must still list, whatever rootSpans is.
+        self.assertIn(ORPHAN_NAME, names)
         if expect_other_trace:
             self.assertIn(OTHER_ROOT_NAME, names)
         else:
             self.assertNotIn(OTHER_ROOT_NAME, names)
+
+    def test_trace_count_includes_rootless_traces(self):
+        query = TraceSpansQuery(dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO), serviceNames=["web"])
+        results = TraceSpansCountQueryRunner(query, self.team).run().results
+        # Trace A by its root and trace C (no root), not trace B (its root is on "worker").
+        self.assertEqual(results["traceCount"], 2)

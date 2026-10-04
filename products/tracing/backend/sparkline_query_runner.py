@@ -37,9 +37,10 @@ class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
         return TraceSpansQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
-        # Spans view counts every matching span. Traces view counts distinct traces — the SAME aggregate
-        # the count label uses (count_query_runner: uniqExactIf(trace_id, is_root_span = 1)), so the bars
-        # tie out to "N traces matching filters" even for malformed traces with 0 or >1 root spans.
+        # Spans view counts every matching span. Traces view counts distinct traces by root span, so the
+        # bars tie out to "N traces matching filters" even for malformed traces with >1 root spans. The
+        # count label also counts rootless traces (entry_span_expr); the bars leave them out, because
+        # the spans of one rootless trace can fall in several time and service buckets.
         # uniqExactIf can't use the count() projection (it needs trace_id), so traces mode raw-scans until
         # a distinct-trace projection (uniqExactState(trace_id)) is added — see the comment in spans.py.
         event_count_expr: ast.Expr = (

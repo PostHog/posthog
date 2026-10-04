@@ -128,7 +128,12 @@ describe('tracingDataLogic', () => {
         it('ignores non-root spans when deriving the range', () => {
             const withChild = [
                 createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-                { ...createMockSpan('child-1', '2024-01-01T05:00:00Z'), parent_span_id: 'root-1', is_root_span: false },
+                {
+                    ...createMockSpan('child-1', '2024-01-01T05:00:00Z'),
+                    trace_id: 'trace-root-1',
+                    parent_span_id: 'root-1',
+                    is_root_span: false,
+                },
                 createMockSpan('root-2', '2024-01-01T01:00:00Z'),
             ]
             logic.actions.fetchSpansSuccess(withChild)
@@ -199,14 +204,33 @@ describe('tracingDataLogic', () => {
     describe('view mode', () => {
         const withChildSpans: Span[] = [
             createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-            { ...createMockSpan('child-1', '2024-01-01T00:00:01Z'), parent_span_id: 'root-1', is_root_span: false },
+            {
+                ...createMockSpan('child-1', '2024-01-01T00:00:01Z'),
+                trace_id: 'trace-root-1',
+                parent_span_id: 'root-1',
+                is_root_span: false,
+            },
             createMockSpan('root-2', '2024-01-01T01:00:00Z'),
         ]
+        const rootlessTraceSpans: Span[] = [
+            {
+                ...createMockSpan('orphan-1', '2024-01-01T02:00:00Z'),
+                trace_id: 'rootless-trace',
+                parent_span_id: 'missing-root',
+                is_root_span: false,
+            },
+            {
+                ...createMockSpan('orphan-2', '2024-01-01T02:00:01Z'),
+                trace_id: 'rootless-trace',
+                parent_span_id: 'orphan-1',
+                is_root_span: false,
+            },
+        ]
 
-        it('lists only root spans in traces mode (default)', () => {
-            logic = mountWithSpans(withChildSpans)
+        it('lists one row per trace in traces mode (default), including traces whose root span is missing', () => {
+            logic = mountWithSpans([...withChildSpans, ...rootlessTraceSpans])
             expect(logic.values.filters.viewMode).toBe('traces')
-            expect(logic.values.listRows.map((s) => s.uuid)).toEqual(['root-1', 'root-2'])
+            expect(logic.values.listRows.map((s) => s.uuid)).toEqual(['root-1', 'root-2', 'orphan-1'])
         })
 
         it('lists every span (root and child) in spans mode', () => {
