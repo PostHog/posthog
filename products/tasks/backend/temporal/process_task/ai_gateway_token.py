@@ -24,6 +24,7 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
     _cap_override,
     _team_credit_refusal,
     _valid_cap,
+    desktop_limit_tier,
     desktop_rollout_enabled,
     posthog_code_plan,
     valid_caps,
@@ -185,7 +186,7 @@ def _posthog_code_refusal(team_id: int, model: str | None, distinct_id: str | No
     unpinned or paid-model run could fall back to."""
     team = _posthog_code_team(team_id)
     # The run's user, so a person-targeted flag moves cloud runs with that person's desktop sessions.
-    if team is None or not desktop_rollout_enabled(team.organization, team, distinct_id):
+    if team is None or not desktop_rollout_enabled(team.organization, team, distinct_id, _account_email(distinct_id)):
         return "not_rolled_out"
     if posthog_code_plan(team) == "free" and not model_allowed_by_pin(FREE_TIER_MODELS, model):
         return "model_outside_pin"
@@ -197,6 +198,25 @@ def posthog_code_allowed_models(team_id: int) -> list[str] | None:
     if team is not None and posthog_code_plan(team) == "free":
         return list(FREE_TIER_MODELS)
     return None
+
+
+def posthog_code_limit_tier(team_id: int, distinct_id: str | None) -> str | None:
+    """The run user's per-user limit tier on the gateway; None when the team is gone."""
+    team = _posthog_code_team(team_id)
+    if team is None:
+        return None
+    return desktop_limit_tier(
+        organization=team.organization, team=team, distinct_id=distinct_id, email=_account_email(distinct_id)
+    )
+
+
+def _account_email(distinct_id: str | None) -> str | None:
+    """The run user's account email; the person's stored email is client-writable."""
+    if not distinct_id:
+        return None
+    from posthog.models import User  # noqa: PLC0415
+
+    return User.objects.filter(distinct_id=distinct_id).values_list("email", flat=True).first()
 
 
 def mint_refusal(
@@ -287,7 +307,12 @@ def token_cap_usd(team_id: int, ai_product: str) -> str:
 
 
 def mint_scoped_token(
-    *, ai_product: str, team_id: int, user: str | None = None, allowed_models: list[str] | None = None
+    *,
+    ai_product: str,
+    team_id: int,
+    user: str | None = None,
+    allowed_models: list[str] | None = None,
+    limit_tier: str | None = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -313,6 +338,8 @@ def mint_scoped_token(
     pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)
     if pin:
         body["allowed_models"] = pin
+    if limit_tier:
+        body["limit_tier"] = limit_tier
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:

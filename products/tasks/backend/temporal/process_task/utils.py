@@ -64,6 +64,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     mint_refusal,
     mint_scoped_token,
     posthog_code_allowed_models,
+    posthog_code_limit_tier,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
     token_cap_usd,
@@ -1503,6 +1504,7 @@ def ai_gateway_env_vars(
                 free_pin = posthog_code_allowed_models(team_id)
                 if free_pin is not None:
                     mint_kwargs["allowed_models"] = free_pin
+                mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
