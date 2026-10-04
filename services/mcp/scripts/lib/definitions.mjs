@@ -89,32 +89,32 @@ export function isToolsConfig(parsed) {
 }
 
 /**
- * Tools on one operation share one Orval body schema, so only exclusions that every enabled tool reading it shares may leave it.
- * An input_schema tool brings its own schema and never reads the Orval body.
- * @param {Iterable<{ enabled?: boolean, operation?: string, input_schema?: string, exclude_params?: string[] }>} tools
- * @returns {Map<string, string[]>}
+ * Parse a YAML tool definition and return operationIds plus all exclude_params
+ * grouped by operationId for schema-level exclusion before Orval runs.
  */
-export function sharedSchemaExclusions(tools) {
-    /** @type {Map<string, string[]>} */
-    const shared = new Map()
-    for (const tool of tools) {
-        if (!tool?.enabled || !tool?.operation || tool.input_schema) {
-            continue
-        }
-        const excluded = tool.exclude_params ?? []
-        const previous = shared.get(tool.operation)
-        shared.set(tool.operation, previous ? previous.filter((field) => excluded.includes(field)) : excluded)
-    }
-    for (const [operation, fields] of shared) {
-        if (fields.length === 0) {
-            shared.delete(operation)
-        }
-    }
-    return shared
-}
-
 export function parseToolDefinition(filePath) {
-    const tools = Object.values(parseYaml(fs.readFileSync(filePath, 'utf-8'))?.tools ?? {})
-    const operationIds = new Set(tools.filter((tool) => tool?.enabled && tool?.operation).map((tool) => tool.operation))
-    return { operationIds, schemaExclusions: sharedSchemaExclusions(tools) }
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const parsed = parseYaml(content)
+    const operationIds = new Set()
+    /** @type {Map<string, string[]>} */
+    const schemaExclusions = new Map()
+
+    if (parsed?.tools) {
+        for (const tool of Object.values(parsed.tools)) {
+            if (!tool?.enabled || !tool?.operation) {
+                continue
+            }
+
+            operationIds.add(tool.operation)
+            const excludeParams = [...new Set(tool.exclude_params ?? [])].sort()
+            const previous = schemaExclusions.get(tool.operation)
+            if (previous && JSON.stringify(previous) !== JSON.stringify(excludeParams)) {
+                throw new Error(
+                    `Tools on "${tool.operation}" in ${filePath} exclude different params. Give them the same exclude_params.`
+                )
+            }
+            schemaExclusions.set(tool.operation, excludeParams)
+        }
+    }
+    return { operationIds, schemaExclusions }
 }

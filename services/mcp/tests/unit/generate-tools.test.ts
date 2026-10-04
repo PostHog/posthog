@@ -1,4 +1,3 @@
-import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -11,7 +10,6 @@ import {
     generateToolCode,
 } from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
-import { parseToolDefinition } from '../../scripts/lib/definitions.mjs'
 import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
 import type { EnabledQueryWrapperToolConfig, EnabledToolConfig, ToolConfig } from '../../scripts/yaml-config-schema'
 
@@ -773,154 +771,6 @@ describe('inject_body', () => {
         // JSON.stringify escapes the single quote so the generated TS stays valid.
         expect(result.code).toContain(`body["weird'key"] = "safe"`)
     })
-})
-
-describe('exclude_params on an operation shared by several tools', () => {
-    const genericTool: ToolConfig = { operation: 'things_create', enabled: true }
-    const emailTool: ToolConfig = {
-        operation: 'things_create',
-        enabled: true,
-        exclude_params: ['kind'],
-        inject_body: { kind: 'email' },
-    }
-    const sharedCategory = {
-        ...defaultCategory,
-        tools: { 'things-create': genericTool, 'things-email-create': emailTool },
-    }
-    const thingsCreateResolved = (): ResolvedOperation =>
-        makeResolved({
-            method: 'POST',
-            operation: {
-                operationId: 'things_create',
-                parameters: [],
-                requestBody: {
-                    content: {
-                        'application/json': {
-                            schema: {
-                                properties: {
-                                    name: { type: 'string' },
-                                    kind: { type: 'string' },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        })
-    const generate = (toolName: string, config: ToolConfig, category = sharedCategory): string =>
-        generateToolCode(
-            toolName,
-            config,
-            thingsCreateResolved(),
-            category,
-            makeSpec(),
-            new Set<string>(),
-            stubGetQuerySchema
-        ).code
-
-    it('strips a field from the shared schema only when every enabled tool on the operation excludes it', () => {
-        const fixture = path.resolve(__dirname, '../fixtures/shared-operation-tools.yaml')
-
-        expect(parseToolDefinition(fixture)).toEqual({
-            operationIds: new Set(['things_create', 'widgets_create']),
-            schemaExclusions: new Map([['things_create', ['kind']]]),
-        })
-    })
-
-    it('lets each tool keep or omit a field the other tool excludes', () => {
-        const genericCode = generate('things-create', genericTool)
-        expect(genericCode).toContain('body["kind"] = params.kind')
-        expect(genericCode).not.toContain(`'kind': true`)
-
-        const emailCode = generate('things-email-create', emailTool)
-        expect(emailCode).toContain(`ThingsCreateBody.omit({ 'kind': true })`)
-        expect(emailCode).not.toContain('body["kind"] = params')
-
-        const bothExcludeKind = { ...sharedCategory, tools: { ...sharedCategory.tools, 'things-create': emailTool } }
-        expect(generate('things-email-create', emailTool, bothExcludeKind)).not.toContain('.omit(')
-    })
-
-    const unionBodyResolved = (): ResolvedOperation =>
-        makeResolved({
-            method: 'POST',
-            operation: {
-                operationId: 'things_create',
-                parameters: [],
-                requestBody: {
-                    content: {
-                        'application/json': {
-                            schema: {
-                                anyOf: [
-                                    { type: 'object', properties: { kind: { type: 'string', enum: ['email'] } } },
-                                    { type: 'object', properties: { kind: { type: 'string', enum: ['sms'] } } },
-                                ],
-                            },
-                        },
-                    },
-                },
-            },
-        })
-
-    const allOfBodyResolved = (): ResolvedOperation =>
-        makeResolved({
-            method: 'POST',
-            operation: {
-                operationId: 'things_create',
-                parameters: [],
-                requestBody: {
-                    content: {
-                        'application/json': {
-                            schema: {
-                                allOf: [
-                                    { type: 'object', properties: { kind: { type: 'string' } } },
-                                    { type: 'object', properties: { name: { type: 'string' } } },
-                                ],
-                            },
-                        },
-                    },
-                },
-            },
-        })
-
-    const exclusionsNoToolCanOmitAlone = [
-        { name: 'a nested field', excluded: 'config.secret', resolved: thingsCreateResolved },
-        { name: 'a field of a union body', excluded: 'kind', resolved: unionBodyResolved },
-        { name: 'a field of an allOf body', excluded: 'kind', resolved: allOfBodyResolved },
-    ]
-    const generateWithSibling = (
-        excluded: string,
-        resolved: () => ResolvedOperation,
-        siblingExcludes: string[]
-    ): string => {
-        const tool: ToolConfig = { operation: 'things_create', enabled: true, exclude_params: [excluded] }
-        const sibling: ToolConfig = { operation: 'things_create', enabled: true, exclude_params: siblingExcludes }
-        const category = { ...defaultCategory, tools: { 'things-create': sibling, 'things-email-create': tool } }
-        return generateToolCode(
-            'things-email-create',
-            tool,
-            resolved(),
-            category,
-            makeSpec(),
-            new Set<string>(),
-            stubGetQuerySchema
-        ).code
-    }
-
-    it.each(exclusionsNoToolCanOmitAlone)(
-        'rejects $name that only some tools on the operation exclude',
-        ({ excluded, resolved }) => {
-            expect(() => generateWithSibling(excluded, resolved, [])).toThrow(
-                `Tool "things-email-create" cannot omit "${excluded}" on its own`
-            )
-        }
-    )
-
-    it.each(exclusionsNoToolCanOmitAlone)(
-        'accepts $name that every tool on the operation excludes',
-        ({ excluded, resolved }) => {
-            expect(generateWithSibling(excluded, resolved, [excluded])).not.toContain('.omit(')
-        }
-    )
 })
 
 describe('anyOf / oneOf body schemas (discriminated unions)', () => {

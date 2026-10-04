@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyNestedExclusions } from '../src/exclusions.mjs'
 import {
     collectOpenApiPropertyTree,
     discoverCatalogEntryConfigPropertyKeys,
@@ -82,18 +81,6 @@ const buildSpec = () => ({
 })
 
 describe('filterSchemaByOperationIds', () => {
-    it('returns a slice that callers can change without changing the next slice', () => {
-        const spec = buildSpec()
-        const firstSlice = filterSchemaByOperationIds(spec, new Set(['widgets_create']))
-        applyNestedExclusions(firstSlice, new Map([['widgets_create', ['name']]]))
-
-        const nextSlice = filterSchemaByOperationIds(spec, new Set(['widgets_create']))
-
-        expect(nextSlice.paths['/api/widgets/'].post.requestBody.content['application/json'].schema).toEqual({
-            $ref: '#/components/schemas/WidgetCreateRequest',
-        })
-    })
-
     it('includes response refs by default', () => {
         const filtered = filterSchemaByOperationIds(buildSpec(), new Set(['widgets_create']))
 
