@@ -6706,7 +6706,7 @@ class TestRunScoutActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
-def _ai_decision_flag(enabled: bool) -> Any:
+def _ai_decision_flag(enabled: bool | None) -> Any:
     return patch(
         "posthoganalytics.feature_enabled",
         side_effect=lambda key, *args, **kwargs: enabled if key == "workflows-ai-decision" else None,
@@ -6754,7 +6754,7 @@ def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None) -
 
 
 class TestAIDecisionActionValidation(APIBaseTest):
-    def _post(self, flow: dict, flag_enabled: bool = True) -> Any:
+    def _post(self, flow: dict, flag_enabled: bool | None = True) -> Any:
         with _ai_decision_flag(flag_enabled):
             return self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, format="json")
 
@@ -6824,9 +6824,12 @@ class TestAIDecisionActionValidation(APIBaseTest):
         with _ai_decision_flag(flag_enabled):
             return self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", body, format="json")
 
-    def test_the_flag_rejects_new_decisions_and_keeps_the_ones_an_active_flow_holds(self) -> None:
+    @parameterized.expand([("flag_off", False), ("flag_not_evaluated", None)])
+    def test_the_flag_rejects_new_decisions_and_keeps_the_ones_an_active_flow_holds(
+        self, _name: str, flag_value: bool | None
+    ) -> None:
         flow = _ai_decision_flow({})
-        rejected = self._post(flow, flag_enabled=False)
+        rejected = self._post(flow, flag_enabled=flag_value)
         flow_id = self._post(flow).json()["id"]
         second_decision = {**flow["actions"][1], "id": "decide_again"}
         second_decision_edges = [{**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"]
@@ -6881,3 +6884,16 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         config = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]
         assert set(config["inputs"]) == {"context"}
+
+    def test_an_unrelated_programmatic_edit_does_not_trip_over_an_unwired_draft_decision(self) -> None:
+        flow_id = self._post({**_ai_decision_flow({}, answer_edges=0), "status": "draft"}).json()["id"]
+
+        with _ai_decision_flag(True):
+            renamed = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "Renamed"},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()

@@ -18,7 +18,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.redis import get_client
-from posthog.token_bucket import BucketUnavailable
+from posthog.token_bucket import BucketDecision, BucketUnavailable
 
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
@@ -37,6 +37,7 @@ _FLAG = "posthoganalytics.feature_enabled"
 _CREDITS = "ee.billing.quota_limiting.is_team_over_ai_credit_budget"
 _CONSUME = "products.workflows.backend.services.ai_decision.consume"
 _GET_CLIENT = "products.workflows.backend.services.ai_decision.get_client"
+_ADMITTED = BucketDecision(allowed=True, remaining=1, limit=2, retry_after=0, reset=1)
 OPTIONS = [
     {"name": "spam", "description": "Cold outreach or marketing"},
     {"name": "support", "description": "A customer asking for help"},
@@ -62,12 +63,11 @@ def _pick_one_result() -> DecisionResult:
     )
 
 
-@override_settings(WORKFLOW_AI_DECISION_JWT_SECRETS=[SECRET], TASKS_CREATE_JWT_SECRETS=[SECRET])
+@override_settings(WORKFLOW_AI_DECISION_JWT_SECRETS=[SECRET])
 class TestWorkflowAIDecisionsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.client.logout()
-        self.url = f"/api/projects/{self.team.id}/workflow_ai_decisions/"
         flag = patch(_FLAG, return_value=True)
         self.flag = flag.start()
         self.addCleanup(flag.stop)
@@ -185,8 +185,20 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert decide.call_args.args[0].properties == {"action_id": "action-1"}
 
-    def test_rejects_a_token_minted_for_another_workflow_action(self) -> None:
-        response = self._post(token=_token(self.team.id, audience=PosthogJwtAudience.TASKS_CREATE))
+    @parameterized.expand(
+        [
+            ("another_audience", PosthogJwtAudience.TASKS_CREATE, SECRET),
+            ("another_signing_key", PosthogJwtAudience.WORKFLOW_AI_DECISION, "a-key-for-another-use"),
+        ]
+    )
+    def test_rejects_a_token_minted_for_another_use(
+        self, _name: str, audience: PosthogJwtAudience, signing_key: str
+    ) -> None:
+        token = encode_jwt(
+            {"team_id": self.team.id, "hog_flow_id": "flow-1"}, timedelta(minutes=5), audience, signing_key=signing_key
+        )
+        with override_settings(TASKS_CREATE_JWT_SECRETS=[SECRET]):
+            response = self._post(token=token)
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -205,9 +217,11 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         self.flag.return_value = first_closed_gate > 0
         self.organization.is_ai_data_processing_approved = first_closed_gate > 1
         self.organization.save()
-        with patch(_CREDITS, return_value=first_closed_gate <= 2), patch(_DECIDE) as decide:
+        with patch(_CREDITS, return_value=first_closed_gate <= 2) as credits, patch(_DECIDE) as decide:
             response = self._post({"state": {"reply": "x" * 9000}})
         decide.assert_not_called()
+        if expected_code == "quota_exceeded":
+            credits.assert_called_once_with(self.team.api_token)
         self.flag.return_value = True
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -242,7 +256,6 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         [
             ("ascii_at_the_cap", "a" * 8184, "a" * 8184),
             ("two_byte_characters_at_the_cap", "é" * 4092, "é" * 4092),
-            ("two_byte_characters_over_the_cap", "é" * 4093, None),
             ("lone_surrogate_from_a_split_emoji", "ok \ud83d", "ok \ufffd"),
             ("property_the_person_does_not_have", None, None),
         ]
@@ -253,15 +266,24 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         with patch(_DECIDE, return_value=_pick_one_result()) as decide:
             response = self._post({"state": {"t": value}})
 
+        assert response.json()["status"] == "succeeded", response.json()
+        assert decide.call_args.args[0].state == {"t": sent_value}
+
+    @parameterized.expand(
+        [
+            ("two_byte_characters_over_the_cap", {"t": "é" * 4093}, "state_too_large"),
+            ("nested_deeper_than_the_model_reads", {"t": json.loads("[" * 300 + "]" * 300)}, "model_refused"),
+        ]
+    )
+    def test_refuses_a_state_the_model_cannot_take_without_asking_it(
+        self, _name: str, state: dict[str, Any], expected_code: str
+    ) -> None:
+        with patch(_DECIDE) as decide:
+            response = self._post({"state": state})
+
         assert response.status_code == status.HTTP_200_OK, response.json()
-        if value is not None and sent_value is None:
-            assert response.json()["error"]["code"] == "state_too_large"
-            decide.assert_not_called()
-        else:
-            assert response.json()["status"] == "succeeded", response.json()
-            sent_state = decide.call_args.args[0].state
-            assert sent_state == {"t": sent_value}
-            json.dumps(sent_state, ensure_ascii=False).encode("utf-8")
+        assert response.json()["error"]["code"] == expected_code
+        decide.assert_not_called()
 
     @parameterized.expand(
         [
@@ -314,14 +336,16 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
     @override_settings(WORKFLOWS_AI_DECISION_TEAM_BURST=1, WORKFLOWS_AI_DECISION_TEAM_PER_HOUR=1)
     def test_one_team_over_its_budget_does_not_throttle_another(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
-        with patch(_DECIDE, return_value=_pick_one_result()):
+        with patch(_DECIDE, return_value=_pick_one_result()) as decide:
             first = self._post()
             throttled = self._post()
+            calls_after_throttle = decide.call_count
             other = self._post(team_id=other_team.id)
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert int(throttled["Retry-After"]) > 0
+        assert calls_after_throttle == 1
         assert other.status_code == status.HTTP_200_OK, other.json()
 
     @override_settings(
@@ -333,9 +357,10 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
     def test_the_global_budget_throttles_every_team_and_keeps_their_own_budget(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         with time_machine.travel("2026-10-04 12:00:00", tick=False) as clock:
-            with patch(_DECIDE, return_value=_pick_one_result()):
+            with patch(_DECIDE, return_value=_pick_one_result()) as decide:
                 first = self._post()
                 throttled = self._post(team_id=other_team.id)
+                assert decide.call_count == 1
                 clock.shift(2)
                 after_refill = self._post(team_id=other_team.id)
 
@@ -346,6 +371,10 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("bucket_unavailable", patch(_CONSUME, return_value=BucketUnavailable(error="down"))),
+            (
+                "global_bucket_unavailable",
+                patch(_CONSUME, side_effect=[_ADMITTED, BucketUnavailable(error="down")]),
+            ),
             ("redis_not_configured", patch(_GET_CLIENT, side_effect=ImproperlyConfigured("no redis"))),
         ]
     )

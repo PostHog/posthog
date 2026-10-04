@@ -1427,7 +1427,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         if action_id in (self.context.get("stored_ai_decision_action_ids") or set()):
             return
         get_team = self.context.get("get_team")
-        if get_team is not None and not ai_decision_enabled(get_team()):
+        if get_team is not None and not ai_decision_enabled(team_id=get_team().id):
             raise serializers.ValidationError({"type": "AI decisions aren't available for this organization yet."})
 
     def validate(self, data):
@@ -3239,9 +3239,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
         edges = data.get("edges", instance.edges if instance else [])
 
-        # Unlike the advisory checks below, an AI decision's answer edges are enforced on every strict
-        # save. The step is validated strictly from its first save, so this blocks no legacy flow.
-        if strict:
+        # Unlike the advisory checks below, an AI decision's answer edges are enforced on a strict save
+        # that sends the graph. An edit that leaves a builder draft's graph alone is not blocked by it.
+        if strict and ("actions" in data or "edges" in data):
             missing_edges = missing_ai_decision_edges(actions, edges)
             if missing_edges:
                 raise serializers.ValidationError({"graph": missing_edges})

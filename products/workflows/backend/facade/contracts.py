@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
@@ -261,12 +261,13 @@ class AIDecisionQuestion:
 
 @frozen
 class AIDecisionCall:
-    team: "Team"
+    team_id: int
     hog_flow_id: str | None
     action_id: str
     invocation_id: str
     question: AIDecisionQuestion
-    state: JsonValue
+    # Person and event data, kept out of the repr so an error report never prints it.
+    state: JsonValue = field(repr=False)
 
 
 @frozen
@@ -279,18 +280,20 @@ class AIDecisionAnswered:
 @frozen
 class AIDecisionFailed:
     code: AIDecisionErrorCode
+    # A cause for logs only, such as the gateway status, never a state value or a gateway body.
+    reason: str = ""
 
 
 @frozen
 class AIDecisionThrottled:
     retry_after_seconds: int
-    source: str
+    source: Literal["team", "global", "gateway"]
 
 
 @frozen
 class AIDecisionUnavailable:
-    # A cause for logs only, never a state value or a gateway body.
-    reason: str
+    reason: Literal["flag_undetermined", "redis_unavailable", "gateway_unreachable", "gateway_error"]
+    status_code: int | None = None
 
 
 AIDecisionOutcome = AIDecisionAnswered | AIDecisionFailed | AIDecisionThrottled | AIDecisionUnavailable

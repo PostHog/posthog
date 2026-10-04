@@ -9,7 +9,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
-from posthog.models import Team
 
 from products.ml_inference.backend.facade.contracts import JsonValue
 from products.workflows.backend.facade.api import decide_ai_decision
@@ -41,7 +40,7 @@ ERROR_MESSAGES: dict[AIDecisionErrorCode, str] = {
     AIDecisionErrorCode.QUOTA_EXCEEDED: "Your organization is out of AI credits. Add credits in billing settings, then try again.",
     AIDecisionErrorCode.STATE_TOO_LARGE: f"The step's context is larger than {MAX_AI_DECISION_STATE_BYTES // 1024} KB. Remove fields from the context or shorten them.",
     AIDecisionErrorCode.MODEL_REFUSED: "The AI model refused the request. Check the step's question, options, and context.",
-    AIDecisionErrorCode.GATEWAY_UNAVAILABLE: "The AI service isn't set up on this PostHog deployment.",
+    AIDecisionErrorCode.GATEWAY_UNAVAILABLE: "The AI service couldn't take the request. Contact support if this keeps happening.",
 }
 
 
@@ -116,17 +115,16 @@ class WorkflowAIDecisionViewSet(viewsets.GenericViewSet):
         summary="Answer a workflow AI decision",
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
-        user = cast(InternalAPIUser, request.user)
-        team = Team.objects.select_related("organization").get(id=cast(int, user.current_team_id))
+        team_id = cast(int, cast(InternalAPIUser, request.user).current_team_id)
         serializer = WorkflowAIDecisionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        outcome = decide_ai_decision(_call(team, cast(str | None, request.auth), serializer.validated_data))
-        return _response(team.id, outcome)
+        outcome = decide_ai_decision(_call(team_id, cast(str | None, request.auth), serializer.validated_data))
+        return _response(team_id, outcome)
 
 
-def _call(team: Team, hog_flow_id: str | None, data: dict[str, Any]) -> AIDecisionCall:
+def _call(team_id: int, hog_flow_id: str | None, data: dict[str, Any]) -> AIDecisionCall:
     return AIDecisionCall(
-        team=team,
+        team_id=team_id,
         hog_flow_id=hog_flow_id,
         action_id=data["action_id"],
         invocation_id=data["invocation_id"],
@@ -152,9 +150,12 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
                 "input_tokens": input_tokens,
             }
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
-        case AIDecisionFailed(code=code):
+        case AIDecisionFailed(code=code, reason=reason):
             AI_DECISION_OUTCOMES.labels("failed", code.value).inc()
-            logger.info("workflow_ai_decision_failed", team_id=team_id, code=code.value)
+            # Codes about one organization repeat for every person a batch run sends, so the counter carries
+            # their rate. Codes about this deployment stay visible.
+            log = logger.warning if code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE else logger.debug
+            log("workflow_ai_decision_failed", team_id=team_id, code=code.value, reason=reason)
             body = {"status": AIDecisionStatus.FAILED, "error": {"code": code, "message": ERROR_MESSAGES[code]}}
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
         case AIDecisionThrottled(retry_after_seconds=retry_after_seconds, source=source):
@@ -166,9 +167,9 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
                 headers={"Retry-After": str(retry_after_seconds)},
             )
-        case AIDecisionUnavailable(reason=reason):
+        case AIDecisionUnavailable(reason=reason, status_code=status_code):
             AI_DECISION_OUTCOMES.labels("unavailable", reason).inc()
-            logger.warning("workflow_ai_decision_unavailable", team_id=team_id, reason=reason)
+            logger.warning("workflow_ai_decision_unavailable", team_id=team_id, reason=reason, status_code=status_code)
             return Response(
                 WorkflowAIDecisionRetrySerializer({"detail": "The AI decision service is unavailable."}).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,

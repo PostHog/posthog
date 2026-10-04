@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from django.db.models import F
@@ -42,9 +42,6 @@ from products.workflows.backend.utils.email_sending_tiers import (
     max_email_sending_tier,
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
-
-if TYPE_CHECKING:
-    from posthog.models import Team
 
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
@@ -326,8 +323,8 @@ def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccou
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()
 
 
-def ai_decision_enabled(team: "Team") -> bool:
-    return ai_decision.ai_decision_enabled(team)
+def ai_decision_enabled(*, team_id: int) -> bool:
+    return ai_decision.ai_decision_enabled(team_id)
 
 
 def decide_ai_decision(call: AIDecisionCall) -> AIDecisionOutcome:
