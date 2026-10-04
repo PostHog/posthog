@@ -20,6 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.ordering import StableOrderingFilter
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
@@ -668,7 +669,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = BatchImport.objects.all()
     serializer_class = _FallbackSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, StableOrderingFilter]
     filterset_fields = ["status"]
     search_fields = ["status_message"]
     ordering_fields = ["created_at", "updated_at", "status"]
