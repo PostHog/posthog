@@ -169,6 +169,12 @@ class TestSandboxedTraceCaptureParser(BaseTest):
         self.assertEqual(tool_use_blocks[0]["name"], "MyTool")
         self.assertEqual(tool_use_blocks[0]["input"], {"q": "hello", "limit": 5})
         self.assertEqual(tool_use_blocks[0]["id"], "toolu_1")
+        self.assertEqual(len(parsed.tools), 1)
+        self.assertEqual(parsed.tools[0].name, "MyTool")
+        self.assertEqual(parsed.tools[0].input, {"q": "hello", "limit": 5})
+        self.assertEqual(parsed.tools[0].output, "ok")
+        self.assertEqual(parsed.tools[0].start_ts, "2026-04-15T10:00:01.000Z")
+        self.assertEqual(parsed.tools[0].end_ts, "2026-04-15T10:00:02.000Z")
 
     def test_back_to_back_tool_calls_produce_separate_generations(self):
         """Regression test: the parser must flush on ``tool_call`` when

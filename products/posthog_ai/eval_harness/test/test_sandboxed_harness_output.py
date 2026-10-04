@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 from products.posthog_ai.eval_harness import base
 from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
-from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary, NullCaseHooks
+from products.posthog_ai.eval_harness.engines.types import AggregateMetric, AggregateScore, EvalSummary, NullCaseHooks
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
@@ -79,6 +79,12 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
                 "exit_code_zero": AggregateScore("exit_code_zero", 1.0),
                 "called_target_tool": AggregateScore("called_target_tool", 0.0),
             },
+            metrics={
+                "duration": AggregateMetric("duration", 396.4, "s"),
+                "prompt_tokens": AggregateMetric("prompt_tokens", 32_082, ""),
+                "completion_tokens": AggregateMetric("completion_tokens", 593, ""),
+                "cost": AggregateMetric("cost", 0.045968, ""),
+            },
             experiment_url="https://experiments.example/e",
         ),
     )
@@ -117,6 +123,10 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     assert "Experiment: sandboxed-cli-mcp-verify-event-cli" in output
     assert "exit_code_zero: 100.0%" in output
     assert "called_target_tool: 0.0%" in output
+    assert "Average case time: 6m 36.4s" in output
+    assert "prompt_tokens: 32,082" in output
+    assert "completion_tokens: 593" in output
+    assert "cost: $0.0460" in output
     assert "PostHog: https://us.posthog.com/" in output
     assert "Braintrust: https://experiments.example/e" in output
     assert f"Agent logs: {tmp_path}" in output
@@ -193,13 +203,22 @@ def _collect_spans(parsed: ParsedLog) -> list[tuple[str, Any]]:
         def __init__(self, name: str) -> None:
             self.name = name
 
-        def log(self, *, input: Any = None, output: Any = None, metadata: Any = None) -> None:
+        def log(
+            self,
+            *,
+            input: Any = None,
+            output: Any = None,
+            metadata: dict[str, Any] | None = None,
+            metrics: dict[str, int | float] | None = None,
+        ) -> None:
             if input is not None:
                 collected.append((self.name, input))
 
     class _Hooks(NullCaseHooks):
         @contextmanager
-        def start_span(self, name: str, kind: Any) -> Iterator[_Span]:
+        def start_span(
+            self, name: str, kind: Any, start_time: float | None = None, end_time: float | None = None
+        ) -> Iterator[_Span]:
             yield _Span(name)
 
     base._log_conversation_spans(_Hooks(), parsed)

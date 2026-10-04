@@ -26,7 +26,7 @@ class CaseLogPaths:
     summary: Path
 
 
-def build_case_dir(experiment_name: str, experiment_id: str) -> Path:
+def build_case_dir(experiment_name: str, experiment_id: str, *, output_dir: Path | None = None) -> Path:
     """Create a per-run log directory and update the ``latest`` symlink.
 
     Layout: ``logs/{experiment}/{YYYYMMDD-HHMMSS}_{short_id}/``. The timestamp
@@ -38,7 +38,8 @@ def build_case_dir(experiment_name: str, experiment_id: str) -> Path:
     short_id = experiment_id[:8] if experiment_id else "unknown"
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     experiment_slug = _slugify(experiment_name)
-    experiment_dir = LOGS_ROOT / experiment_slug
+    logs_root = output_dir if output_dir is not None else LOGS_ROOT
+    experiment_dir = logs_root / experiment_slug
     case_dir = experiment_dir / f"{timestamp}_{short_id}"
     case_dir.mkdir(parents=True, exist_ok=True)
 
@@ -58,23 +59,32 @@ def build_case_dir(experiment_name: str, experiment_id: str) -> Path:
             "experiment": experiment_slug,
             "experiment_id": experiment_id,
             "path": str(case_dir),
-        }
+        },
+        output_dir=output_dir,
     )
     return case_dir
 
 
-def _append_index_entry(entry: dict[str, Any]) -> None:
+def _append_index_entry(entry: dict[str, Any], *, output_dir: Path | None = None) -> None:
     """Append a single JSONL row to the global run index.
 
     The index lets an agent tail ``logs/runs.jsonl`` to find every historical
     run across experiments without walking the directory tree.
     """
     try:
-        LOGS_ROOT.mkdir(parents=True, exist_ok=True)
-        with INDEX_FILE.open("a") as f:
+        logs_root = output_dir if output_dir is not None else LOGS_ROOT
+        index_file = logs_root / "runs.jsonl" if output_dir is not None else INDEX_FILE
+        logs_root.mkdir(parents=True, exist_ok=True)
+        with index_file.open("a") as f:
             f.write(json.dumps(entry) + "\n")
     except OSError:
         pass
+
+
+def build_trial_dir(run_dir: Path, case_name: str, trial_id: str) -> Path:
+    trial_dir = run_dir / "trials" / f"{_slugify(case_name)}_{trial_id}"
+    trial_dir.mkdir(parents=True, exist_ok=False)
+    return trial_dir
 
 
 def _format_summary(

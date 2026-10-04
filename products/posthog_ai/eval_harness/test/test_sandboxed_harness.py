@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import asyncio
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,12 +32,17 @@ from products.tasks.backend.facade.agents import TurnPollResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
+if TYPE_CHECKING:
+    from temporalio.client import WorkflowHandle
+
 
 class _FakeWorkflowHandle:
-    def __init__(self, *, complete_on_signal: bool, complete_on_cancel: bool = False) -> None:
+    def __init__(self, *, complete_on_signal: bool, complete_on_cancel: bool = False, result_timeouts: int = 0) -> None:
         self.complete_on_signal = complete_on_signal
         self.complete_on_cancel = complete_on_cancel
+        self.result_timeouts = result_timeouts
         self.signal_received = asyncio.Event()
+        self.result_requested = asyncio.Event()
         self.terminal = asyncio.Event()
         self.signals: list[list[str | None]] = []
         self.cancelled = False
@@ -47,6 +54,10 @@ class _FakeWorkflowHandle:
             self.terminal.set()
 
     async def result(self) -> None:
+        self.result_requested.set()
+        if self.result_timeouts:
+            self.result_timeouts -= 1
+            raise TimeoutError
         await self.terminal.wait()
 
     async def cancel(self) -> None:
@@ -129,6 +140,40 @@ def test_setup_django_disables_self_capture_before_settings_load() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_harness_import_and_server_start_preserve_existing_logs() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import logging, sys\n"
+                "from products.posthog_ai.eval_harness.harness.django_env import setup_django\n"
+                "setup_django()\n"
+                "logger = logging.getLogger('saved_scout_logging_regression')\n"
+                "logger.setLevel(logging.WARNING)\n"
+                "logger.addHandler(logging.StreamHandler(sys.stdout))\n"
+                "from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness\n"
+                "logger.warning('log after harness import')\n"
+                "from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer\n"
+                "server = EvalLiveServer(port=0)\n"
+                "try:\n"
+                "    logger.warning('log after server startup')\n"
+                "finally:\n"
+                "    server.stop()\n"
+            ),
+        ],
+        cwd=Path(__file__).resolve().parents[4],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "log after harness import" in result.stdout
+    assert "log after server startup" in result.stdout
+
+
 @parameterized.expand([(0,), (-1,)])
 def test_parse_args_rejects_non_positive_case_timeout(case_timeout: int) -> None:
     with pytest.raises(SystemExit) as error:
@@ -199,7 +244,10 @@ async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
 
 
 @pytest.mark.asyncio
-async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("signal_completion", [True, False])
+async def test_success_waits_for_workflow_cleanup_before_returning(
+    monkeypatch: pytest.MonkeyPatch, signal_completion: bool
+) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=False)
     provider = _Provider()
     _patch_runner_boundaries(
@@ -218,16 +266,23 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
             MagicMock(),
             provider=provider,
         )
+        if signal_completion
+        else runner.finish_workflow(cast("WorkflowHandle", handle), status=None, reason=None)
     )
-    await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+    await asyncio.wait_for(handle.result_requested.wait(), timeout=1)
 
     assert not case_task.done()
+    assert not handle.cancelled
     handle.terminal.set()
     result = await asyncio.wait_for(case_task, timeout=1)
 
-    assert result.artifacts.exit_code == 0
-    assert handle.signals == [["completed", None]]
-    assert provider.cleaned_task_ids == ["task-id"]
+    if signal_completion:
+        assert isinstance(result, runner.EvalCaseResult)
+        assert result.artifacts.exit_code == 0
+    else:
+        assert result is True
+    assert handle.signals == ([["completed", None]] if signal_completion else [])
+    assert provider.cleaned_task_ids == (["task-id"] if signal_completion else [])
 
 
 @pytest.mark.asyncio
@@ -277,8 +332,16 @@ async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    handle = _FakeWorkflowHandle(complete_on_signal=False)
+@pytest.mark.parametrize("signal_completion", [True, False])
+@pytest.mark.parametrize("complete_on_cancel", [True, False])
+async def test_workflow_completion_timeout_cancels_before_returning(
+    monkeypatch: pytest.MonkeyPatch, signal_completion: bool, complete_on_cancel: bool
+) -> None:
+    handle = _FakeWorkflowHandle(
+        complete_on_signal=False,
+        complete_on_cancel=complete_on_cancel,
+        result_timeouts=1 if complete_on_cancel else 2,
+    )
     provider = _Provider()
     _patch_runner_boundaries(
         monkeypatch,
@@ -289,18 +352,25 @@ async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytes
             )
         ),
     )
-    monkeypatch.setattr(runner, "WORKFLOW_COMPLETION_GRACE_SECONDS", 0.01)
-    monkeypatch.setattr(runner, "WORKFLOW_CANCELLATION_GRACE_SECONDS", 0.01)
-
-    with pytest.raises(runner.WorkflowCleanupError, match="cleanup could not be confirmed"):
-        await runner.run_eval_case(
+    if signal_completion:
+        case_run = runner.run_eval_case(
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
         )
+        if complete_on_cancel:
+            result = await case_run
+            assert result.artifacts.exit_code == 0
+        else:
+            with pytest.raises(runner.WorkflowCleanupError, match="cleanup could not be confirmed"):
+                await case_run
+    else:
+        confirmed = await runner.finish_workflow(cast("WorkflowHandle", handle), status=None, reason=None)
+        assert confirmed is complete_on_cancel
 
     assert handle.cancelled
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert handle.signals == ([["completed", None]] if signal_completion else [])
+    assert provider.cleaned_task_ids == (["task-id"] if signal_completion else [])
 
 
 def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -331,7 +401,7 @@ class TestAgentRunFailureDetection:
                 '{"sessionUpdate": "error", "errorType": "agent_error", "message": "403 model_gate"}}}}',
             ]
         )
-        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        artifacts = runner.parse_agent_artifacts(log, duration_seconds=1.0, agent_finished=True)
         assert artifacts.exit_code == 1
         assert "403 model_gate" in artifacts.stderr
 
@@ -340,7 +410,7 @@ class TestAgentRunFailureDetection:
     # run at zero on every outcome scorer instead of dropping it from the aggregates.
     def test_a_terminal_posthog_error_with_no_tool_call_is_infrastructure(self) -> None:
         log = '{"notification": {"method": "_posthog/error", "params": {"message": "403 model_gate"}}}'
-        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        artifacts = runner.parse_agent_artifacts(log, duration_seconds=1.0, agent_finished=True)
         assert artifacts.exit_code == 1
         assert artifacts.tool_call_count == 0
         assert runner.agent_never_ran(artifacts) is True
@@ -378,3 +448,38 @@ class TestSliceTurnLogs:
 
     def test_a_malformed_line_disables_slicing(self) -> None:
         assert runner._slice_turn_logs('{"line": 0}\nnot json\n{"line": 1}', [1, 3]) is None
+
+
+class TestGitDiffCapture:
+    @staticmethod
+    def _tool_call(title: str, text: str) -> str:
+        return json.dumps(
+            {
+                "notification": {
+                    "method": "session/update",
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "tool_call",
+                            "title": title,
+                            "content": {"type": "text", "text": text},
+                        }
+                    },
+                }
+            }
+        )
+
+    # A `git diff --name-only` / `--stat` title contains "git diff", so a later listing used to
+    # overwrite the captured unified diff, leaving the implementation judge grading a file list.
+    @parameterized.expand(
+        [
+            ("name-only listing", "git diff --name-only", "app.py"),
+            ("stat summary", "git diff --stat", " app.py | 2 +-\n 1 file changed"),
+        ]
+    )
+    def test_a_listing_does_not_overwrite_the_captured_diff(
+        self, _name: str, follow_up_title: str, follow_up_text: str
+    ) -> None:
+        real_diff = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new"
+        log = "\n".join([self._tool_call("git diff", real_diff), self._tool_call(follow_up_title, follow_up_text)])
+        artifacts = runner.parse_agent_artifacts(log, duration_seconds=1.0, agent_finished=True)
+        assert artifacts.git_diff == real_diff

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import Literal
 
 from posthog.clickhouse.client import sync_execute
 
 from products.posthog_ai.eval_harness.data_setup import (
     copy_demo_data_to_new_team,
     create_core_memory,
+    create_empty_team,
     ensure_master_demo_team,
 )
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_skill_isolation_environment
@@ -49,9 +51,20 @@ class SandboxedDemoData:
         self.reasoning_effort = reasoning_effort
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
 
-    def make_context(self, case_label: str, *, disable_bundled_skills: bool = False) -> CustomPromptSandboxContext:
-        _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
-        create_core_memory(team, self._django_db_blocker)
+    def make_context(
+        self,
+        case_label: str,
+        *,
+        disable_bundled_skills: bool = False,
+        project_data: Literal["hedgebox", "empty"] = "hedgebox",
+    ) -> CustomPromptSandboxContext:
+        if project_data == "empty":
+            project = create_empty_team(self._django_db_blocker, label=case_label)
+            team = project.team
+            user = project.user
+        else:
+            _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
+            create_core_memory(team, self._django_db_blocker)
         sandbox_environment_id: str | None = None
         if disable_bundled_skills:
             # The sandbox reads this env var and clears its native skill directories

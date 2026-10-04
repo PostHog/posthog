@@ -11,7 +11,16 @@ from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 
 # Imported for its side effect: braintrust's offline summary crashes on a skipped score.
 from . import braintrust_patches  # noqa: F401
-from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
+from .types import (
+    AggregateMetric,
+    AggregateScore,
+    CaseResult,
+    EnvVarSpec,
+    EvalSummary,
+    ExperimentResult,
+    ExperimentSpec,
+    SpanKind,
+)
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -49,9 +58,25 @@ class _BraintrustCaseHooks:
         return self._hooks.metadata
 
     @contextmanager
-    def start_span(self, name: str, kind: SpanKind) -> Iterator[Any]:
-        with self._hooks.span.start_span(name=name, span_attributes={"type": kind}) as span:
+    def start_span(
+        self,
+        name: str,
+        kind: SpanKind,
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ) -> Iterator[Any]:
+        span = self._hooks.span.start_span(
+            name=name,
+            span_attributes={"type": kind},
+            start_time=start_time,
+        )
+        try:
             yield span
+        except Exception as error:
+            span.log(error=str(error))
+            raise
+        finally:
+            span.end(end_time=end_time)
 
 
 class BraintrustEngine:
@@ -134,6 +159,10 @@ class BraintrustEngine:
                 engine_name=self.name,
                 experiment_name=summary.experiment_name,
                 scores={name: AggregateScore(name=s.name, score=s.score) for name, s in summary.scores.items()},
+                metrics={
+                    name: AggregateMetric(name=metric.name, value=metric.metric, unit=metric.unit)
+                    for name, metric in summary.metrics.items()
+                },
                 experiment_url=summary.experiment_url,
                 raw=summary.as_dict(),
             ),
@@ -149,3 +178,16 @@ class BraintrustEngine:
                 for case in result.results
             ],
         )
+
+
+class PrivateBraintrustEngine(BraintrustEngine):
+    supports_public_experiments: ClassVar[bool] = False
+
+    @classmethod
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+        return ()
+
+    async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        if spec.is_public or not spec.no_send_logs:
+            raise ValueError("The private engine requires local-only experiment results")
+        return await super().run_experiment(spec)

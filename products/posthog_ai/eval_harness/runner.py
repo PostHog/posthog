@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["run_eval_case"]
+__all__ = ["finish_workflow", "parse_agent_artifacts", "run_eval_case"]
 
 # Word-boundary matches so a tool title like "latest release" doesn't read as a
 # test run, and "blueprint" doesn't read as a lint run. These artifacts feed the
@@ -86,16 +86,20 @@ async def _wait_for_workflow_terminal(handle: WorkflowHandle, timeout_seconds: i
     return True
 
 
-async def _finish_workflow(handle: WorkflowHandle, *, status: str, reason: str | None) -> bool:
-    """Request a terminal state and wait for the workflow's sandbox cleanup."""
-    signaled = False
-    try:
-        await handle.signal(ProcessTaskWorkflow.complete_task, args=[status, reason])
-        signaled = True
-    except Exception:
-        logger.warning("Could not signal eval workflow status=%s", status, exc_info=True)
+async def finish_workflow(handle: WorkflowHandle, *, status: str | None, reason: str | None) -> bool:
+    """Wait for workflow cleanup, optionally requesting a terminal state.
 
-    if signaled and await _wait_for_workflow_terminal(handle, WORKFLOW_COMPLETION_GRACE_SECONDS):
+    ``status=None`` preserves the completion requested by the production runner.
+    """
+    signaled = False
+    if status is not None:
+        try:
+            await handle.signal(ProcessTaskWorkflow.complete_task, args=[status, reason])
+            signaled = True
+        except Exception:
+            logger.warning("Could not signal eval workflow status=%s", status, exc_info=True)
+
+    if (status is None or signaled) and await _wait_for_workflow_terminal(handle, WORKFLOW_COMPLETION_GRACE_SECONDS):
         return True
 
     try:
@@ -155,8 +159,8 @@ async def run_eval_case(
 
         duration = time.monotonic() - start
         logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
-        artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
-        completion_task = asyncio.create_task(_finish_workflow(state.handle, status="completed", reason=None))
+        artifacts = parse_agent_artifacts(full_log, duration, agent_finished=True)
+        completion_task = asyncio.create_task(finish_workflow(state.handle, status="completed", reason=None))
         cleanup_confirmed = await asyncio.shield(completion_task)
         if not cleanup_confirmed:
             raise WorkflowCleanupError(
@@ -176,7 +180,7 @@ async def run_eval_case(
             cleanup_confirmed = await asyncio.shield(completion_task)
         elif state.handle is not None and not isinstance(e, WorkflowCleanupError):
             cleanup_confirmed = await asyncio.shield(
-                _finish_workflow(state.handle, status="failed", reason=f"eval case '{case.name}' failed: {e}")
+                finish_workflow(state.handle, status="failed", reason=f"eval case '{case.name}' failed: {e}")
             )
         if state.handle is not None and not cleanup_confirmed:
             logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
@@ -223,7 +227,7 @@ async def _run_multi_turn_case(
     """Run ``case.prompt`` plus every follow-up in one agent session.
 
     ``session.end()`` only signals completion, so the caller still finishes the
-    workflow through ``_finish_workflow`` like any other case.
+    workflow through ``finish_workflow`` like any other case.
     """
     session, _ = await MultiTurnSession.start_raw(
         prompt=case.prompt,
@@ -276,7 +280,7 @@ def _slice_turn_logs(full_log: str, line_marks: list[int]) -> list[str] | None:
     return ["\n".join(lines[bounds[i] : bounds[i + 1]]) for i in range(len(line_marks))]
 
 
-def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
+def parse_agent_artifacts(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
     """Extract scoring artifacts from JSONL agent logs."""
     tool_outputs: list[dict] = []
     agent_errors: list[str] = []
@@ -335,8 +339,9 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
         elif isinstance(content, str):
             text = content
 
-        # Detect git diff output
-        if "git diff" in title and text:
+        # A `git diff --name-only` or `--stat` title still contains "git diff", so gate on the
+        # unified-diff header to keep a bare file list from overwriting a real diff.
+        if "git diff" in title and "diff --git " in text:
             git_diff = text
 
         # Detect git status / changed files

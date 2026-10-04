@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import json
 import time
 import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import asdict, replace
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -21,18 +23,44 @@ from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
 from .log_parser import describe_tool_use
-from .log_sink import append_case_scores, build_case_dir, write_case_logs
+from .log_sink import append_case_scores, build_case_dir, build_trial_dir, write_case_logs
 from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
+    from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+
     from .harness.context import EvalContext
+    from .harness.demo_data import SandboxedDemoData
 
 logger = logging.getLogger(__name__)
 
 
-def _get_last_assistant_text(parsed: ParsedLog) -> str:
+class EvalTaskError(RuntimeError):
+    def __init__(self, message: str, output: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.output = output
+
+
+class EvalTaskCancelled(asyncio.CancelledError):
+    def __init__(self, message: str, output: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.output = output
+
+
+async def prepare_sandbox_case(
+    demo_data: SandboxedDemoData,
+    case: SandboxedEvalCase,
+) -> tuple[CustomPromptSandboxContext, dict[str, Any]]:
+    sandbox_context = await asyncio.to_thread(demo_data.make_context, case.name, project_data=case.project_data)
+    if case.interaction_origin:
+        sandbox_context = replace(sandbox_context, interaction_origin=case.interaction_origin)
+    seed = await asyncio.to_thread(case.setup, sandbox_context) if case.setup is not None else {}
+    return sandbox_context, seed
+
+
+def get_last_assistant_text(parsed: ParsedLog) -> str:
     """Extract the last assistant message text from the final generation."""
     for gen in reversed(parsed.generations):
         if not gen.output_content:
@@ -124,6 +152,105 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
             span.log(metadata={"message": span_desc.content})
 
 
+def _braintrust_message(message: dict[str, Any]) -> list[dict[str, Any]]:
+    role = message.get("role", "user")
+    content = message.get("content")
+    if not isinstance(content, list):
+        return [{"role": role, "content": content}]
+
+    text = "\n".join(
+        str(block.get("text", ""))
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+    )
+    tool_calls = [
+        {
+            "id": str(block.get("id", "")),
+            "type": "function",
+            "function": {
+                "name": str(block.get("name", "unknown tool")),
+                "arguments": json.dumps(block.get("input", {}), sort_keys=True),
+            },
+        }
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    ]
+    tool_results = [
+        {
+            "role": "tool",
+            "tool_call_id": str(block.get("tool_use_id", "")),
+            "content": str(block.get("content", "")),
+        }
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
+
+    messages: list[dict[str, Any]] = []
+    if text or tool_calls:
+        assistant_message: dict[str, Any] = {"role": role, "content": text or None}
+        if tool_calls:
+            assistant_message["tool_calls"] = tool_calls
+        messages.append(assistant_message)
+    messages.extend(tool_results)
+    return messages
+
+
+def _braintrust_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [converted for message in messages for converted in _braintrust_message(message)]
+
+
+def _unix_timestamp(timestamp: str) -> float | None:
+    if not timestamp:
+        return None
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def log_agent_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
+    tools = {tool.tool_call_id: tool for tool in parsed.tools}
+
+    for index, generation in enumerate(parsed.generations, start=1):
+        metadata = {"model": parsed.model} if parsed.model else None
+        with hooks.start_span(
+            f"model turn {index}",
+            "llm",
+            start_time=_unix_timestamp(generation.start_ts),
+            end_time=_unix_timestamp(generation.end_ts),
+        ) as span:
+            span.log(
+                input=_braintrust_messages(generation.input_messages),
+                output=_braintrust_message({"role": "assistant", "content": generation.output_content})[0],
+                metadata=metadata,
+                metrics=generation.metrics or None,
+            )
+
+        for block in generation.output_content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            tool_call_id = str(block.get("id", ""))
+            tool = tools.get(tool_call_id)
+            tool_metadata: dict[str, Any] = {"tool_call_id": tool_call_id}
+            if tool and tool.is_error:
+                tool_metadata["error"] = True
+            with hooks.start_span(
+                str(block.get("name", "unknown tool")),
+                "tool",
+                start_time=_unix_timestamp(tool.start_ts) if tool else None,
+                end_time=_unix_timestamp(tool.end_ts) if tool else None,
+            ) as span:
+                span.log(
+                    input=tool.input if tool else block.get("input", {}),
+                    output=tool.output if tool else None,
+                    metadata=tool_metadata,
+                )
+
+    for span_desc in parsed.spans:
+        with hooks.start_span(span_desc.span_name, "function") as span:
+            span.log(metadata={"message": span_desc.content})
+
+
 class _BaseEvalRun:
     """One evaluation suite run — the per-experiment state and the generic
     Braintrust orchestration, independent of how a case's task executes.
@@ -148,6 +275,7 @@ class _BaseEvalRun:
         is_public: bool,
         no_send_logs: bool,
         engine: EvalEngine | None = None,
+        output_dir: Path | None = None,
     ) -> None:
         self.experiment_name = experiment_name
         self.cases = cases
@@ -161,7 +289,7 @@ class _BaseEvalRun:
         # Generate a unique experiment ID per eval run
         self.experiment_id = str(uuid.uuid4())
 
-        self.posthog_client = ctx.posthog_client
+        self.posthog_client = None if no_send_logs else ctx.posthog_client
 
         # Shared lookups populated by _task(), read after the experiment run completes.
         self.agent_trace_id_lookup: dict[str, str] = {}
@@ -170,7 +298,12 @@ class _BaseEvalRun:
 
         # Local disk sink for raw agent logs — lets an agent iterating on the
         # harness read back what happened without round-tripping through Braintrust.
-        self.run_log_dir = build_case_dir(experiment_name, self.experiment_id)
+        self.run_log_dir = (
+            build_case_dir(experiment_name, self.experiment_id, output_dir=output_dir)
+            if output_dir is not None
+            else build_case_dir(experiment_name, self.experiment_id)
+        )
+        self.trial_log_dirs: dict[str, Path] = {}
 
         # Wrap scorers with tracing if PostHog client is available
         self.scorer_traces: dict[tuple[str, str], str] = {}
@@ -224,33 +357,85 @@ class _BaseEvalRun:
     def _experiment_metadata(self) -> dict[str, Any]:
         return {"agent_model": self.ctx.agent_model}
 
+    def _trial_log_dir(self, case_name: str, hooks: CaseHooks) -> Path:
+        trial_id = hooks.metadata.get("trial_id")
+        if isinstance(trial_id, str) and trial_id in self.trial_log_dirs:
+            return self.trial_log_dirs[trial_id]
+        trial_id = uuid.uuid4().hex
+        trial_dir = build_trial_dir(self.run_log_dir, case_name, trial_id)
+        self.trial_log_dirs[trial_id] = trial_dir
+        hooks.metadata.update(trial_id=trial_id, artifact_dir=str(trial_dir))
+        return trial_dir
+
     async def _task(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
         case_name = input.get("name", "?")
         status: Literal["ok", "timeout", "error"] = "ok"
+        trial_dir: Path | None = None
+        output: dict[str, Any] | None = None
+        error: str | None = None
         try:
-            return await self._execute_case(input, hooks)
-        except TimeoutError:
+            hooks.metadata.pop("trial_id", None)
+            trial_dir = self._trial_log_dir(case_name, hooks)
+            (trial_dir / "input.json").write_text(json.dumps(input, indent=2, default=str))
+            output = await self._execute_case(input, hooks)
+            return output
+        except TimeoutError as exc:
             # A case that outran its budget is a task result (too slow), not an
             # infra error: score it 0 rather than letting Braintrust mark it errored.
             status = "timeout"
             logger.warning("Eval case '%s' timed out after %ds", case_name, self.ctx.per_case_timeout_seconds)
-            return self._timeout_output()
-        except Exception:
+            partial = exc.__cause__.output if isinstance(exc.__cause__, EvalTaskCancelled) else {}
+            output = partial | self._timeout_output()
+            return output
+        except asyncio.CancelledError as exc:
+            status = "error"
+            error = str(exc)
+            if isinstance(exc, EvalTaskCancelled):
+                output = exc.output
+            raise
+        except Exception as exc:
             # Infra failure (provisioning, demo copy, setup hook, poll). Re-raise so
             # Braintrust records the case as errored and excludes it from score
             # averages, instead of scoring the task 0 for the harness's fault.
             status = "error"
+            error = str(exc)
+            if isinstance(exc, EvalTaskError):
+                output = exc.output
             logger.exception("Eval task errored for '%s'", case_name)
             raise
         finally:
+            duration = time.monotonic() - case_started
+            retention_error: OSError | None = None
+            try:
+                if trial_dir is not None:
+                    (trial_dir / "output.json").write_text(json.dumps(output, indent=2, default=str))
+                    (trial_dir / "execution.json").write_text(
+                        json.dumps(
+                            {
+                                "status": status,
+                                "error": error,
+                                "duration_seconds": duration,
+                                "metadata": hooks.metadata,
+                                "settings": self._experiment_metadata(),
+                            },
+                            indent=2,
+                            default=str,
+                        )
+                    )
+            except OSError as exc:
+                status = "error"
+                retention_error = exc
+                logger.exception("Failed to retain trial output for '%s'", case_name)
             # Report on every path so the reporter's live case counter never stalls.
             await self.ctx.reporter.case_done(
                 self.experiment_name,
                 case_name,
-                duration_seconds=time.monotonic() - case_started,
+                duration_seconds=duration,
                 status=status,
             )
+            if retention_error is not None and error is None:
+                raise retention_error
 
     async def _finalize(self, result: ExperimentResult) -> None:
         """Append scores to local summaries, emit PostHog evaluation/trace-root
@@ -262,7 +447,11 @@ class _BaseEvalRun:
                 if not case_name:
                     continue
                 try:
-                    append_case_scores(self.run_log_dir, case_name, dict(eval_result.scores or {}))
+                    trial_id = eval_result.metadata.get("trial_id")
+                    trial_dir = self.trial_log_dirs.get(trial_id) if isinstance(trial_id, str) else None
+                    append_case_scores(trial_dir or self.run_log_dir, case_name, dict(eval_result.scores or {}))
+                    if trial_dir is not None:
+                        (trial_dir / "result.json").write_text(json.dumps(asdict(eval_result), indent=2, default=str))
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
 
@@ -325,9 +514,7 @@ class _BaseEvalRun:
         """Write one JSONL row per case x trial to the run's local log dir.
 
         The reporter's ``eval_results.jsonl`` carries only per-experiment
-        aggregates, and ``eval_harness/logs/`` case logs overwrite each other
-        across trials — neither supports a paired case-level analysis. The data
-        already lives in ``ExperimentResult.results``; persist it here.
+        aggregates. This compact index links scores to each trial's full artifacts.
         ``trial_index`` groups the trials of one case: scores from the same
         trial index are comparable across runs of the same case set, but a
         trial index is a repetition counter, not a fixed condition.
@@ -346,6 +533,8 @@ class _BaseEvalRun:
                     "experiment": self.experiment_name,
                     "case_name": case_name,
                     "trial_index": trial_index,
+                    "trial_id": case_result.metadata.get("trial_id"),
+                    "artifact_dir": case_result.metadata.get("artifact_dir"),
                     "scores": case_result.scores,
                     "error": case_result.error,
                 }
@@ -360,6 +549,10 @@ class _BaseEvalRun:
 
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
+        if not eval_cases:
+            if self.case_filter:
+                raise ValueError(f"{self.experiment_name} has no cases matching --eval {self.case_filter!r}")
+            raise ValueError(f"{self.experiment_name} has no cases")
 
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
@@ -452,6 +645,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     disable_bundled_skills=(
                         ctx.skill_delivery == "exec" or bool(original_case and original_case.disable_bundled_skills)
                     ),
+                    project_data=original_case.project_data if original_case is not None else eval_case.project_data,
                 )
                 if original_case is not None and original_case.interaction_origin:
                     sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
@@ -499,11 +693,15 @@ class _SandboxedEvalRun(_BaseEvalRun):
         # Parse the log once, use for both Braintrust spans and PostHog trace capture
         last_message = ""
         messages: list[dict[str, Any]] = []
+        token_usage: dict[str, int] | None = None
+        cost_usd: float | None = None
         if result.raw_log:
             parsed = parse_log(result.raw_log, initial_prompt=eval_case.prompt)
-            _log_conversation_spans(hooks, parsed)
-            last_message = _get_last_assistant_text(parsed)
+            log_agent_spans(hooks, parsed)
+            last_message = get_last_assistant_text(parsed)
             messages = parsed.messages
+            token_usage = parsed.total_token_usage
+            cost_usd = parsed.total_cost_usd
 
             if self.posthog_client:
                 try:
@@ -523,21 +721,21 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         "first_timestamp": parsed.first_timestamp,
                         "last_message": last_message,
                         "artifacts_summary": result.artifacts.model_dump(),
-                        "token_usage": parsed.total_token_usage,
+                        "token_usage": token_usage,
                     }
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
         try:
             write_case_logs(
-                case_dir=self.run_log_dir,
+                case_dir=self._trial_log_dir(eval_case.name, hooks),
                 case_name=eval_case.name,
                 raw_log=result.raw_log or "",
                 artifacts=result.artifacts.model_dump(),
                 prompt=eval_case.prompt,
                 duration=result.artifacts.duration_seconds,
                 last_message=last_message,
-                token_usage=self.case_trace_meta.get(eval_case.name, {}).get("token_usage"),
+                token_usage=token_usage,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
@@ -554,6 +752,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "raw_log": result.raw_log,
             "turn_logs": result.turn_logs,
             "turn_prompts": [eval_case.prompt, *eval_case.followups],
+            "token_usage": token_usage,
+            "cost_usd": cost_usd,
             "seed": seed_result,
             "prompt": eval_case.prompt,
         }

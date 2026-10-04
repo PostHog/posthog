@@ -9,6 +9,9 @@ Reporting does not run the agent or scorers again.
 Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
 `SandboxedPublicEval` sets `no_send_logs=False` and uploads to both services.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service; local logs are still written.
+The same settings apply to `WorkflowPublicEval` and `WorkflowPrivateEval`.
+Private suites also disable the harness's PostHog agent traces, trace roots, and scorer tracing, even when other suites share an enabled trace client.
+This setting does not control telemetry created by a workflow's own services or model clients; a private workflow must configure those separately.
 
 The harness creates one dedicated result client at startup, shares it across all suites, and shuts it down after the invocation.
 Each suite waits for queued PostHog uploads in worker threads so other suites can keep running.
@@ -20,6 +23,225 @@ Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and 
 Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
 Result reporting uses the existing event schema.
 The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate reporter and is outside this behavior.
+
+## Local trial artifacts
+
+Every task invocation receives a unique `trial_id` and `artifact_dir` in its result metadata.
+Sandboxed and workflow logs are stored under `logs/<experiment>/<run>/trials/<case>_<trial_id>/`, so repetitions cannot overwrite one another.
+The directory stores the case input, available workflow output, and execution status and settings.
+Completed cases also retain raw session logs, artifacts, and a readable summary.
+After scoring, `result.json` retains the input, output, expected values, metadata, scores, and any infrastructure error.
+Timeouts retain their timeout output; task exceptions retain their execution error and any logs already written.
+
+`WorkflowEval` accepts `output_dir=Path(...)` to choose a different logs root, including a private artifact directory.
+`WorkflowPrivateEval` accepts the same argument.
+Choose private storage when case inputs or outputs contain historical project data.
+
+A sandboxed case may set `project_data="empty"` when its setup hook restores saved inputs.
+This creates a fresh organization, root project, and user without copying Hedgebox data or core memory.
+The default remains `project_data="hedgebox"`.
+
+## Private saved scout cases
+
+Run from the repository root in the checkout that owns the evaluation.
+Prepare that checkout's development environment and dependencies; do not use a Python environment or dependency executables from another worktree.
+The commands below use its `.codex/with-flox` wrapper.
+In a worktree with a newly provisioned wrapper, initialize it with `.codex/with-flox --prepare true` first.
+
+The harness also needs the Python gateway's separate environment in this checkout.
+Prepare those dependencies without starting another gateway:
+
+```bash
+.codex/with-flox env UV_PROJECT_ENVIRONMENT="$PWD/services/llm-gateway/.venv" \
+    uv sync --project services/llm-gateway --frozen
+```
+
+The saved-case command loads this checkout's `.env`, preserving variables already supplied by the launch environment.
+The wrapper builds a clean environment, so ambient exported credentials are not necessarily forwarded.
+This checkout's ignored `.env` is a reliable place to supply them when using the wrapper.
+The saved-case command does not load `.env.local` itself.
+Provide `SANDBOX_JWT_PRIVATE_KEY`, `LLM_GATEWAY_ANTHROPIC_API_KEY`, and `LLM_GATEWAY_OPENAI_API_KEY`.
+The OpenAI credential serves rubric generation and judging even when the scout uses Claude.
+The local signing key is available in `.env.example`.
+Private saved cases do not require a Braintrust key.
+
+Choose `SCOUT_EVAL_MODEL` and an explicit UTC `SCOUT_EVAL_CUTOFF` for the comparison, then check the inputs and execution prerequisites:
+
+```bash
+.codex/with-flox python -m products.signals.evals.saved_scout \
+    --case /private/scout-case/case.json \
+    --output-dir /private/scout-results \
+    --target-cutoff "$SCOUT_EVAL_CUTOFF" \
+    --agent-runtime codex \
+    --agent-model "$SCOUT_EVAL_MODEL" \
+    --reasoning-effort medium \
+    --provider docker \
+    --max-sandboxes 1 \
+    --skill-delivery exec \
+    --trials 1 \
+    --preflight-only
+```
+
+`--preflight-only` validates the saved inputs, required environment variables, sandbox provider readiness, and the local gateway executable.
+It rejects repository-backed cases with a provider other than Docker.
+It does not initialize Django, prepare repository bundles, install dependencies, start services, or call a model.
+Passing preflight does not prove model authentication, database readiness, free service ports, valid repository bundles, or available sandbox images.
+
+Remove `--preflight-only` to execute the case; execution repeats these checks before initializing Django or preparing its repository.
+Use the same runtime, model, effort, skill delivery, and cutoff for preflight and execution.
+
+### One rubric per scout per session
+
+`--output-dir` identifies a persistent comparison session, including invocations from later commands.
+The first invocation for a scout automatically generates its rubric from the saved scout instructions and reference files.
+It uses the same draft, selection, and format-repair implementation as the scout rubric generator.
+The script adopts the selected suggestions alongside the standard criteria and saves the result under `rubrics/`.
+Generation receives no evaluated outputs or hidden reference findings.
+
+Every model, prompt variant, and repeat for that scout in the same session uses the exact saved rubric and canonical instructions.
+Each result and judgment records the rubric SHA-256.
+The first generation holds a file lock, so concurrent requests cannot select different rubrics.
+A changed or missing pinned rubric fails rather than regenerating during the comparison.
+Keep the rubric JSON and its lock file together; use a new output directory to start a session with new criteria.
+Different scouts keep separate rubrics in the same session.
+
+Generation defaults to `gpt-6-sol` and judging to `gpt-6-astra`, both at high reasoning effort and independently of the model being evaluated.
+`--rubric-model` applies only to the first generation; changing it does not replace an existing session rubric.
+`--judge-model` selects the judging model, which is recorded with its responses and usage.
+Use the same judging model across a comparison.
+`--rubric-only` prepares or reuses the session rubric without restoring project data or launching a scout:
+
+```bash
+.codex/with-flox python -m products.signals.evals.saved_scout \
+    --case /private/scout-case/case.json \
+    --output-dir /private/scout-results \
+    --rubric-only
+```
+
+Normal execution then restores the case, runs the scout, and judges the retained result automatically.
+The shared generator's pure schemas and generation logic live in `products/signals/backend/rubrics_schema.py`
+and `products/signals/backend/rubrics_generation.py`; production authorization and persistence remain in the scout harness.
+
+Judgments use the scout trial response contract: a `summary` and one `criteria` entry per enabled criterion.
+Each entry contains `criterion_id`, `verdict`, `reason`, `confidence`, and evidence with `source_id` and an exact `quote`.
+Verdicts are `pass`, `fail`, `unknown`, or `not_applicable`; confidence is `low`, `medium`, or `high`.
+The pure schemas, versioned prompts, citation validation, and scoring live in `products/signals/backend/rubrics_judging.py`.
+
+Invalid evidence quotations or conclusions citing only candidate instructions become `unknown` for that criterion.
+Other valid criteria remain available. Missing historical evidence does not become a failed criterion.
+Malformed or incomplete model responses are run-level `judge_error` results with no quality verdicts.
+Failed or unconfirmed scout executions are `excluded`; execution failures and judge errors do not receive scores.
+Judging makes one request and does not automatically repair or retry it.
+
+The score is `pass / (pass + fail)`. Coverage is `(pass + fail) / (pass + fail + unknown)`.
+An empty denominator produces `null`; `not_applicable` is excluded from both denominators.
+Read score and coverage together: a high score with low coverage is not a complete evaluation.
+Incomplete judgments cannot establish a baseline difference.
+Detailed private judgment files retain the original model response, normalized verdicts, usage, rubric/reference hashes,
+judge model, prompt version, and evidence provenance. Dollar costs remain unknown when the model route does not provide them.
+New judgments use artifact version `scout-rubric-judge-v4`; earlier files stay untouched.
+To evaluate an older run under the current contract, rejudge its original `result.json` into a new judgment file.
+
+Judging uses the retained transcript and state, not fresh project queries or an exhaustive answer key.
+An exact evidence quote establishes where text came from, not that its claim is correct.
+Valid citations also do not establish that the judge interpreted a criterion correctly; compare decisions with examples reviewed by a person.
+Local records and transcript entries receive stable source IDs. Their original file locations and JSON pointers remain in provenance.
+Candidate instructions are marked as instruction sources; the frozen rubric reference is separate from execution evidence.
+Quotes and newlines remain intact, and the offline evidence adapter preserves the complete capture.
+The judgment records the evidence adapter version and original output and transcript hashes.
+`--judge-max-input-tokens` sets a proxy token budget (default 900,000); the script retains an explicit ungraded error
+when evidence exceeds the budget or byte limit, rather than silently dropping evidence.
+The budget is not a guarantee that a different judging model accepts the same context size.
+
+### Judge saved runs
+
+Use the same session directory to judge existing `result.json` files without rerunning scouts or modifying the originals:
+
+```bash
+.codex/with-flox python -m products.signals.evals.saved_scout \
+    --case /private/scout-case/case.json \
+    --output-dir /private/scout-results \
+    --judge-results /private/previous-run/trials/case_trial/result.json
+```
+
+`--judge-results` accepts multiple files for the same scout.
+It reuses the pinned rubric, or generates it once if the session has none.
+`--rubric-only` and `--judge-results` validate the manifest and the saved skill/reference files, including their paths,
+checksums, and UTF-8 contents. They do not load or validate saved state or event tables, which are not inputs to these modes.
+Their provenance records `validation_scope: instructions`; it does not claim that the case can be restored.
+Normal execution, `--validate-only`, and `--preflight-only` still require the complete case to pass strict validation.
+Historical judgments use the cutoffs and evidence recorded in each result; `--target-cutoff` does not shift saved results.
+Failed historical executions remain `excluded`, with no quality verdicts or scores.
+New judgment files record both the source-result hash and the session-rubric hash.
+These modes use the shared private eval service lifecycle, so its ordinary environment prerequisites still apply.
+They do not launch scout tasks or restore case events.
+
+### Execution environment
+
+Before execution, coordinate use of the backing development services, eval ports, and test databases.
+Separate worktrees still share those resources, so do not run the harness alongside another saved-case invocation or DB-backed pytest.
+`--create-db` rebuilds the test database and is unnecessary for an ordinary repeat.
+Keep the execution checkout and saved inputs unchanged until the invocation finishes.
+The MCP development server reloads when its source changes; the recorded source hashes describe the start of the invocation, not changes made during it.
+
+The JSON case manifest requires `schema_version: 2` and declares the saved skill, initial state, Parquet event files, source cutoff, and optional pinned repository.
+It stores `state.checkpoint`, `state.complete`, `state.gaps`, and `state.timezone` inline.
+The `events` list references Parquet files; `state.tables` maps each supplied history table to a Parquet file.
+Every file reference contains its relative `path` and SHA-256 `sha256`, and must stay inside the case directory.
+
+Supported history tables are `scratchpad`, `reports`, `report_artefacts`, `scout_notes`, `tasks`, `task_runs`, `scout_runs`, `metrics`, and `project_profile`.
+Omit empty history tables; a supplied `project_profile` table must contain exactly one row.
+The event list can be empty, and event files with the complete schema and zero rows are valid.
+The [saved models](../../products/signals/evals/agentic/saved_case.py) define each table's columns.
+The shared [Parquet reader and writer](../../products/signals/evals/agentic/saved_table.py) enforce column names, types, order, and nullability.
+Timestamps use UTC with microsecond precision, UUIDs use strings, and flexible nested values such as event properties use JSON text columns.
+The writer uses Zstandard compression.
+
+The runtime reads only schema v2 Parquet tables and rejects JSON Lines, separate `state.json` payloads, and schema v1 manifests.
+Convert older cases once with a local script into a separate private directory, preserving the original inputs.
+The saved-case command has no conversion mode or compatibility reader.
+Before using a converted case, compare every decoded event and history record with the original, then verify restoration in a fresh project.
+These parity checks do not require model calls.
+
+For fixed-file code cases, `repository.history_depth: 1` retains the original commit and complete tree without its ancestors.
+Omit the depth when the scout needs retained Git history and the source checkout contains all required objects.
+Keep private case files and results in ignored storage or outside the repository.
+Use absolute paths when those inputs live outside the execution worktree.
+The retained repository cache lives under `<output-dir>/repositories/`; a new output root prepares a separate cache.
+`--validate-only` checks the manifest, hashes, Parquet schemas, record types, event records, and historical references without checking execution prerequisites.
+It needs no model credentials or running Docker daemon and cannot be combined with `--preflight-only`.
+Both check-only modes leave the output directory untouched.
+
+The command uses the existing harness for service startup, fresh projects, production scout execution, concurrency, timeouts, and repetitions.
+The private engine rejects uploads.
+The command disables gateway capture tokens and routes both the scout and backend report checks through the private harness gateway.
+It also overrides inherited MCP analytics credentials with empty values so the tool service cannot capture private tool inputs or results.
+Backend calls use a temporary scoped credential, which is removed when the suite exits.
+Private data still goes to the configured model providers as part of scout execution and report checks.
+
+Before launching a scout, restoration queries HogQL to verify event counts and timestamp bounds in the new project.
+An empty case must return no events; a failed query is an infrastructure error, not evidence that the project is empty.
+
+Use the same target cutoff for every configuration and repetition in a comparison.
+Restoration shifts typed timestamps and only the explicitly inventoried date strings.
+The investigation interval includes its start and excludes its end.
+This preserves elapsed-time relationships; it does not provide a historical clock or preserve all calendar-dependent behavior.
+
+Each invocation retains its manifest and skill hashes, source commit and local changes, model settings, target cutoff, start and finish times, exit status, and full harness transcript.
+Case metadata records `schema_version`, `manifest_sha256`, `state_table_sha256` by table name, and `event_sha256` in event-file order.
+Execution attempts that fail the prerequisite checks retain this invocation history and transcript too.
+Each trial has its own reports, scratchpad changes, session log, and execution result.
+The runner waits for the task workflow to terminate before collecting final state and logs, then cleans up that task's sandbox.
+Artifacts record the scout result, persisted task status, and workflow completion separately.
+A task marked completed does not count as a successful execution if workflow termination cannot be confirmed.
+Cancellation and transcript-processing errors retain the output already collected for diagnosis.
+A skipped scout, failed task, or missing transcript fails the saved-case run.
+Successful execution alone does not measure finding quality; inspect rubric judgments and their evidence coverage separately.
+The saved-case generator and judge use the existing local, test-only gateway context, with temporary eval-database
+personal keys and capture disabled. The Go gateway does not support those `phx_` credentials; this is the existing
+eval caller's temporary authentication exception, not a separate production gateway route.
+Both backend and sandbox Go-routing settings are suppressed inside the private context and restored afterward.
+Gateway accounting remains enabled.
 
 ## Postgres experiment ingestion
 
