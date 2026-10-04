@@ -199,6 +199,45 @@ class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
 
         assert results == {1: (None, "miss", None), 2: (None, "miss", None)}
 
+    def test_set_cache_value_redis_error_still_writes_s3_and_raises(self) -> None:
+        hc = self.hypercache
+
+        with (
+            patch.object(hc.cache_client, "set", side_effect=redis.exceptions.TimeoutError()),
+            patch.object(object_storage, "write") as mock_write,
+        ):
+            with pytest.raises(redis.exceptions.TimeoutError):
+                hc.set_cache_value(self.team_id, self.sample_data)
+
+        mock_write.assert_called_once()
+
+    def test_set_cache_value_redis_error_does_not_stamp_expiry(self) -> None:
+        hc = self.hypercache
+        team = Team(id=self.team_id)
+
+        with (
+            patch.object(hc.cache_client, "set", side_effect=redis.exceptions.TimeoutError()),
+            patch.object(object_storage, "write"),
+            patch.object(hc, "_track_expiry") as mock_track_expiry,
+        ):
+            with pytest.raises(redis.exceptions.TimeoutError):
+                hc.set_cache_value(team, self.sample_data)
+
+        mock_track_expiry.assert_not_called()
+
+    def test_stale_etag_cleanup_error_still_stamps_expiry(self) -> None:
+        hc = self.hypercache
+        team = Team(id=self.team_id)
+
+        with (
+            patch.object(hc.cache_client, "delete", side_effect=redis.exceptions.TimeoutError()),
+            patch.object(object_storage, "write"),
+            patch.object(hc, "_track_expiry") as mock_track_expiry,
+        ):
+            hc.set_cache_value(team, self.sample_data)
+
+        mock_track_expiry.assert_called_once()
+
     def test_get_etag_redis_error_returns_none(self):
         def load_fn(team):
             return {"default": "data"}
