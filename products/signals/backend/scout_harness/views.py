@@ -73,6 +73,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
+from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
@@ -360,7 +361,7 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     user = request.user
     if not isinstance(user, User):
         return False
-    return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("task", "viewer")
+    return may_read_reports(user=user, team=canonical_team)
 
 
 class Conflict(exceptions.APIException):
