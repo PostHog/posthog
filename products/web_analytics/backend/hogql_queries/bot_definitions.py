@@ -901,6 +901,23 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://swissaitalent.ch/bot",
     ),
     "AtlasSearchBot": BotDefinition("AtlasSearch", "search_crawler", "Bot", "AtlasSearch"),
+    "bnf\\.fr_bot": BotDefinition(
+        "Bibliothèque nationale de France",
+        "search_crawler",
+        "Bot",
+        "Bibliothèque nationale de France",
+        documentation_url="https://www.bnf.fr/fr/capture-de-votre-site-web-par-le-robot-de-la-bnf",
+    ),
+    "GuthBot": BotDefinition(
+        "GuthBot", "search_crawler", "Bot", "guth.news", documentation_url="https://guth.news/bot"
+    ),
+    "KapllanBot": BotDefinition(
+        "KapllanBot", "search_crawler", "Bot", "kapllan.ai", documentation_url="https://kapllan.ai/bot"
+    ),
+    "ElamurBot": BotDefinition(
+        "ElamurBot", "search_crawler", "Bot", "elamur.ai", documentation_url="https://elamur.ai/"
+    ),
+    "image-crawler/": BotDefinition("image-crawler", "search_crawler", "Bot", "image-crawler"),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -954,6 +971,10 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "QlyzeBot": BotDefinition("Qlyze", "seo_crawler", "Bot", "Qlyze", documentation_url="https://app.qlyze.io/bot"),
     "AutozellaBot": BotDefinition(
         "Autozella", "seo_crawler", "Bot", "Autozella", documentation_url="https://autozella.com"
+    ),
+    "TeardownIQ-Bot": BotDefinition("TeardownIQ", "seo_crawler", "Bot", "TeardownIQ"),
+    "Alpic-Agentic-Readiness-Scanner": BotDefinition(
+        "Alpic Agentic Readiness Scanner", "seo_crawler", "Bot", "Alpic", documentation_url="https://alpic.ai"
     ),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
@@ -1010,4 +1031,5 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "PostHog",
         documentation_url="https://posthog.com/docs/ai-research/image-fetcher-bot",
     ),
+    "frontcode-scraper": BotDefinition("frontcode-scraper", "http_client", "Bot", "frontcode-scraper"),
 }

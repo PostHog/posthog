@@ -18,6 +18,22 @@ describe('botDetection', () => {
             ['Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', 'Googlebot', 'search_crawler'],
             ['curl/8.5.0', 'curl', 'http_client'],
             ['Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)', 'Bingbot', 'search_crawler'],
+            [
+                'Mozilla/5.0 (compatible; bnf.fr_bot; +https://www.bnf.fr/fr/capture-de-votre-site-web-par-le-robot-de-la-bnf)',
+                'Bibliothèque nationale de France',
+                'search_crawler',
+            ],
+            ['GuthBot/1.0 (+https://guth.news/bot)', 'GuthBot', 'search_crawler'],
+            ['KapllanBot/1.0 (+https://kapllan.ai/bot)', 'KapllanBot', 'search_crawler'],
+            ['ElamurBot/0.1 (+https://elamur.ai/)', 'ElamurBot', 'search_crawler'],
+            ['image-crawler/0.1', 'image-crawler', 'search_crawler'],
+            ['TeardownIQ-Bot/1.0 (+public-surface-analysis)', 'TeardownIQ', 'seo_crawler'],
+            [
+                'Alpic-Agentic-Readiness-Scanner/1.0 (+https://alpic.ai)',
+                'Alpic Agentic Readiness Scanner',
+                'seo_crawler',
+            ],
+            ['Mozilla/5.0 (compatible; frontcode-scraper/1.0)', 'frontcode-scraper', 'http_client'],
             ['HeadlessChrome/120.0.6099.216', 'Headless Chrome', 'headless_browser'],
             [
                 'Mozilla/5.0 (X11; Linux x86_64; rv:59.0) Gecko/20100101 Firefox/59.0 SlimerJS/1.1.0',

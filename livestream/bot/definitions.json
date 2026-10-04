@@ -1842,6 +1842,36 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "bnf.fr_bot",
+    "name": "Biblioth\u00e8que nationale de France",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "GuthBot",
+    "name": "GuthBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "KapllanBot",
+    "name": "KapllanBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ElamurBot",
+    "name": "ElamurBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "image-crawler/",
+    "name": "image-crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -1916,6 +1946,18 @@
   {
     "pattern": "AutozellaBot",
     "name": "Autozella",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "TeardownIQ-Bot",
+    "name": "TeardownIQ",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Alpic-Agentic-Readiness-Scanner",
+    "name": "Alpic Agentic Readiness Scanner",
     "category": "seo_crawler",
     "traffic_type": "Bot"
   },
@@ -2012,6 +2054,12 @@
   {
     "pattern": "PostHogImageFetcherBot",
     "name": "PostHog Image Fetcher",
+    "category": "http_client",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "frontcode-scraper",
+    "name": "frontcode-scraper",
     "category": "http_client",
     "traffic_type": "Bot"
   }
