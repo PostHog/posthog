@@ -230,7 +230,27 @@ function replayVisionScanWidgetDef(toolCall: EnhancedToolCall): ReplayVisionScan
     return { widget: 'replay_vision_scan', args: { scanId, sessionIds, skipped } }
 }
 
-export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+const MEMORY_ACTION_LABELS: Record<string, [pendingLabel: string, completedLabel: string]> = {
+    create: ['Saving to memory', 'Saved to memory'],
+    query: ['Searching memory', 'Searched memory'],
+    update: ['Updating memory', 'Updated memory'],
+    delete: ['Deleting from memory', 'Deleted from memory'],
+    list_metadata_keys: ['Reading memory', 'Read memory'],
+}
+
+/** Neither a read nor a write, because a memory action the backend added first could be either. */
+const UNKNOWN_MEMORY_ACTION_LABELS: [pendingLabel: string, completedLabel: string] = [
+    'Working with memory',
+    'Done with memory',
+]
+
+/**
+ * Without a displayFormatter the activity row falls back to generic copy, so every tool declares one.
+ * Subtools are exempt: their parent formatter covers the kinds it does not recognize.
+ */
+type DisplayableToolDefinition = ToolDefinition & Required<Pick<ToolDefinition, 'displayFormatter'>>
+
+export const TOOL_DEFINITIONS: Record<AssistantTool, DisplayableToolDefinition> = {
     call_mcp_server: {
         name: 'Call an MCP server',
         description: 'Call an MCP server',
@@ -1339,6 +1359,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Manage memories',
         description: 'Manage memories to store and retrieve persistent information',
         icon: <IconMemory />,
+        displayFormatter: (toolCall) => {
+            const nested = toolCall.args?.args
+            const action = isObject(nested) && typeof nested.action === 'string' ? nested.action : ''
+            const [pendingLabel, completedLabel] = MEMORY_ACTION_LABELS[action] ?? UNKNOWN_MEMORY_ACTION_LABELS
+            return skillStatusFormatter(toolCall, { pendingLabel, completedLabel })
+        },
     },
     create_notebook: {
         name: 'Create a document',
