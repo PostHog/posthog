@@ -958,6 +958,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
                 if (!email.from?.integrationId) {
                     errors.content.push('Choose an email sender')
+                } else if (
+                    integrations &&
+                    !integrations.some(
+                        (integration) => integration.kind === 'email' && integration.id === email.from.integrationId
+                    )
+                ) {
+                    // Shown on the content step, where the sender is picked, rather than first at launch.
+                    errors.content.push(DELETED_SENDER_ERROR)
                 }
                 if (!email.subject) {
                     errors.content.push('Add a subject line')
@@ -979,7 +987,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
                 errors.review = [...errors.recipients, ...errors.goal, ...errors.content, ...errors.schedule]
                 const senderError = getSenderLaunchError(email.from?.integrationId, integrations, integrationsLoading)
-                if (senderError) {
+                if (senderError && !errors.review.includes(senderError)) {
                     errors.review.push(senderError)
                 }
 
@@ -1739,6 +1747,7 @@ async function patchWithoutClobbering(
 }
 
 export const SENDERS_LOAD_FAILED_ERROR = "Couldn't load your email senders. Reload them to launch."
+export const DELETED_SENDER_ERROR = 'The chosen sender was deleted. Choose another sender.'
 
 /**
  * Why the chosen sender can't send yet, if it can't. A draft can be written with any sender, but a
@@ -1757,7 +1766,7 @@ export function getSenderLaunchError(
     }
     const sender = integrations.find((integration) => integration.kind === 'email' && integration.id === integrationId)
     if (!sender) {
-        return 'The chosen email sender no longer exists. Pick another one on the content step.'
+        return DELETED_SENDER_ERROR
     }
     return sender.config?.verified === true ? null : "Verify the sender's domain before sending"
 }
