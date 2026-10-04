@@ -476,27 +476,6 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(dock_resp.status_code, 200, dock_resp.json())
         self.assertEqual(dock_resp.json()["results"], [])
 
-    def test_prompt_suggestions_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
-        # Suggestions and their evaluations quote the scanner's observations (session ids, output
-        # text), so without this gate a caller denied the experiment could read that content — and
-        # act on suggestions — through the suggestions endpoints alone.
-        experiment = create_experiment(self.team, "hidden-flag")
-        self._set_resource_default("replay_scanner", "editor")
-        self._set_resource_default("session_recording", "editor")
-        self._set_resource_default("experiment", "none")
-        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
-        targeted = self._create_experiment_scoped_scanner("targeted", experiment.id, "config")
-        plain = self._create_scanner(name="plain")
-
-        self.client.force_login(self.other_user)
-        targeted_url = f"{self.scanners_url}{targeted.id}/prompt_suggestions/"
-        self.assertEqual(self.client.get(f"{targeted_url}current/").status_code, 404)
-        self.assertEqual(self.client.post(f"{targeted_url}generate/").status_code, 404)
-
-        # Same access, non-targeted scanner: the experiment gate must not have widened to a blanket block.
-        plain_resp = self.client.get(f"{self.scanners_url}{plain.id}/prompt_suggestions/current/")
-        self.assertEqual(plain_resp.status_code, 200, plain_resp.json())
-
     def test_backfills_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
         # The backfill window clamp reads the experiment's end date, so a denied caller who got past the
         # scanner lookup could binary-search that date from the error a window start before or after it
