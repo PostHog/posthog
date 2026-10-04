@@ -22,14 +22,12 @@ from products.ml_inference.backend.facade.contracts import DecisionQuestion, Dec
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.scanners.base import SignalsResponse
 
 logger = structlog.get_logger(__name__)
 
 CHECK_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 _JEV_TIMEOUT_SECONDS = 10.0
 _TEXT_FIELDS = ("title", "summary", "reasoning", "notability_reason")
-_SIGNAL_FIELDS = ("headline", "description")
 _CONCLUSION_FIELDS = ("verdict", "score", "tags", "tags_freeform")
 # Interaction events are what an answer's claims about the user rest on; the cap keeps Jev's state small.
 _GROUNDING_EVENTS = frozenset({"$pageview", "$screen", "$autocapture", "$rageclick", "$dead_click", "$exception"})
@@ -184,17 +182,12 @@ _CHECKS: tuple[_Check, ...] = (
 
 
 def answer_parts(output: BaseModel) -> dict[str, Any]:
-    """The text a step wrote, keyed by field, and its conclusion. Signals land under `signal_N_<field>` keys."""
+    """The text a step wrote, keyed by field, and its conclusion."""
     text = {
         field: value
         for field in _TEXT_FIELDS
         if isinstance(value := getattr(output, field, None), str) and value.strip()
     }
-    if isinstance(output, SignalsResponse):
-        for index, signal in enumerate(output.signals):
-            for field in _SIGNAL_FIELDS:
-                if (value := getattr(signal, field)).strip():
-                    text[f"signal_{index}_{field}"] = value
     conclusion = {
         field: value for field in _CONCLUSION_FIELDS if (value := getattr(output, field, None)) not in (None, "", [])
     }

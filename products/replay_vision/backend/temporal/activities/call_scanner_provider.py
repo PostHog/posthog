@@ -145,11 +145,8 @@ class _StepResult:
     provider_refused: bool = False
 
 
-# Signals are a separate report on the same session, so only the personal-data check applies to them.
-_CHECKS_BY_STEP: dict[str, tuple[str, ...]] = {
-    STEP_CORE: (PII, CONCLUSION, GROUNDED, FORMAT, ON_QUESTION),
-    STEP_SIGNALS: (PII,),
-}
+# Signals are a separate, best-effort report, so only the core answer is checked.
+_CHECKS_BY_STEP: dict[str, tuple[str, ...]] = {STEP_CORE: (PII, CONCLUSION, GROUNDED, FORMAT, ON_QUESTION)}
 
 
 @frozen

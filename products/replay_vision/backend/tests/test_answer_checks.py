@@ -13,7 +13,6 @@ from products.replay_vision.backend.temporal.answer_checks import (
     CheckContext,
     check_answer,
 )
-from products.replay_vision.backend.temporal.scanners.base import SignalFinding, SignalsResponse
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse
 
 _CTX = CheckContext(
@@ -79,34 +78,3 @@ async def test_each_check_fails_only_on_its_own_signal(_name: str, probabilities
 async def test_a_question_that_asks_for_identity_skips_the_personal_data_check() -> None:
     with _probabilities({PII: 0.95}, asks=0.9):
         assert await check_answer(_answer(), _CTX, checks=(PII,)) == []
-
-
-@pytest.mark.asyncio
-async def test_signal_text_reaches_the_personal_data_check() -> None:
-    seen: list[dict] = []
-
-    def fake(ctx: CheckContext, state: dict, instructions_text: str) -> float | None:
-        seen.append(state)
-        return 0.05
-
-    signals = SignalsResponse(
-        signals=[
-            SignalFinding(
-                problem_type="bug",
-                headline="Saved card fails to load",
-                description="Jane Doe's saved card failed to load.",
-                confidence=0.8,
-                start_time=10,
-                end_time=20,
-                url="https://example.com/checkout",
-            )
-        ]
-    )
-    with patch.object(answer_checks, "_yes_probability", side_effect=fake):
-        await check_answer(signals, _CTX, checks=(PII,))
-    assert {
-        "text": {
-            "signal_0_headline": "Saved card fails to load",
-            "signal_0_description": "Jane Doe's saved card failed to load.",
-        }
-    } in seen
