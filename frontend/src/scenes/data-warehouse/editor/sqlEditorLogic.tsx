@@ -119,7 +119,13 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
-import { BIEditorState, BIEditorView, buildBIQuery, parseBIEditorState } from './bi/biEditorTypes'
+import {
+    BIEditorState,
+    BIEditorView,
+    buildBIQuery,
+    getBIFilterValidationError,
+    parseBIEditorState,
+} from './bi/biEditorTypes'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -2256,6 +2262,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             runQuery: ({ queryOverride, switchTab }) => {
                 const biEditorState = getActiveBIEditorState()
+                if (
+                    !queryOverride &&
+                    biEditorState?.editorView === BIEditorView.BI &&
+                    biEditorState.config.filters.some(getBIFilterValidationError)
+                ) {
+                    actions.setError('Fix invalid worksheet filters before running the query.')
+                    return
+                }
                 captureBIEditorQueryRun(biEditorState)
                 const biQuery =
                     !queryOverride && biEditorState?.editorView === BIEditorView.BI

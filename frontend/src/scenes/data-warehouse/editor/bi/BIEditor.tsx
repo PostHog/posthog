@@ -5,6 +5,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 
 import { BICalculatedMeasureModal } from 'products/data_warehouse/frontend/bi/BICalculatedMeasureModal'
+import { BIFilterControl } from 'products/data_warehouse/frontend/bi/BIFilterControl'
 
 import { editorSizingLogic } from '../editorSizingLogic'
 import { biEditorLogic } from './biEditorLogic'
@@ -49,7 +50,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                 <BICalculatedMeasureModal />
                 <div className="flex min-h-0 flex-1">
                     <div
-                        className="relative flex w-[var(--bi-side-pane-width)] shrink-0 flex-col border-r @4xl/bi-editor:w-[calc(var(--bi-side-pane-width)+12rem)] @4xl/bi-editor:flex-row"
+                        className="relative flex w-[var(--bi-side-pane-width)] shrink-0 flex-col border-r @5xl/bi-editor:w-[calc(var(--bi-side-pane-width)+10rem)] @5xl/bi-editor:flex-row"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ '--bi-side-pane-width': `${biSidePaneWidth}px` } as React.CSSProperties}
                     >
@@ -57,7 +58,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         <div ref={biEditorResizerProps.containerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
                             <BIDataPane />
                         </div>
-                        <div className="flex max-h-[50%] shrink-0 flex-col overflow-y-auto border-t @4xl/bi-editor:max-h-none @4xl/bi-editor:w-48 @4xl/bi-editor:border-l @4xl/bi-editor:border-t-0">
+                        <div className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto border-t @5xl/bi-editor:max-h-none @5xl/bi-editor:w-40 @5xl/bi-editor:border-l @5xl/bi-editor:border-t-0">
                             <BIFiltersCard />
                             <BIMarksCard />
                         </div>
@@ -91,9 +92,19 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         </BIShelfStrip>
                         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
                     </div>
-                    {showMeOpen ? (
-                        <div className="hidden shrink-0 border-l bg-surface-primary @3xl/bi-editor:flex">
-                            <BIShowMe docked />
+                    {showMeOpen || config.filters.length > 0 ? (
+                        <div className="hidden w-44 shrink-0 flex-col overflow-y-auto border-l bg-surface-primary @3xl/bi-editor:flex @6xl/bi-editor:w-80">
+                            {config.filters.length > 0 && (
+                                <section className="border-b p-2" aria-label="Quick filters">
+                                    <h3 className="mb-2 text-xs font-semibold">Filters</h3>
+                                    <div className="grid grid-cols-1 items-start gap-x-2 gap-y-2 @6xl/bi-editor:grid-cols-2">
+                                        {config.filters.map((filter, index) => (
+                                            <BIFilterControl key={filter.field.id} index={index} />
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+                            {showMeOpen && <BIShowMe docked />}
                         </div>
                     ) : null}
                 </div>
