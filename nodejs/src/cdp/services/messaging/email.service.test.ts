@@ -557,13 +557,15 @@ describe('EmailService', () => {
             it.each(
                 [false, true].flatMap((isTest) =>
                     ['cc', 'bcc'].flatMap((field) =>
-                        [false, true].map((suppressed) => [isTest, field, suppressed] as const)
+                        [false, true].flatMap((suppressed) =>
+                            [false, true].map((wrapped) => [isTest, field, suppressed, wrapped] as const)
+                        )
                     )
                 )
             )(
-                'keeps a quoted mailbox intact (isTest=%s, field=%s, suppressed=%s)',
-                async (isTest, field, suppressed) => {
-                    const email = `"example,${team.id}"@example.com`
+                'keeps a quoted mailbox intact (isTest=%s, field=%s, suppressed=%s, wrapped=%s)',
+                async (isTest, field, suppressed, wrapped) => {
+                    const email = `"example,<${team.id}>"@example.com`
                     await createMember(email)
                     if (suppressed) {
                         await new EmailSuppressionService(
@@ -572,7 +574,10 @@ describe('EmailService', () => {
                         ).recordHardBounces(team.id, [email])
                     }
                     service = createSandboxService(true)
-                    invocation.queueParameters = createSandboxParams({ from: { integrationId: 4 }, [field]: email })
+                    invocation.queueParameters = createSandboxParams({
+                        from: { integrationId: 4 },
+                        [field]: wrapped ? `Example colleague <${email}>` : email,
+                    })
                     const result = await service.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
                     expect(result.invocation.state.vmState?.stack).toEqual([{ success: !suppressed }])
