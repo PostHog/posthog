@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PgAnalyzeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze import (
+    PGANALYZE_UNAUTHORIZED_ERROR,
     pganalyze_source,
     validate_credentials as validate_pganalyze_credentials,
 )
@@ -39,6 +40,7 @@ class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
             "401 Client Error": "pganalyze authentication failed. Please check your API token.",
             "403 Client Error": "pganalyze authentication failed. Please check your API token.",
             "Invalid pganalyze API token": "pganalyze authentication failed. Please check your API token and organization slug.",
+            PGANALYZE_UNAUTHORIZED_ERROR: "pganalyze did not let this API key read the organization. Check that the organization slug matches the one in your pganalyze URL, and that the API key belongs to that organization.",
         }
 
     def get_schemas(

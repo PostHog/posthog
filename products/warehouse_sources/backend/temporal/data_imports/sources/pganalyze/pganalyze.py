@@ -26,6 +26,18 @@ class PgAnalyzeRetryableError(Exception):
     pass
 
 
+# pganalyze answers a key that cannot read the organization with HTTP 200 and this GraphQL error.
+PGANALYZE_UNAUTHORIZED_ERROR = "not authorized to access this resource"
+
+
+def organization_access_message(organization_slug: str) -> str:
+    return (
+        f"pganalyze did not let this API key read the organization '{organization_slug}'. "
+        "Check that the organization slug matches the one in your pganalyze URL, "
+        "and that the API key belongs to that organization."
+    )
+
+
 def _resolve_api_url(api_url: str | None) -> str:
     """Resolve the optional user-supplied api_url to a validated URL.
 
@@ -211,6 +223,8 @@ def validate_credentials(api_key: str, organization_slug: str, api_url: str | No
 
         if "errors" in payload:
             messages = "; ".join(e.get("message", "") for e in payload["errors"])
+            if PGANALYZE_UNAUTHORIZED_ERROR in messages.lower():
+                return False, organization_access_message(organization_slug)
             return False, f"pganalyze API error: {messages}"
 
         if "data" in payload and "getServers" in payload["data"]:

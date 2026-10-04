@@ -122,19 +122,26 @@ class TestValidateCredentials:
             assert err is not None
             assert "Invalid" in err
 
-    def test_returns_false_on_graphql_error(self):
+    @pytest.mark.parametrize(
+        "graphql_message, expected_fragment",
+        [
+            ("Organization not found", "Organization not found"),
+            ("You are not authorized to access this resource", "organization 'wrong-slug'"),
+        ],
+    )
+    def test_returns_false_on_graphql_error(self, graphql_message, expected_fragment):
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze.make_tracked_session"
         ) as mock_sess:
             sess = mock.MagicMock()
-            sess.post.return_value = _mock_response(json_data={"errors": [{"message": "Organization not found"}]})
+            sess.post.return_value = _mock_response(json_data={"errors": [{"message": graphql_message}]})
             mock_sess.return_value = sess
 
             ok, err = validate_credentials("token", "wrong-slug", None)
 
             assert ok is False
             assert err is not None
-            assert "Organization not found" in err
+            assert expected_fragment in err
 
     @pytest.mark.parametrize(
         "blocked_url",
