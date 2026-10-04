@@ -1,10 +1,13 @@
 import { Suspense, memo, useState } from 'react'
 
 import {
+    IconArrowCircleRight,
     IconCheckCircle,
     IconChevronRight,
+    IconCircleDashed,
     IconDocument,
     IconGlobe,
+    IconListCheck,
     IconMagicWand,
     IconSearch,
     IconTerminal,
@@ -145,13 +148,11 @@ const ExitPlanModeRenderer = memo(function ExitPlanModeRenderer(props: ToolRende
         return <div className="my-2">{plan && <PlanCard plan={plan} id={`plan-${message.id}`} />}</div>
     }
 
-    const statusContent = isComplete ? (
-        <>
-            <IconCheckCircle className="size-4 shrink-0 text-success" />
-            <span className="text-[13px] text-success">Plan approved — proceeding with implementation</span>
-        </>
+    const statusIcon = isComplete && <IconCheckCircle className="mt-0.5 size-4 shrink-0 text-success" />
+    const statusText = isComplete ? (
+        <span className="text-success">Plan approved — proceeding with implementation</span>
     ) : (
-        <span className="text-[13px] text-muted">(Plan rejected)</span>
+        <span className="text-muted">(Plan rejected)</span>
     )
 
     return (
@@ -161,16 +162,25 @@ const ExitPlanModeRenderer = memo(function ExitPlanModeRenderer(props: ToolRende
                     type="button"
                     onClick={() => setIsPlanExpanded((expanded) => !expanded)}
                     aria-expanded={isPlanExpanded}
-                    className="flex items-center gap-2 rounded px-1 text-left hover:bg-fill-button-tertiary-hover"
+                    className="flex items-start gap-2 rounded px-1 text-left hover:bg-fill-button-tertiary-hover"
                 >
                     <IconChevronRight
-                        className={`size-3 shrink-0 text-muted transition-transform ${isPlanExpanded ? 'rotate-90' : ''}`}
+                        className={`mt-1 size-3 shrink-0 text-muted transition-transform ${isPlanExpanded ? 'rotate-90' : ''}`}
                     />
-                    {statusContent}
-                    <span className="text-[13px] text-muted">· {isPlanExpanded ? 'hide plan' : 'show plan'}</span>
+                    {statusIcon}
+                    {/* One text run, so a narrow row wraps it like a sentence instead of as two columns. */}
+                    <span className="min-w-0 text-[13px]">
+                        {statusText}{' '}
+                        <span className="whitespace-nowrap text-muted">
+                            · {isPlanExpanded ? 'hide plan' : 'show plan'}
+                        </span>
+                    </span>
                 </button>
             ) : (
-                <div className="flex items-center gap-2 px-1">{statusContent}</div>
+                <div className="flex items-start gap-2 px-1">
+                    {statusIcon}
+                    <span className="min-w-0 text-[13px]">{statusText}</span>
+                </div>
             )}
             {plan && isPlanExpanded && (
                 <div className="mt-2">
@@ -194,6 +204,68 @@ const SearchToolRenderer = memo(function SearchToolRenderer(props: ToolRendererP
             title={message.title || displayName || 'Search'}
             subtitle={output ? `${count} ${count === 1 ? 'result' : 'results'}` : undefined}
             body={output ? <ToolOutput>{output}</ToolOutput> : undefined}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
+    )
+})
+
+interface TodoItem {
+    content: string
+    status: string
+}
+
+function getTodos(rawInput: Record<string, unknown>): TodoItem[] {
+    if (!Array.isArray(rawInput.todos)) {
+        return []
+    }
+    return rawInput.todos.flatMap((todo): TodoItem[] =>
+        todo && typeof todo === 'object' && typeof (todo as TodoItem).content === 'string'
+            ? [{ content: (todo as TodoItem).content, status: asString((todo as TodoItem).status) }]
+            : []
+    )
+}
+
+/** TodoWrite — the agent's plan as a checklist, with the finished count on line 2. */
+const TodoToolRenderer = memo(function TodoToolRenderer(props: ToolRendererProps): JSX.Element {
+    const { message, icon, displayName, turnComplete, turnCancelled } = props
+    const todos = getTodos(message.rawInput)
+    const done = todos.filter((todo) => todo.status === 'completed').length
+
+    return (
+        <ToolActivity
+            message={message}
+            icon={icon ?? <IconListCheck />}
+            title={message.title || displayName || 'Tasks'}
+            subtitle={todos.length > 0 ? `${done} of ${todos.length} done` : undefined}
+            body={
+                todos.length > 0 ? (
+                    <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                        {todos.map((todo, index) => (
+                            <li key={index} className="flex items-start gap-2 text-[13px] leading-5">
+                                {todo.status === 'completed' ? (
+                                    <IconCheckCircle className="mt-0.5 size-4 shrink-0 text-success" />
+                                ) : todo.status === 'in_progress' ? (
+                                    <IconArrowCircleRight className="mt-0.5 size-4 shrink-0" />
+                                ) : (
+                                    <IconCircleDashed className="mt-0.5 size-4 shrink-0 text-muted" />
+                                )}
+                                <span
+                                    className={
+                                        todo.status === 'completed'
+                                            ? 'text-muted'
+                                            : todo.status === 'in_progress'
+                                              ? 'font-medium'
+                                              : undefined
+                                    }
+                                >
+                                    {todo.content}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                ) : undefined
+            }
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}
         />
@@ -418,6 +490,8 @@ export const BuiltinToolRenderer = memo(function BuiltinToolRenderer(props: Tool
             return <SkillToolRenderer {...props} />
         case 'ToolSearch':
             return <ToolSearchRenderer {...props} />
+        case 'TodoWrite':
+            return <TodoToolRenderer {...props} />
         case 'ExitPlanMode':
             return <ExitPlanModeRenderer {...props} />
         default:
