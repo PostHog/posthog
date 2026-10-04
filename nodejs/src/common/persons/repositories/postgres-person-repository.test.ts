@@ -6,6 +6,7 @@ import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/common/config/kafka-to
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PersonMessage } from '~/common/persons/person-message'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -548,6 +549,103 @@ describe('PostgresPersonRepository', () => {
             )
             expect(personRows.rows).toEqual([{ is_deleted: true, properties: {} }])
             await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
+        })
+
+        it('createPerson undone by a live mapping leaves a reattached stray tombstoned', async () => {
+            const liveOwner = await createTestPerson(team.id, 'mixed-contested-did')
+            const deadOwner = await createTestPerson(team.id, 'mixed-stray-owner-did')
+            await revivalRepository.addDistinctId(deadOwner, 'mixed-stray-did', 1)
+            await tombstonePerson(deadOwner)
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                { distinctId: 'mixed-stray-did' },
+                [{ distinctId: 'mixed-contested-did' }]
+            )
+
+            expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+            // Unpublished, but above the stray's ClickHouse row, which the sweep removes with its dead owner.
+            const strayRows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT is_deleted, version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [team.id, 'mixed-stray-did'],
+                'fetchMixedStray'
+            )
+            expect(strayRows.rows).toEqual([{ is_deleted: true, version: '4' }])
+            await expect(repository.fetchPerson(team.id, 'mixed-contested-did')).resolves.toMatchObject({
+                uuid: liveOwner.uuid,
+            })
+        })
+
+        it.each([
+            [
+                'createPerson',
+                async (): Promise<[string, PersonMessage[]]> => {
+                    const uuid = new UUIDT().toString()
+                    const result = await revivalRepository.createPerson(
+                        TIMESTAMP,
+                        {},
+                        {},
+                        {},
+                        team.id,
+                        null,
+                        false,
+                        uuid,
+                        {
+                            distinctId: 'stray-did',
+                        }
+                    )
+                    if (!result.success) {
+                        throw new Error('Expected creation to succeed')
+                    }
+                    return [uuid, result.messages.slice(1)]
+                },
+            ],
+            [
+                'addDistinctId',
+                async (): Promise<[string, PersonMessage[]]> => {
+                    const newOwner = await createTestPerson(team.id, 'stray-adder-did')
+                    return [newOwner.uuid, await revivalRepository.addDistinctId(newOwner, 'stray-did', 1)]
+                },
+            ],
+        ])('%s takes over a live mapping left on a tombstoned person', async (_name, write) => {
+            const deadOwner = await createTestPerson(team.id, 'stray-owner-did')
+            await revivalRepository.addDistinctId(deadOwner, 'stray-did', 1)
+            await tombstonePerson(deadOwner)
+
+            const [ownerUuid, messages] = await write()
+
+            await expect(repository.fetchPerson(team.id, 'stray-did')).resolves.toMatchObject({ uuid: ownerUuid })
+            expect(messages.map((message) => parseJSON(message.value!.toString()))).toEqual([
+                expect.objectContaining({ distinct_id: 'stray-did', person_id: ownerUuid, version: 3, is_deleted: 0 }),
+            ])
+        })
+
+        it('createPerson that revives the owner of a stray keeps the stray attached', async () => {
+            const owner = await createTestPerson(team.id, 'self-stray-did')
+            await tombstonePerson(owner)
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                owner.uuid,
+                { distinctId: 'self-stray-did' }
+            )
+
+            expect(result).toMatchObject({ success: true, person: { id: owner.id, uuid: owner.uuid } })
+            await expect(repository.fetchPerson(team.id, 'self-stray-did')).resolves.toMatchObject({ uuid: owner.uuid })
         })
 
         it('addDistinctId revives a tombstoned mapping, repointing it at the new person', async () => {
