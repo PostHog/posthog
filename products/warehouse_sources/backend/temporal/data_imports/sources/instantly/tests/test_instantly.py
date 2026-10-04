@@ -8,6 +8,7 @@ from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.instantly import (
+    SYNC_REQUEST_TIMEOUT_SECONDS,
     WEBHOOK_PLAN_ERROR,
     WEBHOOK_SECRET_HEADER,
     InstantlyCursorPaginator,
@@ -298,6 +299,8 @@ class TestInstantly:
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.partition_mode == expected_partition_mode
+        rest_config = mock_resource.call_args.args[0]
+        assert rest_config["client"]["request_timeout"] == SYNC_REQUEST_TIMEOUT_SECONDS
 
     @mock.patch(f"{MODULE}.rest_api_resource")
     def test_resume_state_seeds_paginator_and_saves_after_batches(self, mock_resource):

@@ -36,7 +36,7 @@ class CampaignFanout:
     stamp_field: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class InstantlyEndpointConfig:
     name: str
     # Path under https://api.instantly.ai/api/v2.

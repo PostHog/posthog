@@ -69,7 +69,7 @@ WEBHOOK_SCOPE_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class InstantlyResumeConfig:
     cursor: str
 
@@ -227,6 +227,7 @@ def instantly_source(
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             },
+            "request_timeout": SYNC_REQUEST_TIMEOUT_SECONDS,
         },
         "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field)],
