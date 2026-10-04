@@ -6,17 +6,12 @@ import { useActions, useValues } from 'kea'
 import { Handler, viewportResizeDimension } from 'posthog-js/rrweb-types'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { PLAYER_FRAME_CONTENT_ID, PLAYER_FRAME_SRC } from 'scenes/session-recordings/player/playerFrameDocument'
 import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
 
-// rrweb builds its replay iframe on about:blank, and a frame on a local scheme inherits its
-// embedder's whole policy, report-uri included. Mounting rrweb inside a real document instead puts
-// that document in the inheritance chain, so a recorded page is judged against its policy rather
-// than the app's. CSPMiddleware supplies it.
-const PLAYER_FRAME_SRC = '/replay_player_frame/index.html'
-const PLAYER_FRAME_CONTENT_ID = 'player-frame-content'
 // Without a timeout, a frame load event that never arrives leaves rrweb with nowhere to mount and
 // the player stays blank for as long as the tab is open.
 const PLAYER_FRAME_LOAD_TIMEOUT_MS = 10000
