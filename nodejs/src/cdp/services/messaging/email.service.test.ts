@@ -6,6 +6,7 @@ import {
     SendingPausedException,
     TooManyRequestsException,
 } from '@aws-sdk/client-sesv2'
+import Redis from 'ioredis'
 import { HighLevelProducer } from 'node-rdkafka'
 import { defaultTreeAdapter, parse, parseFragment } from 'parse5'
 
@@ -18,7 +19,9 @@ import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { defineLuaTokenBucketV2 } from '~/common/redis/redis-token-bucket-v2.lua'
+import { defineLuaTokenBucketV3 } from '~/common/redis/redis-token-bucket-v3.lua'
+import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as posthog from '~/common/utils/posthog'
@@ -206,6 +209,22 @@ describe('EmailService', () => {
         })
         describe('sandbox sender', () => {
             let capture: jest.SpyInstance
+            let sandboxRedisClient: Redis.Redis | undefined
+            const createSandboxLimiter = async (name: string): Promise<RateLimiterService> => {
+                sandboxRedisClient = await hub.redisPool.acquire()
+                const client = sandboxRedisClient
+                defineLuaTokenBucketV2(client)
+                defineLuaTokenBucketV3(client)
+                const redis: RedisV2 = {
+                    useClient: async (_options, callback) => callback(client as unknown as RedisClient),
+                    usePipeline: async (_options, callback) => {
+                        const pipeline = client.pipeline() as RedisClientPipeline
+                        callback(pipeline)
+                        return pipeline.exec()
+                    },
+                }
+                return new RateLimiterService(redis, { name })
+            }
             const createSandboxService = (
                 enabled: boolean,
                 tierLimiter: RateLimiterService | null = null,
@@ -264,8 +283,12 @@ describe('EmailService', () => {
                 invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
             })
 
-            afterEach(() => {
+            afterEach(async () => {
                 capture.mockRestore()
+                if (sandboxRedisClient) {
+                    await hub.redisPool.release(sandboxRedisClient)
+                    sandboxRedisClient = undefined
+                }
             })
 
             it.each([
@@ -528,17 +551,7 @@ describe('EmailService', () => {
                             'DEFAULT'
                         ),
                     })
-                    const redis = createRedisV2PoolFromConfig({
-                        connection: hub.CDP_REDIS_HOST
-                            ? {
-                                  url: hub.CDP_REDIS_HOST,
-                                  options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                              }
-                            : { url: hub.REDIS_URL },
-                        poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                        poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                    })
-                    const limiter = new RateLimiterService(redis, { name: 'sandbox-rejected-html-budget-test' })
+                    const limiter = await createSandboxLimiter('sandbox-rejected-html-budget-test')
                     service = createSandboxService(true, limiter, new MessageAssetsService(outputs))
                     invocation.state.actionId = 'send-email'
                     const params = createEmailParams({ from: { integrationId: 4 }, text: undefined, html })
@@ -603,17 +616,7 @@ describe('EmailService', () => {
             })
 
             it('bypasses an exhausted sending tier and leaves its budget for own senders', async () => {
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
-                const limiter = new RateLimiterService(redis, { name: 'sandbox-tier-budget-test' })
+                const limiter = await createSandboxLimiter('sandbox-tier-budget-test')
                 service = createSandboxService(true, limiter)
                 const sandbox = await service.executeSendEmail(invocation)
                 expect(sandbox).toMatchObject({ finished: true })
