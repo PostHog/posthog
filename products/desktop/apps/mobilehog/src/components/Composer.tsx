@@ -2,7 +2,7 @@ import { Host, Image as SymbolImage } from "@expo/ui/swift-ui";
 import { getReasoningEffortOptions } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,8 @@ import { Glass } from "@/components/Glass";
 import { ArrowUpIcon, StopIcon } from "@/components/Icons";
 import { Waveform } from "@/components/Waveform";
 import { MAX_PHOTOS, type Photo, pickPhotos } from "@/lib/attachments";
+import { sessionIdentity } from "@/lib/auth";
+import { beginSend, type Draft, loadDraft, saveDraft } from "@/lib/cache";
 import { useComposer } from "@/lib/composer";
 import { useDictation } from "@/lib/dictation";
 import { shortModelName } from "@/lib/models";
@@ -56,7 +58,11 @@ interface ComposerProps {
   busy?: boolean;
   sending?: boolean;
   autoFocus?: boolean;
+  // Where the unsent text and photos are kept; omit to keep no draft.
+  draftKey?: string;
 }
+
+const DRAFT_DELAY = 400;
 
 export function Composer({
   placeholder,
@@ -66,10 +72,14 @@ export function Composer({
   busy,
   sending,
   autoFocus,
+  draftKey,
 }: ComposerProps) {
   const router = useRouter();
-  const [text, setText] = useState("");
-  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [initial] = useState(() => (draftKey ? loadDraft(draftKey) : null));
+  const [text, setText] = useState(initial?.text ?? "");
+  const [photos, setPhotos] = useState<Photo[]>(initial?.photos ?? []);
+  const latest = useRef<Draft>({ text, photos });
+  const hydratedKey = useRef(draftKey);
   const dictation = useDictation();
   const withSpeech = (base: string, heard: string): string =>
     [base.trim(), heard.trim()].filter(Boolean).join(" ");
@@ -81,6 +91,38 @@ export function Composer({
     ? withSpeech(text, dictation.transcript)
     : text;
   const canSend = (shown.trim().length > 0 || photos.length > 0) && !sending;
+
+  useEffect(() => {
+    latest.current = { text, photos };
+  }, [text, photos]);
+
+  // The chat screen stays mounted across chats, so swap drafts with the key.
+  useEffect(() => {
+    if (draftKey === hydratedKey.current) return;
+    hydratedKey.current = draftKey;
+    const saved = draftKey ? loadDraft(draftKey) : null;
+    setText(saved?.text ?? "");
+    setPhotos(saved?.photos ?? []);
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey) return;
+    const timer = setTimeout(
+      () => saveDraft(draftKey, { text, photos }),
+      DRAFT_DELAY,
+    );
+    return () => clearTimeout(timer);
+  }, [draftKey, text, photos]);
+
+  // Leaving inside the debounce window still keeps the draft. A sign-out or
+  // project switch remounts the app after the session changed, so skip that.
+  useEffect(() => {
+    if (!draftKey) return;
+    const identity = sessionIdentity();
+    return () => {
+      if (sessionIdentity() === identity) saveDraft(draftKey, latest.current);
+    };
+  }, [draftKey]);
 
   const attach = async (): Promise<void> => {
     try {
@@ -108,13 +150,22 @@ export function Composer({
     const attached = photos;
     setText("");
     setPhotos([]);
+    latest.current = { text: "", photos: [] };
+    const settle = draftKey
+      ? beginSend(draftKey, { text: value, photos: attached })
+      : undefined;
     try {
       await onSend(value, attached);
     } catch {
-      // Keep a draft the person started while the send was in flight.
-      setText((current) => current || value);
-      setPhotos((current) => (current.length ? current : attached));
+      settle?.(false);
+      if (hydratedKey.current === draftKey) {
+        // Keep a draft the person started while the send was in flight.
+        setText((current) => (current.trim() ? current : value));
+        setPhotos((current) => (current.length ? current : attached));
+      }
+      return;
     }
+    settle?.(true);
   };
 
   return (
