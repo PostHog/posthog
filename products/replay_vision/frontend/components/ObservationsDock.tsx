@@ -63,21 +63,39 @@ export function ObservationsDock({
  * and each menu row rather than spending a scan that comes back ineligible. Pass a scanner for the
  * object-level check, so one this user cannot edit is refused here rather than by a 403.
  *
- * The bar reads this too: a disabled button explains itself on hover only, which is why people kept
- * clicking one that could never run.
+ * A disabled button explains itself only on hover, so each block also carries a short label that
+ * replaces the button label.
  */
-function useSummarizeBlockedReason(
-    scanBlock: ScanBlock | null
-): (scanner?: ReplayScannerApi | null) => string | null | undefined {
+interface SummarizeBlock {
+    /** Short enough to replace the button label. */
+    label: string
+    /** The full explanation, for tooltips and the bar. */
+    reason: string
+}
+
+function useSummarizeBlock(scanBlock: ScanBlock | null): (scanner?: ReplayScannerApi | null) => SummarizeBlock | null {
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason } = quotaUx(quota)
-    return (scanner) =>
-        getReplayVisionEditDisabledReason((scanner?.user_access_level as AccessControlLevel | null) ?? undefined) ??
+    return (scanner) => {
+        const accessReason = getReplayVisionEditDisabledReason(
+            (scanner?.user_access_level as AccessControlLevel | null) ?? undefined
+        )
+        if (accessReason) {
+            return { label: 'No access to summarize', reason: accessReason }
+        }
         // `observe` answers 402 for a scanner that has spent its own credit limit, so a capped one is
         // refused here rather than by a failed request. The built-in prompt has no per-scanner limit.
-        (scanner?.limit_reached ? LIMIT_REACHED_TOOLTIP : null) ??
-        scanBlock?.reason ??
-        quotaDisabledReason
+        if (scanner?.limit_reached) {
+            return { label: 'Scanner credit limit reached', reason: LIMIT_REACHED_TOOLTIP }
+        }
+        if (scanBlock) {
+            return { label: `${scanBlock.label} to summarize`, reason: scanBlock.reason }
+        }
+        if (quotaDisabledReason) {
+            return { label: 'No credits left to summarize', reason: quotaDisabledReason }
+        }
+        return null
+    }
 }
 
 /** Runs whichever summarizer `resolveSummarizer` settles on, and lets the user pick another. */
@@ -90,13 +108,15 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const { tooltip: quotaTooltip } = quotaUx(quota)
-    const blockedReason = useSummarizeBlockedReason(scanBlock)
+    const summarizeBlock = useSummarizeBlock(scanBlock)
     // `loading` only disables the button itself. The caret and the menu rows are their own buttons, so
     // without this a second summarizer is one click away mid-run, and it spends the quota again.
     const inFlightDisabledReason = summarizePending ? 'A summary is already running' : null
-    const builtInDisabledReason = inFlightDisabledReason ?? blockedReason()
+    const builtInDisabledReason = inFlightDisabledReason ?? summarizeBlock()?.reason
     const scannerDisabledReason = (scanner: ReplayScannerApi): string | null | undefined =>
-        inFlightDisabledReason ?? blockedReason(scanner)
+        inFlightDisabledReason ?? summarizeBlock(scanner)?.reason
+    // A disabled button that keeps its "Summarize" label looks clickable, so the label says why it is not.
+    const buttonBlock = summarizePending ? null : summarizeBlock(defaultSummarizer)
     // Nobody could tell which summarizer the button used, so it says so. While a scan is running the
     // label is the only thing that says the click landed: the summary takes minutes to arrive.
     const idleLabel = hasSummary
@@ -180,7 +200,9 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
                     : null
             }
         >
-            <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
+            <span className="truncate">
+                {buttonBlock ? buttonBlock.label : dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}
+            </span>
         </LemonButton>
     )
 
@@ -255,8 +277,8 @@ function ObservationsDockContent({
     // Why the button the bar just rendered cannot run, whatever summarizer it points at. Shown as a
     // visible line so the reason no longer hides behind a hover, which is what left people clicking a
     // control that could never fire. A running summary is not a block, so it is left out.
-    const blockedReason = useSummarizeBlockedReason(scanBlock)
-    const summarizeBlockedReason = summarizePending ? null : blockedReason(defaultSummarizer)
+    const summarizeBlock = useSummarizeBlock(scanBlock)
+    const summarizeBlockedReason = summarizePending ? null : summarizeBlock(defaultSummarizer)?.reason
 
     const dockRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -290,35 +312,34 @@ function ObservationsDockContent({
                 <SummarizeButton sessionId={sessionId} scanBlock={scanBlock} />
                 <SummarizeExplainer />
                 {extraActions}
-                {summarizeBlockedReason &&
-                    !hasContent && (
-                        // Collapsed with nothing to expand, the disabled button's tooltip is the only place
-                        // the reason is explained, so the bar says it outright. A scan-block has a short
-                        // label to lead with; a quota or access block carries only its full sentence.
-                        <Tooltip title={summarizeBlockedReason}>
-                            <span className="ml-auto text-muted text-xs truncate" data-attr="vision-dock-skipped">
-                                {scanBlock ? `Skipped: ${scanBlock.label.toLowerCase()}` : summarizeBlockedReason}
-                            </span>
-                        </Tooltip>
-                    )}
-                {hasContent && (
+                {(summarizeBlockedReason || hasContent) && (
                     <div className="ml-auto flex items-center gap-2 min-w-0">
+                        {/* The button label gives the short reason. The bar gives the full one, whatever the dock holds. */}
+                        {summarizeBlockedReason && (
+                            <Tooltip title={summarizeBlockedReason}>
+                                <span className="text-muted text-xs truncate" data-attr="vision-dock-skipped">
+                                    {summarizeBlockedReason}
+                                </span>
+                            </Tooltip>
+                        )}
                         {!dockOpen && unsuccessfulCount > 0 && (
                             <span className="text-muted text-xs truncate" data-attr="vision-dock-no-result-count">
                                 No result from {unsuccessfulCount} {unsuccessfulCount === 1 ? 'scan' : 'scans'}
                             </span>
                         )}
-                        <LemonButton
-                            size="small"
-                            icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
-                            onClick={() => setDockOpen(!dockOpen)}
-                            tooltip={dockOpen ? 'Collapse' : 'Expand'}
-                            aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
-                            data-attr="vision-dock-toggle"
-                            // This click also sets the auto-expand preference, so which way it went is
-                            // the signal for whether people keep summaries open by default.
-                            data-ph-capture-attribute-dock-action={dockOpen ? 'collapse' : 'expand'}
-                        />
+                        {hasContent && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
+                                onClick={() => setDockOpen(!dockOpen)}
+                                tooltip={dockOpen ? 'Collapse' : 'Expand'}
+                                aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
+                                data-attr="vision-dock-toggle"
+                                // This click also sets the auto-expand preference, so which way it went is
+                                // the signal for whether people keep summaries open by default.
+                                data-ph-capture-attribute-dock-action={dockOpen ? 'collapse' : 'expand'}
+                            />
+                        )}
                     </div>
                 )}
             </div>
