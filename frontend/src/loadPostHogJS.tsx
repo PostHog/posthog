@@ -3,7 +3,8 @@ import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogConfig, SessionReco
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
+import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -54,6 +55,10 @@ export function withLastSeenFeatureFlags(
     return { ...bootstrap, featureFlags: { ...lastSeen.featureFlags, ...bootstrap.featureFlags } }
 }
 
+// pinned: analytics property name. Insights filter the framed pages by it.
+const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
+    event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
+
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
         const stored = window.localStorage.getItem(LAST_SEEN_FEATURE_FLAGS_KEY)
@@ -99,6 +104,10 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
+            // Hobby static files use /static/<asset>.js, without a version directory.
+            ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
+                ? { strict_script_versioning: false as const }
+                : {}),
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
@@ -119,7 +128,11 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
-            before_send: options.beforeSend,
+            // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
+            // `register` would persist the property in storage the main window shares, so it is stamped per event.
+            before_send: isEmbeddedPageFrame()
+                ? [stampEmbeddedPageFrame, ...(options.beforeSend ? [options.beforeSend].flat() : [])]
+                : options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

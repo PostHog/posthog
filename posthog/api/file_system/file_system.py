@@ -77,6 +77,11 @@ MAX_META_BYTES = 1_000_000
 RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
+def get_file_system_insight_type(query_kind: str | None, legacy_type: str | None) -> str:
+    insight_type = str(query_kind).removesuffix("Query").lower() if query_kind else str(legacy_type or "TRENDS").lower()
+    return {"hogql": "hog", "pathsv2": "paths", "journeys": "paths"}.get(insight_type, insight_type)
+
+
 def validate_file_system_path(path: Any) -> str:
     """Bound a caller-supplied path before it reaches the per-segment folder creation loop, which
     costs one existence check plus one insert per segment and autocommits each one."""
@@ -560,12 +565,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
-    def _add_content_types(self, results: builtins.list[dict[str, object]]) -> None:
+    def _add_object_types(self, results: builtins.list[dict[str, object]], *, include_content_type: bool) -> None:
+        entry_types = ("notebook", "insight") if include_content_type else ("insight",)
         entry_teams = {
             str(entry_id): team_id
             for entry_id, team_id in FileSystem.objects.filter(
                 team__project_id=self.team.project_id,
-                id__in=[item["id"] for item in results if item.get("type") in ("notebook", "insight")],
+                id__in=[item["id"] for item in results if item.get("type") in entry_types],
             ).values_list("id", "team_id")
         }
         denied: set[tuple[str, str, int]] = set()
@@ -582,10 +588,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             )
         content_types: dict[tuple[str, int, str], str] = {}
+        insight_types: dict[tuple[int, str], str] = {}
         for entry_type, app_label, model_name in (
             ("notebook", "notebooks", "Notebook"),
             ("insight", "product_analytics", "Insight"),
         ):
+            if entry_type == "notebook" and not include_content_type:
+                continue
             refs = {
                 item["ref"]
                 for item in results
@@ -610,23 +619,37 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     _markdown_type="string",
                 )
                 content_type = "text/markdown"
+                for team_id, ref in queryset.values_list("team_id", "short_id"):
+                    if (entry_type, ref, team_id) not in denied:
+                        content_types[(entry_type, team_id, ref)] = content_type
             else:
-                queryset = queryset.filter(query__source__kind="HogQLQuery")
-                content_type = "application/sql"
-            for team_id, ref in queryset.values_list("team_id", "short_id"):
-                if (entry_type, ref, team_id) not in denied:
-                    content_types[(entry_type, team_id, ref)] = content_type
+                for team_id, ref, kind, source_kind, nested_kind, legacy_type in queryset.values_list(
+                    "team_id",
+                    "short_id",
+                    "query__kind",
+                    "query__source__kind",
+                    "query__source__source__kind",
+                    "filters__insight",
+                ):
+                    if (entry_type, ref, team_id) in denied:
+                        continue
+                    insight_types[(team_id, ref)] = get_file_system_insight_type(
+                        nested_kind or source_kind or kind, legacy_type
+                    )
+                    if source_kind == "HogQLQuery":
+                        content_types[(entry_type, team_id, ref)] = "application/sql"
         for item in results:
-            if item.get("type") not in ("notebook", "insight"):
+            if item.get("type") not in entry_types:
                 continue
             meta = item.get("meta")
-            item["meta"] = {
-                **(meta if isinstance(meta, dict) else {}),
-                "content_type": content_types.get(
-                    (str(item["type"]), entry_teams.get(str(item["id"]), -1), str(item.get("ref"))),
-                    "application/json",
-                ),
-            }
+            metadata = {**(meta if isinstance(meta, dict) else {})}
+            team_id = entry_teams.get(str(item["id"]), -1)
+            ref = str(item.get("ref"))
+            if item.get("type") == "insight":
+                metadata["insight_type"] = insight_types.get((team_id, ref))
+            if include_content_type:
+                metadata["content_type"] = content_types.get((str(item["type"]), team_id, ref), "application/json")
+            item["meta"] = metadata
 
     @extend_schema(parameters=[FileSystemListQuerySerializer])
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -640,8 +663,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             response = super().list(request, *args, **kwargs)
             response.data["users"] = self._created_by_users(response.data.get("results", []))
-        if query_serializer.validated_data["include_content_type"]:
-            self._add_content_types(response.data.get("results", []))
+        self._add_object_types(
+            response.data.get("results", []),
+            include_content_type=query_serializer.validated_data["include_content_type"],
+        )
         return response
 
     def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:

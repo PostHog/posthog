@@ -93,7 +93,7 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
 
     if (check.status === 'pending') {
         const start = check.soak_minutes
-            ? `Starts ${soakLabel(check.soak_minutes)} after this report is resolved`
+            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
     }
@@ -130,6 +130,8 @@ function terminalCheckRow(
                 tag: { label: "Couldn't measure", type: 'warning' },
                 detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
             }
+        case 'inconclusive':
+            return { tag: { label: 'Inconclusive', type: 'warning' }, detail: joinDetail([ranOn, explanation]) }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }
     }
@@ -259,6 +261,7 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     stopped_by_person: 'Stopped from the report before it could settle',
     stopped_by_scout: 'A scout run stopped it before it could settle',
     replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
+    replaced_by_request: 'Replaced on request by a revised check',
 }
 
 /**
@@ -271,11 +274,16 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
 
     if (content.arms_on_resolve) {
         const start = content.soak_minutes
-            ? `Starts ${soakLabel(content.soak_minutes)} after this report is resolved`
+            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return {
             tag: { label: 'Waiting for resolve', type: 'muted' },
-            detail: joinDetail([start, lane, runs]),
+            detail: joinDetail([
+                start,
+                content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
+                lane,
+                runs,
+            ]),
         }
     }
 

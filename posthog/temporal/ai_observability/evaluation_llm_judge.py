@@ -51,8 +51,6 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Cli
 from products.ai_observability.backend.llm.decisions import (
     DecisionClient,
     DecisionEndpointBlockedError,
-    DecisionRateLimitError,
-    DecisionRequestRejectedError,
     decision_evaluations_enabled,
     is_decision_model,
 )
@@ -63,8 +61,10 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
     provider_error_detail,
@@ -747,7 +747,7 @@ def call_llm_judge(
             key_id=key_id,
             is_byok=is_byok,
         )
-    except DecisionRequestRejectedError as e:
+    except ProviderRequestRejectedError as e:
         increment_user_errors("request_rejected", provider=provider)
         return build_skipped_evaluation_result(
             output_type=output_type,
@@ -755,7 +755,7 @@ def call_llm_judge(
             reasoning=str(e),
             skip_reason="request_rejected",
         )
-    except DecisionRateLimitError as e:
+    except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
         raise ApplicationError(
             str(e),

@@ -2,6 +2,7 @@ import socket
 import datetime
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from typing import cast
 
 import pytest
@@ -10,7 +11,8 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import pymysql
-from pymysql.constants import CLIENT
+from pymysql.constants import CLIENT, FIELD_TYPE
+from pymysql.protocol import MysqlPacket
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
@@ -27,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _MAX_CONNECT_ATTEMPTS,
+    _MYSQL_SAFE_CONVERSIONS,
     _SSH_HANDSHAKE_EOF_ERROR,
     STATEMENT_TIMEOUT_SECONDS,
     UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
@@ -34,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     MySQLImplementation,
     MySQLUnavoidableFilesortError,
     _build_query,
+    _FieldCharsetResult,
     _is_bad_plan_error,
     _is_transient_cant_create_thread,
     _is_transient_connect_broken_pipe,
@@ -71,7 +75,7 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 def _make_config(**overrides) -> MySQLSourceConfig:
     """Build a MySQLSourceConfig for tests that drive `build_pipeline`.
 
-    pymysql.connect is mocked in every test that uses this, so the host/port
+    The pymysql connection is mocked in every test that uses this, so the host/port
     never have to resolve. `ssh_tunnel` is left unset so the default `None`
     is preserved — the str-coercing `from_dict` turns explicit Nones into
     "None" strings otherwise.
@@ -194,6 +198,29 @@ class TestSafeConvertDatetime:
     )
     def test_invalid_datetimes_return_none(self, input_val):
         assert _safe_convert_datetime(input_val) is None
+
+
+class TestFieldCharsetResult:
+    @pytest.mark.parametrize(
+        "type_code,charset_id,raw,expected",
+        [
+            (FIELD_TYPE.ENUM, 8, "ao\u00fbt".encode("latin1"), "ao\u00fbt"),
+            (FIELD_TYPE.SET, 255, "co\u00fbt".encode(), "co\u00fbt"),
+            (242, 63, b"\x00\xfb", b"\x00\xfb"),
+            (FIELD_TYPE.LONG, 63, b"42", 42),
+            (FIELD_TYPE.NEWDECIMAL, 63, b"1.50", Decimal("1.50")),
+        ],
+    )
+    def test_decodes_column_by_its_wire_charset(self, type_code, charset_id, raw, expected):
+        connection = MagicMock(use_unicode=True, encoding="utf8", decoders=_MYSQL_SAFE_CONVERSIONS)
+        connection._read_packet.side_effect = [MagicMock(type_code=type_code, charsetnr=charset_id), MagicMock()]
+        result = _FieldCharsetResult(connection)
+        result.field_count = 1
+        result._get_descriptions()
+
+        row = result._read_row_from_packet(MysqlPacket(bytes([len(raw)]) + raw, "utf8"))  # type: ignore[attr-defined]
+
+        assert row == (expected,)
 
 
 class TestMySQLColumnDateNullability:
@@ -805,10 +832,10 @@ class TestSafetyContract:
 
 @pytest.fixture
 def build_pipeline_mocks(mocker):
-    """Patch pymysql.connect + per-cursor metadata methods on MySQLImplementation
+    """Patch the pymysql connection + per-cursor metadata methods on MySQLImplementation
     so `build_pipeline` can run end-to-end without a real MySQL server.
 
-    pymysql.connect is called twice: once for the metadata pass inside
+    A connection is opened twice: once for the metadata pass inside
     `build_pipeline`, and once inside `get_rows()` for the streaming
     connection we care about testing.
     """
@@ -853,7 +880,7 @@ def build_pipeline_mocks(mocker):
     mock_connection.cursor.side_effect = cursor_factory
 
     mock_connect = mocker.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
         return_value=mock_connection,
     )
     return mock_connect, setup_cursor, ss_cursor
@@ -892,7 +919,7 @@ class TestKeysetReadPath:
         connection.cursor.return_value = cursor
 
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             return_value=connection,
         )
         return mock_connect, cursor, plan_check
@@ -1554,7 +1581,7 @@ class TestConnectTransientRetry:
         conn.__enter__.return_value = conn
         drop = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[drop] * fail_count + [conn],
         )
 
@@ -1574,7 +1601,7 @@ class TestConnectTransientRetry:
             "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
         )
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[drop, conn],
         )
 
@@ -1589,7 +1616,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.OperationalError(
                     2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 104] Connection reset by peer)"
@@ -1609,7 +1636,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.OperationalError(
                     2006, "MySQL server has gone away (ConnectionResetError(104, 'Connection reset by peer'))"
@@ -1629,7 +1656,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'host' (timed out)"),
                 conn,
@@ -1647,7 +1674,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.OperationalError(
                     2003,
@@ -1669,7 +1696,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.OperationalError(
                     1815,
@@ -1691,7 +1718,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[pymysql.err.OperationalError(1040, "Too many connections"), conn],
         )
 
@@ -1706,7 +1733,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.OperationalError(
                     1135, 'Can\'t create a new thread (errno 11 "Resource temporarily unavailable")'
@@ -1726,7 +1753,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.InternalError("Packet sequence number wrong - got 2 expected 3"),
                 conn,
@@ -1744,7 +1771,7 @@ class TestConnectTransientRetry:
         conn = MagicMock()
         conn.__enter__.return_value = conn
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=[
                 pymysql.err.OperationalError(
                     1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available"
@@ -1762,7 +1789,7 @@ class TestConnectTransientRetry:
     def test_does_not_retry_connection_refused(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=pymysql.err.OperationalError(
                 2003, "Can't connect to MySQL server on 'host' ([Errno 111] Connection refused)"
             ),
@@ -1778,7 +1805,7 @@ class TestConnectTransientRetry:
     def test_does_not_retry_non_transient_internal_error(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=pymysql.err.InternalError("some other internal error"),
         )
 
@@ -1792,7 +1819,7 @@ class TestConnectTransientRetry:
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
         )
 
@@ -1805,7 +1832,7 @@ class TestConnectTransientRetry:
     def test_does_not_retry_ssl_version_mismatch(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             side_effect=pymysql.err.OperationalError(
                 2013,
                 "Lost connection to MySQL server during query "
@@ -2230,6 +2257,24 @@ class TestMySQLSourceNonRetryableErrors:
         )
         assert friendly is not None, f"TiDB Cloud access-denied error should be non-retryable: {error_msg}"
         assert "TiDB Cloud" in friendly
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "(4151, 'Access denied, this account is locked')",
+            "OperationalError: (4151, 'Access denied, this account is locked')",
+        ],
+    )
+    def test_locked_account_is_non_retryable(self, source, error_msg):
+        # A locked account only a DB admin can unlock — retrying authenticates as the same
+        # account and fails identically forever.
+        non_retryable = source.get_non_retryable_errors()
+        friendly = next(
+            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            None,
+        )
+        assert friendly is not None, f"Locked account error should be non-retryable: {error_msg}"
+        assert "locked" in friendly
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2854,7 +2899,7 @@ class TestConnectSSHTunnel:
             return_value=_RaisingTunnel(),
         )
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect"
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection"
         )
 
         with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
@@ -2884,7 +2929,7 @@ class TestConnectPortCoercion:
             ssh_tunnel=None,
         )
         mock_connect = mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
             return_value=MagicMock(),
         )
 
@@ -2919,7 +2964,7 @@ class TestMySQLConnectDialsOnlyValidatedAddresses:
             ) as getaddrinfo_mock,
             patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
             patch(f"{_MYSQL_MODULE}.socket.create_connection") as create_connection_mock,
-            patch(f"{_MYSQL_MODULE}.pymysql.connect") as pymysql_connect_mock,
+            patch(f"{_MYSQL_MODULE}._SourceConnection") as pymysql_connect_mock,
             patch(f"{_MYSQL_MODULE}.time.sleep"),
         ):
             tunnel_mock.return_value.__enter__.return_value = (tunnel_host, 3306)
@@ -3027,7 +3072,7 @@ class TestConnectCertificateVerification:
     @staticmethod
     def _connect(mocker, *, using_ssl: str, verify: str, tunneled: bool) -> tuple[dict, bool]:
         connection = MagicMock()
-        plain = mocker.patch(f"{_MYSQL_MODULE}.pymysql.connect", return_value=connection)
+        plain = mocker.patch(f"{_MYSQL_MODULE}._SourceConnection", return_value=connection)
         refusing = mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", return_value=connection)
         overrides: dict = {"using_ssl": using_ssl, "verify_server_certificate": verify}
         if tunneled:
