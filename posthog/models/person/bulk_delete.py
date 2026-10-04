@@ -29,10 +29,12 @@ from posthog.models.person.util import (
     tombstone_persons_in_postgres,
 )
 from posthog.models.user import User
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, ReadOptions
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 
 from products.ai_training.backend.facade.api import queue_person_training_deletion
+from products.customer_analytics.backend.facade.membership_deletion import delete_person_membership, has_team_membership
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +46,7 @@ class PersonDeletionStep(StrEnum):
     FETCH_DISTINCT_IDS = "fetch_distinct_ids"
     QUEUE_TRAINING_DELETION = "queue_training_deletion"
     QUEUE_RECORDING_DELETION = "queue_recording_deletion"
+    DELETE_MEMBERSHIP = "delete_membership"
     TOMBSTONE_POSTGRES = "tombstone_postgres"
     PUBLISH_CLICKHOUSE_TOMBSTONE = "publish_clickhouse_tombstone"
     LOG_ACTIVITY = "log_activity"
@@ -446,7 +449,41 @@ def _tombstone_and_delete_persons(
     raising would hide a completed deletion behind an error.
     """
     failures: builtins.list[PersonDeletionFailure] = []
-    deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures)
+    if not persons:
+        return PersonProfileDeletionResult(deleted_count=0)
+    eligible: builtins.list[Person] = []
+    try:
+        needs_membership_delete = has_team_membership(team_id)
+    except Exception as exc:
+        _record_step_failure(
+            failures,
+            step=PersonDeletionStep.DELETE_MEMBERSHIP,
+            team_id=team_id,
+            exc=exc,
+            person_uuids=[p.uuid for p in persons],
+        )
+        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
+    for person in persons:
+        try:
+            if needs_membership_delete:
+                # Fresh identity reads exclude distinct IDs reassigned since the request resolved its persons.
+                ids = _paginated_get_distinct_ids_for_person(
+                    team_id,
+                    person.pk,
+                    page_size=QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE,
+                    read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
+                )
+                delete_person_membership(team_id, [d.id for d in ids])
+            eligible.append(person)
+        except Exception as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.DELETE_MEMBERSHIP,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid],
+            )
+    deleted = _tombstone_persons_at_exact_versions(team_id, eligible, failures)
 
     if organization_id is not None and deleted:
         try:
