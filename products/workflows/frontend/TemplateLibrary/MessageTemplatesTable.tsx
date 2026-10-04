@@ -5,10 +5,12 @@ import { router } from 'kea-router'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconTrash } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -29,6 +31,8 @@ export function MessageTemplatesTable(): JSX.Element {
         useActions(messageTemplatesLogic)
     const { startNewTemplate } = useActions(newTemplateAgentLogic)
 
+    const brandedStarterEnabled = useFeatureFlag('EMAIL_BRANDED_STARTER')
+
     const showProductIntroduction = !templatesLoading && templates.length === 0
 
     return (
@@ -42,6 +46,20 @@ export function MessageTemplatesTable(): JSX.Element {
                     customHog={HedgehogReadingIsMagic}
                     isEmpty
                 />
+            )}
+            {brandedStarterEnabled && (
+                <LemonButton
+                    type="secondary"
+                    className="mb-4"
+                    onClick={() =>
+                        router.actions.push(urls.workflowsLibraryTemplateNew(), {
+                            mode: 'editor',
+                            brandedStarter: 'true',
+                        })
+                    }
+                >
+                    Start with your brand
+                </LemonButton>
             )}
             <MaxTool
                 identifier="create_message_template"

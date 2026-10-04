@@ -102,6 +102,28 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    it('keeps Create in flight until the template save finishes', async () => {
+        let finishSave!: () => void
+        const saved = new Promise<void>((resolve) => {
+            finishSave = resolve
+        })
+        const create = jest.fn(async () => {
+            await saved
+            return { id: 'created-id', name: 'Juniper Studio', content: { email: { subject: 'Hello' } } }
+        })
+        useMocks({ post: { '/api/environments/:team_id/messaging_templates/': create } })
+        logic = messageTemplateLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTemplateValues({ name: 'Juniper Studio', content: { email: { subject: 'Hello' } } })
+        logic.actions.submitTemplate()
+        await expectLogic(logic).toDispatchActions(['saveTemplate'])
+        expect(logic.values.isTemplateSubmitting).toBe(true)
+        logic.actions.submitTemplate()
+        finishSave()
+        await expectLogic(logic).toDispatchActions(['saveTemplateSuccess'])
+        expect(create).toHaveBeenCalledTimes(1)
+    })
+
     describe('save failure feedback', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -337,5 +359,27 @@ describe('messageTemplateLogic', () => {
 
             await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
         })
+    })
+    describe('manual branded starter entry', () => {
+        it.each([
+            { enabled: true, id: 'new', messageId: undefined, starterOpen: true, pickerOpen: false },
+            { enabled: false, id: 'new', messageId: undefined, starterOpen: false, pickerOpen: true },
+            { enabled: true, id: 'existing-id', messageId: undefined, starterOpen: false, pickerOpen: false },
+            { enabled: true, id: 'new', messageId: 'message-id', starterOpen: false, pickerOpen: false },
+        ])(
+            'guards the starter for flag=$enabled id=$id message=$messageId',
+            async ({ enabled, id, messageId, starterOpen, pickerOpen }) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMAIL_BRANDED_STARTER], {
+                    [FEATURE_FLAGS.EMAIL_BRANDED_STARTER]: enabled,
+                })
+                router.actions.push('/workflows/library/templates/new', { mode: 'editor', brandedStarter: 'true' })
+                logic = messageTemplateLogic({ id, messageId })
+                logic.mount()
+                await expectLogic(logic).toMatchValues({
+                    brandedStarterOpen: starterOpen,
+                    templatePickerOpen: pickerOpen,
+                })
+            }
+        )
     })
 })
