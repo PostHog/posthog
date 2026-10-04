@@ -1,7 +1,10 @@
+import { dayjs } from 'lib/dayjs'
+
 import {
     DataVisualizationNode,
     DatabaseSchemaTable,
     DatabaseSerializedFieldType,
+    HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
@@ -44,6 +47,9 @@ export type BIFilterOperator =
     | 'equals'
     | 'not_equals'
     | 'contains'
+    | 'in'
+    | 'not_in'
+    | 'between'
     | 'greater_than'
     | 'less_than'
     | 'last_7_days'
@@ -90,6 +96,22 @@ export interface BIFilter {
     operator: BIFilterOperator
     value: string
     customExpression?: string
+    values?: string[]
+    valueTo?: string
+    enabled?: boolean
+}
+
+export function changeBIFilterOperator(filter: BIFilter, operator: BIFilterOperator): BIFilter {
+    const wasMultiple = ['in', 'not_in'].includes(filter.operator)
+    const isMultiple = ['in', 'not_in'].includes(operator)
+    if (wasMultiple === isMultiple) {
+        return { ...filter, operator }
+    }
+    return {
+        ...filter,
+        operator,
+        ...(isMultiple ? { values: filter.value ? [filter.value] : [] } : { value: filter.values?.[0] ?? '' }),
+    }
 }
 
 export interface BIConfig {
@@ -147,6 +169,9 @@ const BI_AGGREGATIONS = new Set<BIAggregation>([
     'custom',
 ])
 const BI_FILTER_OPERATORS = new Set<BIFilterOperator>([
+    'in',
+    'not_in',
+    'between',
     'equals',
     'not_equals',
     'contains',
@@ -467,6 +492,11 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   !field ||
                   !BI_FILTER_OPERATORS.has(filterCandidate.operator as BIFilterOperator) ||
                   typeof filterCandidate.value !== 'string' ||
+                  (filterCandidate.values !== undefined &&
+                      (!Array.isArray(filterCandidate.values) ||
+                          !filterCandidate.values.every((value) => typeof value === 'string'))) ||
+                  (filterCandidate.valueTo !== undefined && typeof filterCandidate.valueTo !== 'string') ||
+                  (filterCandidate.enabled !== undefined && typeof filterCandidate.enabled !== 'boolean') ||
                   (filterCandidate.customExpression !== undefined &&
                       typeof filterCandidate.customExpression !== 'string')
               ) {
@@ -477,6 +507,9 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   operator: filterCandidate.operator as BIFilterOperator,
                   value: filterCandidate.value,
                   customExpression: filterCandidate.customExpression,
+                  values: filterCandidate.values,
+                  valueTo: filterCandidate.valueTo,
+                  enabled: filterCandidate.enabled,
               }
           })
         : null
@@ -616,7 +649,77 @@ function aggregationExpression(value: BIValue): string | null {
     }
 }
 
+export function getBIFilterValidationError(filter: BIFilter): string | null {
+    if (
+        filter.enabled === false ||
+        !isNumericBIField(filter.field) ||
+        ['custom', 'contains', 'is_set', 'is_not_set', 'last_7_days'].includes(filter.operator)
+    ) {
+        return null
+    }
+    const values =
+        filter.operator === 'in' || filter.operator === 'not_in'
+            ? (filter.values ?? [])
+            : [filter.value, ...(filter.operator === 'between' ? [filter.valueTo ?? ''] : [])].filter(
+                  (value) => value.trim() !== ''
+              )
+    return values.some(
+        (value) =>
+            !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()) || !Number.isFinite(Number(value))
+    )
+        ? 'Enter a valid number for each filter value.'
+        : null
+}
+
+export function getBIFilterSummary(filter: BIFilter): string {
+    const dateFormat =
+        filter.field.type === 'datetime' && filter.value.slice(0, 10) === filter.valueTo?.slice(0, 10)
+            ? 'MMM D, HH:mm'
+            : filter.value.slice(0, 4) !== filter.valueTo?.slice(0, 4)
+              ? 'MMM D, YYYY'
+              : 'MMM D'
+    const formatValue = (value: string): string =>
+        isDateTimeBIField(filter.field) && dayjs(value).isValid() ? dayjs(value).format(dateFormat) : value
+    switch (filter.operator) {
+        case 'in':
+        case 'not_in': {
+            const values = filter.values ?? []
+            const selection = values.length === 1 ? values[0] || '(empty string)' : `${values.length} values`
+            return values.length ? `${filter.operator === 'not_in' ? 'Except ' : ''}${selection}` : 'All values'
+        }
+        case 'between':
+            return filter.value && filter.valueTo
+                ? `${formatValue(filter.value)} to ${formatValue(filter.valueTo)}`
+                : filter.value
+                  ? `From ${formatValue(filter.value)}`
+                  : filter.valueTo
+                    ? `Up to ${formatValue(filter.valueTo)}`
+                    : 'All values'
+        case 'is_set':
+            return 'Has a value'
+        case 'is_not_set':
+            return 'Has no value'
+        case 'last_7_days':
+            return 'Last 7 days'
+        case 'custom':
+            return filter.customExpression?.trim() || 'Add SQL condition'
+        default: {
+            const prefix = {
+                equals: '',
+                not_equals: 'Not ',
+                contains: 'Contains ',
+                greater_than: '> ',
+                less_than: '< ',
+            }[filter.operator]
+            return filter.value ? `${prefix}${filter.value}` : 'All values'
+        }
+    }
+}
+
 function filterExpression(filter: BIFilter): string | null {
+    if (filter.enabled === false) {
+        return null
+    }
     const field = fieldExpression(filter.field)
 
     if (filter.operator === 'custom') {
@@ -632,14 +735,27 @@ function filterExpression(filter: BIFilter): string | null {
     if (filter.operator === 'last_7_days') {
         return `${field} >= now() - INTERVAL 7 DAY`
     }
+    // Strip leading zeroes so decimal input cannot become an octal HogQL literal.
+    const literal = (value: string): string =>
+        isNumericBIField(filter.field) ? value.trim().replace(/^([+-]?)0+(?=\d)/, '$1') : escapeHogQLString(value)
+    if (filter.operator === 'in' || filter.operator === 'not_in') {
+        const values = filter.values ?? []
+        return values.length
+            ? `${field} ${filter.operator === 'in' ? 'IN' : 'NOT IN'} (${values.map(literal).join(', ')})`
+            : null
+    }
+    if (filter.operator === 'between') {
+        const bounds = [
+            filter.value.trim() ? `${field} >= ${literal(filter.value)}` : null,
+            filter.valueTo?.trim() ? `${field} <= ${literal(filter.valueTo)}` : null,
+        ].filter(Boolean)
+        return bounds.length ? `(${bounds.join(' AND ')})` : null
+    }
     if (!filter.value.trim()) {
         return null
     }
 
-    const value =
-        isNumericBIField(filter.field) && Number.isFinite(Number(filter.value))
-            ? String(Number(filter.value))
-            : escapeHogQLString(filter.value)
+    const value = literal(filter.value)
 
     switch (filter.operator) {
         case 'equals':
@@ -652,6 +768,31 @@ function filterExpression(filter: BIFilter): string | null {
             return `${field} > ${value}`
         case 'less_than':
             return `${field} < ${value}`
+    }
+}
+
+export function buildBIFilterOptionsQuery(config: BIConfig, index: number): HogQLQuery | null {
+    const filter = config.filters[index]
+    if (
+        !config.source ||
+        !filter?.field.expression.trim() ||
+        config.filters.some((other, otherIndex) => otherIndex !== index && getBIFilterValidationError(other))
+    ) {
+        return null
+    }
+    const expression = fieldExpression(filter.field)
+    const conditions = config.filters
+        .filter(
+            (other, otherIndex) =>
+                otherIndex !== index &&
+                (other.field.expression.trim() || other.field.name.trim() || other.operator === 'custom')
+        )
+        .map(filterExpression)
+        .filter((condition): condition is string => !!condition)
+    return {
+        kind: NodeKind.HogQLQuery,
+        connectionId: config.source.connectionId,
+        query: `SELECT DISTINCT toString(${expression}) AS value\nFROM ${escapePropertyAsHogQLIdentifier(config.source.table)}\nWHERE ${[`${expression} IS NOT NULL`, ...conditions].map((condition) => `(${condition})`).join(' AND ')}\nLIMIT 100`,
     }
 }
 
@@ -843,7 +984,7 @@ function buildOrderByExpression(
 }
 
 export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
-    if (!config.source) {
+    if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
     }
 
