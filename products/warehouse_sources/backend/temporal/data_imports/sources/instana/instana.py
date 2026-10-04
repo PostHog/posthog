@@ -96,11 +96,11 @@ def _read_capped_body(response: requests.Response) -> bytes:
     return b"".join(chunks)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class InstanaResumeConfig:
     # Next page to fetch for the page-paginated application-monitoring catalogs.
     next_page: int | None = None
-    # Next offset to fetch for offset/limit-paginated endpoints.
+    # Next `offset` to fetch for offset/limit-paginated endpoints. Instana counts it in pages.
     next_offset: int | None = None
     # Epoch-ms start of the next `/api/events` window chunk.
     events_window_from: int | None = None
@@ -356,7 +356,10 @@ def _get_offset_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[InstanaResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Walk an offset/limit-paginated list (synthetic CI/CD runs) until a short page."""
+    """Walk an offset/limit-paginated list (synthetic CI/CD runs) until a short page.
+
+    Instana's `offset` is the number of pages of `limit` items to skip, not an item count.
+    """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume.next_offset if resume is not None and resume.next_offset is not None else 0
     if offset:
@@ -378,7 +381,7 @@ def _get_offset_rows(
         if len(items) < PAGE_SIZE:
             break
 
-        offset += len(items)
+        offset += 1
         resumable_source_manager.save_state(InstanaResumeConfig(next_offset=offset))
 
 
@@ -392,8 +395,10 @@ def _get_fan_out_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk the parent catalog and fetch one child resource per parent row.
 
-    Resume state is the parent walk's page, so a resumed run re-fetches the children of at most
-    one parent page.
+    Each child response is yielded on its own, so memory stays bounded by one response rather
+    than one parent page of them. Resume state is the parent walk's page, which the parent walk
+    saves only after all of that page's children are yielded, so a resumed run re-fetches the
+    children of at most one parent page.
     """
     parent_config = INSTANA_ENDPOINTS[fan_out.parent]
     if parent_config.pagination == "page":
@@ -401,12 +406,18 @@ def _get_fan_out_rows(
     else:
         parent_pages = _get_list_rows(session, root, parent_config, logger)
 
+    # The parent walk checks its bounds only between parent pages, so the child requests of one
+    # page need their own: one page holds up to PAGE_SIZE slow or retried child requests.
+    children_fetched = 0
+    walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
     for parent_rows in parent_pages:
-        child_rows: list[dict[str, Any]] = []
+        yielded_any = False
         for parent_row in parent_rows:
             parent_id = parent_row.get(fan_out.parent_field)
             if not isinstance(parent_id, str) or not parent_id:
                 continue
+            _check_walk_bounds(config, walk_deadline, children_fetched)
+            children_fetched += 1
             url = _build_url(root, config.path.format(**{fan_out.child_field: quote(parent_id, safe="")}), {})
             try:
                 data = _fetch(session, url, logger)
@@ -417,12 +428,11 @@ def _get_fan_out_rows(
                     continue
                 raise
             records = data if isinstance(data, list) else [data]
-            child_rows.extend(
-                {**record, fan_out.child_field: parent_id} for record in records if isinstance(record, dict)
-            )
-        if child_rows:
-            yield child_rows
-        else:
+            child_rows = [{**record, fan_out.child_field: parent_id} for record in records if isinstance(record, dict)]
+            if child_rows:
+                yielded_any = True
+                yield child_rows
+        if not yielded_any:
             resumable_source_manager.safe_point()
 
 

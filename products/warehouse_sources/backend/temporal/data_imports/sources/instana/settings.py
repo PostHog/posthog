@@ -36,7 +36,7 @@ SNAPSHOTS_MAX_SIZE = 1000
 PaginationStyle = Literal["page", "offset", "none"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class InstanaFanOutConfig:
     # Endpoint whose rows are walked to build each child request.
     parent: str
@@ -46,7 +46,7 @@ class InstanaFanOutConfig:
     child_field: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class InstanaEndpointConfig:
     name: str
     path: str

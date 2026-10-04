@@ -293,9 +293,9 @@ class TestOffsetRows:
         pages = [self._page(PAGE_SIZE), self._page(3, start=PAGE_SIZE)]
         rows, saved, fetched = _run_get_rows("synthetic_test_ci_cds", pages)
 
-        assert [_query(url)["offset"] for url in fetched] == [["0"], [str(PAGE_SIZE)]]
+        assert [_query(url)["offset"] for url in fetched] == [["0"], ["1"]]
         assert all(_query(url)["limit"] == [str(PAGE_SIZE)] for url in fetched)
-        assert saved == [InstanaResumeConfig(next_offset=PAGE_SIZE)]
+        assert saved == [InstanaResumeConfig(next_offset=1)]
         assert sum(len(batch) for batch in rows) == PAGE_SIZE + 3
 
     def test_resume_starts_at_saved_offset(self) -> None:
@@ -303,10 +303,10 @@ class TestOffsetRows:
             "synthetic_test_ci_cds",
             [self._page(1)],
             can_resume=True,
-            resume_state=InstanaResumeConfig(next_offset=400),
+            resume_state=InstanaResumeConfig(next_offset=2),
         )
 
-        assert _query(fetched[0])["offset"] == ["400"]
+        assert _query(fetched[0])["offset"] == ["2"]
 
 
 class TestFanOutRows:
@@ -349,10 +349,24 @@ class TestFanOutRows:
         ],
     )
     def test_reports_carry_parent_id_and_deleted_parent_is_skipped(self, report_body: Any) -> None:
-        rows, fetched = self._run({"SLO1": report_body, "SLO_GONE": None})
+        rows, fetched = self._run({"SLO1": report_body, "SLO_GONE": None, "SLO2": report_body})
 
-        assert [urlparse(url).path for url in fetched[1:]] == ["/api/slo/report/SLO1", "/api/slo/report/SLO_GONE"]
-        assert rows == [[{"sli": 0.99, "fromTimestamp": 1, "sloId": "SLO1"}]]
+        assert [urlparse(url).path for url in fetched[1:]] == [
+            "/api/slo/report/SLO1",
+            "/api/slo/report/SLO_GONE",
+            "/api/slo/report/SLO2",
+        ]
+        assert rows == [
+            [{"sli": 0.99, "fromTimestamp": 1, "sloId": "SLO1"}],
+            [{"sli": 0.99, "fromTimestamp": 1, "sloId": "SLO2"}],
+        ]
+
+    def test_child_requests_count_against_the_walk_bounds(self) -> None:
+        # One parent page can hold many slow child requests; the bound must trip inside the page,
+        # not only when the parent walk asks for its next page.
+        with mock.patch.object(inst, "MAX_CATALOG_PAGES", 1):
+            with pytest.raises(inst.InstanaPaginationLimitError):
+                self._run({"SLO1": {"sli": 1}, "SLO2": {"sli": 1}})
 
 
 class TestListRows:
