@@ -76,12 +76,11 @@ REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 #
 # The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
 # `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
-# `/interview/` and the bare `/exporter`. Sync to the URL patterns, not to that list.
+# the bare `/exporter`. Sync to the URL patterns, not to that list.
 EMBEDDABLE_PATH_PREFIXES = (
     "/shared_dashboard/",
     "/shared/",
     "/embedded/",
-    "/interview/",
     "/exporter/",
     "/external_surveys/",
 )

@@ -87,7 +87,6 @@ class Product(StrEnum):
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
     TRACING = "tracing"
-    USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
