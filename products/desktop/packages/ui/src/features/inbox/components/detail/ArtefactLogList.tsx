@@ -258,9 +258,9 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
 
 function RankingLiftBar({ head }: { head: RankingHead }) {
   return (
-    <Box className="relative h-1.5 overflow-hidden rounded-full bg-(--gray-4)">
+    <div className="relative h-1.5 overflow-hidden rounded-full bg-(--gray-4)">
       {head.lift !== null ? (
-        <Box
+        <div
           className={`h-full rounded-full ${head.readable ? "bg-(--accent-9)" : "bg-(--gray-8)"}`}
           style={{ width: `${rankingLiftBarPercent(head.lift)}%` }}
         />
@@ -269,7 +269,7 @@ function RankingLiftBar({ head }: { head: RankingHead }) {
         className="absolute inset-y-0 left-1/2 w-px bg-(--gray-9)"
         aria-hidden
       />
-    </Box>
+    </div>
   );
 }
 
@@ -282,15 +282,10 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
           <Fragment key={head.name}>
             <Text className={`truncate ${tone}`}>{prettify(head.name)}</Text>
             <RankingLiftBar head={head} />
-            <Text className={`text-right tabular-nums ${tone}`}>
+            <span className={`text-right tabular-nums ${tone}`}>
               {head.lift !== null ? formatRankingLift(head.lift) : null}
-            </Text>
-            <Flex
-              align="center"
-              justify="end"
-              gap="1"
-              className="text-(--gray-10) tabular-nums"
-            >
+            </span>
+            <div className="flex items-center justify-end gap-1 text-(--gray-10) tabular-nums">
               {formatRankingProbability(head.probability)}
               {head.readable ? (
                 <span className="size-3" aria-hidden />
@@ -304,7 +299,7 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
                   <InfoIcon size={12} />
                 </span>
               )}
-            </Flex>
+            </div>
           </Fragment>
         );
       })}
