@@ -108,6 +108,37 @@ def test_latest_advances_monotonically_and_backfills_never_clobber_it(existing, 
 
 
 @pytest.mark.parametrize(
+    "stamps,requested,limit,expected",
+    [
+        ({"2026-07-01": None, "2026-07-02": 8, "2026-07-03": 9}, (), 6, ["2026-07-02", "2026-07-01"]),
+        ({"2026-07-01": 10}, (), 6, []),
+        ({f"2026-07-{day:02d}": None for day in range(1, 11)}, (), 3, ["2026-07-10", "2026-07-09", "2026-07-08"]),
+        ({"2026-07-01": 8, "2026-07-02": 8, "2026-07-03": 8}, ("2026-07-03",), 1, ["2026-07-02"]),
+    ],
+)
+def test_stale_label_partitions_newest_first_capped_and_skips_requested(stamps, requested, limit, expected):
+    assert dag.stale_label_partitions(stamps, 9, limit, requested) == expected
+
+
+class _MetadataS3:
+    def __init__(self) -> None:
+        self.metadata: dict[str, dict[str, str]] = {}
+
+    def upload_fileobj(self, fileobj, bucket, key, ExtraArgs):
+        self.metadata[key] = ExtraArgs["Metadata"]
+
+    def head_object(self, Bucket, Key):
+        return {"Metadata": self.metadata[Key]}
+
+
+@pytest.mark.parametrize("schema_version", [9, None])
+def test_schema_version_stamp_round_trips(schema_version):
+    client = _MetadataS3()
+    common.write_parquet(client, "b", "k", pa.table({"x": [1]}), schema_version=schema_version)
+    assert common.object_schema_version(client, "b", "k") == schema_version
+
+
+@pytest.mark.parametrize(
     "existing,row_count,expected",
     [
         (None, 0, True),
