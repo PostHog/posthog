@@ -309,9 +309,11 @@ async def test_pending_input_without_new_content_keeps_title_summary_and_logs_no
     assert refreshed.summary == expected_summary
     assert refreshed.suggested_prompts == ["Why does checkout fail on Safari?"]
     assert refreshed.error == "Requires human input: no repository matched"
-    notes = await database_sync_to_async(list)(
-        SignalReportArtefact.objects.filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.NOTE)
-    )
+    notes = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.NOTE)
+        )
+    )()
     assert len(notes) == 1
     assert "no repository matched" in notes[0].content
 
