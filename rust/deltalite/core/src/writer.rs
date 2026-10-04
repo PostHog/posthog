@@ -37,7 +37,7 @@ use deltalake::{DeltaTable, ObjectStore, Path};
 use indexmap::IndexMap;
 use object_store::PutPayload;
 use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
+use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use parquet::schema::types::ColumnPath;
 use uuid::Uuid;
@@ -167,19 +167,32 @@ impl StreamingWriter {
         })
     }
 
-    /// Encode with `compression` instead of delta-rs's write default (SNAPPY). delta-rs's
-    /// `optimize` writes ZSTD, so a compaction that rewrites files uses this to match it.
-    pub(crate) fn with_compression(mut self, compression: Compression) -> Self {
-        self.writer_properties = WriterProperties::builder()
-            .set_created_by(format!("delta-rs version {}", deltalake::crate_version()))
-            .set_compression(compression)
-            .build();
+    /// Encode with `props` instead of delta-rs's write defaults. Compaction passes
+    /// [`optimize_writer_properties`], the properties delta-rs's `optimize` writes with.
+    pub(crate) fn with_writer_properties(mut self, props: WriterProperties) -> Self {
+        self.writer_properties = props;
         self
     }
 
     /// Bytes held across all open files; the rollover measure.
     pub(crate) fn buffer_len(&self) -> usize {
         self.open.values().map(OpenFile::buffer_len).sum()
+    }
+
+    /// Rows in the row groups the open files have not closed yet.
+    pub(crate) fn in_progress_rows(&self) -> usize {
+        self.open
+            .values()
+            .map(|f| f.writer.in_progress_rows())
+            .sum()
+    }
+
+    /// Close the in-progress row group of every open file, keeping the files open.
+    pub(crate) fn flush_row_groups(&mut self) -> Result<()> {
+        for file in self.open.values_mut() {
+            file.writer.flush()?;
+        }
+        Ok(())
     }
 
     /// Encode `values` into the open file of each partition it holds.
@@ -336,6 +349,15 @@ fn delta_rs_writer_properties() -> WriterProperties {
     WriterProperties::builder()
         .set_created_by(format!("delta-rs version {}", deltalake::crate_version()))
         .set_compression(Compression::SNAPPY)
+        .build()
+}
+
+/// `default_writer_properties(Compression::ZSTD(4))` from delta-rs, which `optimize`
+/// uses when the caller passes no writer properties (the Python package passes none).
+pub(crate) fn optimize_writer_properties() -> WriterProperties {
+    WriterProperties::builder()
+        .set_created_by(format!("delta-rs version {}", deltalake::crate_version()))
+        .set_compression(Compression::ZSTD(ZstdLevel::try_new(4).unwrap_or_default()))
         .build()
 }
 

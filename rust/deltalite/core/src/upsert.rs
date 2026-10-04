@@ -91,7 +91,11 @@ const FOOTER_SIZE_HINT: usize = 64 * 1024;
 /// compressible rows can't inflate a single decoded batch far past the pre-decode reservation
 /// (which would otherwise sit unaccounted while the reader tops its permit up). Clamped to
 /// `[1, cap]`; falls back to `cap` when metadata carries no usable sizes.
-pub(crate) fn byte_bounded_batch_rows(meta: &ParquetMetaData, target_bytes: usize, cap: usize) -> usize {
+pub(crate) fn byte_bounded_batch_rows(
+    meta: &ParquetMetaData,
+    target_bytes: usize,
+    cap: usize,
+) -> usize {
     let max_bytes_per_row = meta
         .row_groups()
         .iter()
@@ -525,7 +529,11 @@ pub(crate) struct Budgets {
 }
 
 impl Budgets {
-    pub(crate) fn new(max_buffered_bytes: usize, max_fetch_bytes: usize, limits: Arc<ProcessLimits>) -> Self {
+    pub(crate) fn new(
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        limits: Arc<ProcessLimits>,
+    ) -> Self {
         // KiB units: tokio's acquire_many takes u32.
         let local_cap_kb = (max_buffered_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
         let fetch_local_cap_kb = (max_fetch_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
@@ -1164,7 +1172,11 @@ async fn upsert_inner(
 /// `checkpoint_interval` boundary; cleanup therefore also runs per boundary rather than
 /// per commit (as delta-rs's hook does) -- cleanup can only delete logs behind a
 /// checkpoint anyway, and gating it cuts the bulk-delete traffic by the interval factor.
-pub(crate) async fn best_effort_log_maintenance(table: &DeltaTable, version: u64, cleanup_enabled: bool) {
+pub(crate) async fn best_effort_log_maintenance(
+    table: &DeltaTable,
+    version: u64,
+    cleanup_enabled: bool,
+) {
     let result: std::result::Result<(), (&'static str, deltalake::DeltaTableError)> = async {
         let mut post = table.clone();
         post.update_incremental(None)
@@ -1196,7 +1208,7 @@ pub(crate) async fn best_effort_log_maintenance(table: &DeltaTable, version: u64
 
 /// Explicit argument > table property (already folded with delta-rs's default by the
 /// caller). Zero/absent explicit values fall through to the table's value.
-pub(crate) fn resolve_target_file_size(explicit: Option<usize>, table_value: usize) -> usize {
+fn resolve_target_file_size(explicit: Option<usize>, table_value: usize) -> usize {
     match explicit {
         Some(v) if v > 0 => v,
         _ => table_value,
@@ -1661,7 +1673,7 @@ fn min_max_json(col: &dyn Array) -> Option<(Value, Value)> {
 /// read back from storage is missing the column that the writer needs in order to route
 /// the rows back to the same partition. Getting this wrong would silently misroute
 /// rewritten rows.
-pub(crate) fn add_partition_column(batch: &RecordBatch, name: &str, value: &str) -> Result<RecordBatch> {
+fn add_partition_column(batch: &RecordBatch, name: &str, value: &str) -> Result<RecordBatch> {
     let n = batch.num_rows();
     let arr: Arc<dyn Array> = Arc::new(StringArray::from(vec![value; n]));
     let mut fields: Vec<Field> = batch
