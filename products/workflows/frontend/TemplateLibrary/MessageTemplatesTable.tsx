@@ -49,6 +49,7 @@ export function MessageTemplatesTable(): JSX.Element {
             )}
             {brandedStarterEnabled && (
                 <LemonButton
+                    data-attr="email-branded-starter-open"
                     type="secondary"
                     className="mb-4"
                     onClick={() =>

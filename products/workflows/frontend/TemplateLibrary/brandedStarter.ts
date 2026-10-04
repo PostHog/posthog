@@ -39,7 +39,7 @@ function block(id: string, type: Content['type'], values: Content['values']): Co
 }
 
 export function buildBrandedStarter({ name, primaryColor, logoUrl }: BrandedStarterInput): MessageTemplate {
-    const safeName = name.trim().replace(/[{}]/g, '')
+    const safeName = name.replace(/[{}]/g, '').trim()
     const escapedName = safeName.replace(/[&<>"']/g, (character) => {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!
     })
@@ -61,7 +61,7 @@ export function buildBrandedStarter({ name, primaryColor, logoUrl }: BrandedStar
         [header],
         [
             block('u_content_heading_1', 'heading', {
-                text: "Hi {{ person.properties.first_name | default: 'there' }}",
+                text: 'Hi there,',
                 headingType: 'h1',
                 fontSize: '28px',
                 color: '#222222',

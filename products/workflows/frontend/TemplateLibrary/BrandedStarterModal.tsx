@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
 import { LemonButton, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
 import { brandedStarterLogic } from './brandedStarterLogic'
@@ -18,10 +19,12 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
         <LemonModal
             title="Start with your brand"
             isOpen
+            closable={!isBrandSubmitting}
             onClose={isBrandSubmitting ? undefined : () => router.actions.replace(urls.workflows('library'))}
             footer={
                 <>
                     <LemonButton
+                        data-attr="email-branded-starter-cancel"
                         type="secondary"
                         disabledReason={busyReason}
                         onClick={() => router.actions.replace(urls.workflows('library'))}
@@ -29,6 +32,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         Cancel
                     </LemonButton>
                     <LemonButton
+                        data-attr="email-branded-starter-generate"
                         type="primary"
                         htmlType="submit"
                         form="branded-starter"
@@ -49,9 +53,10 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                 className="space-y-4 w-full max-w-120"
             >
                 <p>
-                    Use your name and color as a starting point. You can edit the email before saving it as a template.
+                    Use your brand name and color as a starting point. You can edit the email before saving it as a
+                    template.
                 </p>
-                <Field name="name" label="Brand name">
+                <LemonField name="name" label="Brand name">
                     <LemonInput
                         value={brand.name}
                         onChange={(value) => setBrandValue('name', value)}
@@ -59,8 +64,8 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         disabledReason={busyReason}
                         autoFocus
                     />
-                </Field>
-                <Field name="primaryColor" label="Primary color">
+                </LemonField>
+                <LemonField name="primaryColor" label="Primary color">
                     <LemonInput
                         value={brand.primaryColor}
                         onChange={(value) => setBrandValue('primaryColor', value)}
@@ -68,8 +73,8 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         maxLength={7}
                         disabledReason={busyReason}
                     />
-                </Field>
-                <Field name="logo" label="Logo (optional)">
+                </LemonField>
+                <LemonField name="logo" label="Logo (optional)" help="PNG, JPEG, GIF or WebP under 4 MB.">
                     <LemonFileInput
                         multiple={false}
                         accept="image/png,image/jpeg,image/gif,image/webp"
@@ -78,8 +83,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         disabledReason={busyReason}
                         callToAction="Choose a logo"
                     />
-                </Field>
-                <p className="text-secondary text-sm mb-0">PNG, JPEG, GIF or WebP under 4 MB.</p>
+                </LemonField>
             </Form>
         </LemonModal>
     )

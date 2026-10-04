@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
@@ -131,7 +132,7 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
         brand: {
             defaults: { name: '', primaryColor: '#1d4aff', logo: null } as BrandedStarterForm,
             errors: ({ name, primaryColor, logo }) => ({
-                name: !name.trim().replace(/[{}]/g, '')
+                name: !name.replace(/[{}]/g, '').trim()
                     ? 'Enter a brand name'
                     : name.length > 255
                       ? 'Use 255 characters or fewer'
@@ -169,6 +170,7 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                 const email = await new Promise<typeof template.content.email>((resolve, reject) => {
                     cache.disposables.add(
                         () => {
+                            let active = true
                             const timeout = setTimeout(() => {
                                 cache.disposables.dispose('starterExport')
                                 reject(new Error('Could not export the starter. Try again.'))
@@ -182,7 +184,13 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                                         html: string
                                         design: NonNullable<typeof template.content.email.design>
                                     }) => {
+                                        if (!active) {
+                                            return
+                                        }
                                         editor.exportPlainText(({ text }: { text: string }) => {
+                                            if (!active) {
+                                                return
+                                            }
                                             cache.disposables.dispose('starterExport')
                                             resolve({ ...template.content.email, html, text, design })
                                         })
@@ -190,6 +198,7 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                                 )
                             }
                             return () => {
+                                active = false
                                 clearTimeout(timeout)
                                 cache.completeStarter = null
                             }
@@ -205,15 +214,18 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
             },
         },
     })),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         designLoaded: () => {
             cache.completeStarter?.()
         },
-        submitBrandSuccess: () => {
+        submitBrandSuccess: ({ brand }) => {
+            posthog.capture('email branded starter generated', { has_logo: !!brand.logo })
             actions.setBrandedStarterOpen(false)
         },
         submitBrandFailure: ({ error }) => {
-            lemonToast.error(error.message || 'Could not generate the starter. Try again.')
+            if (!values.brandHasErrors) {
+                lemonToast.error(error.message || 'Could not generate the starter. Try again.')
+            }
         },
     })),
 ])
