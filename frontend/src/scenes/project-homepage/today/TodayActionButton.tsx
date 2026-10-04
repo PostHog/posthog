@@ -20,7 +20,7 @@ export function TodayActionButton({
     }
     return (
         <Tooltip>
-            <TooltipTrigger render={button} />
+            <TooltipTrigger render={button} delay={props.size?.startsWith('icon') ? 0 : undefined} />
             <TooltipContent>{label}</TooltipContent>
         </Tooltip>
     )

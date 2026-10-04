@@ -1,4 +1,3 @@
-import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 export function signal(overrides: Partial<SignalViewApi>): SignalViewApi {
@@ -19,17 +18,4 @@ export function signal(overrides: Partial<SignalViewApi>): SignalViewApi {
         preview: null,
         ...overrides,
     }
-}
-
-export function report(overrides: Partial<SignalReport>): SignalReport {
-    return {
-        id: 'report-1',
-        title: 'fix(checkout): keep the billing address',
-        summary: 'Lead.',
-        status: SignalReportStatus.READY,
-        signal_count: 1,
-        created_at: '2026-10-01T10:00:00Z',
-        updated_at: '2026-10-01T10:00:00Z',
-        ...overrides,
-    } as SignalReport
 }

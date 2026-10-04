@@ -18,8 +18,7 @@ import { TodayActionButton } from './TodayActionButton'
 import { TodayImplementMenu } from './TodayImplementMenu'
 import { TodayPrimaryAction, startDisabledReason, todayNextStep } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
-
-const SAMPLE_REASON = 'Sample reports can’t start work. Turn off sample reports to use a real one.'
+import { SAMPLE_REPORT_REASON } from './todaySampleReports'
 
 function PrimaryAction({
     primary,
@@ -42,11 +41,11 @@ function PrimaryAction({
                 className="me-1"
                 nativeButton={false}
                 render={<LinkPrimitive to={primary.url} target="_blank" />}
-                disabledReason={isSample ? SAMPLE_REASON : null}
+                disabledReason={isSample ? SAMPLE_REPORT_REASON : null}
                 data-attr="today-report-review-pr"
             >
                 <IconPullRequest />
-                {primary.label}
+                <span>{primary.label}</span>
             </TodayActionButton>
         )
     }
@@ -59,7 +58,7 @@ function PrimaryAction({
                 data-attr="today-report-open-task"
             >
                 <IconClock />
-                {primary.label}
+                <span>{primary.label}</span>
             </TodayActionButton>
         )
     }
@@ -67,7 +66,7 @@ function PrimaryAction({
         <TodayImplementMenu
             report={report}
             reportUrl={reportUrl}
-            disabled={isSample}
+            disabledReason={isSample ? SAMPLE_REPORT_REASON : null}
             postHogDisabledReason={startReason}
         />
     )
@@ -88,8 +87,8 @@ export function TodayReportNextStep({
     const { askAboutReport, openComposer, setDraft } = useActions(logic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const task = reportTaskToOpen?.task
-    const { primary, note, pickedUp } = todayNextStep(report, {
-        inFlightPullRequest: page?.in_flight_pull_request ?? null,
+    const { primary, note, taskPickedUp } = todayNextStep(report, {
+        namedPullRequest: page?.named_pull_request ?? null,
         solutionNamesPullRequest: page?.solution_names_pull_request ?? false,
         slotClaimed: slotClaim !== null,
         runningTask: task?.latest_run ? { taskId: task.id, runId: task.latest_run.id } : null,
@@ -99,12 +98,10 @@ export function TodayReportNextStep({
         return null
     }
 
-    const askDisabledReason = isSample
-        ? 'Sample reports can’t start a chat. Turn off sample reports to ask about a real one.'
-        : null
+    const askDisabledReason = isSample ? SAMPLE_REPORT_REASON : null
 
-    const focusComposer = (text: string | null): void => {
-        openComposer(text)
+    const focusComposer = (): void => {
+        openComposer()
         requestAnimationFrame(() => {
             const textArea = textAreaRef.current
             textArea?.focus({ preventScroll: true })
@@ -121,12 +118,12 @@ export function TodayReportNextStep({
                         report={report}
                         reportUrl={reportUrl}
                         isSample={isSample}
-                        startReason={startDisabledReason(report, pickedUp, createPrDisabledReason)}
+                        startReason={startDisabledReason(report, taskPickedUp, createPrDisabledReason)}
                     />
                 )}
                 <TodayActionButton
                     className={primary ? undefined : '-ms-2'}
-                    onClick={() => focusComposer(null)}
+                    onClick={focusComposer}
                     disabledReason={askDisabledReason}
                     data-attr="today-report-ask"
                 >
@@ -137,7 +134,7 @@ export function TodayReportNextStep({
             {note && (
                 <Text size="xs" render={<p />} className="flex items-center gap-1.5">
                     <IconClock className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    {note}
+                    <span>{note}</span>
                 </Text>
             )}
             {composerOpen && (

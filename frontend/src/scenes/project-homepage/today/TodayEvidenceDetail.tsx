@@ -12,6 +12,7 @@ import type { SignalPreviewApi, SignalViewApi } from 'products/today/frontend/ge
 import { TodayCodeExcerpt } from './TodayCodeExcerpt'
 import { TodayPreviewLink } from './todayEvidence'
 import { TodayCodeQuoteState, todayReportLogic } from './todayReportLogic'
+import { isSampleReportId } from './todaySampleReports'
 import { signalSourceLabel } from './todaySignalText'
 
 function quoteState(stored: TodayCodeQuoteState | undefined): TodayCodeQuoteState {
@@ -44,7 +45,9 @@ function DetailLink({
     open: TodayPreviewLink | null
     showsCode: boolean
 }): JSX.Element | null {
-    const fullReport = { to: urls.inboxReport('reports', reportId), external: false, label: 'Open in the full report' }
+    const fullReport = isSampleReportId(reportId)
+        ? null
+        : { to: urls.inboxReport('reports', reportId), external: false, label: 'Open in the full report' }
     const link = open ?? (showsCode ? null : fullReport)
     if (!link) {
         return null

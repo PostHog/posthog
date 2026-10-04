@@ -78,10 +78,10 @@ export function TodayCodeExcerpt({
                     title={shown.path}
                 >
                     <span className="min-w-0 truncate">{directory}</span>
-                    <span className="shrink-0 text-[var(--foreground)]">{name}</span>
+                    <span className="shrink-0 text-foreground">{name}</span>
                     {excerpt && (
-                        <span className="shrink-0 ps-2 tabular-nums">
-                            L{excerpt.startLine}–{lastLine}
+                        <span translate="no" className="shrink-0 ps-2 tabular-nums">
+                            {`L${excerpt.startLine}–${lastLine}`}
                         </span>
                     )}
                 </Text>

@@ -15,8 +15,8 @@ export function shortDate(date: string | number | Dayjs): string {
 const ISO_DATE = /\b(\d{4}-\d{2}-\d{2})\b/g
 
 function readableDate(match: string): string {
-    const [, month, day] = match.split('-').map(Number)
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
+    const [year, month, day] = match.split('-').map(Number)
+    if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) {
         return match
     }
     return shortDate(dayjs(`${match.slice(0, 8)}01`).add(day - 1, 'day'))

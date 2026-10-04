@@ -18,16 +18,17 @@ import { TodayInlineMarkdown } from './TodayInlineMarkdown'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { resolveDisabledReason } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
+import { SAMPLE_REPORT_REASON } from './todaySampleReports'
 import { priorityBadgeVariant, reportSourceLine, reportTitle } from './todaySignalReports'
 
-const SAMPLE_REASON = 'This is a sample report.'
 export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
     const { requestReportVerdict } = useActions(todayLogic)
     const { lead, reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
-    const sampleReason = isSample ? SAMPLE_REASON : null
+    const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
     const stateLabel = itemStateLabel({ state: reportState })
     const sources = reportSourceLine(report)
     const updated = dayjs(report.updated_at)
+    const stillInvestigating = !report.summary?.trim()
 
     const giveVerdict = (verdict: TodayReportVerdict): void =>
         requestReportVerdict(
@@ -55,13 +56,12 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                         ·
                     </span>
                     <time dateTime={report.updated_at} title={updated.format('LLL')}>
-                        Updated {updated.fromNow()}
+                        <span>Updated&nbsp;</span>
+                        <span translate="no">{updated.fromNow()}</span>
                     </time>
                 </Text>
-                {stateLabel ? (
-                    <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
-                ) : (
-                    <div className="-me-2 flex shrink-0 items-center gap-0.5">
+                <div className="-me-2 flex shrink-0 items-center gap-0.5">
+                    {!isSample && (
                         <TodayActionButton
                             size="sm"
                             variant="link-muted"
@@ -73,40 +73,47 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                             <IconDocument />
                             Full report
                         </TodayActionButton>
-                        <TodayActionButton
-                            size="sm"
-                            variant="link-muted"
-                            onClick={() => giveVerdict('resolve')}
-                            disabledReason={resolveDisabledReason(report, sampleReason)}
-                            tooltip="Mark this report as done"
-                            data-attr="today-report-resolve"
-                        >
-                            <IconCheckCircle />
-                            Resolve
-                        </TodayActionButton>
-                        <TodayActionButton
-                            size="sm"
-                            variant="link-muted"
-                            onClick={() => giveVerdict('dismiss')}
-                            disabledReason={sampleReason}
-                            tooltip="Dismiss this report from your inbox"
-                            data-attr="today-report-dismiss"
-                        >
-                            <IconHide />
-                            Dismiss
-                        </TodayActionButton>
-                    </div>
-                )}
+                    )}
+                    {stateLabel ? (
+                        <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
+                    ) : (
+                        <>
+                            <TodayActionButton
+                                size="sm"
+                                variant="link-muted"
+                                onClick={() => giveVerdict('resolve')}
+                                disabledReason={resolveDisabledReason(report, sampleReason)}
+                                tooltip="Mark this report as done"
+                                data-attr="today-report-resolve"
+                            >
+                                <IconCheckCircle />
+                                Resolve
+                            </TodayActionButton>
+                            <TodayActionButton
+                                size="sm"
+                                variant="link-muted"
+                                onClick={() => giveVerdict('dismiss')}
+                                disabledReason={sampleReason}
+                                tooltip="Dismiss this report from your inbox"
+                                data-attr="today-report-dismiss"
+                            >
+                                <IconHide />
+                                Dismiss
+                            </TodayActionButton>
+                        </>
+                    )}
+                </div>
             </div>
             <div className="flex flex-col gap-2">
                 <Heading size="xl" render={<h1 />} className="leading-snug text-balance">
                     {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
                 </Heading>
-                {lead ? (
+                {lead && (
                     <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
                         <TodayInlineMarkdown markdown={lead} />
                     </Text>
-                ) : (
+                )}
+                {stillInvestigating && (
                     <Text variant="muted" render={<p />}>
                         No summary yet. An agent is still investigating.
                     </Text>

@@ -18,6 +18,7 @@ import { TodayIcon } from './TodayIcon'
 import { TodayInlineTrend } from './TodayInlineTrend'
 import { TodayPenMark } from './TodayPenMark'
 import { shortDate } from './todayProse'
+import { isSampleReportId } from './todaySampleReports'
 import { TodayReportIcon, sourceStyle } from './todaySignalReports'
 import { signalSourceLabel } from './todaySignalText'
 
@@ -28,10 +29,10 @@ type QuotedContent = Extract<TodayFigureCardContent, { kind: 'signal' }>
 type MetricContent = Extract<TodayFigureCardContent, { kind: 'metric' }>
 
 interface QuoteSource {
-    icon: TodayReportIcon | null
+    icon: TodayReportIcon
     label: string
-    date: string | null
-    signal: SignalViewApi | null
+    date: string
+    signal: SignalViewApi
 }
 
 function quoteSource(content: QuotedContent): QuoteSource {
@@ -94,7 +95,10 @@ function CardLink({
     )
 }
 
-function FullReportLink({ reportId, children }: { reportId: string; children: string }): JSX.Element {
+function FullReportLink({ reportId, children }: { reportId: string; children: string }): JSX.Element | null {
+    if (isSampleReportId(reportId)) {
+        return null
+    }
     return (
         <CardLink
             to={urls.inboxReport('reports', reportId)}
@@ -106,10 +110,10 @@ function FullReportLink({ reportId, children }: { reportId: string; children: st
     )
 }
 
-function SignalAction({ signal, reportId }: { signal: SignalViewApi | null; reportId: string }): JSX.Element {
+function SignalAction({ signal, reportId }: { signal: SignalViewApi; reportId: string }): JSX.Element | null {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const destination = signal ? signalDestination(signal) : null
-    if (destination?.kind === 'recording') {
+    const destination = signalDestination(signal)
+    if (destination.kind === 'recording') {
         return (
             <Button
                 variant="link"
@@ -123,7 +127,7 @@ function SignalAction({ signal, reportId }: { signal: SignalViewApi | null; repo
             </Button>
         )
     }
-    if (destination?.kind === 'link') {
+    if (destination.kind === 'link') {
         return (
             <CardLink to={destination.to} external={destination.external} dataAttr="today-report-figure-open">
                 {destination.label}
@@ -139,7 +143,7 @@ function Quote({ segments }: { segments: TodayQuoteSegment[] }): JSX.Element {
         <Text
             size="sm"
             render={<blockquote />}
-            className="m-0 border-l-2 border-solid ps-3 text-pretty text-[var(--foreground)]"
+            className="m-0 border-l-2 border-solid ps-3 text-pretty text-foreground"
         >
             {segments.map((segment, index) =>
                 segment.marked ? (
@@ -170,15 +174,15 @@ function QuoteCard({
     )
     return (
         <div className="flex flex-col gap-2 p-3">
-            <CardHeader icon={source.icon && <TodayIcon icon={source.icon} />}>
+            <CardHeader icon={<TodayIcon icon={source.icon} />}>
                 <span>{source.label}</span>
-                {source.date && <CardDate date={source.date} />}
+                <CardDate date={source.date} />
             </CardHeader>
             <Quote segments={segments} />
             {working && (
                 <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
                     {`${working.expression} = `}
-                    <span className="font-semibold text-[var(--foreground)]">{working.result}</span>
+                    <span className="font-semibold text-foreground">{working.result}</span>
                 </Text>
             )}
             <SignalAction signal={source.signal} reportId={reportId} />
@@ -190,7 +194,7 @@ function MetricCard({ content }: { content: MetricContent }): JSX.Element {
     return (
         <div className="flex flex-col gap-2 p-3">
             <CardHeader icon={<IconTrends />}>
-                <span>Measured by a saved query</span>
+                <span>Measured by an insight</span>
                 {content.at && <CardDate date={content.at} />}
             </CardHeader>
             {content.caption && (
@@ -210,7 +214,7 @@ function MetricCard({ content }: { content: MetricContent }): JSX.Element {
                 </Text>
             )}
             <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
-                <span className="font-semibold text-[var(--foreground)]">{content.total}</span>
+                <span className="font-semibold text-foreground">{content.total}</span>
                 {content.window ? ` ${content.window}` : ''}
             </Text>
             {content.link && (
