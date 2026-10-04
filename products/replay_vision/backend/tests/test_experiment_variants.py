@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from unittest.mock import patch
@@ -21,6 +21,7 @@ from products.signals.backend.facade.api import ScoutStructuredRecord, SourceSco
 
 _UNSET = object()
 _SIGNALS = "products.replay_vision.backend.variant_analysis.signals_facade"
+_RECORDED_AT = datetime(2026, 9, 1, tzinfo=UTC)
 
 
 class TestExperimentVariants(_VisionAPITestCase):
@@ -134,9 +135,9 @@ class TestExperimentVariants(_VisionAPITestCase):
                 }
             ],
         }
-        scout = SourceScout(config_id="config-1", skill_name="signals-scout-x", enabled=True, created_at=timezone.now())
+        scout = SourceScout(config_id="config-1", skill_name="signals-scout-x", enabled=True, created_at=_RECORDED_AT)
         record = ScoutStructuredRecord(
-            payload=payload, recorded_at=timezone.now(), skill_name="signals-scout-x", run_id="r"
+            payload=payload, recorded_at=_RECORDED_AT, skill_name="signals-scout-x", run_id="r"
         )
 
         with (
