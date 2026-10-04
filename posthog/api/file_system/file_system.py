@@ -943,10 +943,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
 
         if instance.type == "folder":
-            # Scoped by access control: an inaccessible leftover must not drive folder creation
-            # in an environment the requesting user can't reach.
-            leftovers = self._filter_by_access_control(
-                self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
+            # The tree hides retired rows, so a retired leftover needs no folder to sit in.
+            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/")).exclude(
+                type__in=RETIRED_FILE_SYSTEM_TYPES
             )
             first_leftover = leftovers.first()
             if first_leftover:
