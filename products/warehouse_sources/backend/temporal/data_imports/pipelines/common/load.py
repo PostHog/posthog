@@ -409,6 +409,11 @@ async def _register_table(
     # snapshot rather than from another log read.
     delta_table = await delta_table_ref.get_delta_table()
     delta_schema_json = delta_table.schema().to_json() if delta_table is not None else None
+    # Only a table whose run count is not its size reads the count. The handle is the one the publish
+    # step listed, so the count matches the files the query folder now holds.
+    live_row_count = (
+        await delta_table_ref.get_live_row_count() if schema.table_row_count_is_cumulative or row_count == 0 else None
+    )
 
     logger.debug("Validating schema and updating table")
     with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
@@ -422,6 +427,7 @@ async def _register_table(
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             primary_keys=resource.primary_keys if resource is not None else None,
             delta_schema_json=delta_schema_json,
+            live_row_count=live_row_count,
         )
     logger.debug("Finished validating schema and updating table")
 
@@ -457,6 +463,7 @@ async def _run_cdc_post_load(
                 queryable_folder=queryable_folder,
                 table_schema_dict=table_schema_dict,
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
+                live_row_count=await delta_table_ref.get_live_row_count(),
             )
         logger.debug("Finished registering CDC companion table")
         return

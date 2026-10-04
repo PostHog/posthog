@@ -12,6 +12,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.models import SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
@@ -240,22 +241,44 @@ class TestGetTaskProcessingContextActivity:
         task.soft_delete()
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("subscription", [False, True])
-    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription):
+    @pytest.mark.parametrize("subscription,is_trial", [(False, False), (True, False), (False, True)])
+    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial):
         owner = User.objects.create_user(
             email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
         )
         OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
-        task_run = test_task.create_run(
-            acting_user_id=owner.id,
-            extra_state={"claude_model_access": "own-subscription"} if subscription else {},
-        )
+        private_payload = {"reports": {"synthetic-report": {"summary": "Private observation. " * 20_000}}}
+        extra_state: dict[str, object] = {"claude_model_access": "own-subscription"} if subscription else {}
+        if is_trial:
+            test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
+            test_task.save(update_fields=["origin_product", "origin_key"])
+            extra_state.update({"scout_trial": {"version": 1}, "scout_trial_private": private_payload})
+        task_run = test_task.create_run(acting_user_id=owner.id, extra_state=extra_state)
+        if is_trial:
+            SignalScoutRun.objects.for_team(test_task.team_id).create(
+                team_id=test_task.team_id,
+                task_run=task_run,
+                skill_name="signals-scout-fixture",
+                skill_version=1,
+                metadata={"scout_trial": {"version": 1}},
+            )
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ) as flag:
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                return_value=False,
+            ) as flag,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context._is_agent_otel_telemetry_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.context_layer_facade.is_context_layer_enabled",
+                return_value=True,
+            ),
+        ):
             flag.side_effect = lambda key, distinct_id=None, **kwargs: (
                 key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id
             )
@@ -269,6 +292,42 @@ class TestGetTaskProcessingContextActivity:
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
         assert result.claude_model_access == ("own-subscription" if subscription else "posthog-gateway")
+        assert result.agent_otel_telemetry_enabled is (not is_trial)
+        assert result.context_layer_enabled is (not is_trial)
+        assert result.state is not None
+        assert "scout_trial_private" not in result.state
+        if is_trial:
+            assert result.state["scout_trial"] == {"version": 1}
+            task_run.refresh_from_db()
+            assert task_run.state["scout_trial_private"] == private_payload
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("missing", ["origin", "marker", "version", "bridge"])
+    def test_private_context_requires_matching_server_provenance(
+        self, activity_environment: ActivityEnvironment, test_task: Task, missing: str
+    ) -> None:
+        if missing != "origin":
+            test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
+            test_task.save(update_fields=["origin_product", "origin_key"])
+        extra_state = {} if missing == "marker" else {"scout_trial": {"version": 2 if missing == "version" else 1}}
+        task_run = test_task.create_run(extra_state=extra_state)
+        if missing != "bridge":
+            SignalScoutRun.objects.for_team(test_task.team_id).create(
+                team_id=test_task.team_id,
+                task_run=task_run,
+                skill_name="signals-scout-fixture",
+                skill_version=1,
+                metadata={"scout_trial": {"version": 1}},
+            )
+
+        async def execute_context() -> TaskProcessingContext:
+            return await activity_environment.run(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        with pytest.raises(TaskInvalidStateError, match="inconsistent private context"):
+            async_to_sync(execute_context)()
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
