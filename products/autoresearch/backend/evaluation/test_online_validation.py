@@ -84,16 +84,16 @@ class TestComputeValidationMetrics(SimpleTestCase):
 
 class TestAucConfidenceInterval(SimpleTestCase):
     def test_interval_narrows_as_the_classes_grow(self):
-        few_low, few_high = _auc_confidence_interval(0.75, n_pos=20, n_neg=200)
-        many_low, many_high = _auc_confidence_interval(0.75, n_pos=2000, n_neg=20000)
-        assert few_low < many_low < 0.75 < many_high < few_high
+        few = _auc_confidence_interval(0.75, n_pos=20, n_neg=200)
+        many = _auc_confidence_interval(0.75, n_pos=2000, n_neg=20000)
+        assert few.low < many.low < 0.75 < many.high < few.high
         # Hanley-McNeil standard error for these counts is about 0.065.
-        assert abs((few_high - few_low) / 2 - 1.96 * 0.065) < 0.002
+        assert abs((few.high - few.low) / 2 - 1.96 * 0.065) < 0.002
 
     def test_interval_is_clipped_to_one(self):
-        low, high = _auc_confidence_interval(0.99, n_pos=3, n_neg=3)
-        assert 0.0 <= low < 0.99
-        assert high == 1.0
+        interval = _auc_confidence_interval(0.99, n_pos=3, n_neg=3)
+        assert 0.0 <= interval.low < 0.99
+        assert interval.high == 1.0
 
 
 class TestQuantileCalibrationBins(SimpleTestCase):

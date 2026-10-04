@@ -108,6 +108,12 @@ class _ModelPredictions:
 
 
 @frozen
+class _AucInterval:
+    low: float
+    high: float
+
+
+@frozen
 class _ModelValidation:
     emitted_role: str
     metrics: dict[str, Any]
@@ -652,10 +658,10 @@ def _compute_validation_metrics(
         metrics["warning"] = "single_class_no_auc"
     else:
         auc = float(roc_auc_score(y_true, y_score))
-        ci_low, ci_high = _auc_confidence_interval(auc, n_pos=n_pos, n_neg=n_neg)
+        interval = _auc_confidence_interval(auc, n_pos=n_pos, n_neg=n_neg)
         metrics["realized_auc"] = round(auc, 4)
-        metrics["realized_auc_ci_low"] = round(ci_low, 4)
-        metrics["realized_auc_ci_high"] = round(ci_high, 4)
+        metrics["realized_auc_ci_low"] = round(interval.low, 4)
+        metrics["realized_auc_ci_high"] = round(interval.high, 4)
     metrics["brier_score"] = round(float(brier_score_loss(y_true, y_score)), 4)
     metrics["calibration_error"] = round(_expected_calibration_error(y_true, y_score), 4)
     metrics["calibration_bins"] = _quantile_calibration_bins(y_true, y_score)
@@ -684,7 +690,7 @@ def _expected_calibration_error(y_true: np.ndarray, y_score: np.ndarray, n_bins:
     return ece
 
 
-def _auc_confidence_interval(auc: float, *, n_pos: int, n_neg: int, z: float = 1.96) -> tuple[float, float]:
+def _auc_confidence_interval(auc: float, *, n_pos: int, n_neg: int, z: float = 1.96) -> _AucInterval:
     """
     95% interval for an AUC from the Hanley-McNeil (1982) standard error.
 
@@ -695,7 +701,7 @@ def _auc_confidence_interval(auc: float, *, n_pos: int, n_neg: int, z: float = 1
     q2 = 2 * auc**2 / (1 + auc)
     variance = (auc * (1 - auc) + (n_pos - 1) * (q1 - auc**2) + (n_neg - 1) * (q2 - auc**2)) / (n_pos * n_neg)
     se = math.sqrt(max(variance, 0.0))
-    return max(0.0, auc - z * se), min(1.0, auc + z * se)
+    return _AucInterval(low=max(0.0, auc - z * se), high=min(1.0, auc + z * se))
 
 
 def _quantile_calibration_bins(y_true: np.ndarray, y_score: np.ndarray, n_bins: int = 10) -> list[dict[str, Any]]:

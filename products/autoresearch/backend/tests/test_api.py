@@ -910,7 +910,14 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             return {"emitted_role": role, "model_role": role, "n_scored": 10, "n_positive": 2, "realized_auc": auc}
 
         validation("2026-09-01", {str(former.pk): metrics("champion", 0.6)}, completed_minutes_ago=30)
-        latest = validation("2026-09-01", {str(former.pk): metrics("champion", 0.7)}, completed_minutes_ago=20)
+        populated = {
+            **metrics("champion", 0.7),
+            "mean_p_y": 0.4,
+            "realized_auc_ci_low": 0.65,
+            "realized_auc_ci_high": 0.75,
+            "calibration_bins": [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}],
+        }
+        latest = validation("2026-09-01", {str(former.pk): populated}, completed_minutes_ago=20)
         validation(
             "2026-09-02", {str(champion.pk): metrics("champion", 0.9)}, completed_minutes_ago=5, run_status="failed"
         )
@@ -927,7 +934,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert rows[1]["validation_run_id"] == str(latest.pk)
         assert (rows[1]["emitted_role"], rows[1]["current_role"]) == ("champion", "archived")
         assert rows[1]["weekday"] == 2
-        assert rows[1]["realized_auc_ci_low"] is None and rows[1]["calibration_bins"] is None
+        assert (rows[1]["mean_p_y"], rows[1]["realized_auc_ci_low"], rows[1]["realized_auc_ci_high"]) == (
+            0.4,
+            0.65,
+            0.75,
+        )
+        assert rows[1]["calibration_bins"] == [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}]
+        assert rows[0]["realized_auc_ci_low"] is None and rows[0]["calibration_bins"] is None
 
         limited = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/?limit=1").json()["rows"]
         assert [r["prediction_date"] for r in limited] == ["2026-09-03"]
