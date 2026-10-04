@@ -94,7 +94,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    PostHogInternalDatabaseError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -162,6 +165,45 @@ def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
     return ExternalDataJob.objects.filter(
         schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
     ).exists()
+
+
+# A v3 loader still loads a failed job's queued batches only for these sync types (see
+# `_drainable_after_failure` in the v3 consumer), so only these can continue a failed job's cursor
+# without losing the rows that job extracted. The v3 pipeline loads all of them as `incremental`.
+INTERRUPTED_CURSOR_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+        ExternalDataSchema.SyncType.XMIN,
+    }
+)
+
+
+@database_sync_to_async_pool
+def _get_interrupted_job_id(job: ExternalDataJob, schema: ExternalDataSchema) -> str | None:
+    """The previous job of this schema, if a worker restart ended it and this job can continue its cursor."""
+    if (
+        job.pipeline_version != ExternalDataJob.PipelineVersion.V3
+        or schema.sync_type not in INTERRUPTED_CURSOR_SYNC_TYPES
+    ):
+        return None
+    if (job.schema_snapshot or {}).get("scheduled_full_refresh"):
+        return None
+
+    previous = (
+        ExternalDataJob.objects.filter(team_id=job.team_id, schema_id=schema.id, created_at__lt=job.created_at)
+        .order_by("-created_at")
+        .only("id", "status", "latest_error", "pipeline_version")
+        .first()
+    )
+    if (
+        previous is None
+        or previous.pipeline_version != ExternalDataJob.PipelineVersion.V3
+        or previous.status != ExternalDataJob.Status.FAILED
+        or previous.latest_error != WORKER_RESTART_ERROR_MESSAGE
+    ):
+        return None
+    return str(previous.id)
 
 
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
@@ -604,6 +646,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             try:
                 if isinstance(new_source, ResumableSource):
                     resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                    interrupted_job_id = await _get_interrupted_job_id(model, schema) if use_stored_cursors else None
+                    if interrupted_job_id is not None:
+                        await logger.ainfo(
+                            "Continuing the resumable cursor of the job that a worker restart interrupted",
+                            interrupted_job_id=interrupted_job_id,
+                        )
+                        resumable_source_manager.continue_interrupted_job(interrupted_job_id)
                     source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
                         config, resumable_source_manager, source_inputs
                     )

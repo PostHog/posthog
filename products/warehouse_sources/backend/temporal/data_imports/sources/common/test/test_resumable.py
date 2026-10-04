@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import redis.exceptions as redis_exceptions
+from fakeredis import FakeRedis
 
 from posthog.dataclasses import frozen
 
@@ -133,6 +134,32 @@ class TestResumableSourceManager:
 
         redis.delete.assert_called_once_with("posthog:data_warehouse:resumable_source:1:job-1")
         redis.set.assert_not_called()
+
+    @pytest.mark.parametrize("namespace", [None, "deltas"])
+    def test_a_new_job_continues_the_cursor_of_the_interrupted_job(self, namespace: str | None):
+        redis = FakeRedis()
+
+        def manager_for(job_id: str) -> ResumableSourceManager[_SweepPosition]:
+            manager = ResumableSourceManager[_SweepPosition](MagicMock(team_id=1, job_id=job_id), _SweepPosition)
+            return manager.with_namespace(namespace) if namespace else manager
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            interrupted = manager_for("job-1")
+            interrupted.save_state(_SweepPosition(cursor="ch_500"))
+            interrupted.commit()
+
+            assert manager_for("job-2").can_resume() is False
+
+            continuing = manager_for("job-2")
+            continuing.continue_interrupted_job("job-1")
+            assert continuing.can_resume() is True
+
+            # A third job continues from the second, even when the second commits nothing itself.
+            redis.delete(interrupted._key)
+            third = manager_for("job-3")
+            third.continue_interrupted_job("job-2")
+            assert third.load_state() == _SweepPosition(cursor="ch_500")
 
     def test_commit_retries_once_after_a_stale_replica_write(self):
         manager = _manager()
