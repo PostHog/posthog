@@ -91,9 +91,10 @@ interface StoryWrapperProps {
     logicProps: DefinitionPopoverLogicProps
     item: EventDefinition | PropertyDefinition | ActionType
     groupType: TaxonomicFilterGroupType
+    getValue?: (instance: any) => any
 }
 
-const StoryWrapper: React.FC<StoryWrapperProps> = ({ logicProps, item, groupType }) => {
+const StoryWrapper: React.FC<StoryWrapperProps> = ({ logicProps, item, groupType, getValue }) => {
     const divRef = useRef<HTMLDivElement>(null)
 
     const group = {
@@ -109,6 +110,7 @@ const StoryWrapper: React.FC<StoryWrapperProps> = ({ logicProps, item, groupType
                     getPopoverHeader: () => 'Action',
                     getIcon: undefined,
                 }),
+        ...(getValue ? { getValue } : {}),
     }
 
     const taxonomicFilterLogicProps = {
@@ -241,6 +243,17 @@ export const WithoutTimestamps: Story = {
             tags: [],
         } as EventDefinition,
         groupType: TaxonomicFilterGroupType.Events,
+    },
+}
+
+export const ValueWithoutCallableToString: Story = {
+    args: {
+        logicProps: {
+            type: TaxonomicFilterGroupType.EventProperties,
+        },
+        item: mockPropertyDefinition,
+        groupType: TaxonomicFilterGroupType.EventProperties,
+        getValue: () => ({ toString: 'not a function' }),
     },
 }
 

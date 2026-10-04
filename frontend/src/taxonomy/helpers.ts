@@ -24,11 +24,12 @@ export function getCoreFilterDefinition(
     value: string | null | undefined,
     type: TaxonomicFilterGroupType
 ): CoreFilterDefinition | null {
-    if (value == undefined) {
+    // Runtime values can be objects despite the type, and some objects have no callable `toString`.
+    if (value == undefined || typeof value === 'object') {
         return null
     }
 
-    value = value.toString()
+    value = String(value)
     const isGroupTaxonomicFilterType = type.startsWith('groups_')
     const groupDefinitions = hasCoreFilterDefinitionsForGroup(type)
     if (groupDefinitions && value in groupDefinitions) {
