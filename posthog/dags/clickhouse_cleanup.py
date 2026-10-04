@@ -7,16 +7,20 @@ the ops below are chained on each other's output to force them into sequence.
 
 The person sweep destroys the tombstones its own worklist is derived from, so the run freezes that
 worklist into a persisted snapshot table first, scoped by run id. Everything downstream, including
-the Postgres handoff, reads the snapshot rather than recomputing it.
+the Postgres handoff, reads the snapshot rather than recomputing it. The snapshot is checked
+against Postgres before anything is deleted.
 """
 
 import re
 import time
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+import itertools
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from math import ceil
+from typing import TypeVar
+from uuid import UUID
 
 from django.conf import settings
 
@@ -48,6 +52,7 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dags.deletes import deletes_job
+from posthog.dags.person_sweep_reconciliation import MappingKey, PersonKey, PostgresReconciler, ReconcileTally
 from posthog.dags.person_tombstone_queue import publish_queue_gauges, resolve_person_tombstone_queue
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
@@ -55,6 +60,8 @@ from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 
 logger = dagster.get_dagster_logger(__name__)
+
+_T = TypeVar("_T")
 
 PG_CLEANUP_QUEUE_TABLE = "person_pg_cleanup_queue"
 
@@ -70,6 +77,16 @@ PERSIST_PAGE_SIZE = 50_000
 # and per-range progress in the logs. The default is 1 because those rarely justify the cost;
 # raise team_batches together with max_persons when draining a large backlog in checkpoints.
 DEFAULT_TEAM_BATCHES = 1
+
+DEFAULT_RECONCILE_PAGE_SIZE = 10_000
+
+# Concurrent personhog lookups while reconciling. By default each lookup can hold two connections of
+# a replica's five-connection bulk pool, so this stays low.
+DEFAULT_RECONCILE_CONCURRENCY = 2
+
+# Bounds one run's writes to the persons primary: keys past it stay excluded, and the next run
+# floors them. A floored key needs no write in later runs.
+DEFAULT_RECONCILE_MAX_FLOOR_KEYS = 250_000
 
 # How many cohorts one run sweeps per deletion type. Bounded rather than unlimited because a
 # sensor can start this run unattended. One delete chunk covers 500 cohorts and was measured on
@@ -135,6 +152,21 @@ class CleanupConfig(dagster.Config):
     )
     min_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id >= this, 0 to disable.")
     max_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id <= this, 0 to disable.")
+    reconcile_page_size: int = pydantic.Field(
+        default=DEFAULT_RECONCILE_PAGE_SIZE,
+        gt=0,
+        description="Snapshot keys read per page while checking the snapshot against Postgres.",
+    )
+    reconcile_concurrency: int = pydantic.Field(
+        default=DEFAULT_RECONCILE_CONCURRENCY,
+        gt=0,
+        description="Concurrent personhog replica reads while checking the snapshot against Postgres.",
+    )
+    reconcile_max_floor_keys: int = pydantic.Field(
+        default=DEFAULT_RECONCILE_MAX_FLOOR_KEYS,
+        gt=0,
+        description="Most snapshot keys one run floors on the persons primary. The rest stay excluded until a later run.",
+    )
 
 
 @dataclass(frozen=True)
@@ -218,6 +250,23 @@ class SnapshotTable:
 
 
 @dataclass(frozen=True)
+class ExclusionTable(SnapshotTable):
+    """Keys a dictionary anti-joins out of its worklist, so recording a key here spares it."""
+
+    def record(self, client: Client, keys: Sequence[tuple[int, str]]) -> None:
+        client.execute(
+            f"INSERT INTO {self.qualified_name} (run_id, {self.keys}) VALUES",
+            [(self.run_id, team_id, key) for team_id, key in keys],
+        )
+
+
+def _clickhouse_now(client: Client) -> datetime:
+    # Read on the client that runs the snapshot, so no second host's clock is involved.
+    [[now]] = client.execute("SELECT toUnixTimestamp(now())")
+    return datetime.fromtimestamp(now, UTC)
+
+
+@dataclass(frozen=True)
 class DeletedPersonsTable(SnapshotTable):
     """Persons whose latest ClickHouse version is deleted."""
 
@@ -232,7 +281,8 @@ class DeletedPersonsTable(SnapshotTable):
         min_team_id: int = 0,
         max_team_id: int = 0,
         max_persons: int = 0,
-    ) -> None:
+    ) -> datetime:
+        """Insert this run's persons, and return the ClickHouse time taken just before the read."""
         # A person can be soft-deleted and later revived by a higher version, so membership is
         # decided by the latest version rather than by any version having is_deleted set. The
         # inner IN narrows the aggregation to persons with at least one deleted version.
@@ -245,6 +295,7 @@ class DeletedPersonsTable(SnapshotTable):
         if max_team_id:
             team_filter += f" AND team_id <= {int(max_team_id)}"
         cap = f" ORDER BY team_id, id LIMIT {int(max_persons)}" if max_persons else ""
+        snapshot_at = _clickhouse_now(client)
         client.execute(
             f"""
             INSERT INTO {self.qualified_name} (run_id, team_id, person_id, max_version)
@@ -257,11 +308,72 @@ class DeletedPersonsTable(SnapshotTable):
             {"run_id": self.run_id},
             settings=settings,
         )
+        return snapshot_at
+
+    def page(
+        self,
+        client: Client,
+        after: tuple[int, str] | None,
+        limit: int,
+        excluded: "RevivedPersonsTable | None" = None,
+        settings: Mapping[str, int] | None = None,
+    ) -> list[tuple[int, UUID]]:
+        """One keyset page of this run's persons, minus any recorded in `excluded`."""
+        # Keyset pagination over (team_id, person_id) follows the table's sort key, and DISTINCT
+        # collapses the duplicate versions a retried snapshot insert can leave in the ReplacingMergeTree.
+        page_filter = "AND (team_id, person_id) > (%(after_team)s, toUUID(%(after_person)s))" if after else ""
+        exclusion = f"AND (team_id, person_id) NOT IN ({excluded.run_keys_query})" if excluded else ""
+        return client.execute(
+            f"""
+            SELECT DISTINCT team_id, person_id FROM {self.qualified_name}
+            WHERE run_id = %(run_id)s
+              {exclusion}
+              {page_filter}
+            ORDER BY team_id, person_id
+            LIMIT %(limit)s
+            """,
+            {
+                "run_id": self.run_id,
+                "limit": limit,
+                "after_team": after[0] if after else 0,
+                "after_person": after[1] if after else "",
+            },
+            settings=settings,
+        )
+
+    def page_with_versions(
+        self,
+        client: Client,
+        after: tuple[int, str] | None,
+        limit: int,
+        settings: Mapping[str, int] | None = None,
+    ) -> list[tuple[int, PersonKey]]:
+        """One keyset page of this run's persons, each with the newest version the snapshot saw."""
+        # A retried snapshot insert can leave several versions; the highest is the safe floor.
+        page_filter = "AND (team_id, person_id) > (%(after_team)s, toUUID(%(after_person)s))" if after else ""
+        rows = client.execute(
+            f"""
+            SELECT team_id, person_id, max(max_version) FROM {self.qualified_name}
+            WHERE run_id = %(run_id)s
+              {page_filter}
+            GROUP BY team_id, person_id
+            ORDER BY team_id, person_id
+            LIMIT %(limit)s
+            """,
+            {
+                "run_id": self.run_id,
+                "limit": limit,
+                "after_team": after[0] if after else 0,
+                "after_person": after[1] if after else "",
+            },
+            settings=settings,
+        )
+        return [(team_id, PersonKey(uuid=person_id, max_version=int(version))) for team_id, person_id, version in rows]
 
 
 @dataclass(frozen=True)
-class RevivedPersonsTable(SnapshotTable):
-    """Snapshotted persons that came back to life while the run was in flight.
+class RevivedPersonsTable(ExclusionTable):
+    """Snapshotted persons to spare: live or unchecked in Postgres, revived, or written to since the snapshot.
 
     Every dictionary below reads its source through an anti-join against this table, so recording
     a revival here is what excludes it. That keeps the checkpoints free of mutations on the
@@ -290,6 +402,33 @@ class RevivedPersonsTable(SnapshotTable):
         )
         return self.count(client)
 
+    def record_written_since(
+        self,
+        client: Client,
+        persons: DeletedPersonsTable,
+        snapshot_at: datetime,
+        settings: Mapping[str, int] | None = None,
+    ) -> int:
+        """Record every snapshotted person with any row written after the snapshot.
+
+        A backstop for a write that ClickHouse still resolves as deleted, which happens when a hard
+        delete outside the sweep removes the Postgres floor. _timestamp has whole seconds, so a write
+        in the snapshot's own second does not match, but the reconcile reads Postgres after it.
+        """
+        client.execute(
+            f"""
+            INSERT INTO {self.qualified_name} (run_id, team_id, person_id)
+            SELECT DISTINCT %(run_id)s, team_id, id
+            FROM {PERSONS_TABLE}
+            WHERE (team_id, id) IN ({persons.run_keys_query})
+              AND (team_id, id) NOT IN ({self.run_keys_query})
+              AND _timestamp > toDateTime(%(snapshot_at)s, 'UTC')
+            """,
+            {"run_id": self.run_id, "snapshot_at": int(snapshot_at.timestamp())},
+            settings=settings,
+        )
+        return self.count(client)
+
 
 @dataclass(frozen=True)
 class OrphanedDistinctIdsTable(SnapshotTable):
@@ -306,11 +445,13 @@ class OrphanedDistinctIdsTable(SnapshotTable):
 
     def populate(
         self, client: Client, persons_dictionary: "SnapshotDictionary", settings: Mapping[str, int] | None = None
-    ) -> None:
+    ) -> datetime:
+        """Insert this run's distinct ids, and return the ClickHouse time taken just before the read."""
         # person_distinct_id2 is keyed on (team_id, distinct_id) with person_id as a value, so a
         # distinct id can be repointed over time. Deleting rows that merely match a deleted
         # person_id can strip the newest row and resurrect an older mapping underneath it, so the
         # current owner is resolved with argMax and every version of a qualifying key is removed.
+        snapshot_at = _clickhouse_now(client)
         client.execute(
             f"""
             INSERT INTO {self.qualified_name} (run_id, team_id, distinct_id, person_id, own_tombstone, max_version)
@@ -333,16 +474,51 @@ class OrphanedDistinctIdsTable(SnapshotTable):
             {"run_id": self.run_id},
             settings=settings,
         )
+        return snapshot_at
+
+    def page_with_versions(
+        self,
+        client: Client,
+        after: tuple[int, str] | None,
+        limit: int,
+        settings: Mapping[str, int] | None = None,
+    ) -> list[tuple[int, MappingKey]]:
+        """One keyset page of this run's distinct ids, in sort key order, each with the owner and
+        version of its newest row."""
+        page_filter = "AND (team_id, distinct_id) > (%(after_team)s, %(after_distinct_id)s)" if after else ""
+        rows = client.execute(
+            f"""
+            SELECT team_id, distinct_id, argMax(person_id, max_version), max(max_version)
+            FROM {self.qualified_name}
+            WHERE run_id = %(run_id)s
+              {page_filter}
+            GROUP BY team_id, distinct_id
+            ORDER BY team_id, distinct_id
+            LIMIT %(limit)s
+            """,
+            {
+                "run_id": self.run_id,
+                "limit": limit,
+                "after_team": after[0] if after else 0,
+                "after_distinct_id": after[1] if after else "",
+            },
+            settings=settings,
+        )
+        return [
+            (team_id, MappingKey(distinct_id=distinct_id, person_uuid=person_id, max_version=int(version)))
+            for team_id, distinct_id, person_id, version in rows
+        ]
 
 
 @dataclass(frozen=True)
-class RevivedDistinctIdsTable(SnapshotTable):
+class RevivedDistinctIdsTable(ExclusionTable):
     """Snapshotted distinct ids that no longer qualify for deletion.
 
     A mapping can come back the same way a person can: ingestion re-captures a tombstoned
     distinct id, or reset_deleted_person_distinct_ids republishes it at a higher version. The
     snapshot froze the reason each key qualified, so without this the delete would strip every
-    version of a key that is live again, including the new row.
+    version of a key that is live again, including the new row. It also records the mappings the
+    Postgres check spares.
     """
 
     table_name = CLEANUP_REVIVED_DISTINCT_IDS_TABLE
@@ -375,6 +551,32 @@ class RevivedDistinctIdsTable(SnapshotTable):
                )
             """,
             {"run_id": self.run_id},
+            settings=settings,
+        )
+        return self.count(client)
+
+    def record_written_since(
+        self,
+        client: Client,
+        orphaned: OrphanedDistinctIdsTable,
+        snapshot_at: datetime,
+        settings: Mapping[str, int] | None = None,
+    ) -> int:
+        """Record every snapshotted distinct id with any row written after the snapshot.
+
+        The same rule as RevivedPersonsTable.record_written_since, for a mapping recreated below
+        its own tombstone.
+        """
+        client.execute(
+            f"""
+            INSERT INTO {self.qualified_name} (run_id, team_id, distinct_id)
+            SELECT DISTINCT %(run_id)s, team_id, distinct_id
+            FROM {PERSON_DISTINCT_ID2_TABLE}
+            WHERE (team_id, distinct_id) IN ({orphaned.run_keys_query})
+              AND (team_id, distinct_id) NOT IN ({self.run_keys_query})
+              AND _timestamp > toDateTime(%(snapshot_at)s, 'UTC')
+            """,
+            {"run_id": self.run_id, "snapshot_at": int(snapshot_at.timestamp())},
             settings=settings,
         )
         return self.count(client)
@@ -471,15 +673,26 @@ class CleanupRun:
     max_persons: int
     min_team_id: int
     max_team_id: int
+    reconcile_page_size: int
+    reconcile_concurrency: int
+    reconcile_max_floor_keys: int
     distinct_ids_deleted_at: datetime | None = None
+    # ClickHouse time just before each snapshot read; the checkpoints skip keys written after it.
+    # The distinct id read starts later, so it gets its own time.
+    persons_snapshot_at: datetime | None = None
+    distinct_ids_snapshot_at: datetime | None = None
     # Distinct key counts recorded when each snapshot was taken. The deletes assert against them,
     # so a snapshot the 14-day TTL reaped mid-run fails the run instead of under-deleting silently.
     persons_count: int = 0
     orphaned_count: int = 0
     # They ride on the run because the publishing op is the only place that sees a whole sweep.
     stranded_runs_reaped: int = 0  # clear_removed_cohort_data
+    reconciled_persons: ReconcileTally = ReconcileTally()  # reconcile_snapshot_with_postgres
+    reconciled_distinct_ids: ReconcileTally = ReconcileTally()  # reconcile_snapshot_with_postgres
     revived_person_count: int = 0  # both recheck_revived_persons checkpoints, summed
     revived_distinct_id_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    written_since_snapshot_person_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    written_since_snapshot_distinct_id_count: int = 0  # both recheck_revived_persons checkpoints, summed
     queued_for_postgres: int = 0  # persist_deleted_persons
     pg_queue_conflict_retries: int = 0  # persist_deleted_persons
     mutation_seconds_max: float = 0.0  # the slowest mutation of either delete op
@@ -508,6 +721,9 @@ class CleanupRun:
             max_persons=config.max_persons,
             min_team_id=config.min_team_id,
             max_team_id=config.max_team_id,
+            reconcile_page_size=config.reconcile_page_size,
+            reconcile_concurrency=config.reconcile_concurrency,
+            reconcile_max_floor_keys=config.reconcile_max_floor_keys,
         )
 
     @property
@@ -668,7 +884,7 @@ def snapshot_deleted_persons(
 ) -> CleanupRun:
     """Capture the persons whose latest version is deleted, tagged with this run's id."""
     started = time.monotonic()
-    cluster.any_host_by_role(
+    snapshot_at = cluster.any_host_by_role(
         partial(
             run.persons.populate,
             settings=run.query_settings,
@@ -690,7 +906,7 @@ def snapshot_deleted_persons(
             "snapshot_seconds": dagster.MetadataValue.float(round(time.monotonic() - started, 1)),
         }
     )
-    return replace(run, persons_count=count)
+    return replace(run, persons_count=count, persons_snapshot_at=snapshot_at)
 
 
 @dagster.op
@@ -703,7 +919,7 @@ def snapshot_orphaned_distinct_ids(
     _create_dictionary(context, cluster, run.persons_dictionary, run)
 
     started = time.monotonic()
-    cluster.any_host_by_role(
+    snapshot_at = cluster.any_host_by_role(
         partial(run.orphaned.populate, persons_dictionary=run.persons_dictionary, settings=run.query_settings),
         NodeRole.DATA,
     ).result()
@@ -720,11 +936,148 @@ def snapshot_orphaned_distinct_ids(
             "snapshot_seconds": dagster.MetadataValue.float(snapshot_seconds),
         }
     )
-    return replace(run, orphaned_count=count)
+    return replace(run, orphaned_count=count, distinct_ids_snapshot_at=snapshot_at)
+
+
+class SnapshotReconciliation:
+    """Pages one run's snapshot, checks every key against Postgres, and records the keys to spare.
+
+    A failed replica read fails the op, so no delete runs unchecked. A failed floor write only
+    excludes its keys, because ingestion locks can cause it.
+    """
+
+    def __init__(
+        self,
+        context: dagster.OpExecutionContext,
+        cluster: ClickhouseCluster,
+        run: CleanupRun,
+        reconciler: PostgresReconciler,
+    ) -> None:
+        self.context = context
+        self.cluster = cluster
+        self.run = run
+        self.reconciler = reconciler
+
+    def _on_data_host(self, fn: Callable[[Client], _T]) -> _T:
+        return self.cluster.any_host_by_role(fn, NodeRole.DATA).result()
+
+    def persons(self) -> ReconcileTally:
+        run = self.run
+        tally = ReconcileTally()
+        after: tuple[int, str] | None = None
+        while True:
+            page = self._on_data_host(
+                partial(
+                    run.persons.page_with_versions,
+                    after=after,
+                    limit=run.reconcile_page_size,
+                    settings=run.query_settings,
+                )
+            )
+            for team_id, rows in itertools.groupby(page, key=lambda row: row[0]):
+                checked = self.reconciler.persons(team_id, [key for _, key in rows])
+                tally += checked.tally
+                if checked.excluded:
+                    self._on_data_host(partial(run.revived.record, keys=[(team_id, k) for k in checked.excluded]))
+            self.context.log.info("reconciled a page of %s persons: %s excluded so far", len(page), tally.excluded)
+            if len(page) < run.reconcile_page_size:
+                return tally
+            after = (page[-1][0], str(page[-1][1].uuid))
+
+    def mappings(self) -> ReconcileTally:
+        run = self.run
+        tally = ReconcileTally()
+        after: tuple[int, str] | None = None
+        while True:
+            page = self._on_data_host(
+                partial(
+                    run.orphaned.page_with_versions,
+                    after=after,
+                    limit=run.reconcile_page_size,
+                    settings=run.query_settings,
+                )
+            )
+            for team_id, rows in itertools.groupby(page, key=lambda row: row[0]):
+                checked = self.reconciler.mappings(team_id, [key for _, key in rows])
+                tally += checked.tally
+                if checked.excluded:
+                    self._on_data_host(
+                        partial(run.revived_distinct_ids.record, keys=[(team_id, k) for k in checked.excluded])
+                    )
+            self.context.log.info("reconciled a page of %s distinct ids: %s excluded so far", len(page), tally.excluded)
+            if len(page) < run.reconcile_page_size:
+                return tally
+            after = (page[-1][0], page[-1][1].distinct_id)
+
+    def apply_exclusions(self) -> None:
+        """Make every host see the recorded exclusions, then reload the dictionaries that read them."""
+        run = self.run
+        for table in (run.revived, run.revived_distinct_ids):
+            self.cluster.map_all_hosts(table.sync_replica).result()
+        for dictionary in (run.persons_dictionary, run.orphaned_dictionary):
+            load_and_verify_on_every_cluster([self.cluster], dictionary)
+
+
+@dagster.op
+def reconcile_snapshot_with_postgres(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    run: CleanupRun,
+) -> CleanupRun:
+    """Check every snapshot key against Postgres, the only version authority, before any delete.
+
+    It excludes keys Postgres holds live and floors the rest; person_sweep_reconciliation has the rules.
+    """
+    started = time.monotonic()
+    reconciliation = SnapshotReconciliation(
+        context,
+        cluster,
+        run,
+        PostgresReconciler(
+            concurrency=run.reconcile_concurrency,
+            dry_run=run.dry_run,
+            max_floor_keys=run.reconcile_max_floor_keys,
+        ),
+    )
+    persons = reconciliation.persons()
+    mappings = reconciliation.mappings()
+    if persons.excluded or mappings.excluded:
+        reconciliation.apply_exclusions()
+
+    metadata: dict[str, dagster.MetadataValue] = {
+        "reconcile_seconds": dagster.MetadataValue.float(round(time.monotonic() - started, 1)),
+    }
+    for kind, tally in (("persons", persons), ("distinct_ids", mappings)):
+        for outcome in fields(tally):
+            metadata[f"reconcile_{kind}_{outcome.name}"] = dagster.MetadataValue.int(getattr(tally, outcome.name))
+    context.add_output_metadata(metadata)
+
+    if persons.floor_failed or mappings.floor_failed:
+        context.log.warning(
+            "floor writes failed for %s persons and %s distinct ids, which are excluded from the run",
+            persons.floor_failed,
+            mappings.floor_failed,
+        )
+    if persons.floor_capped or mappings.floor_capped:
+        context.log.warning(
+            "the floor cap left %s persons and %s distinct ids for the next run",
+            persons.floor_capped,
+            mappings.floor_capped,
+        )
+    if persons.excluded or mappings.excluded:
+        metrics = MetricsClient(cluster)
+        for kind, tally in (("persons", persons), ("distinct_ids", mappings)):
+            if tally.excluded:
+                _emit(metrics, "clickhouse_cleanup_reconciled", {"kind": kind}, value=tally.excluded)
+    return replace(run, reconciled_persons=persons, reconciled_distinct_ids=mappings)
 
 
 def recheck_revived_persons(name: str) -> dagster.OpDefinition:
-    """Build a checkpoint op that excludes any person revived since the snapshot.
+    """Build a checkpoint op that excludes any person revived or written to since the snapshot.
+
+    A key is excluded when its newest ClickHouse version is live again, or when any of its rows
+    was written after its snapshot. The second rule also skips keys that only got another
+    tombstone, and the next run picks those up.
 
     The checkpoints sit at phase boundaries rather than inside the mutation, because a mutation
     over an unpartitioned table runs long and re-checking mid-flight cannot retract work already
@@ -739,11 +1092,25 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
         cluster: dagster.ResourceParam[ClickhouseCluster],
         run: CleanupRun,
     ) -> CleanupRun:
+        if run.persons_snapshot_at is None or run.distinct_ids_snapshot_at is None:
+            raise ValueError("a checkpoint needs the time of both snapshots")
+
+        # Each count is a total, so every step reports what it added. The revival rule runs first,
+        # so a key that matches both rules counts as revived.
         persons_before = cluster.any_host_by_role(
             partial(run.revived.count, settings=run.query_settings), NodeRole.DATA
         ).result()
-        persons_total = cluster.any_host_by_role(
+        persons_revived_total = cluster.any_host_by_role(
             partial(run.revived.populate, persons=run.persons, settings=run.query_settings), NodeRole.DATA
+        ).result()
+        persons_total = cluster.any_host_by_role(
+            partial(
+                run.revived.record_written_since,
+                persons=run.persons,
+                snapshot_at=run.persons_snapshot_at,
+                settings=run.query_settings,
+            ),
+            NodeRole.DATA,
         ).result()
         cluster.map_all_hosts(run.revived.sync_replica).result()
 
@@ -751,7 +1118,7 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
         ids_before = cluster.any_host_by_role(
             partial(run.revived_distinct_ids.count, settings=run.query_settings), NodeRole.DATA
         ).result()
-        ids_total = cluster.any_host_by_role(
+        ids_revived_total = cluster.any_host_by_role(
             partial(
                 run.revived_distinct_ids.populate,
                 orphaned=run.orphaned,
@@ -761,34 +1128,56 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
             ),
             NodeRole.DATA,
         ).result()
+        ids_total = cluster.any_host_by_role(
+            partial(
+                run.revived_distinct_ids.record_written_since,
+                orphaned=run.orphaned,
+                snapshot_at=run.distinct_ids_snapshot_at,
+                settings=run.query_settings,
+            ),
+            NodeRole.DATA,
+        ).result()
         cluster.map_all_hosts(run.revived_distinct_ids.sync_replica).result()
 
-        revived_persons = persons_total - persons_before
-        revived_ids = ids_total - ids_before
+        revived_persons = persons_revived_total - persons_before
+        revived_ids = ids_revived_total - ids_before
+        written_persons = persons_total - persons_revived_total
+        written_ids = ids_total - ids_revived_total
         context.add_output_metadata(
             {
                 "revived_persons": dagster.MetadataValue.int(revived_persons),
                 "revived_distinct_ids": dagster.MetadataValue.int(revived_ids),
+                "written_since_snapshot_persons": dagster.MetadataValue.int(written_persons),
+                "written_since_snapshot_distinct_ids": dagster.MetadataValue.int(written_ids),
             }
         )
         run = replace(
             run,
             revived_person_count=run.revived_person_count + revived_persons,
             revived_distinct_id_count=run.revived_distinct_id_count + revived_ids,
+            written_since_snapshot_person_count=run.written_since_snapshot_person_count + written_persons,
+            written_since_snapshot_distinct_id_count=run.written_since_snapshot_distinct_id_count + written_ids,
         )
-        if not revived_persons and not revived_ids:
+        if not (persons_total - persons_before or ids_total - ids_before):
             return run
 
-        # Reloading is what applies the exclusion, so it only happens when something came back.
+        # Reloading is what applies the exclusion, so it only happens when something was recorded.
         metrics = MetricsClient(cluster)
-        if revived_persons:
-            _emit(metrics, "clickhouse_cleanup_revived", {"kind": "persons"}, value=revived_persons)
-        if revived_ids:
-            _emit(metrics, "clickhouse_cleanup_revived", {"kind": "distinct_ids"}, value=revived_ids)
+        for metric, kind, value in (
+            ("clickhouse_cleanup_revived", "persons", revived_persons),
+            ("clickhouse_cleanup_revived", "distinct_ids", revived_ids),
+            ("clickhouse_cleanup_written_since_snapshot", "persons", written_persons),
+            ("clickhouse_cleanup_written_since_snapshot", "distinct_ids", written_ids),
+        ):
+            if value:
+                _emit(metrics, metric, {"kind": kind}, value=value)
         context.log.warning(
-            "%s persons and %s distinct ids came back during the run and are excluded from it",
+            "%s persons and %s distinct ids came back during the run, and %s persons and %s distinct ids"
+            " were written since the snapshot. All are excluded from it",
             revived_persons,
             revived_ids,
+            written_persons,
+            written_ids,
         )
         for dictionary in (run.persons_dictionary, run.orphaned_dictionary):
             load_and_verify_on_every_cluster([cluster], dictionary)
@@ -1153,7 +1542,7 @@ PG_QUEUE_RETRY_BACKOFF_SECONDS = 1.0
 def _write_queue_page(
     connection: psycopg2.extensions.connection,
     cursor: psycopg2.extensions.cursor,
-    page: list[tuple[int, str]],
+    page: Sequence[tuple[int, UUID | str]],
     deleted_at: datetime | None,
 ) -> int:
     """Upsert one page, retrying a lock or deadlock conflict. Returns the retries it took."""
@@ -1212,29 +1601,10 @@ def persist_deleted_persons(
     # keeps a dry run from dialing Postgres at all.
     persons_database = psycopg2.connect(persons_database_url, connect_timeout=10)
 
-    def read_page(client: Client, after: tuple[int, str] | None) -> list[tuple[int, str]]:
+    def read_page(client: Client, after: tuple[int, str] | None) -> list[tuple[int, UUID]]:
         # Reads the snapshot directly rather than the dictionary's query, so adding attributes to
-        # the dictionary cannot silently change the shape of what gets queued. Keyset pagination
-        # over (team_id, person_id) follows the table's sort key, and DISTINCT collapses the
-        # duplicate versions a retried snapshot insert can leave in the ReplacingMergeTree.
-        page_filter = "AND (team_id, person_id) > (%(after_team)s, toUUID(%(after_person)s))" if after else ""
-        return client.execute(
-            f"""
-            SELECT DISTINCT team_id, person_id FROM {run.persons.qualified_name}
-            WHERE run_id = %(run_id)s
-              AND (team_id, person_id) NOT IN ({run.revived.run_keys_query})
-              {page_filter}
-            ORDER BY team_id, person_id
-            LIMIT %(limit)s
-            """,
-            {
-                "run_id": run.persons.run_id,
-                "limit": PERSIST_PAGE_SIZE,
-                "after_team": after[0] if after else 0,
-                "after_person": after[1] if after else "",
-            },
-            settings=run.query_settings,
-        )
+        # the dictionary cannot silently change the shape of what gets queued.
+        return run.persons.page(client, after, PERSIST_PAGE_SIZE, excluded=run.revived, settings=run.query_settings)
 
     deleted_at = run.distinct_ids_deleted_at
     written = 0
@@ -1337,6 +1707,32 @@ class PublishedGauge:
         object.__setattr__(self, "value", float(self.value))
 
 
+def _reconcile_gauges(kind: str, noun: str, tally: ReconcileTally) -> list[PublishedGauge]:
+    prefix = "posthog_clickhouse_deletion_sweep"
+    return [
+        PublishedGauge(
+            name=f"{prefix}_reconciled_{kind}",
+            help_text=f"Snapshotted {noun} live in Postgres, and so excluded from the delete",
+            value=tally.live,
+        ),
+        PublishedGauge(
+            name=f"{prefix}_floored_{kind}",
+            help_text=f"Snapshotted {noun} whose Postgres tombstone this run raised or inserted",
+            value=tally.floored,
+        ),
+        PublishedGauge(
+            name=f"{prefix}_floor_failed_{kind}",
+            help_text=f"Snapshotted {noun} excluded because their Postgres floor write failed",
+            value=tally.floor_failed,
+        ),
+        PublishedGauge(
+            name=f"{prefix}_floor_capped_{kind}",
+            help_text=f"Snapshotted {noun} excluded because the run reached reconcile_max_floor_keys",
+            value=tally.floor_capped,
+        ),
+    ]
+
+
 def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
     return [
         PublishedGauge(
@@ -1354,6 +1750,13 @@ def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
             help_text="Orphaned distinct id mappings this run snapshotted, under the same cap",
             value=run.orphaned_count,
         ),
+        *_reconcile_gauges("persons", "persons", run.reconciled_persons),
+        *_reconcile_gauges("distinct_ids", "distinct id mappings", run.reconciled_distinct_ids),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_reconciled_orphaned_live_distinct_ids",
+            help_text="Snapshotted distinct id mappings live in Postgres without a person row, and so excluded",
+            value=run.reconciled_distinct_ids.orphaned_live,
+        ),
         PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_revived_persons",
             help_text="Persons that came back between the snapshot and the delete, and were excluded",
@@ -1363,6 +1766,16 @@ def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
             name="posthog_clickhouse_deletion_sweep_revived_distinct_ids",
             help_text="Distinct id mappings that came back mid-run, and were excluded",
             value=run.revived_distinct_id_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_written_since_snapshot_persons",
+            help_text="Persons with a row written after the snapshot, and so left for the next run",
+            value=run.written_since_snapshot_person_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_written_since_snapshot_distinct_ids",
+            help_text="Distinct id mappings with a row written after the snapshot, and so left for the next run",
+            value=run.written_since_snapshot_distinct_id_count,
         ),
         PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_queued_for_postgres",
@@ -1554,6 +1967,9 @@ def clickhouse_deletion_sweep_job():
     """Sweep deleted cohort memberships, then deleted persons and their distinct ids."""
     run = snapshot_orphaned_distinct_ids(snapshot_deleted_persons(resolve_tombstone_queue(clear_removed_cohort_data())))
 
+    # Before every delete and the Postgres handoff, so all of them agree that a key Postgres holds
+    # live is not deleted.
+    run = reconcile_snapshot_with_postgres(run)
     run = recheck_revived_persons("recheck_before_distinct_id_delete")(run)
     run = delete_orphaned_distinct_ids(run)
 
@@ -1594,6 +2010,9 @@ SCHEDULED_RUN_CONFIG = {
                 "mutation_wait_deadline": 21600,
                 "min_team_id": 0,
                 "max_team_id": 0,
+                "reconcile_page_size": DEFAULT_RECONCILE_PAGE_SIZE,
+                "reconcile_concurrency": DEFAULT_RECONCILE_CONCURRENCY,
+                "reconcile_max_floor_keys": DEFAULT_RECONCILE_MAX_FLOOR_KEYS,
             }
         },
         "resolve_tombstone_queue": {

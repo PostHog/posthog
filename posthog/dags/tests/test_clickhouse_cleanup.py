@@ -1,7 +1,7 @@
 import time
 import itertools
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -10,9 +10,11 @@ from uuid import UUID
 import pytest
 from unittest.mock import patch
 
+import grpc
 import dagster
 import psycopg2
 from clickhouse_driver import Client
+from personhog.types.v1 import person_pb2
 from prometheus_client import CollectorRegistry
 from psycopg2 import OperationalError
 
@@ -24,7 +26,7 @@ from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_SNAPSHOT_TABLES,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.dags import clickhouse_cleanup
+from posthog.dags import clickhouse_cleanup, person_sweep_reconciliation
 from posthog.dags.clickhouse_cleanup import (
     PG_CLEANUP_QUEUE_TABLE,
     SCHEDULED_RUN_CONFIG,
@@ -34,8 +36,11 @@ from posthog.dags.clickhouse_cleanup import (
     OrphanedDistinctIdsTable,
     clickhouse_deletion_sweep_job,
 )
+from posthog.dags.person_sweep_reconciliation import ReconcileTally
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
 from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.persons_db import persons_db_url
 
 TEAM_ID = 4242
@@ -629,8 +634,13 @@ def test_dry_run_deletes_nothing(cluster: ClickhouseCluster, persons_database):
     seed_cohort_rows(cluster, count=5)
     AsyncDeletion.objects.create(deletion_type=DeletionType.Cohort_full, team_id=TEAM_ID, key=f"{COHORT_ID}_0")
 
-    run_job(cluster, persons_database, run_config=None)
+    result = run_job(cluster, persons_database, run_config=None)
 
+    # Postgres holds neither key, so a real run would floor both on the primary.
+    get_active_fake().assert_not_called("ensure_person_version_floors")
+    get_active_fake().assert_not_called("ensure_distinct_id_version_floors")
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert (sweep.reconciled_persons.floor_skipped, sweep.reconciled_distinct_ids.floor_skipped) == (1, 1)
     assert cluster.any_host(visible_persons).result() == 1
     assert cluster.any_host(surviving_distinct_ids).result() == {"gone"}
     assert cluster.any_host(cohort_rows).result() == 5
@@ -788,6 +798,14 @@ def test_keeps_a_distinct_id_recaptured_while_the_run_is_in_flight(cluster: Clic
     assert cluster.any_host(current_owner("recaptured")).result() == UUID(live)
 
 
+def write_distinct_id_row(
+    client: Client, distinct_id: str, person_id: str, *, version: int, written_at: datetime
+) -> None:
+    client.execute(
+        BULK_INSERT_PERSON_DISTINCT_ID2, [(distinct_id, UUID(person_id), TEAM_ID, 0, version, written_at, 0, 0)]
+    )
+
+
 def versions_for(distinct_id: str):
     def query(client: Client) -> list[int]:
         rows = client.execute(
@@ -811,6 +829,220 @@ def current_deleted(distinct_id: str):
         return rows[0][0] if rows else None
 
     return query
+
+
+def person_head(person_uuid: str):
+    def query(client: Client) -> tuple[int, int] | None:
+        rows = client.execute(
+            """
+            SELECT max(version), argMax(is_deleted, version)
+            FROM person WHERE team_id = %(team_id)s AND id = %(id)s GROUP BY id
+            """,
+            {"team_id": TEAM_ID, "id": person_uuid},
+        )
+        return (rows[0][0], rows[0][1]) if rows else None
+
+    return query
+
+
+def run_with_floor_cap(cap: int) -> dict:
+    return {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": False, "reconcile_max_floor_keys": cap}}}}
+
+
+class LockTimeout(grpc.RpcError):
+    def code(self) -> grpc.StatusCode:
+        return grpc.StatusCode.INTERNAL
+
+
+@pytest.mark.parametrize("replica", ["caught_up", "lagging"])
+@pytest.mark.django_db
+def test_spares_a_person_that_postgres_holds_live_below_its_legacy_tombstone(
+    replica, cluster: ClickhouseCluster, persons_database
+):
+    # A legacy hard delete published its tombstones at version + 100. The person came back under
+    # the same UUID and restarted at a low version, so ClickHouse alone resolves it as deleted.
+    recreated = create_person(team_id=TEAM_ID, version=0)
+    create_person(uuid=recreated, team_id=TEAM_ID, version=100, is_deleted=True)
+    create_person(uuid=recreated, team_id=TEAM_ID, version=1)
+    create_person_distinct_id(team_id=TEAM_ID, distinct_id="returning", person_id=recreated, version=0)
+    create_person_distinct_id(
+        team_id=TEAM_ID, distinct_id="returning", person_id=recreated, version=100, is_deleted=True
+    )
+    fake = get_active_fake()
+    fake.add_person(team_id=TEAM_ID, person_id=1, uuid=recreated, version=1, distinct_ids=["returning"])
+    doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+
+    # A lagging replica has no row for either key yet, so only the primary's floor write sees them live.
+    lagging = replica == "lagging"
+    with (
+        patch.object(fake, "get_person_version_heads", return_value=person_pb2.GetPersonVersionHeadsResponse())
+        if lagging
+        else nullcontext(),
+        patch.object(fake, "get_distinct_id_version_heads", return_value=person_pb2.GetDistinctIdVersionHeadsResponse())
+        if lagging
+        else nullcontext(),
+    ):
+        result = run_job(cluster, persons_database)
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert (sweep.reconciled_persons.live, sweep.reconciled_distinct_ids.live) == (1, 1)
+    assert cluster.any_host(person_head(recreated)).result() == (100, 1)
+    assert "returning" in cluster.any_host(surviving_distinct_ids).result()
+    stored = fake.stored_person(TEAM_ID, recreated)
+    assert stored is not None and (stored.version, stored.is_deleted) == (1, False)
+    assert [str(row[1]) for row in queued_rows(persons_database)] == [doomed]
+    assert cluster.any_host(person_head(doomed)).result() is None
+
+
+@pytest.mark.parametrize(
+    "in_postgres, stored_version, floored",
+    [
+        ("tombstoned_at_max", 100, 0),
+        ("tombstoned_below_max", 5, 1),
+        ("absent", None, 1),
+    ],
+)
+@pytest.mark.django_db
+def test_sweeps_a_person_that_postgres_does_not_hold_live_and_floors_its_tombstone(
+    in_postgres, stored_version, floored, cluster: ClickhouseCluster, persons_database
+):
+    deleted = create_person(team_id=TEAM_ID, version=0)
+    create_person(uuid=deleted, team_id=TEAM_ID, version=100, is_deleted=True)
+    fake = get_active_fake()
+    if stored_version is not None:
+        fake.add_person(team_id=TEAM_ID, person_id=1, uuid=deleted, version=stored_version, is_deleted=True)
+
+    result = run_job(cluster, persons_database)
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert (sweep.reconciled_persons.excluded, sweep.reconciled_persons.floored) == (0, floored)
+    stored = fake.stored_person(TEAM_ID, deleted)
+    assert stored is not None and stored.is_deleted and stored.version >= 100
+    assert cluster.any_host(person_head(deleted)).result() is None
+    assert [str(row[1]) for row in queued_rows(persons_database)] == [deleted]
+
+
+@pytest.mark.parametrize(
+    "clickhouse_owner, live, orphaned_live",
+    [
+        ("same_person_tombstoned_mapping", 1, 0),
+        ("deleted_previous_owner", 1, 0),
+        ("no_person_row_in_postgres", 0, 1),
+    ],
+)
+@pytest.mark.django_db
+def test_spares_a_distinct_id_that_postgres_holds_live(
+    clickhouse_owner, live, orphaned_live, cluster: ClickhouseCluster, persons_database
+):
+    owner = create_person(team_id=TEAM_ID, version=0)
+    create_person_distinct_id(team_id=TEAM_ID, distinct_id="held", person_id=owner, version=0)
+    if clickhouse_owner == "deleted_previous_owner":
+        # ClickHouse still points the mapping at a deleted person. Postgres has it on another one.
+        previous = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+        create_person_distinct_id(team_id=TEAM_ID, distinct_id="held", person_id=previous, version=100)
+    else:
+        create_person_distinct_id(team_id=TEAM_ID, distinct_id="held", person_id=owner, version=100, is_deleted=True)
+    if clickhouse_owner == "no_person_row_in_postgres":
+        get_active_fake().add_orphan_distinct_id(team_id=TEAM_ID, distinct_id="held")
+    else:
+        get_active_fake().add_person(team_id=TEAM_ID, person_id=1, uuid=owner, distinct_ids=["held"])
+
+    result = run_job(cluster, persons_database)
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    tally = sweep.reconciled_distinct_ids
+    assert (tally.live, tally.orphaned_live) == (live, orphaned_live)
+    assert "held" in cluster.any_host(surviving_distinct_ids).result()
+
+
+@pytest.mark.parametrize("reason", ["floor_failed", "floor_capped"])
+@pytest.mark.django_db
+def test_spares_persons_it_cannot_floor(reason, cluster: ClickhouseCluster, persons_database):
+    persons = [create_person(team_id=TEAM_ID, version=0, is_deleted=True) for _ in range(2)]
+    fake = get_active_fake()
+
+    if reason == "floor_failed":
+        with (
+            patch.object(person_sweep_reconciliation, "FLOOR_RETRY_BACKOFF_SECONDS", 0),
+            patch.object(fake, "ensure_person_version_floors", side_effect=LockTimeout()) as ensure,
+        ):
+            result = run_job(cluster, persons_database)
+        assert ensure.call_count == person_sweep_reconciliation.FLOOR_ATTEMPTS
+        spared_count = 2
+    else:
+        result = run_job(cluster, persons_database, run_config=run_with_floor_cap(1))
+        spared_count = 1
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert getattr(sweep.reconciled_persons, reason) == spared_count
+    heads = {person: cluster.any_host(person_head(person)).result() for person in persons}
+    spared = sorted(person for person, head in heads.items() if head == (0, 1))
+    swept = sorted(person for person, head in heads.items() if head is None)
+    assert (len(spared), len(swept)) == (spared_count, 2 - spared_count)
+    assert sorted(str(row[1]) for row in queued_rows(persons_database)) == swept
+
+
+def after_the_reconcile(write):
+    original = clickhouse_cleanup.SnapshotReconciliation.mappings
+
+    def reconcile_then_write(self):
+        tally = original(self)
+        write()
+        return tally
+
+    return patch.object(clickhouse_cleanup.SnapshotReconciliation, "mappings", reconcile_then_write)
+
+
+@pytest.mark.django_db
+def test_spares_a_person_recreated_below_its_tombstone_after_the_reconcile(
+    cluster: ClickhouseCluster, persons_database
+):
+    seeded_at = datetime.now(UTC) - timedelta(minutes=10)
+    recreated = create_person(team_id=TEAM_ID, version=0, timestamp=seeded_at)
+    create_person(uuid=recreated, team_id=TEAM_ID, version=100, is_deleted=True, timestamp=seeded_at)
+    doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=seeded_at)
+
+    with after_the_reconcile(
+        lambda: create_person(
+            uuid=recreated, team_id=TEAM_ID, version=1, timestamp=datetime.now(UTC) + timedelta(minutes=10)
+        )
+    ):
+        result = run_job(cluster, persons_database)
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert (sweep.revived_person_count, sweep.written_since_snapshot_person_count) == (0, 1)
+    assert cluster.any_host(person_head(recreated)).result() == (100, 1)
+    assert cluster.any_host(rows_for(doomed)).result() == 0
+    assert [str(row[1]) for row in queued_rows(persons_database)] == [doomed]
+
+
+@pytest.mark.django_db
+def test_keeps_a_distinct_id_recreated_below_its_tombstone_after_the_reconcile(
+    cluster: ClickhouseCluster, persons_database
+):
+    owner = create_person(team_id=TEAM_ID, version=0)
+    for distinct_id in ("recreated", "gone"):
+        create_person_distinct_id(team_id=TEAM_ID, distinct_id=distinct_id, person_id=owner, version=0)
+        create_person_distinct_id(
+            team_id=TEAM_ID, distinct_id=distinct_id, person_id=owner, version=100, is_deleted=True
+        )
+
+    with after_the_reconcile(
+        lambda: cluster.any_host(
+            partial(
+                write_distinct_id_row,
+                distinct_id="recreated",
+                person_id=owner,
+                version=1,
+                written_at=datetime.now(UTC) + timedelta(minutes=10),
+            )
+        ).result()
+    ):
+        result = run_job(cluster, persons_database)
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert (sweep.revived_distinct_id_count, sweep.written_since_snapshot_distinct_id_count) == (0, 1)
+    assert cluster.any_host(surviving_distinct_ids).result() == {"recreated"}
 
 
 @pytest.mark.django_db
@@ -859,7 +1091,8 @@ def test_removes_every_version_below_the_max_in_one_pass(cluster: ClickhouseClus
 @pytest.mark.django_db
 def test_rows_written_after_the_snapshot_survive(cluster: ClickhouseCluster, persons_database):
     # Both passes are bounded by the snapshot's max_version, so a run never removes a row it did
-    # not observe.
+    # not observe. The row is dated before the snapshot, like a lagging producer clock would, so
+    # only the version bound keeps it.
     deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=0)
     create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=100, is_deleted=True)
@@ -868,7 +1101,9 @@ def test_rows_written_after_the_snapshot_survive(cluster: ClickhouseCluster, per
 
     def write_after_snapshot(self, client, persons_dictionary, settings=None):
         result = original(self, client, persons_dictionary, settings=settings)
-        create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=500)
+        write_distinct_id_row(
+            client, "racing", deleted, version=500, written_at=datetime.now(UTC) - timedelta(minutes=10)
+        )
         return result
 
     with patch.object(OrphanedDistinctIdsTable, "populate", write_after_snapshot):
@@ -1172,6 +1407,10 @@ def test_publishes_every_measurement_the_run_took() -> None:
         queued_for_postgres=7,
         mutation_seconds_max=1.5,
         stranded_runs_reaped=2,
+        reconciled_persons=ReconcileTally(live=5, floored=8, floor_failed=14, floor_capped=16),
+        reconciled_distinct_ids=ReconcileTally(live=6, orphaned_live=10, floored=9, floor_failed=15, floor_capped=17),
+        written_since_snapshot_person_count=12,
+        written_since_snapshot_distinct_id_count=13,
     )
 
     registry, pushed_jobs = _publish(run)
@@ -1185,6 +1424,17 @@ def test_publishes_every_measurement_the_run_took() -> None:
     assert registry.get_sample_value(f"{prefix}queued_for_postgres") == 7
     assert registry.get_sample_value(f"{prefix}mutation_seconds_max") == 1.5
     assert registry.get_sample_value(f"{prefix}stranded_runs_reaped") == 2
+    assert registry.get_sample_value(f"{prefix}reconciled_persons") == 5
+    assert registry.get_sample_value(f"{prefix}reconciled_distinct_ids") == 6
+    assert registry.get_sample_value(f"{prefix}reconciled_orphaned_live_distinct_ids") == 10
+    assert registry.get_sample_value(f"{prefix}floored_persons") == 8
+    assert registry.get_sample_value(f"{prefix}floored_distinct_ids") == 9
+    assert registry.get_sample_value(f"{prefix}floor_failed_persons") == 14
+    assert registry.get_sample_value(f"{prefix}floor_failed_distinct_ids") == 15
+    assert registry.get_sample_value(f"{prefix}floor_capped_persons") == 16
+    assert registry.get_sample_value(f"{prefix}floor_capped_distinct_ids") == 17
+    assert registry.get_sample_value(f"{prefix}written_since_snapshot_persons") == 12
+    assert registry.get_sample_value(f"{prefix}written_since_snapshot_distinct_ids") == 13
     last_success = registry.get_sample_value(f"{prefix}last_success_timestamp_seconds")
     # Wall clock, not the time.monotonic used elsewhere here: the alert subtracts it from time().
     assert last_success is not None
