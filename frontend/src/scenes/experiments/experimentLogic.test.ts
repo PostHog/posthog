@@ -449,6 +449,37 @@ describe('experimentLogic', () => {
             expect(logic.values.primaryMetricsResults).toEqual([existingResult])
             expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
         })
+
+        it.each([
+            // Left in place, a rejected metric is resent by every later metrics save
+            ['puts the last saved metrics back after a validation error', 400, true],
+            ['keeps the local edit after a server error, so the next save retries it', 500, false],
+        ])('%s', async (_, status, restored) => {
+            const editedMetric = {
+                uuid: 'edited-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+            } as ExperimentMetric
+            const editedMetrics = [...(experiment.metrics || []), editedMetric]
+
+            logic.actions.setUnmodifiedExperiment(experiment)
+            logic.actions.setExperiment(experiment)
+            logic.actions.setExperiment({
+                metrics: editedMetrics,
+                primary_metrics_ordered_uuids: [editedMetric.uuid as string],
+            })
+            jest.spyOn(api, 'update').mockRejectedValueOnce({ status, detail: 'Save failed' })
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.experiment.metrics).toEqual(restored ? experiment.metrics : editedMetrics)
+            expect(logic.values.experiment.primary_metrics_ordered_uuids).toEqual(
+                restored ? experiment.primary_metrics_ordered_uuids : [editedMetric.uuid]
+            )
+        })
     })
 
     describe('recalculation trigger mapping', () => {
