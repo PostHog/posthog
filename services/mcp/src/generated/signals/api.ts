@@ -87,7 +87,9 @@ export const SignalsReportsListQueryParams = () => zod.object({
     scope: zod
         .string()
         .optional()
-        .describe('Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.'),
+        .describe(
+            'Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate. With the personal Inbox enabled, for_me selects reports that name the user as a suggested reviewer or that the user (or a task the user started) claimed, and hides resolved, dismissed, and snoozed reports unless status or view asks for them.'
+        ),
     scout: zod
         .string()
         .optional()
@@ -104,7 +106,9 @@ export const SignalsReportsListQueryParams = () => zod.object({
     sort: zod
         .string()
         .optional()
-        .describe('Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.'),
+        .describe(
+            "Inbox sort preset: relevance, priority, last_updated, newest, or oldest. Ignored when ordering is supplied. relevance needs scope=for_me: it puts urgent work and reports the user can act on now first, then orders by priority, and fills each row's personal_inbox explanation."
+        ),
     source_id: zod
         .string()
         .optional()

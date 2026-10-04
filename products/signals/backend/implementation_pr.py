@@ -138,6 +138,8 @@ class ImplementationPr:
     claim_id: str | None = None
     attached_at: datetime | None = None
     attached_by_user: "User | None" = None
+    # When GitHub last confirmed `state`. None for task and legacy snapshots nobody verified.
+    checked_at: datetime | None = None
     agent_name: str | None = None
 
 
@@ -187,6 +189,7 @@ def fetch_implementation_prs_for_reports(
                 attached_at=link.created_at,
                 attached_by_user=link.created_by,
                 agent_name=link.actor_agent,
+                checked_at=linked_pr.checked_at,
             )
         )
     assignments = list(
