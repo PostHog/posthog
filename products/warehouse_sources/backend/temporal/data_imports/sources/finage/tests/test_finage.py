@@ -536,11 +536,34 @@ class TestSymbolListRows:
         assert [call.args[1] for call in fetch.call_args_list][:3] == ["/symbol-list/us-stock"] * 3
         assert [call.kwargs["params"] for call in fetch.call_args_list][:3] == [{"page": 1}, {"page": 2}, {"page": 3}]
 
-    def test_stops_at_the_page_cap_when_the_api_never_returns_an_empty_page(self) -> None:
-        # An API that ignores `page` would otherwise re-serve page one for ever and never finish.
+    def test_fails_when_a_page_adds_no_new_symbols(self) -> None:
+        # An API that ignores `page` re-serves page one. The merge would hide the repeats, so the
+        # sync would succeed with only page one's symbols after hundreds of wasted requests.
         with (
             mock.patch.object(finage, "make_tracked_session"),
-            mock.patch.object(finage, "_fetch_json", return_value=self._page("AAPL")) as fetch,
+            mock.patch.object(finage, "_fetch_json", return_value=self._page("AAPL", "MSFT")) as fetch,
+        ):
+            with pytest.raises(ValueError, match="no new symbols"):
+                list(get_rows("k", "symbol_list", ["AAPL"], "2020-01-01", mock.Mock()))
+
+        assert fetch.call_count == 2
+
+    def test_keeps_walking_when_a_page_overlaps_the_previous_one(self) -> None:
+        pages = [self._page("AAPL", "MSFT"), self._page("MSFT", "NVDA"), {"symbols": []}]
+        pages += [{"symbols": []}, {"symbols": []}]
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=pages),
+        ):
+            batches = list(get_rows("k", "symbol_list", ["AAPL"], "2020-01-01", mock.Mock()))
+
+        assert [row["symbol"] for batch in batches for row in batch] == ["AAPL", "MSFT", "MSFT", "NVDA"]
+
+    def test_stops_at_the_page_cap_when_the_api_never_returns_an_empty_page(self) -> None:
+        pages_per_market = [self._page(f"S{page}") for page in range(SYMBOL_LIST_MAX_PAGES)]
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=pages_per_market * 3) as fetch,
         ):
             batches = list(get_rows("k", "symbol_list", ["AAPL"], "2020-01-01", mock.Mock()))
 
