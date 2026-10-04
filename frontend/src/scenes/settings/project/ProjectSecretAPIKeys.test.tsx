@@ -50,6 +50,30 @@ describe('<ProjectSecretAPIKeys />', () => {
         logic.unmount()
     })
 
+    it('offers only the actions a project secret key can hold', () => {
+        logic.actions.loadKeysSuccess([])
+        logic.actions.setEditingKeyId('new')
+        render(<ProjectSecretAPIKeys />)
+
+        const accessOptions = Array.from(document.body.querySelectorAll('button'))
+            .map((button) => button.textContent)
+            .filter((text) => text && ['No access', 'Read', 'Write'].includes(text))
+
+        // Rows render in allowed-scope order: endpoint, feature flag, account, loop, experiment.
+        expect(accessOptions).toEqual([
+            'No access',
+            'Read',
+            'No access',
+            'Read',
+            'No access',
+            'Read',
+            'No access',
+            'Write',
+            'No access',
+            'Read',
+        ])
+    })
+
     it.each([
         {
             description: 'below the backend limit',

@@ -3,6 +3,8 @@ import clsx from 'clsx'
 import { IconInfo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
+import { APIScopeAction } from '~/types'
+
 interface ScopeAccessRowProps {
     /** Display label for the scope (e.g. 'Feature flag', 'Endpoint'). */
     label: string
@@ -16,6 +18,8 @@ interface ScopeAccessRowProps {
     readDisabledReason?: string
     /** Reason the Write option should be disabled. Set to a non-empty string to disable. */
     writeDisabledReason?: string
+    /** Actions the row must not offer at all, because this key type can never hold them. */
+    hiddenActions?: APIScopeAction[]
     /** Optional tooltip content shown next to the label via an info icon. */
     info?: string | JSX.Element
     /** When true, the label is dimmed (e.g. when the row is contextually disabled). */
@@ -31,6 +35,7 @@ export function ScopeAccessRow({
     noneDisabledReason,
     readDisabledReason,
     writeDisabledReason,
+    hiddenActions,
     info,
     muted = false,
     warning,
@@ -51,8 +56,12 @@ export function ScopeAccessRow({
                     value={value}
                     options={[
                         { label: 'No access', value: 'none', disabledReason: noneDisabledReason },
-                        { label: 'Read', value: 'read', disabledReason: readDisabledReason },
-                        { label: 'Write', value: 'write', disabledReason: writeDisabledReason },
+                        ...(hiddenActions?.includes('read')
+                            ? []
+                            : [{ label: 'Read', value: 'read', disabledReason: readDisabledReason }]),
+                        ...(hiddenActions?.includes('write')
+                            ? []
+                            : [{ label: 'Write', value: 'write', disabledReason: writeDisabledReason }]),
                     ]}
                     size="xsmall"
                 />
