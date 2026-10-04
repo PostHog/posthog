@@ -46,6 +46,8 @@ from posthog.personhog_client.proto import (
     DeletePersonsResponse,
     DeleteTombstonedPersonsRequest,
     DeleteTombstonedPersonsResponse,
+    EnsureDistinctIdVersionFloorsRequest,
+    EnsureDistinctIdVersionFloorsResponse,
     EnsurePersonVersionFloorsRequest,
     EnsurePersonVersionFloorsResponse,
     GetDistinctIdsForPersonRequest,
@@ -283,6 +285,11 @@ class PersonHogClient:
         self, request: EnsurePersonVersionFloorsRequest, timeout: float | None = None
     ) -> EnsurePersonVersionFloorsResponse:
         return self._stub.EnsurePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def ensure_distinct_id_version_floors(
+        self, request: EnsureDistinctIdVersionFloorsRequest, timeout: float | None = None
+    ) -> EnsureDistinctIdVersionFloorsResponse:
+        return self._stub.EnsureDistinctIdVersionFloors(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

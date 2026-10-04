@@ -765,6 +765,54 @@ class EnsurePersonVersionFloorsResponse(_message.Message):
     results: _containers.RepeatedCompositeFieldContainer[PersonVersionFloorResult]
     def __init__(self, results: _Optional[_Iterable[_Union[PersonVersionFloorResult, _Mapping]]] = ...) -> None: ...
 
+class DistinctIdVersionFloor(_message.Message):
+    __slots__ = ("distinct_id", "min_version", "person_uuid")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    min_version: int
+    person_uuid: str
+    def __init__(
+        self, distinct_id: _Optional[str] = ..., min_version: _Optional[int] = ..., person_uuid: _Optional[str] = ...
+    ) -> None: ...
+
+class EnsureDistinctIdVersionFloorsRequest(_message.Message):
+    __slots__ = ("team_id", "floors")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOORS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    floors: _containers.RepeatedCompositeFieldContainer[DistinctIdVersionFloor]
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        floors: _Optional[_Iterable[_Union[DistinctIdVersionFloor, _Mapping]]] = ...,
+    ) -> None: ...
+
+class DistinctIdVersionFloorResult(_message.Message):
+    __slots__ = ("distinct_id", "outcome", "version", "person_uuid")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    outcome: VersionFloorOutcome
+    version: int
+    person_uuid: str
+    def __init__(
+        self,
+        distinct_id: _Optional[str] = ...,
+        outcome: _Optional[_Union[VersionFloorOutcome, str]] = ...,
+        version: _Optional[int] = ...,
+        person_uuid: _Optional[str] = ...,
+    ) -> None: ...
+
+class EnsureDistinctIdVersionFloorsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[DistinctIdVersionFloorResult]
+    def __init__(self, results: _Optional[_Iterable[_Union[DistinctIdVersionFloorResult, _Mapping]]] = ...) -> None: ...
+
 class FencePersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "op_id", "op_type")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

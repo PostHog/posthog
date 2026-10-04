@@ -36,6 +36,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    EnsureDistinctIdVersionFloorsRequest, EnsureDistinctIdVersionFloorsResponse,
     EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse,
     GetDistinctIdVersionHeadsRequest, GetDistinctIdVersionHeadsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
@@ -560,6 +561,15 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<EnsurePersonVersionFloorsRequest>,
     ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
         Ok(Response::new(EnsurePersonVersionFloorsResponse::default()))
+    }
+
+    async fn ensure_distinct_id_version_floors(
+        &self,
+        _request: Request<EnsureDistinctIdVersionFloorsRequest>,
+    ) -> Result<Response<EnsureDistinctIdVersionFloorsResponse>, Status> {
+        Ok(Response::new(
+            EnsureDistinctIdVersionFloorsResponse::default(),
+        ))
     }
 }
 

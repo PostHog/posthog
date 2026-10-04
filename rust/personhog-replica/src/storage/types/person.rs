@@ -115,6 +115,22 @@ pub struct PersonVersionFloorResult {
     pub version: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdVersionFloor {
+    pub distinct_id: String,
+    pub min_version: i64,
+    pub person_uuid: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdVersionFloorResult {
+    pub distinct_id: String,
+    pub outcome: VersionFloorOutcome,
+    pub version: i64,
+    /// None when the row points at a person that has no row.
+    pub person_uuid: Option<Uuid>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SplitResult {
     pub distinct_id: String,

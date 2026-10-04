@@ -466,6 +466,38 @@ message EnsurePersonVersionFloorsResponse {
   repeated PersonVersionFloorResult results = 1;
 }
 
+message DistinctIdVersionFloor {
+  string distinct_id = 1;
+  int64 min_version = 2;
+  // Owner of the tombstone inserted for a distinct_id with no row, ignored otherwise. An owner
+  // with no row gets a person tombstone at version 0, because the distinct_id row needs one.
+  string person_uuid = 3;
+}
+
+// EnsureDistinctIdVersionFloorsRequest is EnsurePersonVersionFloorsRequest for
+// posthog_persondistinctid rows. The call never changes the person_id of an
+// existing row.
+message EnsureDistinctIdVersionFloorsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicate distinct_ids are rejected.
+  repeated DistinctIdVersionFloor floors = 2;
+}
+
+message DistinctIdVersionFloorResult {
+  string distinct_id = 1;
+  VersionFloorOutcome outcome = 2;
+  // The stored version after the call.
+  int64 version = 3;
+  // The person the row points at after the call. Absent when that person row
+  // does not exist.
+  optional string person_uuid = 4;
+}
+
+message EnsureDistinctIdVersionFloorsResponse {
+  // Same order as the request.
+  repeated DistinctIdVersionFloorResult results = 1;
+}
+
 // FencePersonRequest freezes a person for a lifecycle operation (see
 // PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
 // op_type selects the rejection surfaced to writers while the fence holds.

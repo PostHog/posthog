@@ -10,9 +10,10 @@ use personhog_proto::personhog::types::v1::{
     DeleteCohortMembersBulkRequest, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
     DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
-    EnsurePersonVersionFloorsRequest, GetDistinctIdVersionHeadsRequest, GetGroupRequest,
-    GetPersonRequest, GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest,
-    InsertCohortMembersRequest, ListCohortMemberIdsRequest, PersonVersionFloor, UpdateGroupRequest,
+    DistinctIdVersionFloor, EnsureDistinctIdVersionFloorsRequest, EnsurePersonVersionFloorsRequest,
+    GetDistinctIdVersionHeadsRequest, GetGroupRequest, GetPersonRequest,
+    GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest,
+    ListCohortMemberIdsRequest, PersonVersionFloor, UpdateGroupRequest,
     UpdateGroupTypeMappingRequest,
 };
 use rstest::rstest;
@@ -1070,6 +1071,7 @@ enum SweepRpc {
     PersonHeads,
     DistinctIdHeads,
     EnsurePersonFloors,
+    EnsureDistinctIdFloors,
 }
 
 const OWNER_UUID: &str = "00000000-0000-0000-0000-000000000001";
@@ -1085,6 +1087,7 @@ async fn call_sweep_rpc(
     rpc: SweepRpc,
     keys: Vec<String>,
     min_version: i64,
+    owner: &str,
 ) -> Result<(), tonic::Status> {
     let team_id = 1;
     match rpc {
@@ -1115,41 +1118,81 @@ async fn call_sweep_rpc(
             }))
             .await
             .map(|_| ()),
+        SweepRpc::EnsureDistinctIdFloors => service
+            .ensure_distinct_id_version_floors(Request::new(EnsureDistinctIdVersionFloorsRequest {
+                team_id,
+                floors: keys
+                    .into_iter()
+                    .map(|distinct_id| DistinctIdVersionFloor {
+                        distinct_id,
+                        min_version,
+                        person_uuid: owner.to_string(),
+                    })
+                    .collect(),
+            }))
+            .await
+            .map(|_| ()),
     }
 }
 
 #[rstest]
-#[case::person_heads_at_cap(SweepRpc::PersonHeads, uuid_keys(250), 0, None)]
-#[case::person_heads_over_cap(SweepRpc::PersonHeads, uuid_keys(251), 0, Some("Maximum 250"))]
-#[case::person_heads_bad_uuid(SweepRpc::PersonHeads, vec!["nope".to_string()], 0, Some("Invalid UUID"))]
-#[case::distinct_id_heads_at_cap(SweepRpc::DistinctIdHeads, uuid_keys(250), 0, None)]
+#[case::person_heads_at_cap(SweepRpc::PersonHeads, uuid_keys(250), 0, OWNER_UUID, None)]
+#[case::person_heads_over_cap(
+    SweepRpc::PersonHeads,
+    uuid_keys(251),
+    0,
+    OWNER_UUID,
+    Some("Maximum 250")
+)]
+#[case::person_heads_bad_uuid(SweepRpc::PersonHeads, vec!["nope".to_string()], 0, OWNER_UUID, Some("Invalid UUID"))]
+#[case::distinct_id_heads_at_cap(SweepRpc::DistinctIdHeads, uuid_keys(250), 0, OWNER_UUID, None)]
 #[case::distinct_id_heads_over_cap(
     SweepRpc::DistinctIdHeads,
     uuid_keys(251),
     0,
+    OWNER_UUID,
     Some("Maximum 250")
 )]
-#[case::person_floors_at_cap(SweepRpc::EnsurePersonFloors, uuid_keys(250), 0, None)]
+#[case::person_floors_at_cap(SweepRpc::EnsurePersonFloors, uuid_keys(250), 0, OWNER_UUID, None)]
 #[case::person_floors_over_cap(
     SweepRpc::EnsurePersonFloors,
     uuid_keys(251),
     0,
+    OWNER_UUID,
     Some("Maximum 250")
 )]
-#[case::person_floors_duplicate(SweepRpc::EnsurePersonFloors, vec![OWNER_UUID.to_string(), OWNER_UUID.to_string()], 0, Some("Duplicate key"))]
-#[case::person_floors_duplicate_spelling(SweepRpc::EnsurePersonFloors, vec!["0000000a-0000-0000-0000-00000000000b".to_string(), "0000000A-0000-0000-0000-00000000000B".to_string()], 0, Some("Duplicate key"))]
-#[case::person_floors_negative(SweepRpc::EnsurePersonFloors, uuid_keys(1), -1, Some("must not be negative"))]
-#[case::person_floors_bad_uuid(SweepRpc::EnsurePersonFloors, vec!["nope".to_string()], 0, Some("Invalid UUID"))]
+#[case::person_floors_duplicate(SweepRpc::EnsurePersonFloors, vec![OWNER_UUID.to_string(), OWNER_UUID.to_string()], 0, OWNER_UUID, Some("Duplicate key"))]
+#[case::person_floors_duplicate_spelling(SweepRpc::EnsurePersonFloors, vec!["0000000a-0000-0000-0000-00000000000b".to_string(), "0000000A-0000-0000-0000-00000000000B".to_string()], 0, OWNER_UUID, Some("Duplicate key"))]
+#[case::person_floors_negative(SweepRpc::EnsurePersonFloors, uuid_keys(1), -1, OWNER_UUID, Some("must not be negative"))]
+#[case::person_floors_bad_uuid(SweepRpc::EnsurePersonFloors, vec!["nope".to_string()], 0, OWNER_UUID, Some("Invalid UUID"))]
+#[case::distinct_id_floors_at_cap(
+    SweepRpc::EnsureDistinctIdFloors,
+    uuid_keys(250),
+    0,
+    OWNER_UUID,
+    None
+)]
+#[case::distinct_id_floors_over_cap(
+    SweepRpc::EnsureDistinctIdFloors,
+    uuid_keys(251),
+    0,
+    OWNER_UUID,
+    Some("Maximum 250")
+)]
+#[case::distinct_id_floors_duplicate(SweepRpc::EnsureDistinctIdFloors, vec!["a".to_string(), "a".to_string()], 0, OWNER_UUID, Some("Duplicate key"))]
+#[case::distinct_id_floors_negative(SweepRpc::EnsureDistinctIdFloors, vec!["a".to_string()], -1, OWNER_UUID, Some("must not be negative"))]
+#[case::distinct_id_floors_bad_owner(SweepRpc::EnsureDistinctIdFloors, vec!["a".to_string()], 0, "nope", Some("Invalid UUID"))]
 #[tokio::test]
 async fn test_sweep_rpc_input_validation(
     #[case] rpc: SweepRpc,
     #[case] keys: Vec<String>,
     #[case] min_version: i64,
+    #[case] owner: &str,
     #[case] expected_error: Option<&str>,
 ) {
     let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
 
-    let result = call_sweep_rpc(&service, rpc, keys, min_version).await;
+    let result = call_sweep_rpc(&service, rpc, keys, min_version, owner).await;
 
     match expected_error {
         None => assert!(result.is_ok(), "{result:?}"),
@@ -1177,6 +1220,21 @@ async fn test_sweep_rpc_input_validation(
     FailingStorage::with_failed_precondition(),
     tonic::Code::FailedPrecondition
 )]
+#[case::distinct_id_connection_error(
+    SweepRpc::EnsureDistinctIdFloors,
+    FailingStorage::with_connection_error(),
+    tonic::Code::Unavailable
+)]
+#[case::distinct_id_query_error(
+    SweepRpc::EnsureDistinctIdFloors,
+    FailingStorage::with_query_error(),
+    tonic::Code::Internal
+)]
+#[case::distinct_id_lost_race(
+    SweepRpc::EnsureDistinctIdFloors,
+    FailingStorage::with_failed_precondition(),
+    tonic::Code::FailedPrecondition
+)]
 #[tokio::test]
 async fn test_sweep_rpc_storage_error(
     #[case] rpc: SweepRpc,
@@ -1185,7 +1243,7 @@ async fn test_sweep_rpc_storage_error(
 ) {
     let service = PersonHogReplicaService::new(Arc::new(storage));
 
-    let result = call_sweep_rpc(&service, rpc, uuid_keys(1), 0).await;
+    let result = call_sweep_rpc(&service, rpc, uuid_keys(1), 0, OWNER_UUID).await;
 
     assert_eq!(result.unwrap_err().code(), expected_code);
 }

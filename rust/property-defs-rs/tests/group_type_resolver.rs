@@ -464,6 +464,13 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn ensure_distinct_id_version_floors(
+        &self,
+        _: Request<EnsureDistinctIdVersionFloorsRequest>,
+    ) -> Result<Response<EnsureDistinctIdVersionFloorsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

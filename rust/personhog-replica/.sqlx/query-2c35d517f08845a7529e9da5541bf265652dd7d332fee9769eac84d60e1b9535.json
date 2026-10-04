@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id::bigint as \"id!\", uuid as \"uuid!\"\n        FROM posthog_person\n        WHERE team_id = $1 AND uuid = ANY($2)\n        ORDER BY id FOR KEY SHARE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2c35d517f08845a7529e9da5541bf265652dd7d332fee9769eac84d60e1b9535"
+}

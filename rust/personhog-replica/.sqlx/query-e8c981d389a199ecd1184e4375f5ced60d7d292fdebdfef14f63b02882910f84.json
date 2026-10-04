@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT distinct_id as \"distinct_id!\" FROM posthog_persondistinctid\n            WHERE team_id = $1 AND distinct_id = ANY($2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e8c981d389a199ecd1184e4375f5ced60d7d292fdebdfef14f63b02882910f84"
+}

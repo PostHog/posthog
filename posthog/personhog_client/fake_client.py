@@ -1013,6 +1013,43 @@ class FakePersonHogClient:
             response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=person.version)
         return response
 
+    def ensure_distinct_id_version_floors(
+        self, request: person_pb2.EnsureDistinctIdVersionFloorsRequest, timeout: float | None = None
+    ) -> person_pb2.EnsureDistinctIdVersionFloorsResponse:
+        self.calls.append(_Call("ensure_distinct_id_version_floors", request))
+        self._check_version_rpc_batch([f.distinct_id for f in request.floors])
+        if any(f.min_version < 0 for f in request.floors):
+            raise ValueError("min_version must not be negative")
+        response = person_pb2.EnsureDistinctIdVersionFloorsResponse()
+        for floor in request.floors:
+            key = (request.team_id, floor.distinct_id)
+            row = self._distinct_id_row(*key)
+            if row is None:
+                owner = self._persons_by_uuid.get((request.team_id, floor.person_uuid))
+                if owner is None:
+                    owner = self._insert_person_tombstone(request.team_id, floor.person_uuid, 0)
+                self._distinct_ids.setdefault((request.team_id, owner.id), []).append(
+                    person_pb2.DistinctIdWithVersion(distinct_id=floor.distinct_id, version=floor.min_version)
+                )
+                self._persons_by_distinct_id[key] = owner
+                self._tombstoned_distinct_ids.add(key)
+                response.results.add(
+                    distinct_id=floor.distinct_id,
+                    outcome=person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED,
+                    version=floor.min_version,
+                    person_uuid=floor.person_uuid,
+                )
+                continue
+            mapping, person = row
+            is_deleted = key in self._tombstoned_distinct_ids
+            outcome = self._floor_outcome(is_deleted, mapping.version, floor.min_version)
+            if is_deleted:
+                mapping.version = max(mapping.version, floor.min_version)
+            result = response.results.add(distinct_id=floor.distinct_id, outcome=outcome, version=mapping.version)
+            if person is not None:
+                result.person_uuid = person.uuid
+        return response
+
     # ── Assertion helpers ────────────────────────────────────────────
 
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:

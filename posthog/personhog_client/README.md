@@ -76,7 +76,7 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 
 **Version heads and version floors:**
 `get_person_version_heads`, `get_distinct_id_version_heads` (stored versions, tombstones included);
-`ensure_person_version_floors` (raise each tombstone to a minimum version, inserting a tombstone where no row exists, and leave live rows unchanged; a lost insert race fails the whole request with `FAILED_PRECONDITION`).
+`ensure_person_version_floors`, `ensure_distinct_id_version_floors` (raise each tombstone to a minimum version, inserting a tombstone where no row exists, and leave live rows unchanged; a lost insert race fails the whole request with `FAILED_PRECONDITION`).
 Each write takes at most 250 keys in one transaction. Use the helpers in `posthog/models/person/util.py`: they batch and retry a lost race.
 
 **Cohort membership:**

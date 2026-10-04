@@ -43,6 +43,8 @@ from posthog.personhog_client.proto import (
     AckPersonTombstonesRequest,
     DeletePersonsMode,
     DeletePersonsRequest,
+    DistinctIdVersionFloor as DistinctIdVersionFloorProto,
+    EnsureDistinctIdVersionFloorsRequest,
     EnsurePersonVersionFloorsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
@@ -1008,6 +1010,23 @@ class PersonVersionFloorResult:
     version: int
 
 
+@frozen
+class DistinctIdVersionFloor:
+    distinct_id: str
+    min_version: int
+    # Owner of the tombstone inserted when the distinct id has no row. Ignored when it has one.
+    person_uuid: UUID
+
+
+@frozen
+class DistinctIdVersionFloorResult:
+    distinct_id: str
+    outcome: VersionFloorOutcome
+    version: int
+    # None when the row points at a person that has no row.
+    person_uuid: UUID | None
+
+
 def _optional_uuid(message: Message, field_name: str) -> UUID | None:
     return UUID(getattr(message, field_name)) if message.HasField(field_name) else None
 
@@ -1098,3 +1117,38 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
         return results
 
     return personhog_call("ensure_person_version_floors", personhog_fn)
+
+
+def ensure_distinct_id_version_floors(
+    team_id: int, floors: Sequence[DistinctIdVersionFloor]
+) -> list[DistinctIdVersionFloorResult]:
+    """``ensure_person_version_floors`` for distinct id rows.
+
+    A missing distinct id gets a tombstone owned by its ``person_uuid``, which gets a version 0 tombstone if it has no row.
+    """
+
+    def personhog_fn() -> list[DistinctIdVersionFloorResult]:
+        results: list[DistinctIdVersionFloorResult] = []
+        for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
+            request = EnsureDistinctIdVersionFloorsRequest(
+                team_id=team_id,
+                floors=[
+                    DistinctIdVersionFloorProto(
+                        distinct_id=f.distinct_id, min_version=f.min_version, person_uuid=str(f.person_uuid)
+                    )
+                    for f in floors[i : i + PERSONHOG_BATCH_SIZE]
+                ],
+            )
+            response = _retry_lost_race(partial(_get_client().ensure_distinct_id_version_floors, request))
+            results.extend(
+                DistinctIdVersionFloorResult(
+                    distinct_id=r.distinct_id,
+                    outcome=_FLOOR_OUTCOMES[r.outcome],
+                    version=int(r.version),
+                    person_uuid=_optional_uuid(r, "person_uuid"),
+                )
+                for r in response.results
+            )
+        return results
+
+    return personhog_call("ensure_distinct_id_version_floors", personhog_fn)

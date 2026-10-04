@@ -106,4 +106,5 @@ service PersonHogService {
   rpc GetPersonVersionHeads(personhog.types.v1.GetPersonVersionHeadsRequest) returns (personhog.types.v1.GetPersonVersionHeadsResponse);
   rpc GetDistinctIdVersionHeads(personhog.types.v1.GetDistinctIdVersionHeadsRequest) returns (personhog.types.v1.GetDistinctIdVersionHeadsResponse);
   rpc EnsurePersonVersionFloors(personhog.types.v1.EnsurePersonVersionFloorsRequest) returns (personhog.types.v1.EnsurePersonVersionFloorsResponse);
+  rpc EnsureDistinctIdVersionFloors(personhog.types.v1.EnsureDistinctIdVersionFloorsRequest) returns (personhog.types.v1.EnsureDistinctIdVersionFloorsResponse);
 }

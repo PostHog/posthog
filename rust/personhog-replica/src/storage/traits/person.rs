@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, DistinctIdVersionHead, Person,
-    PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonVersionHead, SplitResult,
-    TombstonedDeleteOutcome, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, DistinctIdVersionFloor, DistinctIdVersionFloorResult,
+    DistinctIdVersionHead, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult,
+    PersonVersionHead, SplitResult, TombstonedDeleteOutcome, TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -173,4 +173,13 @@ pub trait PersonLookup: Send + Sync {
         team_id: i64,
         floors: &[(Uuid, i64)],
     ) -> StorageResult<Vec<PersonVersionFloorResult>>;
+
+    /// `ensure_person_version_floors` for distinct id rows. A missing distinct id gets a
+    /// tombstone owned by its `person_uuid`, which gets a version-0 person tombstone when
+    /// it has no row. `floors` must not repeat a distinct id.
+    async fn ensure_distinct_id_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[DistinctIdVersionFloor],
+    ) -> StorageResult<Vec<DistinctIdVersionFloorResult>>;
 }

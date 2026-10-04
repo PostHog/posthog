@@ -22,16 +22,18 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdVersionHead, DistinctIdWithVersion,
-    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse,
-    GetDistinctIdVersionHeadsRequest, GetDistinctIdVersionHeadsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
-    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteTombstonedPersonsResponse, DistinctIdVersionFloorResult, DistinctIdVersionHead,
+    DistinctIdWithVersion, EnsureDistinctIdVersionFloorsRequest,
+    EnsureDistinctIdVersionFloorsResponse, EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse, GetDistinctIdVersionHeadsRequest,
+    GetDistinctIdVersionHeadsResponse, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
+    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
+    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonVersionHeadsRequest,
     GetPersonVersionHeadsResponse, GetPersonsByDistinctIdsInTeamRequest,
@@ -1628,6 +1630,48 @@ impl PersonHogReplica for PersonHogReplicaService {
                     person_uuid: r.uuid.to_string(),
                     outcome: floor_outcome_to_proto(r.outcome) as i32,
                     version: r.version,
+                })
+                .collect(),
+        }))
+    }
+
+    async fn ensure_distinct_id_version_floors(
+        &self,
+        request: Request<EnsureDistinctIdVersionFloorsRequest>,
+    ) -> Result<Response<EnsureDistinctIdVersionFloorsResponse>, Status> {
+        let req = request.into_inner();
+
+        check_floor_batch(
+            req.floors
+                .iter()
+                .map(|f| (f.distinct_id.as_str(), f.min_version)),
+        )?;
+        let floors: Vec<storage::DistinctIdVersionFloor> = req
+            .floors
+            .into_iter()
+            .map(|f| {
+                parse_uuid(&f.person_uuid).map(|person_uuid| storage::DistinctIdVersionFloor {
+                    distinct_id: f.distinct_id,
+                    min_version: f.min_version,
+                    person_uuid,
+                })
+            })
+            .collect::<Result<_, _>>()?;
+
+        let results = self
+            .storage
+            .ensure_distinct_id_version_floors(req.team_id, &floors)
+            .await
+            .map_err(|e| log_and_convert_error(e, "ensure_distinct_id_version_floors"))?;
+
+        Ok(Response::new(EnsureDistinctIdVersionFloorsResponse {
+            results: results
+                .into_iter()
+                .map(|r| DistinctIdVersionFloorResult {
+                    distinct_id: r.distinct_id,
+                    outcome: floor_outcome_to_proto(r.outcome) as i32,
+                    version: r.version,
+                    person_uuid: r.person_uuid.map(|uuid| uuid.to_string()),
                 })
                 .collect(),
         }))

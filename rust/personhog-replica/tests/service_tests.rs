@@ -5,7 +5,8 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
-    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DistinctIdVersionHead,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DistinctIdVersionFloor,
+    DistinctIdVersionFloorResult, DistinctIdVersionHead, EnsureDistinctIdVersionFloorsRequest,
     EnsurePersonVersionFloorsRequest, GetDistinctIdVersionHeadsRequest,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
     GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
@@ -1726,6 +1727,29 @@ async fn test_sweep_rpcs_map_results_to_proto() {
                 version: 5,
             },
         ]
+    );
+
+    let distinct_id_floors = ctx
+        .service
+        .ensure_distinct_id_version_floors(Request::new(EnsureDistinctIdVersionFloorsRequest {
+            team_id,
+            floors: vec![DistinctIdVersionFloor {
+                distinct_id: "svc_sweep_absent".to_string(),
+                min_version: 3,
+                person_uuid: absent_person.to_string(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        distinct_id_floors.results,
+        vec![DistinctIdVersionFloorResult {
+            distinct_id: "svc_sweep_absent".to_string(),
+            outcome: VersionFloorOutcome::TombstoneInserted as i32,
+            version: 3,
+            person_uuid: Some(absent_person.to_string()),
+        }]
     );
 
     let person_heads = ctx

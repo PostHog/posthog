@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version, is_deleted)\n                SELECT f.distinct_id, f.person_id, $1, f.min_version, true\n                FROM UNNEST($2::text[], $3::bigint[], $4::bigint[]) AS f(distinct_id, person_id, min_version)\n                ON CONFLICT (team_id, distinct_id) DO NOTHING\n                RETURNING distinct_id as \"distinct_id!\"\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "04c101b2f3e2a3facee9d23f4c490e9015479caf677106cb775e383df4547fb5"
+}

@@ -705,6 +705,17 @@ class TestFakePersonHogClientVersionRpcs:
         )
         return list(response.results)
 
+    def _ensure_distinct_ids(self, *floors: tuple[str, int, str]) -> list[person_pb2.DistinctIdVersionFloorResult]:
+        response = self.client.ensure_distinct_id_version_floors(
+            person_pb2.EnsureDistinctIdVersionFloorsRequest(
+                team_id=self.TEAM_ID,
+                floors=[
+                    person_pb2.DistinctIdVersionFloor(distinct_id=d, min_version=m, person_uuid=o) for d, m, o in floors
+                ],
+            )
+        )
+        return list(response.results)
+
     def _distinct_id_head(self, distinct_id: str) -> person_pb2.DistinctIdVersionHead | None:
         response = self.client.get_distinct_id_version_heads(
             person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=[distinct_id])
@@ -759,15 +770,56 @@ class TestFakePersonHogClientVersionRpcs:
             at_floor,
         ]
 
+    def test_ensure_distinct_id_floors_inserts_owned_tombstones_and_raises_only_existing_tombstones(self):
+        live = person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        raised = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        at_floor = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
+        inserted = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED
+        result = person_pb2.DistinctIdVersionFloorResult
+        head = person_pb2.DistinctIdVersionHead
+
+        assert self._ensure_distinct_ids(
+            ("live-did", 6, "ignored"),
+            ("tomb-did", 3, "ignored"),
+            ("orphan", 3, "ignored"),
+            ("new-live-owner", 6, "live"),
+            ("new-missing-owner-a", 6, "ghost"),
+            ("new-missing-owner-b", 7, "ghost"),
+            ("elsewhere-did", 6, "elsewhere"),
+        ) == [
+            result(distinct_id="live-did", outcome=live, version=1, person_uuid="live"),
+            result(distinct_id="tomb-did", outcome=at_floor, version=4, person_uuid="tomb-high"),
+            result(distinct_id="orphan", outcome=live, version=2),
+            result(distinct_id="new-live-owner", outcome=inserted, version=6, person_uuid="live"),
+            result(distinct_id="new-missing-owner-a", outcome=inserted, version=6, person_uuid="ghost"),
+            result(distinct_id="new-missing-owner-b", outcome=inserted, version=7, person_uuid="ghost"),
+            result(distinct_id="elsewhere-did", outcome=inserted, version=6, person_uuid="elsewhere"),
+        ]
+        # Both distinct ids share one owner tombstone at version 0, and the live owner stays live.
+        ghost = self.client.stored_person(self.TEAM_ID, "ghost")
+        assert ghost is not None and (ghost.is_deleted, ghost.version) == (True, 0)
+        live_owner = self.client.stored_person(self.TEAM_ID, "live")
+        assert live_owner is not None and not live_owner.is_deleted
+        assert self._distinct_id_head("new-live-owner") == head(
+            distinct_id="new-live-owner", version=6, is_deleted=True, person_uuid="live"
+        )
+        assert self._distinct_id_head("live-did") == head(
+            distinct_id="live-did", version=1, is_deleted=False, person_uuid="live"
+        )
+        assert self._distinct_id_head("orphan") == head(distinct_id="orphan", version=2, is_deleted=False)
+        raised_again = self._ensure_distinct_ids(("tomb-did", 8, "ignored"))[0]
+        assert (raised_again.outcome, raised_again.version) == (raised, 8)
+
     @pytest.mark.parametrize(
         "rpc,keys,min_version,error",
         [
             *(
                 (rpc, keys, 0, error)
-                for rpc in ("ensure_persons",)
+                for rpc in ("ensure_persons", "ensure_distinct_ids")
                 for keys, error in (([f"k-{i}" for i in range(251)], "Maximum 250"), (["k", "k"], "Duplicate key"))
             ),
             ("ensure_persons", ["k"], -1, "must not be negative"),
+            ("ensure_distinct_ids", ["k"], -1, "must not be negative"),
             ("person_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
             ("distinct_id_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
         ],
@@ -781,6 +833,7 @@ class TestFakePersonHogClientVersionRpcs:
                 person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=keys)
             ),
             "ensure_persons": lambda: self._ensure_persons(*((k, min_version) for k in keys)),
+            "ensure_distinct_ids": lambda: self._ensure_distinct_ids(*((k, min_version, "owner") for k in keys)),
         }
         with pytest.raises(ValueError, match=error):
             calls[rpc]()

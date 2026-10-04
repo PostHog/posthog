@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.models.person.util import (
     PERSONHOG_BATCH_SIZE,
     VERSION_FLOOR_ATTEMPTS,
+    DistinctIdVersionFloor,
     PersonVersionFloor,
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
@@ -18,6 +19,7 @@ from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    ensure_distinct_id_version_floors,
     ensure_person_version_floors,
     get_distinct_id_version_heads,
     get_person_by_pk_or_uuid,
@@ -615,10 +617,16 @@ def _ensure_persons(uuids: list[UUID]) -> list[UUID]:
     return [r.uuid for r in ensure_person_version_floors(1, floors)]
 
 
+def _ensure_distinct_ids(uuids: list[UUID]) -> list[UUID]:
+    floors = [DistinctIdVersionFloor(distinct_id=str(u), min_version=3, person_uuid=u) for u in uuids]
+    return [UUID(r.distinct_id) for r in ensure_distinct_id_version_floors(1, floors)]
+
+
 class TestVersionRpcHelpers(SimpleTestCase):
     @parameterized.expand(
         [
             ("person_floors", _ensure_persons, "ensure_person_version_floors"),
+            ("distinct_id_floors", _ensure_distinct_ids, "ensure_distinct_id_version_floors"),
         ]
     )
     @patch("posthog.models.person.util.time.sleep")
@@ -640,7 +648,10 @@ class TestVersionRpcHelpers(SimpleTestCase):
     @parameterized.expand(
         [
             (f"{name}_{code.name.lower()}", helper, method, code, attempts)
-            for name, helper, method in (("person_floors", _ensure_persons, "ensure_person_version_floors"),)
+            for name, helper, method in (
+                ("person_floors", _ensure_persons, "ensure_person_version_floors"),
+                ("distinct_id_floors", _ensure_distinct_ids, "ensure_distinct_id_version_floors"),
+            )
             for code, attempts in (
                 (grpc.StatusCode.FAILED_PRECONDITION, VERSION_FLOOR_ATTEMPTS),
                 (grpc.StatusCode.INTERNAL, 1),
@@ -662,6 +673,7 @@ class TestVersionRpcHelpers(SimpleTestCase):
     @parameterized.expand(
         [
             ("person_floors", _ensure_persons, "ensure_person_version_floors"),
+            ("distinct_id_floors", _ensure_distinct_ids, "ensure_distinct_id_version_floors"),
             ("person_heads", lambda uuids: get_person_version_heads(1, uuids), "get_person_version_heads"),
             (
                 "distinct_id_heads",
