@@ -42,7 +42,10 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.customer_analytics.backend.models.custom_property_sync_run import SyncPhase, SyncStatus
     from products.warehouse_sources.backend.facade.hooks import saved_query_binding
-    from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink
+    from products.warehouse_sources.backend.facade.temporal import (
+        AccountPropertyRowSink,
+        AccountPropertyStagingTableNotCommittedError,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -129,6 +132,13 @@ async def stage_warehouse_account_property_files_activity(input: StageAccountPro
     try:
         async with Heartbeater():
             staged = await sink.stage_delta_snapshot(input.table_uri, input.delta_version)
+    except AccountPropertyStagingTableNotCommittedError as error:
+        # A full refresh of the view is in progress. Temporal retries the activity, so report the
+        # error only when no retry remains.
+        log.warning("Account-property staging found no committed delta version", error=str(error))
+        if activity_info.attempt >= ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS:
+            capture_exception(error)
+        raise
     except Exception as error:
         log.exception("Account-property staging failed")
         capture_exception(error)
