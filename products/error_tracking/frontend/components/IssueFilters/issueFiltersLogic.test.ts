@@ -15,7 +15,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { issueFiltersLogic } from './issueFiltersLogic'
+import { getEventPropertyFilterValue, issueFiltersLogic } from './issueFiltersLogic'
 
 const LOGIC_KEY = 'test'
 
@@ -242,6 +242,39 @@ describe('issueFiltersLogic', () => {
                     value: ['production'],
                 },
             ])
+        })
+    })
+
+    describe('getEventPropertyFilterValue', () => {
+        const serviceFilter: EventPropertyFilter = {
+            key: 'service',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: ['billing'],
+        }
+
+        it('reads the value of a top-level event property filter', () => {
+            const filterGroup: UniversalFiltersGroup = {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [serviceFilter] }],
+            }
+
+            expect(getEventPropertyFilterValue(filterGroup, 'service')).toBe('billing')
+        })
+
+        it.each([
+            [
+                'a person property that shares the key',
+                [{ key: 'service', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: ['x'] }],
+            ],
+            ['an event property nested in a subgroup', [{ type: FilterLogicalOperator.Or, values: [serviceFilter] }]],
+        ])('returns null for %s', (_, values) => {
+            const filterGroup = {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values }],
+            } as UniversalFiltersGroup
+
+            expect(getEventPropertyFilterValue(filterGroup, 'service')).toBeNull()
         })
     })
 })

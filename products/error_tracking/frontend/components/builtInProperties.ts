@@ -17,4 +17,5 @@ export const BUILT_IN_ERROR_TRACKING_PROPERTIES: BuiltInErrorTrackingProperty[] 
     { property: '$lib', title: 'Library', versionProperty: '$lib_version' },
     { property: '$app_namespace', title: 'App', versionProperty: '$app_version' },
     { property: '$current_url', title: 'Current URL' },
+    { property: 'service', title: 'Service' },
 ]
