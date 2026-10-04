@@ -1,3 +1,3 @@
-from .async_deletion import AsyncDeletion, DeletionType
+from .async_deletion import ASYNC_DELETION_INSERT_BATCH_SIZE, AsyncDeletion, DeletionType
 
-__all__ = ["AsyncDeletion", "DeletionType"]
+__all__ = ["ASYNC_DELETION_INSERT_BATCH_SIZE", "AsyncDeletion", "DeletionType"]
