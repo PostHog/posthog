@@ -284,6 +284,77 @@ class TestPagedRows:
                 )
 
 
+class TestOffsetRows:
+    @staticmethod
+    def _page(n: int, start: int = 0) -> list[dict[str, Any]]:
+        return [{"testResultId": f"r{start + i}"} for i in range(n)]
+
+    def test_walks_offsets_until_short_page(self) -> None:
+        pages = [self._page(PAGE_SIZE), self._page(3, start=PAGE_SIZE)]
+        rows, saved, fetched = _run_get_rows("synthetic_test_ci_cds", pages)
+
+        assert [_query(url)["offset"] for url in fetched] == [["0"], [str(PAGE_SIZE)]]
+        assert all(_query(url)["limit"] == [str(PAGE_SIZE)] for url in fetched)
+        assert saved == [InstanaResumeConfig(next_offset=PAGE_SIZE)]
+        assert sum(len(batch) for batch in rows) == PAGE_SIZE + 3
+
+    def test_resume_starts_at_saved_offset(self) -> None:
+        _rows, _saved, fetched = _run_get_rows(
+            "synthetic_test_ci_cds",
+            [self._page(1)],
+            can_resume=True,
+            resume_state=InstanaResumeConfig(next_offset=400),
+        )
+
+        assert _query(fetched[0])["offset"] == ["400"]
+
+
+class TestFanOutRows:
+    def _run(self, reports: dict[str, Any]) -> tuple[list[Any], list[str]]:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        fetched_urls: list[str] = []
+
+        def fake_get(url: str, timeout: Any = None, stream: bool = False) -> Any:
+            fetched_urls.append(url)
+            path = urlparse(url).path
+            if path == "/api/settings/slo":
+                return _make_response(200, {"items": [{"id": slo_id} for slo_id in reports], "page": 1, "totalHits": 2})
+            report = reports[path.rsplit("/", 1)[-1]]
+            if report is None:
+                resp = _make_response(404, {"message": "not found"})
+                resp.raise_for_status.side_effect = requests.HTTPError("404", response=resp)
+                return resp
+            return _make_response(200, report)
+
+        with _patch_host_safe(), mock.patch.object(inst, "make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = fake_get
+            rows = list(
+                inst.get_rows(
+                    base_url=BASE_URL,
+                    api_token="token",
+                    endpoint="slo_reports",
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+        return rows, fetched_urls
+
+    @pytest.mark.parametrize(
+        "report_body",
+        [
+            {"sli": 0.99, "fromTimestamp": 1},
+            [{"sli": 0.99, "fromTimestamp": 1}],
+        ],
+    )
+    def test_reports_carry_parent_id_and_deleted_parent_is_skipped(self, report_body: Any) -> None:
+        rows, fetched = self._run({"SLO1": report_body, "SLO_GONE": None})
+
+        assert [urlparse(url).path for url in fetched[1:]] == ["/api/slo/report/SLO1", "/api/slo/report/SLO_GONE"]
+        assert rows == [[{"sli": 0.99, "fromTimestamp": 1, "sloId": "SLO1"}]]
+
+
 class TestListRows:
     def test_bare_list_body_is_yielded(self) -> None:
         pages: list[Any] = [[{"id": "w1", "name": "site"}]]
@@ -376,12 +447,12 @@ class TestInstanaSourceResponse:
     @pytest.mark.parametrize(
         ("endpoint", "expected_pk"),
         [
-            ("events", "eventId"),
-            ("applications", "id"),
-            ("infrastructure_snapshots", "snapshotId"),
+            ("events", ["eventId"]),
+            ("applications", ["id"]),
+            ("infrastructure_snapshots", ["snapshotId"]),
         ],
     )
-    def test_source_response_shape(self, endpoint: str, expected_pk: str) -> None:
+    def test_source_response_shape(self, endpoint: str, expected_pk: list[str]) -> None:
         response = instana_source(
             base_url=BASE_URL,
             api_token="token",
@@ -392,7 +463,7 @@ class TestInstanaSourceResponse:
         )
 
         assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
+        assert response.primary_keys == expected_pk
         assert response.sort_mode == "asc"
         # Instana timestamps are epoch-ms integers, so tables are unpartitioned.
         assert response.partition_mode is None

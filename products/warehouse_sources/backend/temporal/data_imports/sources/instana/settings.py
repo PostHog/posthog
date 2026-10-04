@@ -33,7 +33,17 @@ EVENTS_DEFAULT_LOOKBACK_DAYS = 30
 SNAPSHOTS_WINDOW_MS = 60 * 60 * 1000
 SNAPSHOTS_MAX_SIZE = 1000
 
-PaginationStyle = Literal["page", "none"]
+PaginationStyle = Literal["page", "offset", "none"]
+
+
+@dataclass
+class InstanaFanOutConfig:
+    # Endpoint whose rows are walked to build each child request.
+    parent: str
+    # Field on the parent row substituted into the child `path`.
+    parent_field: str
+    # Column the parent id is written to on every child row, so rows stay attributable.
+    child_field: str
 
 
 @dataclass
@@ -42,8 +52,9 @@ class InstanaEndpointConfig:
     path: str
     # Key in the response body holding the list of records. ``None`` means the body itself is the list.
     data_path: Optional[str] = None
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     pagination: PaginationStyle = "none"
+    fan_out: Optional[InstanaFanOutConfig] = None
     # Only `events` filters server-side (from/to epoch-ms window on the event `start`); everything
     # else is a config/topology catalog with no updated-since cursor, so it ships full refresh.
     is_events: bool = False
@@ -72,13 +83,14 @@ def _start_incremental_fields() -> list[IncrementalField]:
 # (https://instana.github.io/openapi/openapi.yaml). Instana has no Airbyte/Fivetran connector to
 # mirror, so coverage follows what the UI surfaces: events, the application-monitoring catalogs
 # (applications/services/endpoints), website + synthetic monitoring configs, alerting settings,
-# and the infrastructure snapshot inventory. Metric time-series and trace analytics endpoints are
-# POST-with-body cursor APIs and are intentionally out of scope for the first release.
+# event specifications, releases, SLOs, and the infrastructure snapshot inventory. Metric
+# time-series, trace analytics and synthetic result endpoints are POST-with-body cursor APIs and
+# are intentionally out of scope.
 INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
     "events": InstanaEndpointConfig(
         name="events",
         path="/api/events",
-        primary_key="eventId",
+        primary_keys=["eventId"],
         is_events=True,
         incremental_fields=_start_incremental_fields(),
     ),
@@ -120,8 +132,42 @@ INSTANA_ENDPOINTS: dict[str, InstanaEndpointConfig] = {
         name="infrastructure_snapshots",
         path="/api/infrastructure-monitoring/snapshots",
         data_path="items",
-        primary_key="snapshotId",
+        primary_keys=["snapshotId"],
         extra_params={"windowSize": str(SNAPSHOTS_WINDOW_MS), "size": str(SNAPSHOTS_MAX_SIZE)},
+    ),
+    "built_in_event_specifications": InstanaEndpointConfig(
+        name="built_in_event_specifications",
+        path="/api/events/settings/event-specifications/built-in",
+    ),
+    "custom_event_specifications": InstanaEndpointConfig(
+        name="custom_event_specifications",
+        path="/api/events/settings/event-specifications/custom",
+    ),
+    # `from`/`to` only bound releases by time, and releases are edited in place (`lastUpdated`),
+    # so a start-windowed incremental sync would miss edits. The list is small; full refresh.
+    "releases": InstanaEndpointConfig(
+        name="releases",
+        path="/api/releases",
+    ),
+    "slo_configs": InstanaEndpointConfig(
+        name="slo_configs",
+        path="/api/settings/slo",
+        data_path="items",
+        pagination="page",
+    ),
+    # One report per SLO over the SLO's own time window (no `from`/`to` sent), so each sync
+    # replaces the table with current attainment and error budget.
+    "slo_reports": InstanaEndpointConfig(
+        name="slo_reports",
+        path="/api/slo/report/{sloId}",
+        primary_keys=["sloId", "fromTimestamp"],
+        fan_out=InstanaFanOutConfig(parent="slo_configs", parent_field="id", child_field="sloId"),
+    ),
+    "synthetic_test_ci_cds": InstanaEndpointConfig(
+        name="synthetic_test_ci_cds",
+        path="/api/synthetics/settings/tests/ci-cd",
+        primary_keys=["testResultId"],
+        pagination="offset",
     ),
 }
 
