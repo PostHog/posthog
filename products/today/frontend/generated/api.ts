@@ -12,10 +12,10 @@ import type {
     BriefingApi,
     CandidateListApi,
     ExcerptChoiceApi,
-    ExcerptChoiceQueryApi,
+    ExcerptChoiceRequestApi,
     FigureMarksApi,
     KeyClausesApi,
-    KeyClausesQueryApi,
+    KeyClausesRequestApi,
     ReportPageApi,
     TodayBriefingRefreshCreateParams,
     TodayBriefingRetrieveParams,
@@ -125,14 +125,14 @@ export const getTodayExcerptChoiceCreateUrl = (projectId: string) => {
  */
 export const todayExcerptChoiceCreate = async (
     projectId: string,
-    excerptChoiceQueryApi: ExcerptChoiceQueryApi,
+    excerptChoiceRequestApi: ExcerptChoiceRequestApi,
     options?: RequestInit
 ): Promise<ExcerptChoiceApi> => {
     return apiMutator<ExcerptChoiceApi>(getTodayExcerptChoiceCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(excerptChoiceQueryApi),
+        body: JSON.stringify(excerptChoiceRequestApi),
     })
 }
 
@@ -166,14 +166,14 @@ export const getTodayReportsKeyClausesCreateUrl = (projectId: string, reportId: 
 export const todayReportsKeyClausesCreate = async (
     projectId: string,
     reportId: string,
-    keyClausesQueryApi: KeyClausesQueryApi,
+    keyClausesRequestApi: KeyClausesRequestApi,
     options?: RequestInit
 ): Promise<KeyClausesApi> => {
     return apiMutator<KeyClausesApi>(getTodayReportsKeyClausesCreateUrl(projectId, reportId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(keyClausesQueryApi),
+        body: JSON.stringify(keyClausesRequestApi),
     })
 }
 
@@ -182,7 +182,7 @@ export const getTodayReportsPageRetrieveUrl = (projectId: string, reportId: stri
 }
 
 /**
- * What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. A scoped key needs task:read as well, because the page shows the report's signals.
+ * What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. 403 when the person may not read Inbox reports, and a scoped key needs task:read as well, because the page shows the report's signals.
  * @summary Get a report's page
  */
 export const todayReportsPageRetrieve = async (

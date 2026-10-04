@@ -9,29 +9,10 @@ from products.today.backend.facade import contracts
 from products.today.backend.logic.evidence import distinct_evidence_count, pick_evidence, signal_view
 from products.today.backend.logic.signal_previews import body_paragraph, exception_chain, preview
 from products.today.backend.logic.signal_text import SignalInput, detail, headline, meta
+from products.today.backend.tests.factories import signal
 
 SLACK_THREAD = "https://example.slack.com/archives/C1/p2"
-
-
-def signal(
-    *,
-    content: str = "",
-    source_product: str = "signals_scout",
-    source_type: str = "cross_source_issue",
-    source_id: str = "source-1",
-    signal_id: str = "signal-1",
-    timestamp: str = "2026-10-01T10:00:00+00:00",
-    extra: dict[str, Any] | None = None,
-) -> SignalInput:
-    return SignalInput(
-        signal_id=signal_id,
-        content=content,
-        source_product=source_product,
-        source_type=source_type,
-        source_id=source_id,
-        timestamp=datetime.fromisoformat(timestamp),
-        extra=extra or {},
-    )
+ISSUE_URL = "https://github.com/example/web/issues/7"
 
 
 class TestSignalViews(SimpleTestCase):
@@ -76,6 +57,11 @@ class TestSignalViews(SimpleTestCase):
                 "an alert investigation",
                 "Anomaly investigation for alert 'Orders dropped' on Orders (verdict: true positive).\nInsight: AB12 / id 1.\nPaid orders fell to 12 in the 09:00 hour on 2026-08-03. The detector fired before.",
                 "Paid orders fell to 12 in the 09:00 hour on 3 Aug.",
+            ),
+            (
+                "a date in year zero, left as written",
+                "Paid orders fell on 0000-01-01 and stayed low.",
+                "Paid orders fell on 0000-01-01 and stayed low.",
             ),
             (
                 "a scout finding that ends in a thread link",
@@ -254,6 +240,7 @@ class TestSignalViews(SimpleTestCase):
                 contracts.PageLink(url=SLACK_THREAD, text="Open thread"),
             ),
             ("only prose", "A long finding without any link." * 10, None),
+            ("a host that only ends in slack.com", "Slack thread: https://evilslack.com/archives/C1/p2", None),
         ]
     )
     def test_links_a_scout_finding_with(self, _name: str, content: str, expected: contracts.PageLink | None) -> None:
@@ -261,17 +248,21 @@ class TestSignalViews(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("an issue", "issue", {}, "Open issue"),
-            ("a pull request", "pull_request", {"merged_at": None}, "Open pull request"),
+            ("an issue", "issue", {}, contracts.PageLink(url=ISSUE_URL, text="Open issue")),
+            (
+                "a pull request",
+                "pull_request",
+                {"merged_at": None},
+                contracts.PageLink(url=ISSUE_URL, text="Open pull request"),
+            ),
+            ("nothing for a link that is not http", "issue", {"html_url": "javascript:alert(1)"}, None),
         ]
     )
-    def test_links_a_github_signal_to(self, _name: str, source_type: str, extra: dict[str, Any], label: str) -> None:
-        item = signal(
-            source_product="github",
-            source_type=source_type,
-            extra={"html_url": "https://github.com/example/web/issues/7", **extra},
-        )
-        assert signal_view(item).link == contracts.PageLink(url="https://github.com/example/web/issues/7", text=label)
+    def test_links_a_github_signal_to(
+        self, _name: str, source_type: str, extra: dict[str, Any], expected: contracts.PageLink | None
+    ) -> None:
+        item = signal(source_product="github", source_type=source_type, extra={"html_url": ISSUE_URL, **extra})
+        assert signal_view(item).link == expected
 
     def test_shows_the_newest_signal_from_each_source_first(self) -> None:
         signals = [

@@ -2,39 +2,20 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.today.backend.facade.enums import FigureText
 from products.today.backend.logic.figure_sources import (
     KIND_LABELS,
-    KIND_MEASURED,
     KIND_QUESTION,
-    NAMED_LABELS,
     NAMED_QUESTION,
     RELATION_QUESTION,
-    RELATION_SAME,
     SOURCE_QUESTION,
     UNNAMED,
     match_figures,
 )
 from products.today.backend.logic.jev import JevPick
-from products.today.backend.tests.test_signal_views import signal
+from products.today.backend.tests.factories import AGREEING, SURE, SameAnswerJev, signal
 
-SURE = 0.95
-AGREEING = {
-    KIND_QUESTION: JevPick(label=KIND_MEASURED, probability=SURE),
-    SOURCE_QUESTION: JevPick(label="A", probability=SURE),
-    RELATION_QUESTION: JevPick(label=RELATION_SAME, probability=SURE),
-    NAMED_QUESTION: JevPick(label=NAMED_LABELS[0], probability=SURE),
-}
-
-
-class SameAnswerJev:
-    def __init__(self, answers: dict[str, JevPick]) -> None:
-        self._answers = answers
-
-    def choice(self, items: list[str], question: str, labels: list[str]) -> list[JevPick | None]:
-        return [self._answers[question] for _ in items]
-
-    def yes(self, items: list[str], question: str) -> list[float | None]:
-        return [None for _ in items]
+ALL_QUESTIONS = [KIND_QUESTION, SOURCE_QUESTION, RELATION_QUESTION, NAMED_QUESTION]
 
 
 class TestFigureSources(SimpleTestCase):
@@ -46,12 +27,14 @@ class TestFigureSources(SimpleTestCase):
                 ["On Monday the export failed for 212 users."],
                 {},
                 [("212", "On Monday the export failed for 212 users.")],
+                ALL_QUESTIONS,
             ),
             (
                 "never marks a zero",
                 "The scanner saw 0 sessions.",
                 ["The scanner saw 0 sessions."],
                 {},
+                [],
                 [],
             ),
             (
@@ -60,6 +43,7 @@ class TestFigureSources(SimpleTestCase):
                 ["On Monday the export failed for 212 users."],
                 {KIND_QUESTION: JevPick(label=KIND_LABELS[1], probability=SURE)},
                 [],
+                [KIND_QUESTION],
             ),
             (
                 "drops the mark when the option order changes the source Jev picks",
@@ -67,6 +51,7 @@ class TestFigureSources(SimpleTestCase):
                 ["On Monday the export failed for 212 users.", "We count 212 users in the EU."],
                 {},
                 [],
+                [KIND_QUESTION, SOURCE_QUESTION],
             ),
             (
                 "drops the mark when the source does not say what the number counts",
@@ -74,19 +59,21 @@ class TestFigureSources(SimpleTestCase):
                 ["Result: 212."],
                 {NAMED_QUESTION: JevPick(label=UNNAMED, probability=SURE)},
                 [],
+                ALL_QUESTIONS,
             ),
         ]
     )
-    def test_marks_only_proven_numbers(
+    def test_marks_only_proven_numbers_and_asks_only_what_the_next_step_needs(
         self,
         _name: str,
         lead: str,
         sources: list[str],
         answers: dict[str, JevPick],
         expected: list[tuple[str, str]],
+        asked: list[str],
     ) -> None:
         signals = [signal(content=text, signal_id=f"signal-{index}") for index, text in enumerate(sources)]
-        matches = match_figures({"lead": lead}, signals, [], SameAnswerJev({**AGREEING, **answers}))
-        assert [
-            (match.claim.figure.text, match.source.source.sentence) for match in matches if match.source
-        ] == expected
+        jev = SameAnswerJev({**AGREEING, **answers})
+        matches = match_figures({FigureText.LEAD: lead}, signals, [], jev)
+        assert [(match.claim.figure.text, match.source.source.sentence) for match in matches] == expected
+        assert jev.asked == asked

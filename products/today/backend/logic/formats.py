@@ -108,3 +108,7 @@ def colon_duration_seconds(value: str) -> float | None:
 
 def collapsed_whitespace(text: str) -> str:
     return " ".join(text.split())
+
+
+def utf16_offset(text: str, index: int) -> int:
+    return len(text[:index].encode("utf-16-le")) // 2

@@ -28,7 +28,7 @@ export function TodayEvidenceAge({ report }: { report: Pick<SignalReport, 'id' |
             <IconWarning className="size-3.5 shrink-0 text-[var(--warning-foreground)]" aria-hidden />
             <span>
                 Figures as of <time dateTime={date}>{shortDate(date)}</time> ·{' '}
-                <span className="font-medium text-[var(--foreground)]">{daysAgo(date)} days old</span>
+                <span className="font-medium text-foreground">{daysAgo(date)} days old</span>
                 {seenSince && (
                     <>
                         {' · '}Last seen <time dateTime={seenSince}>{shortDate(seenSince)}</time>

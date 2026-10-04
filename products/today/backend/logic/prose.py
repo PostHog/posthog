@@ -1,9 +1,7 @@
 import re
 
-from markdown_it import MarkdownIt
-
 from .formats import replace_iso_dates
-from .report_text import readable_date, rendered_text
+from .report_text import MARKDOWN, MONTHS, readable_date, rendered_text
 from .sentences import split_markdown_sentences
 
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"“(*`])")
@@ -14,8 +12,6 @@ _BARE_INTEGER = re.compile(r"(?<![\w#.,/:-])(?:\d{5,7}|(?!19|20)\d{4}(?= [a-z]))
 _CODE_BLOCK = re.compile(r"```[\s\S]*?(?:```|\Z)")
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
 _SENTENCE_ENDS = (".", "!", "?", ":")
-_MARKDOWN = MarkdownIt("commonmark")
-_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _PLAIN_LINE_STEPS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^C:\s*"), ""),
     (re.compile(r"\[([^\]]+)\]\([^)]*\)"), r"\1"),
@@ -62,7 +58,7 @@ def first_sentence(text: str) -> str:
 
 
 def _month_day(match: re.Match[str]) -> str:
-    return f"{int(match.group(2))} {_MONTHS[int(match.group(1)) - 1]}"
+    return f"{int(match.group(2))} {MONTHS[int(match.group(1)) - 1]}"
 
 
 def readable_excerpt(text: str) -> str:
@@ -78,8 +74,8 @@ def paragraphs(markdown: str) -> list[str]:
     return [paragraph.strip() for paragraph in _PARAGRAPH_BREAK.split(markdown) if paragraph.strip()]
 
 
-def _block_lines(markdown: str) -> list[str]:
-    inline_blocks = [token.content for token in _MARKDOWN.parse(markdown) if token.type == "inline"]
+def block_lines(markdown: str) -> list[str]:
+    inline_blocks = [token.content for token in MARKDOWN.parse(markdown) if token.type == "inline"]
     return [line.strip() for block in inline_blocks for line in block.split("\n") if line.strip()]
 
 
@@ -88,7 +84,7 @@ def _balanced(text: str, marker: str) -> str:
 
 
 def concise_text(markdown: str | None, max_chars: int) -> str:
-    lines = [line if line.endswith(_SENTENCE_ENDS) else f"{line}." for line in _block_lines(markdown or "")]
+    lines = [line if line.endswith(_SENTENCE_ENDS) else f"{line}." for line in block_lines(markdown or "")]
     pieces = [sentence.strip() for line in lines for _, sentence in split_markdown_sentences(line) if sentence.strip()]
     text = ""
     for piece in pieces:

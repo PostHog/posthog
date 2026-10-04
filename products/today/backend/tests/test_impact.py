@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from products.today.backend.logic.impact import impact_numbers, last_occurrence
 from products.today.backend.logic.signal_text import SignalInput
-from products.today.backend.tests.test_signal_views import signal
+from products.today.backend.tests.factories import signal
 
 
 def ticket(number: int, timestamp: str) -> SignalInput:

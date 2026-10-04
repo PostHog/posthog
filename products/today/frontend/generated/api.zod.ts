@@ -56,8 +56,9 @@ export const TodayReportsKeyClausesCreateBody = /* @__PURE__ */ zod.object({
                             .enum(['problem', 'cause', 'fix'])
                             .describe('\* `problem` - Problem\n\* `cause` - Cause\n\* `fix` - Fix')
                     )
+                    .min(1)
                     .max(todayReportsKeyClausesCreateBodyRequestsItemRolesMax)
-                    .describe('The roles to look for in this text: problem, cause or fix.'),
+                    .describe('The roles to look for in this text: problem, cause or fix. Repeated roles count once.'),
             })
         )
         .max(todayReportsKeyClausesCreateBodyRequestsMax)

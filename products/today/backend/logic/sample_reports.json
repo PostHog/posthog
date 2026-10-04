@@ -2,9 +2,6 @@
     {
         "id": "sample-pr",
         "summary": "Safari users can’t finish checkout since Tuesday’s deploy, because the checkout sends an empty billing address to the payment service.\n\n## Problem\n\nThe deploy moved the address form into a step that Safari unmounts before payment. The payment request then goes out without the billing address.\n\n## Impact\n\nSafari checkout completion fell by 12 points while Chrome stayed flat.\n\n## Solution\n\nKeep the billing address in the checkout state, and send it with the payment request. PR #9123 does this and adds a Safari test.\n\n## Expected impact\n\nSafari checkout completion returns to **about 54%**, the same as Chrome.",
-        "actionability": "immediately_actionable",
-        "status": "ready",
-        "pull_request_url": "https://github.com/example/hedgebox/pull/9123",
         "signals": [
             {
                 "source_product": "error_tracking",
@@ -35,9 +32,6 @@
     {
         "id": "sample-exp",
         "summary": "**One-page checkout won. It is safe to ship.**\n\nThe shorter checkout completed more often than the current flow. It did not increase refunds, support requests, or payment errors.\n\nThe result passed the team’s decision threshold. You can send the winning flow to everyone today.",
-        "actionability": "immediately_actionable",
-        "status": "ready",
-        "pull_request_url": null,
         "signals": [
             {
                 "source_product": "analytics",
@@ -68,9 +62,6 @@
     {
         "id": "sample-safari",
         "summary": "**Safari users reach payment, then get stuck.**\n\nThe recordings show the same sequence. A person enters a card, submits payment, and sees no progress.\n\nThe problem affects Safari 17 after Tuesday’s deploy. Chrome sessions continue through the same step.",
-        "actionability": "requires_human_input",
-        "status": "pending_input",
-        "pull_request_url": null,
         "signals": [
             {
                 "source_product": "session_replay",
@@ -101,9 +92,6 @@
     {
         "id": "sample-error",
         "summary": "**One new error is blocking checkout completion.**\n\nThe error begins when checkout formats an empty billing address. It started with deploy #4821 and appears only after payment submission.\n\nFour hundred and twelve people saw it. The same error also explains the Safari conversion drop.",
-        "actionability": "immediately_actionable",
-        "status": "ready",
-        "pull_request_url": "https://github.com/example/hedgebox/pull/9131",
         "signals": [
             {
                 "source_product": "error_tracking",
@@ -134,9 +122,6 @@
     {
         "id": "sample-llm",
         "summary": "**Document summaries became more expensive overnight.**\n\nThe summarize-doc workflow now spends 31% more per active user. Usage stayed flat, so higher traffic does not explain the change.\n\nMost of the increase comes from a model change and longer prompts. The quality score did not improve.",
-        "actionability": "immediately_actionable",
-        "status": "ready",
-        "pull_request_url": "https://github.com/example/hedgebox/pull/9140",
         "signals": [
             {
                 "source_product": "llm_analytics",
@@ -167,9 +152,6 @@
     {
         "id": "sample-nps",
         "summary": "**Pricing is the main reason detractors hesitate.**\n\nTwenty-three detractors mention pricing in their survey response. Most of them visited the new pricing page before they replied.\n\nThey understand the product, but they cannot predict the bill. The confusion is strongest among small teams with growing data volume.",
-        "actionability": "requires_human_input",
-        "status": "pending_input",
-        "pull_request_url": null,
         "signals": [
             {
                 "source_product": "conversations",
@@ -200,9 +182,6 @@
     {
         "id": "sample-browser",
         "summary": "**Safari accounts for the checkout gap.**\n\nChrome and Firefox remain near their usual completion rates. Safari 17 falls sharply after payment submission.\n\nThe browser comparison isolates the problem to one checkout path. Mobile Safari shows the largest drop.",
-        "actionability": "requires_human_input",
-        "status": "pending_input",
-        "pull_request_url": "https://github.com/example/hedgebox/pull/9123",
         "signals": [
             {
                 "source_product": "analytics",
@@ -233,9 +212,6 @@
     {
         "id": "sample-guardrails",
         "summary": "**The winning checkout passed every guardrail.**\n\nThe shorter checkout increased completion without increasing refunds, support requests, or payment failures.\n\nEach guardrail stayed within its agreed range. The result is ready for a full rollout.",
-        "actionability": "immediately_actionable",
-        "status": "ready",
-        "pull_request_url": null,
         "signals": [
             {
                 "source_product": "analytics",
@@ -266,9 +242,6 @@
     {
         "id": "sample-traces",
         "summary": "**The new summary model repeats the source document.**\n\nRecent traces show the source text twice in the prompt. This duplication explains most of the token increase.\n\nThe model change did not improve the quality score. The previous model remains the lower-cost option.",
-        "actionability": "immediately_actionable",
-        "status": "ready",
-        "pull_request_url": "https://github.com/example/hedgebox/pull/9147",
         "signals": [
             {
                 "source_product": "llm_analytics",

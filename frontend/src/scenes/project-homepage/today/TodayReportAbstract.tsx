@@ -23,7 +23,7 @@ export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.E
         }
         return (
             <Text size="sm" variant="muted" render={<p />} data-attr="today-report-abstract">
-                No impact figure. The research didn’t size it.
+                The report doesn’t say how big this is yet.
             </Text>
         )
     }
@@ -48,6 +48,7 @@ export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.E
                             content={number.content}
                             reportId={report.id}
                             order={index}
+                            kind="impact"
                         >
                             <span translate="no" className="tabular-nums">
                                 {number.value}

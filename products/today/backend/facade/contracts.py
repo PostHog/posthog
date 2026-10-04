@@ -245,10 +245,14 @@ class ReportPage:
     lead: str
     proposal: str
     impact_sentence: str
-    in_flight_pull_request: PullRequestLink | None
+    named_pull_request: PullRequestLink | None
     solution_names_pull_request: bool
     signals: list[SignalView]
-    evidence: list[str]
-    evidence_count: int
+    evidence_signal_ids: list[str]
+    source_count: int
     impact_numbers: list[ImpactNumber]
     last_seen: datetime | None
+
+
+class JevTimedOut(Exception):
+    pass

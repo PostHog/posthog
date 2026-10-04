@@ -27,6 +27,7 @@ function MarkedPiece({ piece, reportId }: { piece: TodayMarkedPiece; reportId: s
                     content={piece.figure.content}
                     reportId={reportId}
                     order={piece.order}
+                    kind="figure"
                 >
                     {piece.figure.text}
                 </TodayFigureMark>
@@ -45,8 +46,8 @@ export function TodayMarkedText({
     marked: TodayMarkedFigure[]
     reportId: string
 }): JSX.Element {
-    const { keyClauses } = useValues(todayReportLogic({ reportId }))
-    const runs = markedRuns(markdown, marked, keyClauses[renderedText(markdown)] ?? [])
+    const { shownKeyClauses } = useValues(todayReportLogic({ reportId }))
+    const runs = markedRuns(markdown, marked, shownKeyClauses[renderedText(markdown)] ?? [])
     return (
         <>
             {runs.map(({ keyClause, pieces }) => {

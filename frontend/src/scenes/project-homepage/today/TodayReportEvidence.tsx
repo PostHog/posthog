@@ -10,6 +10,7 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { todayReportLogic } from './todayReportLogic'
 import { TodayReportSectionTitle } from './TodayReportSectionTitle'
 import { TodayReportSignalRow } from './TodayReportSignalRow'
+import { isSampleReportId } from './todaySampleReports'
 
 function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
     const { shownEvidence } = useValues(todayReportLogic({ reportId }))
@@ -32,12 +33,13 @@ function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
 export function TodayReportEvidence({ report }: { report: SignalReport }): JSX.Element {
     const { shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
     const fullReport = urls.inboxReport('reports', report.id)
+    const showsSeeAll = evidenceCount > shownEvidence.length && !isSampleReportId(report.id)
 
     return (
         <section className="flex flex-col gap-0.5" aria-label="Evidence" data-attr="today-report-evidence">
             <div className="flex items-baseline justify-between gap-3">
                 <TodayReportSectionTitle>Evidence</TodayReportSectionTitle>
-                {evidenceCount > shownEvidence.length && (
+                {showsSeeAll && (
                     <Button
                         variant="link-muted"
                         size="sm"

@@ -40,6 +40,7 @@ from products.signals.backend.briefing_reports import (
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.report_access import may_read_reports as may_read_reports
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
 from products.signals.backend.report_metric_access import (
     # Re-exported so the Today briefing reads report metrics with the viewer's access, as the Inbox does.

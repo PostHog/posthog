@@ -1,4 +1,4 @@
-import { PreviewCard } from '@base-ui/react/preview-card'
+import { Popover } from '@base-ui/react/popover'
 import { type ReactNode, useState } from 'react'
 
 import { Card, cn } from '@posthog/quill'
@@ -9,8 +9,13 @@ const CARD_GAP_PX = 10
 
 const RECENT_MOVE_MS = 1000
 let lastPointerMove = Number.NEGATIVE_INFINITY
+let tracksPointer = false
 
-if (typeof window !== 'undefined') {
+function trackPointerMoves(): void {
+    if (tracksPointer) {
+        return
+    }
+    tracksPointer = true
     window.addEventListener('pointermove', () => (lastPointerMove = performance.now()), { passive: true })
 }
 
@@ -27,37 +32,47 @@ export function TodayHoverMark({
     dataAttr,
     children,
     card,
+    onOpen,
 }: {
     className: string
     dataAttr: string
     children: ReactNode
     card: ReactNode
+    onOpen: () => void
 }): JSX.Element {
     const [trigger, setTrigger] = useState<HTMLElement | null>(null)
     const [open, setOpen] = useState(false)
     return (
-        <PreviewCard.Root
+        <Popover.Root
             open={open}
             onOpenChange={(next, details) => {
                 const hoverWithoutMove = details.reason === 'trigger-hover' && !pointerMovedRecently()
-                if (!next || !hoverWithoutMove) {
-                    setOpen(next)
+                if (next && hoverWithoutMove) {
+                    return
+                }
+                setOpen(next)
+                if (next) {
+                    onOpen()
                 }
             }}
         >
-            <PreviewCard.Trigger
+            <Popover.Trigger
+                openOnHover
                 delay={OPEN_DELAY_MS}
                 closeDelay={CLOSE_DELAY_MS}
-                ref={setTrigger}
-                render={<span tabIndex={0} />}
-                onClick={() => setOpen(true)}
+                nativeButton={false}
+                ref={(node: HTMLElement | null) => {
+                    trackPointerMoves()
+                    setTrigger(node)
+                }}
+                render={<span />}
                 className={cn('TodayHoverMark', className)}
                 data-attr={dataAttr}
             >
                 {children}
-            </PreviewCard.Trigger>
-            <PreviewCard.Portal>
-                <PreviewCard.Positioner
+            </Popover.Trigger>
+            <Popover.Portal>
+                <Popover.Positioner
                     data-quill
                     data-quill-portal="popover"
                     className="[--quill-z-popover:var(--z-popover-with-chart)]"
@@ -66,16 +81,16 @@ export function TodayHoverMark({
                     align="start"
                     sideOffset={CARD_GAP_PX}
                 >
-                    <PreviewCard.Popup className="TodayHoverMark__popup outline-none">
+                    <Popover.Popup className="TodayHoverMark__popup outline-none">
                         <Card
                             size="sm"
                             className="TodayHoverMark__card w-[var(--anchor-width)] gap-0 border border-border py-0"
                         >
                             {card}
                         </Card>
-                    </PreviewCard.Popup>
-                </PreviewCard.Positioner>
-            </PreviewCard.Portal>
-        </PreviewCard.Root>
+                    </Popover.Popup>
+                </Popover.Positioner>
+            </Popover.Portal>
+        </Popover.Root>
     )
 }

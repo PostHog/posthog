@@ -34,7 +34,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     aria-label="This report was useful"
                     aria-pressed={isPositive}
                     tooltip="Yes, this was useful"
-                    onClick={() => !isPositive && rateReport('positive')}
+                    onClick={() => !isPositive && rateReport('positive', 'today')}
                     data-attr="today-report-feedback-up"
                 >
                     {isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
@@ -44,7 +44,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     aria-label="This report was not useful"
                     aria-pressed={isNegative}
                     tooltip="No, this wasn't useful"
-                    onClick={() => !isNegative && rateReport('negative')}
+                    onClick={() => !isNegative && rateReport('negative', 'today')}
                     data-attr="today-report-feedback-down"
                 >
                     {isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
@@ -86,7 +86,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         size="sm"
                         loading={feedbackNoteSubmitting}
                         disabledReason={feedbackNoteDraft.trim() ? null : 'Write a note first'}
-                        onClick={() => submitFeedbackNote(feedbackNoteDraft)}
+                        onClick={() => submitFeedbackNote(feedbackNoteDraft, 'today')}
                         data-attr="today-report-feedback-note-send"
                     >
                         Send

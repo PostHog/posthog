@@ -38,14 +38,9 @@ describe('todayMarkedRuns', () => {
                 ['cause', 'because syncCart drops the session token'],
             ] as [KeyClauseRoleEnumApi, string][],
             [
-                [
-                    'problem',
-                    [
-                        ['text', 'Shoppers in '],
-                        ['figure', '41'],
-                        ['text', ' teams see an empty cart'],
-                    ],
-                ],
+                ['problem', [['text', 'Shoppers in ']]],
+                [null, [['figure', '41']]],
+                ['problem', [['text', ' teams see an empty cart']]],
                 [null, [['text', ' ']]],
                 [
                     'cause',
@@ -59,7 +54,31 @@ describe('todayMarkedRuns', () => {
                 [null, [['text', '.']]],
             ],
         ],
-    ])('keeps pieces whole for %s', (_, markdown, picks, expected) => {
+        [
+            'a key clause that starts inside code',
+            'Payments fail for 41 teams in `retryCart because the queue stalls` at peak.',
+            [['cause', 'because the queue stalls at peak']] as [KeyClauseRoleEnumApi, string][],
+            [
+                [
+                    null,
+                    [
+                        ['text', 'Payments fail for '],
+                        ['figure', '41'],
+                        ['text', ' teams in '],
+                        ['code', 'retryCart '],
+                    ],
+                ],
+                [
+                    'cause',
+                    [
+                        ['code', 'because the queue stalls'],
+                        ['text', ' at peak'],
+                    ],
+                ],
+                [null, [['text', '.']]],
+            ],
+        ],
+    ])('places the pieces of %s', (_, markdown, picks, expected) => {
         const keyClauses = keyClausesIn(markdown, picks)
         expect(keyClauses.map((keyClause) => keyClause.text)).toEqual(picks.map(([, text]) => text))
         const runs = markedRuns(markdown, [figureIn(markdown, '41')], keyClauses)

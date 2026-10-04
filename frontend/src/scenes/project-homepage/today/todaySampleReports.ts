@@ -6,6 +6,7 @@ import { TodayBriefingSegment } from './todaySignalReports'
 
 // Sample ids carry this prefix, so a report page knows to read the fixture rather than the API.
 const SAMPLE_ID_PREFIX = 'sample-'
+export const SAMPLE_REPORT_REASON = 'This is a sample report. Turn off sample reports to act on a real one.'
 const HOUR_MS = 60 * 60 * 1000
 
 export function isSampleReportId(reportId: string): boolean {

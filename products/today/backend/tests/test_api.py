@@ -6,26 +6,37 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.llm.system_one import SystemOneNotConfigured
-from posthog.models import PersonalAPIKey
+from posthog.constants import AvailableFeature
+from posthog.llm.system_one import (
+    ChoiceAnswer,
+    Question,
+    SystemOneNotConfigured,
+    SystemOneRequestFailed,
+    SystemOneResult,
+)
+from posthog.llm.system_one_client import GatewaySystemOneClient
+from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
+from products.signals.backend.models import SignalReport
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.logic import briefings
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.models import DailyBriefing
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
-from products.today.backend.tests.test_figure_sources import AGREEING, SameAnswerJev
-from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY, FakeJev
-from products.today.backend.tests.test_report_page import page_source
+from products.today.backend.tests.factories import AGREEING, FakeJev, SameAnswerJev, page_source
+from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY
 
 REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
-FIGURE_LEAD = "The export failed for 212 users."
-FIGURE_SOURCE = "On Monday the export failed for 212 users."
+FIGURE_LEAD = "🚨 The export failed for 212 users."
+FIGURE_SOURCE = "On Monday 🚨 the export failed for 212 users."
 WRITTEN_AT = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
 
 
@@ -171,6 +182,13 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ("flag off", False, REPORT_ID, None, status.HTTP_404_NOT_FOUND),
             ("not a report id", True, "report-1", None, status.HTTP_404_NOT_FOUND),
             ("no gateway", True, REPORT_ID, SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
+            (
+                "out of ai credits",
+                True,
+                REPORT_ID,
+                SystemOneRequestFailed("payment required", status_code=402),
+                status.HTTP_402_PAYMENT_REQUIRED,
+            ),
         ]
     )
     def test_key_clauses_answer_only_people_who_may_use_jev(
@@ -259,19 +277,61 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             assert response.json()["marks"] == [
                 {
                     "text": "lead",
-                    "start": FIGURE_LEAD.index("212"),
-                    "end": FIGURE_LEAD.index("212") + 3,
+                    "start": FIGURE_LEAD.index("212") + 1,
+                    "end": FIGURE_LEAD.index("212") + 4,
                     "figure": "212",
                     "quote": {
                         "kind": source_kind,
                         "signal_id": "signal-1" if source_kind == "signal" else None,
                         "at": "2026-10-01T09:00:00Z",
                         "sentence": FIGURE_SOURCE,
-                        "start": FIGURE_SOURCE.index("212"),
-                        "end": FIGURE_SOURCE.index("212") + 3,
+                        "start": FIGURE_SOURCE.index("212") + 1,
+                        "end": FIGURE_SOURCE.index("212") + 4,
                     },
                 }
             ]
+
+    @parameterized.expand(
+        [
+            ("a sure pick", ChoiceAnswer(choice="2", confidence=0.9, probabilities={}), status.HTTP_200_OK, 1),
+            ("an unsure pick", ChoiceAnswer(choice="2", confidence=0.3, probabilities={}), status.HTTP_200_OK, None),
+            ("a failing gateway", SystemOneRequestFailed("bad gateway", status_code=502), 503, None),
+            ("no ai credits", SystemOneRequestFailed("payment required", status_code=402), 402, None),
+        ]
+    )
+    def test_excerpt_choice_asks_the_gateway_once_for_the_finding(
+        self,
+        _sync_connect: MagicMock,
+        _name: str,
+        outcome: ChoiceAnswer | Exception,
+        expected: int,
+        index: int | None,
+    ) -> None:
+        cache.clear()
+        client = GatewaySystemOneClient(
+            url="https://gateway.example.com", api_key="test-key", headers={}, model="jev", timeout=30
+        )
+
+        def adecide(state: dict[str, str], questions: dict[str, Question]) -> SystemOneResult:
+            if isinstance(outcome, Exception):
+                raise outcome
+            return SystemOneResult(model="jev", answers=dict.fromkeys(questions, outcome), input_tokens=1)
+
+        with (
+            self._flag(True),
+            patch("products.today.backend.logic.jev.build_system_one_client", return_value=client),
+            patch.object(GatewaySystemOneClient, "adecide", AsyncMock(side_effect=adecide)) as decide,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/today/excerpt_choice/",
+                {"finding": "The cart drops the token.", "excerpts": ["a = 1", "drop(token)"]},
+                format="json",
+            )
+
+        assert response.status_code == expected
+        assert decide.await_count == 1
+        if expected == status.HTTP_200_OK:
+            assert response.json() == {"index": index}
 
     @parameterized.expand(
         [
@@ -320,3 +380,56 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             )
 
         assert response.status_code == expected
+
+    @parameterized.expand(
+        [
+            ("the page, with access", "page", None, status.HTTP_200_OK),
+            ("the page, without access", "page", "none", status.HTTP_403_FORBIDDEN),
+            ("key clauses, without access", "key_clauses", "none", status.HTTP_403_FORBIDDEN),
+            ("figure marks, without access", "figure_marks", "none", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_member_reads_report_data_only_with_access_to_inbox_reports(
+        self, _sync_connect: MagicMock, _name: str, endpoint: str, task_access: str | None, expected: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        if task_access is not None:
+            AccessControl.objects.create(team=self.team, resource="task", resource_id=None, access_level=task_access)
+        self.client.force_login(User.objects.create_and_join(self.organization, "member@example.com", "testtest"))
+        url = f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/{endpoint}/"
+        with (
+            self._flag(True),
+            patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
+        ):
+            if endpoint == "key_clauses":
+                response = self.client.post(
+                    url, {"requests": [{"text": CART_TEXT, "roles": ["problem"]}]}, format="json"
+                )
+            else:
+                response = self.client.get(url)
+
+        assert response.status_code == expected
+
+    @parameterized.expand([("a deleted report", True, False), ("another team's report", False, True)])
+    def test_report_page_answers_404_for(
+        self, _sync_connect: MagicMock, _name: str, deleted: bool, other: bool
+    ) -> None:
+        team = Team.objects.create(organization=self.organization) if other else self.team
+        report = SignalReport.objects.create(
+            team=team,
+            title="Checkout fails",
+            summary="Checkout fails for some shoppers.",
+            status=SignalReport.Status.DELETED if deleted else SignalReport.Status.READY,
+            signal_count=1,
+            total_weight=1.0,
+        )
+        with (
+            self._flag(True),
+            patch("products.signals.backend.report_page_source.fetch_signals_for_report_sync", return_value=[]),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report.id}/page/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND

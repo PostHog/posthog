@@ -1,13 +1,13 @@
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
-from typing import Any
 
 from posthog.dataclasses import frozen
 
 from products.signals.backend.facade import api as signals
 
-from ..facade.enums import FigureSourceKind
+from ..facade.enums import FigureSourceKind, FigureText
 from .figures import Figure, is_zero, numbers_in, same_amount
 from .jev import JevClient, JevPick
 from .prose import plain_line, without_code_blocks
@@ -87,7 +87,7 @@ class Candidate:
 
 @frozen
 class FigureClaim:
-    text_name: str
+    text_name: FigureText
     figure: Figure
     claim: str
     candidates: list[Candidate]
@@ -107,7 +107,7 @@ class FigureMatch:
     source: Candidate
 
 
-def _content_dict(content: str) -> dict[str, Any]:
+def _content_dict(content: str) -> dict[str, object]:
     try:
         parsed = json.loads(content)
     except ValueError:
@@ -132,10 +132,10 @@ def _sentences_of(text: str) -> list[str]:
     return [sentence.strip() for line in lines if line for _, sentence in split_sentences(line) if sentence.strip()]
 
 
-def source_sentences(signals: Sequence[SignalInput], notes: Sequence[ResearchNote]) -> list[SourceSentence]:
+def source_sentences(report_signals: Sequence[SignalInput], notes: Sequence[ResearchNote]) -> list[SourceSentence]:
     from_signals = [
         SourceSentence(kind=FigureSourceKind.SIGNAL, source_id=signal.signal_id, sentence=sentence, at=signal.timestamp)
-        for signal in signals
+        for signal in report_signals
         for sentence in _sentences_of(signal.content)
     ]
     from_notes = [
@@ -172,7 +172,7 @@ def _candidates(figure: Figure, sources: list[SourceSentence]) -> list[Candidate
     return candidates[:_MAX_CANDIDATES]
 
 
-def figure_claims(texts: dict[str, str], sources: list[SourceSentence]) -> list[FigureClaim]:
+def figure_claims(texts: dict[FigureText, str], sources: list[SourceSentence]) -> list[FigureClaim]:
     claims: list[FigureClaim] = []
     for name, text in texts.items():
         for figure in numbers_in(text):
@@ -242,15 +242,26 @@ def _unnamed(pick: JevPick | None) -> bool:
     return pick is None or _sure(pick, UNNAMED, UNNAMED_THRESHOLD)
 
 
-def decide(claim: FigureClaim, answers: JevAnswers) -> Candidate | None:
-    if not _sure(answers.kind.get(kind_item(claim)), KIND_MEASURED, KIND_THRESHOLD):
-        return None
+def _measured(claim: FigureClaim, answers: JevAnswers) -> bool:
+    return _sure(answers.kind.get(kind_item(claim)), KIND_MEASURED, KIND_THRESHOLD)
+
+
+def _agreed_source(claim: FigureClaim, answers: JevAnswers) -> Candidate | None:
     forward, backward = (_picked(claim, ordered, answers) for ordered in _orders(claim))
-    if forward is None or forward != backward:
+    return forward if forward is not None and forward == backward else None
+
+
+def _same_result(claim: FigureClaim, candidate: Candidate, answers: JevAnswers) -> bool:
+    return _sure(answers.relation.get(relation_item(claim, candidate)), RELATION_SAME, RELATION_THRESHOLD)
+
+
+def decide(claim: FigureClaim, answers: JevAnswers) -> Candidate | None:
+    if not _measured(claim, answers):
         return None
-    if not _sure(answers.relation.get(relation_item(claim, forward)), RELATION_SAME, RELATION_THRESHOLD):
+    agreed = _agreed_source(claim, answers)
+    if agreed is None or not _same_result(claim, agreed, answers):
         return None
-    return None if _unnamed(answers.named.get(named_item(forward))) else forward
+    return None if _unnamed(answers.named.get(named_item(agreed))) else agreed
 
 
 def _about_people(figure: Figure) -> bool:
@@ -282,20 +293,30 @@ def _source_picks(jev: JevClient, claims: list[FigureClaim]) -> dict[str, JevPic
 
 
 def match_figures(
-    texts: dict[str, str], signals: Sequence[SignalInput], notes: Sequence[ResearchNote], jev: JevClient
+    texts: dict[FigureText, str],
+    report_signals: Sequence[SignalInput],
+    notes: Sequence[ResearchNote],
+    jev: JevClient,
 ) -> list[FigureMatch]:
-    claims = figure_claims(texts, source_sentences(signals, notes))
-    candidates = [candidate for claim in claims for candidate in claim.candidates]
-    answers = JevAnswers(
+    claims = figure_claims(texts, source_sentences(report_signals, notes))
+    kinds = JevAnswers(
         kind=_picks(jev, [kind_item(claim) for claim in claims], KIND_QUESTION, KIND_LABELS),
-        source=_source_picks(jev, claims),
-        relation=_picks(
-            jev,
-            [relation_item(claim, candidate) for claim in claims for candidate in claim.candidates],
-            RELATION_QUESTION,
-            RELATION_LABELS,
-        ),
-        named=_picks(jev, [named_item(candidate) for candidate in candidates], NAMED_QUESTION, NAMED_LABELS),
+        source={},
+        relation={},
+        named={},
     )
-    matches = [FigureMatch(claim=claim, source=source) for claim in claims if (source := decide(claim, answers))]
+    measured = [claim for claim in claims if _measured(claim, kinds)]
+    sources = replace(kinds, source=_source_picks(jev, measured))
+    agreed = [(claim, candidate) for claim in measured if (candidate := _agreed_source(claim, sources))]
+    relations = replace(
+        sources,
+        relation=_picks(
+            jev, [relation_item(claim, candidate) for claim, candidate in agreed], RELATION_QUESTION, RELATION_LABELS
+        ),
+    )
+    same = [candidate for claim, candidate in agreed if _same_result(claim, candidate, relations)]
+    answers = replace(
+        relations, named=_picks(jev, [named_item(candidate) for candidate in same], NAMED_QUESTION, NAMED_LABELS)
+    )
+    matches = [FigureMatch(claim=claim, source=source) for claim in measured if (source := decide(claim, answers))]
     return shown_marks(matches)

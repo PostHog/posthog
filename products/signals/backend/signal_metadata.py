@@ -481,6 +481,7 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
         query=_signals_for_report_query(),
         team=team,
         placeholders=_report_placeholders(report_id),
+        context=_signals_query_context(team),
     )
 
     signals_list = []

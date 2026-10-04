@@ -7,7 +7,9 @@ from posthog.dataclasses import frozen
 
 from ..facade import contracts
 from ..facade.enums import KeyClauseRole
+from .formats import utf16_offset
 from .jev import JevClient, JevPick
+from .prose import block_lines
 from .report_text import rendered_text
 from .sentences import split_sentences
 
@@ -145,7 +147,7 @@ def _word_count(text: str) -> int:
 def _report_sentences(summary: str, shown: list[str]) -> list[str]:
     seen = {text.strip() for text in shown}
     sentences: list[str] = []
-    for line in summary.split("\n"):
+    for line in block_lines(summary):
         text = rendered_text(line).strip()
         if not text or text in seen:
             continue
@@ -183,10 +185,10 @@ def _worth_showing(key_clauses: list[_ScoredClause]) -> list[_ScoredClause]:
     return sorted(explained, key=lambda key_clause: -key_clause.confidence)[:_MAX_KEY_CLAUSES]
 
 
-def _contract(key_clause: _ScoredClause) -> contracts.KeyClause:
+def _contract(text: str, key_clause: _ScoredClause) -> contracts.KeyClause:
     return contracts.KeyClause(
-        start=key_clause.start,
-        end=key_clause.end,
+        start=utf16_offset(text, key_clause.start),
+        end=utf16_offset(text, key_clause.end),
         text=key_clause.text,
         role=key_clause.role,
         expansion=key_clause.expansion,
@@ -210,7 +212,7 @@ def find_key_clauses(
         for request, own, own_picks in zip(requests, clauses, _chunked(picks, [len(own) for own in clauses]))
     ]
     flat = [key_clause for own in picked for key_clause in own]
-    answers = jev.yes(
+    answers = jev.yes_probability(
         [_expansion_input(key_clause, sentence) for key_clause in flat for sentence in sentences],
         _EXPANSION_QUESTION,
     )
@@ -221,7 +223,8 @@ def find_key_clauses(
     shown = _worth_showing(expanded)
     return [
         contracts.TextKeyClauses(
-            text=request.text, key_clauses=[_contract(key_clause) for key_clause in own if key_clause in shown]
+            text=request.text,
+            key_clauses=[_contract(request.text, key_clause) for key_clause in own if key_clause in shown],
         )
         for request, own in zip(requests, _chunked(expanded, [len(own) for own in picked]))
     ]

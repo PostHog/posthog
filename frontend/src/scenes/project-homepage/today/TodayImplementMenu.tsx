@@ -8,6 +8,7 @@ import {
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
+    Text,
 } from '@posthog/quill'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -17,6 +18,7 @@ import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxA
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
+import { TodayActionButton } from './TodayActionButton'
 import { reportWorkKind, reportWorkPrompt } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
 
@@ -25,12 +27,12 @@ const AGENTS = IMPLEMENTATION_AGENTS.filter((agent) => agent.key !== 'posthog-co
 export function TodayImplementMenu({
     report,
     reportUrl,
-    disabled,
+    disabledReason,
     postHogDisabledReason,
 }: {
     report: SignalReport
     reportUrl: string
-    disabled: boolean
+    disabledReason: string | null
     postHogDisabledReason: string | null
 }): JSX.Element {
     const { isCreatingPr, isDiscussing } = useValues(inboxTaskKickoffLogic)
@@ -43,9 +45,30 @@ export function TodayImplementMenu({
             report,
             actionType: 'copy_implementation_prompt',
             surface: 'today',
-            extra: { agent: agentKey },
+            extra: { agent: agentKey, work: reportWorkKind(report) },
         })
         send(reportWorkPrompt(report, reportUrl))
+    }
+
+    const label = (
+        <>
+            {implement ? <IconCode /> : <IconSearch />}
+            <span>{implement ? 'Implement with' : 'Investigate with'}</span>
+            <IconChevronDown />
+        </>
+    )
+
+    if (disabledReason) {
+        return (
+            <TodayActionButton
+                variant="primary"
+                className="me-1 gap-1.5"
+                disabledReason={disabledReason}
+                data-attr="today-report-implement-with"
+            >
+                {label}
+            </TodayActionButton>
+        )
     }
 
     return (
@@ -54,13 +77,11 @@ export function TodayImplementMenu({
                 render={
                     <Button
                         variant="primary"
-                        disabled={disabled}
+                        loading={starting}
                         className="me-1 gap-1.5"
                         data-attr="today-report-implement-with"
                     >
-                        {implement ? <IconCode /> : <IconSearch />}
-                        {implement ? 'Implement with' : 'Investigate with'}
-                        <IconChevronDown />
+                        {label}
                     </Button>
                 }
             />
@@ -68,11 +89,17 @@ export function TodayImplementMenu({
                 <DropdownMenuItem
                     onClick={() => startWithPostHog()}
                     disabled={!!postHogDisabledReason || starting}
-                    title={postHogDisabledReason ?? undefined}
                     data-attr="today-report-start-task"
                 >
-                    <IconLogomark className="size-4" />
-                    PostHog
+                    <IconLogomark className="size-4 self-start" />
+                    <span className="flex flex-col">
+                        <span>PostHog</span>
+                        {postHogDisabledReason && (
+                            <Text size="xs" variant="muted" render={<span />}>
+                                {postHogDisabledReason}
+                            </Text>
+                        )}
+                    </span>
                 </DropdownMenuItem>
                 {AGENTS.map((agent) => (
                     <DropdownMenuItem

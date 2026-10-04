@@ -197,12 +197,16 @@ class KeyClauseRequestSerializer(serializers.Serializer):
     text = serializers.CharField(max_length=4000, help_text="A text the page shows, as the reader sees it.")
     roles = serializers.ListField(
         child=serializers.ChoiceField(choices=KeyClauseRole.choices),
+        min_length=1,
         max_length=3,
-        help_text="The roles to look for in this text: problem, cause or fix.",
+        help_text="The roles to look for in this text: problem, cause or fix. Repeated roles count once.",
     )
 
+    def validate_roles(self, roles: list[str]) -> list[str]:
+        return list(dict.fromkeys(roles))
 
-class KeyClausesQuerySerializer(serializers.Serializer):
+
+class KeyClausesRequestSerializer(serializers.Serializer):
     requests = serializers.ListField(
         child=KeyClauseRequestSerializer(), max_length=3, help_text="The texts to mark, at most 3."
     )
@@ -266,7 +270,7 @@ class FigureMarksSerializer(serializers.Serializer):
     marks = FigureMarkSerializer(many=True, help_text="The numbers to mark, at most 4, each with its source.")
 
 
-class ExcerptChoiceQuerySerializer(serializers.Serializer):
+class ExcerptChoiceRequestSerializer(serializers.Serializer):
     finding = serializers.CharField(max_length=6000, help_text="The finding the code excerpts should show.")
     excerpts = serializers.ListField(
         child=serializers.CharField(max_length=2000),
@@ -347,7 +351,10 @@ class SignalViewSerializer(DataclassSerializer):
     source_id = serializers.CharField(help_text="The id of the source object, such as an issue or a ticket.")
     content = serializers.CharField(help_text="The signal's text as emitted.")
     timestamp = serializers.DateTimeField(help_text="When the signal happened.")
-    extra = serializers.DictField(help_text="The emitter's extra fields, used to link to the source object.")
+    extra = serializers.DictField(
+        child=serializers.JSONField(),
+        help_text="The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON.",
+    )
     headline = serializers.CharField(help_text="The signal as one short line.")
     lead = serializers.CharField(help_text="The signal's first sentence.")
     meta = serializers.CharField(help_text="Identifiers such as a pull request or ticket number, joined by dots.")
@@ -394,16 +401,16 @@ class ReportPageSerializer(DataclassSerializer):
     impact_sentence = serializers.CharField(
         help_text="The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise."
     )
-    in_flight_pull_request = PullRequestLinkSerializer(
+    named_pull_request = PullRequestLinkSerializer(
         allow_null=True,
         help_text="The pull request the proposal names, or else the summary, when it names exactly one.",
     )
     solution_names_pull_request = serializers.BooleanField(help_text="Whether the proposal names any pull request.")
     signals = SignalViewSerializer(many=True, help_text="The report's signals, newest first, ready to show.")
-    evidence = serializers.ListField(
+    evidence_signal_ids = serializers.ListField(
         child=serializers.CharField(), help_text="The ids of the signals to show as evidence, at most 3."
     )
-    evidence_count = serializers.IntegerField(help_text="How many distinct source objects the signals come from.")
+    source_count = serializers.IntegerField(help_text="How many distinct source objects the signals come from.")
     impact_numbers = ImpactNumberSerializer(
         many=True, help_text="Numbers the signals size the problem with, such as distinct support tickets."
     )

@@ -4,9 +4,9 @@ from parameterized import parameterized
 
 from products.today.backend.facade.contracts import KeyClauseRequest, TextKeyClauses
 from products.today.backend.facade.enums import KeyClauseRole
-from products.today.backend.logic.code_excerpts import which_excerpt
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.logic.key_clauses import find_key_clauses, text_clauses
+from products.today.backend.tests.factories import FakeJev
 
 CART_TEXT = "Shoppers see an empty cart, a frozen spinner, and a blank receipt because the cart service drops the session token."
 FIX_TEXT = "Keep the token in a cookie so the cart survives the switch."
@@ -21,42 +21,11 @@ CAUSE = "because the cart service drops the session token"
 FIX = "Keep the token in a cookie"
 
 
-class FakeJev:
-    def __init__(self, texts: list[str], roles: dict[str, JevPick], explanations: dict[str, str]) -> None:
-        self.texts = texts
-        self.roles = roles
-        self.explanations = explanations
-
-    def _marked_part(self, item: str) -> str:
-        part = item
-        for text in self.texts:
-            part = part.replace(text, "")
-        return next((clause for clause in self.roles if clause in part), "")
-
-    def choice(self, items: list[str], question: str, labels: list[str]) -> list[JevPick | None]:
-        return [self.roles.get(self._marked_part(item)) for item in items]
-
-    def yes(self, items: list[str], question: str) -> list[float | None]:
-        return [
-            0.9 if any(clause in item and sentence in item for clause, sentence in self.explanations.items()) else 0.1
-            for item in items
-        ]
-
-
 def shown(found: list[TextKeyClauses]) -> dict[str, list[tuple[str, list[str]]]]:
     return {texts.text: [(clause.text, clause.expansion) for clause in texts.key_clauses] for texts in found}
 
 
 PROBLEM_AND_CAUSE = [KeyClauseRole.PROBLEM, KeyClauseRole.CAUSE]
-
-
-class PickJev(FakeJev):
-    def __init__(self, pick: JevPick | None) -> None:
-        super().__init__([], {}, {})
-        self.pick = pick
-
-    def choice(self, items: list[str], question: str, labels: list[str]) -> list[JevPick | None]:
-        return [self.pick for _ in items]
 
 
 class TestKeyClauses(SimpleTestCase):
@@ -160,14 +129,12 @@ class TestKeyClauses(SimpleTestCase):
             FIX_TEXT: [(FIX, [FIX_EXPLAINED])],
         }
 
-    @parameterized.expand(
-        [
-            ("a sure pick", JevPick(label="2", probability=0.8), 1),
-            ("an unsure pick", JevPick(label="2", probability=0.4), None),
-            ("no pick", None, None),
-        ]
-    )
-    def test_picks_the_excerpt_a_finding_describes(
-        self, _name: str, pick: JevPick | None, expected: int | None
-    ) -> None:
-        assert which_excerpt("The cart drops the token.", ["a = 1", "drop(token)"], PickJev(pick)) == expected
+    def test_places_clauses_by_the_offsets_the_browser_counts(self) -> None:
+        text = f"🛒 {CART_TEXT}"
+        [found] = find_key_clauses(
+            [KeyClauseRequest(text=text, roles=[KeyClauseRole.CAUSE])],
+            SUMMARY,
+            FakeJev([text], {CAUSE: JevPick(label="cause", probability=0.9)}, {CAUSE: CAUSE_EXPLAINED}),
+        )
+        [clause] = found.key_clauses
+        assert (clause.start, clause.end) == (text.index(CAUSE) + 1, text.index(CAUSE) + 1 + len(CAUSE))

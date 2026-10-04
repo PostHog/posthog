@@ -359,7 +359,7 @@ export interface CandidateListApi {
     more_reports_count: number
 }
 
-export interface ExcerptChoiceQueryApi {
+export interface ExcerptChoiceRequestApi {
     /**
      * The finding the code excerpts should show.
      * @maxLength 6000
@@ -466,13 +466,14 @@ export interface KeyClauseRequestApi {
      */
     text: string
     /**
-     * The roles to look for in this text: problem, cause or fix.
+     * The roles to look for in this text: problem, cause or fix. Repeated roles count once.
+     * @minItems 1
      * @maxItems 3
      */
     roles: KeyClauseRoleEnumApi[]
 }
 
-export interface KeyClausesQueryApi {
+export interface KeyClausesRequestApi {
     /**
      * The texts to mark, at most 3.
      * @maxItems 3
@@ -584,7 +585,7 @@ export interface SignalPreviewApi {
 }
 
 /**
- * The emitter's extra fields, used to link to the source object.
+ * The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON.
  */
 export type SignalViewApiExtra = { [key: string]: unknown }
 
@@ -601,7 +602,7 @@ export interface SignalViewApi {
     content: string
     /** When the signal happened. */
     timestamp: string
-    /** The emitter's extra fields, used to link to the source object. */
+    /** The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON. */
     extra: SignalViewApiExtra
     /** The signal as one short line. */
     headline: string
@@ -671,15 +672,15 @@ export interface ReportPageApi {
     /** The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise. */
     impact_sentence: string
     /** The pull request the proposal names, or else the summary, when it names exactly one. */
-    in_flight_pull_request: PullRequestLinkApi | null
+    named_pull_request: PullRequestLinkApi | null
     /** Whether the proposal names any pull request. */
     solution_names_pull_request: boolean
     /** The report's signals, newest first, ready to show. */
     signals: SignalViewApi[]
     /** The ids of the signals to show as evidence, at most 3. */
-    evidence: string[]
+    evidence_signal_ids: string[]
     /** How many distinct source objects the signals come from. */
-    evidence_count: number
+    source_count: number
     /** Numbers the signals size the problem with, such as distinct support tickets. */
     impact_numbers: ImpactNumberApi[]
     /**

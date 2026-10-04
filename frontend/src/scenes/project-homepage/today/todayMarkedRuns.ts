@@ -19,6 +19,30 @@ interface PlacedPiece {
     to: number
 }
 
+function clauseCuts(length: number, offset: number, keyClauses: KeyClauseApi[]): number[] {
+    return keyClauses
+        .flatMap((keyClause) => [keyClause.start - offset, keyClause.end - offset])
+        .filter((point) => point > 0 && point < length)
+}
+
+function sortedPoints(length: number, cuts: number[]): number[] {
+    return [...new Set([0, length, ...cuts])].sort((first, second) => first - second)
+}
+
+function splitPieces(
+    text: string,
+    segment: number,
+    offset: number,
+    keyClauses: KeyClauseApi[],
+    piece: (key: string, text: string) => TodayMarkedPiece
+): PlacedPiece[] {
+    const points = sortedPoints(text.length, clauseCuts(text.length, offset, keyClauses))
+    return points.slice(0, -1).map((from, index) => {
+        const to = points[index + 1]
+        return { piece: piece(`${segment}-${from}`, text.slice(from, to)), from: offset + from, to: offset + to }
+    })
+}
+
 function textPieces(
     text: string,
     segment: number,
@@ -28,11 +52,8 @@ function textPieces(
 ): PlacedPiece[] {
     const own = figures.filter((figure) => figure.segment === segment)
     const insideFigure = (point: number): boolean => own.some((figure) => point > figure.start && point < figure.end)
-    const clauseCuts = keyClauses
-        .flatMap((keyClause) => [keyClause.start - offset, keyClause.end - offset])
-        .filter((point) => point > 0 && point < text.length && !insideFigure(point))
-    const cuts = [...new Set([0, text.length, ...own.flatMap((figure) => [figure.start, figure.end]), ...clauseCuts])]
-    const points = cuts.sort((first, second) => first - second)
+    const cuts = clauseCuts(text.length, offset, keyClauses).filter((point) => !insideFigure(point))
+    const points = sortedPoints(text.length, [...own.flatMap((figure) => [figure.start, figure.end]), ...cuts])
     return points.slice(0, -1).map((from, index) => {
         const to = points[index + 1]
         const figure = own.find((candidate) => candidate.start === from)
@@ -49,12 +70,16 @@ function placedPieces(markdown: string, figures: TodayMarkedFigure[], keyClauses
     return inlineSegments(markdown).flatMap((segment, index) => {
         const from = offset
         offset += segment.text.length
-        const key = `${index}`
         switch (segment.kind) {
             case 'code':
-                return [{ piece: { kind: 'code', key, text: segment.text }, from, to: offset }]
+                return splitPieces(segment.text, index, from, keyClauses, (key, text) => ({ kind: 'code', key, text }))
             case 'link':
-                return [{ piece: { kind: 'link', key, text: segment.text, href: segment.href }, from, to: offset }]
+                return splitPieces(segment.text, index, from, keyClauses, (key, text) => ({
+                    kind: 'link',
+                    key,
+                    text,
+                    href: segment.href,
+                }))
             default:
                 return textPieces(segment.text, index, from, figures, keyClauses)
         }
@@ -68,7 +93,10 @@ export function markedRuns(
 ): TodayMarkedRun[] {
     const runs: TodayMarkedRun[] = []
     for (const { piece, from, to } of placedPieces(markdown, figures, keyClauses)) {
-        const keyClause = keyClauses.find((candidate) => from >= candidate.start && to <= candidate.end) ?? null
+        const keyClause =
+            piece.kind === 'figure'
+                ? null
+                : (keyClauses.find((candidate) => from >= candidate.start && to <= candidate.end) ?? null)
         const last = runs[runs.length - 1]
         if (last && last.keyClause === keyClause) {
             last.pieces.push(piece)

@@ -8,14 +8,18 @@ import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
+
+from posthog.hogql.transforms.prompt_jev import OUT_OF_AI_CREDITS_MESSAGE
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
+from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.utils import UUID_REGEX
 
 from products.signals.backend.facade import api as signals
@@ -25,10 +29,10 @@ from ..facade.enums import KeyClauseRole
 from .serializers import (
     BriefingSerializer,
     CandidateListSerializer,
-    ExcerptChoiceQuerySerializer,
+    ExcerptChoiceRequestSerializer,
     ExcerptChoiceSerializer,
     FigureMarksSerializer,
-    KeyClausesQuerySerializer,
+    KeyClausesRequestSerializer,
     KeyClausesSerializer,
     ReportPageSerializer,
     TodayQuerySerializer,
@@ -36,6 +40,7 @@ from .serializers import (
 
 logger = structlog.get_logger(__name__)
 JEV_UNAVAILABLE = OpenApiResponse(description="The decision model is unavailable.")
+JEV_OUT_OF_CREDITS = OpenApiResponse(description="The organization has no AI credits left.")
 
 
 class JevUnavailable(APIException):
@@ -44,11 +49,35 @@ class JevUnavailable(APIException):
     default_code = "jev_unavailable"
 
 
+class JevOutOfCredits(APIException):
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_detail = OUT_OF_AI_CREDITS_MESSAGE
+    default_code = "jev_out_of_credits"
+
+
+class JevBurstThrottle(UserRateThrottle):
+    scope = "today_jev_burst"
+    rate = "60/minute"
+
+
+class JevSustainedThrottle(UserRateThrottle):
+    scope = "today_jev_sustained"
+    rate = "1500/day"
+
+
+JEV_THROTTLES = [BurstRateThrottle, SustainedRateThrottle, JevBurstThrottle, JevSustainedThrottle]
+
+
 @contextmanager
-def _jev_unavailable_as_503(team_id: int) -> Iterator[None]:
+def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
     try:
         yield
-    except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
+    except SystemOneRequestFailed as error:
+        logger.warning("today_jev_unavailable", team_id=team_id, reason=type(error).__name__, status=error.status_code)
+        if error.status_code == status.HTTP_402_PAYMENT_REQUIRED:
+            raise JevOutOfCredits() from error
+        raise JevUnavailable() from error
+    except (SystemOneNotConfigured, contracts.JevTimedOut) as error:
         logger.warning("today_jev_unavailable", team_id=team_id, reason=type(error).__name__)
         raise JevUnavailable() from error
 
@@ -70,6 +99,10 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not api.may_ask_jev(user, self.team):
             raise NotFound()
         return user
+
+    def _check_report_access(self, user: User) -> None:
+        if not signals.may_read_reports(user=user, team=self.team):
+            raise PermissionDenied()
 
     @validated_request(
         query_serializer=TodayQuerySerializer,
@@ -122,7 +155,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},
         summary="Get a report's page",
-        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. A scoped key needs task:read as well, because the page shows the report's signals.",
+        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. 403 when the person may not read Inbox reports, and a scoped key needs task:read as well, because the page shows the report's signals.",
     )
     @action(
         detail=False,
@@ -131,16 +164,18 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["today:read", "task:read"],
     )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
-        if not api.is_enabled_for(cast(User, request.user), self.team):
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
             raise NotFound()
+        self._check_report_access(user)
         page = api.report_page(team=self.team, report_id=report_id)
         if page is None:
             raise NotFound()
         return Response(ReportPageSerializer(page).data)
 
     @validated_request(
-        request_serializer=KeyClausesQuerySerializer,
-        responses={200: OpenApiResponse(response=KeyClausesSerializer), 503: JEV_UNAVAILABLE},
+        request_serializer=KeyClausesRequestSerializer,
+        responses={200: OpenApiResponse(response=KeyClausesSerializer), 402: JEV_OUT_OF_CREDITS, 503: JEV_UNAVAILABLE},
         summary="Mark the key clauses of a report",
         description="For each text the report page shows, the clauses that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.",
     )
@@ -149,6 +184,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         methods=["post"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX})/key_clauses",
         required_scopes=["today:read", "task:read"],
+        throttle_classes=JEV_THROTTLES,
     )
     def key_clauses(self, request: Request, report_id: str, **kwargs) -> Response:
         requests = [
@@ -156,14 +192,15 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for item in request.validated_data["requests"]
         ]
         user = self._jev_user()
-        with _jev_unavailable_as_503(self.team.id):
+        self._check_report_access(user)
+        with _jev_errors_as_responses(self.team.id):
             texts = api.report_key_clauses(team=self.team, user=user, report_id=report_id, requests=requests)
         if texts is None:
             raise NotFound()
         return Response(KeyClausesSerializer({"texts": texts}).data)
 
     @validated_request(
-        responses={200: OpenApiResponse(response=FigureMarksSerializer), 503: JEV_UNAVAILABLE},
+        responses={200: OpenApiResponse(response=FigureMarksSerializer), 402: JEV_OUT_OF_CREDITS, 503: JEV_UNAVAILABLE},
         summary="Mark the numbers of a report with their sources",
         description="The numbers in the report's lead and impact sentence that a signal or the agent's research states, each with the sentence that states it. A number is marked only when the decision model is sure it is a measured result and that one source states the same result. 404 when the report is missing or the person may not use Jev.",
     )
@@ -172,25 +209,31 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX})/figure_marks",
         required_scopes=["today:read", "task:read"],
+        throttle_classes=JEV_THROTTLES,
     )
     def figure_marks(self, request: Request, report_id: str, **kwargs) -> Response:
         user = self._jev_user()
-        with _jev_unavailable_as_503(self.team.id):
+        self._check_report_access(user)
+        with _jev_errors_as_responses(self.team.id):
             marks = api.report_figure_marks(team=self.team, user=user, report_id=report_id)
         if marks is None:
             raise NotFound()
         return Response(FigureMarksSerializer({"marks": marks}).data)
 
     @validated_request(
-        request_serializer=ExcerptChoiceQuerySerializer,
-        responses={200: OpenApiResponse(response=ExcerptChoiceSerializer), 503: JEV_UNAVAILABLE},
+        request_serializer=ExcerptChoiceRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=ExcerptChoiceSerializer),
+            402: JEV_OUT_OF_CREDITS,
+            503: JEV_UNAVAILABLE,
+        },
         summary="Pick the code excerpt a finding describes",
         description="Asks the decision model which of several code excerpts shows what a finding describes. Returns null when it is unsure. 404 when the person may not use Jev.",
     )
-    @action(detail=False, methods=["post"], url_path="excerpt_choice")
+    @action(detail=False, methods=["post"], url_path="excerpt_choice", throttle_classes=JEV_THROTTLES)
     def excerpt_choice(self, request: Request, **kwargs) -> Response:
         user = self._jev_user()
-        with _jev_unavailable_as_503(self.team.id):
+        with _jev_errors_as_responses(self.team.id):
             index = api.pick_code_excerpt(
                 team=self.team,
                 user=user,

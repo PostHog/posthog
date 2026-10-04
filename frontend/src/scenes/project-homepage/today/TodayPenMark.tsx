@@ -12,7 +12,7 @@ export function TodayPenMark({
     children: ReactNode
 }): JSX.Element {
     return (
-        <span className="relative inline-block indent-0 whitespace-nowrap text-[var(--foreground)]">
+        <span className="relative inline-block indent-0 whitespace-nowrap text-foreground">
             {children}
             <svg
                 className="TodayPenMark__stroke"
