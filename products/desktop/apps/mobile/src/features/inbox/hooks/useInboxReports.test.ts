@@ -7,6 +7,10 @@ import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("posthog-react-native", () => ({
+  useFeatureFlag: () => false,
+}));
+
 vi.mock("@/features/auth", () => ({
   useAuthStore: () => ({ projectId: 1, oauthAccessToken: "token" }),
 }));

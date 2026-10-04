@@ -2,7 +2,9 @@ import type {
   SignalReport,
   SignalReportOrderingField,
   SignalReportPriority,
+  SignalReportRankingOrderingField,
   SignalReportStatus,
+  SignalReportsQueryParams,
 } from "@posthog/shared/types";
 
 export const INBOX_PIPELINE_STATUSES = [
@@ -148,18 +150,138 @@ function reportPriorityRank(report: SignalReport): number {
   return report.priority ? PRIORITY_RANK[report.priority] : 5;
 }
 
+/** The sorts the inbox offers: the basic fields plus the staff-only model sorts. */
+export type InboxSortField =
+  | Extract<
+      SignalReportOrderingField,
+      "priority" | "created_at" | "total_weight"
+    >
+  | SignalReportRankingOrderingField;
+
+export type InboxSortDirection = "asc" | "desc";
+
+/** The outcome head each model sort reads from `report.ranking.scores`. */
+const RANKING_SORT_HEADS: Record<SignalReportRankingOrderingField, string> = {
+  ranking_pr_merged: "pr_merged",
+  ranking_pr_created: "pr_created",
+  ranking_action: "action",
+  ranking_open: "open",
+};
+
+export function isRankingSortField(
+  field: string,
+): field is SignalReportRankingOrderingField {
+  return Object.hasOwn(RANKING_SORT_HEADS, field);
+}
+
+/** The served probability a model sort orders by, or null when the report has no score for that head. */
+export function rankingSortScore(
+  report: SignalReport,
+  field: SignalReportRankingOrderingField,
+): number | null {
+  const score = report.ranking?.scores[RANKING_SORT_HEADS[field]];
+  return typeof score === "number" ? score : null;
+}
+
+/**
+ * The sort the list requests. A model sort persisted while it was available
+ * falls back once it is not, because the API rejects it for non-staff users.
+ */
+export function resolveInboxSort(
+  sort: { field: InboxSortField; direction: InboxSortDirection },
+  modelSortAvailable: boolean,
+  fallback: { field: InboxSortField; direction: InboxSortDirection },
+): { field: InboxSortField; direction: InboxSortDirection } {
+  return isRankingSortField(sort.field) && !modelSortAvailable
+    ? fallback
+    : sort;
+}
+
+export type InboxCreatedWindow = "24h" | "3d" | "7d" | "14d";
+
+export const INBOX_CREATED_WINDOW_OPTIONS: readonly {
+  value: InboxCreatedWindow;
+  label: string;
+  hours: number;
+}[] = [
+  { value: "24h", label: "Last 24 hours", hours: 24 },
+  { value: "3d", label: "Last 3 days", hours: 3 * 24 },
+  { value: "7d", label: "Last 7 days", hours: 7 * 24 },
+  { value: "14d", label: "Last 14 days", hours: 14 * 24 },
+];
+
+/** The ranking sweep only scores reports from the last 7 days, so a model sort picks this window when none is set. */
+const MODEL_SORT_DEFAULT_WINDOW: InboxCreatedWindow = "7d";
+
+/** The window to store after a sort change: a model sort sets the default window when none is set. */
+export function createdWindowAfterSort(
+  field: InboxSortField,
+  createdWindow: InboxCreatedWindow | null,
+  timeWindowAvailable: boolean,
+): InboxCreatedWindow | null {
+  return isRankingSortField(field) &&
+    timeWindowAvailable &&
+    createdWindow === null
+    ? MODEL_SORT_DEFAULT_WINDOW
+    : createdWindow;
+}
+
+/** The `created_after` bound for a window. Compute it at request time, so a long-open list never sends a stale bound. */
+export function createdAfterForWindow(
+  window: InboxCreatedWindow | null | undefined,
+  now: number = Date.now(),
+): string | undefined {
+  const option = INBOX_CREATED_WINDOW_OPTIONS.find((o) => o.value === window);
+  return option
+    ? new Date(now - option.hours * 60 * 60 * 1000).toISOString()
+    : undefined;
+}
+
+/**
+ * List params as a query key holds them. The window stays a preset key, so the
+ * key does not change every second. `toSignalReportsRequest` turns it into a
+ * `created_after` bound when the request goes out.
+ */
+export type InboxReportsQueryParams = SignalReportsQueryParams & {
+  created_window?: InboxCreatedWindow;
+};
+
+export function toSignalReportsRequest({
+  created_window,
+  ...params
+}: InboxReportsQueryParams): SignalReportsQueryParams {
+  const createdAfter = createdAfterForWindow(created_window);
+  return createdAfter ? { ...params, created_after: createdAfter } : params;
+}
+
+// The API puts unscored reports after every scored report, in both directions.
+function compareRankingScores(
+  left: number | null,
+  right: number | null,
+  directionMultiplier: number,
+): number {
+  if (left === null || right === null) {
+    return left === right ? 0 : left === null ? 1 : -1;
+  }
+  return (left - right) * directionMultiplier;
+}
+
 export function sortInboxReports(
   reports: SignalReport[],
-  field: Extract<
-    SignalReportOrderingField,
-    "priority" | "created_at" | "total_weight"
-  >,
-  direction: "asc" | "desc",
+  field: InboxSortField,
+  direction: InboxSortDirection,
 ): SignalReport[] {
   const directionMultiplier = direction === "asc" ? 1 : -1;
   return [...reports].sort((left, right) => {
     let primary = 0;
-    if (field === "priority") {
+    if (isRankingSortField(field)) {
+      const ranking = compareRankingScores(
+        rankingSortScore(left, field),
+        rankingSortScore(right, field),
+        directionMultiplier,
+      );
+      if (ranking !== 0) return ranking;
+    } else if (field === "priority") {
       primary = reportPriorityRank(left) - reportPriorityRank(right);
     } else if (field === "total_weight") {
       primary = left.total_weight - right.total_weight;

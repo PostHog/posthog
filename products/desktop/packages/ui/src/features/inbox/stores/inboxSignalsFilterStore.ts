@@ -1,5 +1,9 @@
 import type {
-  SignalReportOrderingField,
+  InboxCreatedWindow,
+  InboxSortDirection,
+  InboxSortField,
+} from "@posthog/core/inbox/reportFiltering";
+import type {
   SignalReportPriority,
   SourceProduct,
 } from "@posthog/shared/types";
@@ -7,13 +11,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type { SourceProduct };
-
-type SignalSortField = Extract<
-  SignalReportOrderingField,
-  "priority" | "created_at" | "total_weight"
->;
-
-type SignalSortDirection = "asc" | "desc";
 
 /** Whether to show every report, only PR-backed ones, or only PR-less ones. */
 export type InboxPrFilter = "all" | "with_pr" | "without_pr";
@@ -30,8 +27,11 @@ export const DEFAULT_INBOX_REPORT_STATE_FILTER: InboxReportStateFilter[] = [
 ];
 
 interface InboxSignalsFilterState {
-  sortField: SignalSortField;
-  sortDirection: SignalSortDirection;
+  /** Can hold a model sort the user can no longer use. Read the list sort through `useInboxActiveSort`. */
+  sortField: InboxSortField;
+  sortDirection: InboxSortDirection;
+  /** Null means no created-in window. Read the list window through `useInboxActiveSort`. */
+  createdWindow: InboxCreatedWindow | null;
   searchQuery: string;
   /** Empty array means "all sources" (no filter). */
   sourceProductFilter: SourceProduct[];
@@ -42,7 +42,8 @@ interface InboxSignalsFilterState {
 }
 
 interface InboxSignalsFilterActions {
-  setSort: (field: SignalSortField, direction: SignalSortDirection) => void;
+  setSort: (field: InboxSortField, direction: InboxSortDirection) => void;
+  setCreatedWindow: (createdWindow: InboxCreatedWindow | null) => void;
   setSearchQuery: (query: string) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
   setSourceProductFilter: (sources: SourceProduct[]) => void;
@@ -91,6 +92,7 @@ export function hasActiveInboxFilters(
     (includeSearchFilter && state.searchQuery.trim().length > 0) ||
     (includeSourceFilter && state.sourceProductFilter.length > 0) ||
     state.priorityFilter.length > 0 ||
+    state.createdWindow !== null ||
     (includeReportStateFilter && stateFilterChanged) ||
     (includePrFilter && state.prFilter !== "all")
   );
@@ -123,12 +125,14 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
     (set) => ({
       sortField: "created_at",
       sortDirection: "desc",
+      createdWindow: null,
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
       reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
       prFilter: "all",
       setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
+      setCreatedWindow: (createdWindow) => set({ createdWindow }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
       toggleSourceProduct: (source) =>
         set((state) => {
@@ -167,6 +171,7 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
           searchQuery: "",
           sourceProductFilter: [],
           priorityFilter: [],
+          createdWindow: null,
           reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
           prFilter: "all",
         }),
@@ -193,6 +198,7 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
       partialize: (state) => ({
         sortField: state.sortField,
         sortDirection: state.sortDirection,
+        createdWindow: state.createdWindow,
         sourceProductFilter: state.sourceProductFilter,
         priorityFilter: state.priorityFilter,
         reportStateFilter: state.reportStateFilter,

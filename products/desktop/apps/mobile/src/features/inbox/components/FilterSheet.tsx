@@ -1,5 +1,10 @@
 import { Text } from "@components/text";
-import { INBOX_PIPELINE_STATUSES } from "@posthog/core/inbox/reportFiltering";
+import {
+  INBOX_CREATED_WINDOW_OPTIONS,
+  INBOX_PIPELINE_STATUSES,
+  type InboxSortDirection,
+  type InboxSortField,
+} from "@posthog/core/inbox/reportFiltering";
 import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
 import type { SignalReportPriority } from "@posthog/shared/domain-types";
 import { Check } from "phosphor-react-native";
@@ -7,6 +12,7 @@ import { useMemo } from "react";
 import { Modal, Pressable, ScrollView, View } from "react-native";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useThemeColors } from "@/lib/theme";
+import { useInboxActiveSort } from "../hooks/useInboxActiveSort";
 import { useSignalSourceConfigs } from "../hooks/useSignalSourceConfigs";
 import { narrowSourceProductOptions } from "../sourceFilterOptions";
 import { useInboxFilterStore } from "../stores/inboxFilterStore";
@@ -18,8 +24,8 @@ interface FilterSheetProps {
 
 type SortOption = {
   label: string;
-  field: "priority" | "created_at" | "total_weight";
-  direction: "asc" | "desc";
+  field: InboxSortField;
+  direction: InboxSortDirection;
 };
 
 const SORT_OPTIONS: SortOption[] = [
@@ -27,6 +33,30 @@ const SORT_OPTIONS: SortOption[] = [
   { label: "Strongest signal", field: "total_weight", direction: "desc" },
   { label: "Newest first", field: "created_at", direction: "desc" },
   { label: "Oldest first", field: "created_at", direction: "asc" },
+];
+
+/** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
+const MODEL_SORT_OPTIONS: SortOption[] = [
+  {
+    label: "Most likely to merge",
+    field: "ranking_pr_merged",
+    direction: "desc",
+  },
+  {
+    label: "Most likely to get a PR",
+    field: "ranking_pr_created",
+    direction: "desc",
+  },
+  {
+    label: "Most likely to need action",
+    field: "ranking_action",
+    direction: "desc",
+  },
+  {
+    label: "Most likely to be opened",
+    field: "ranking_open",
+    direction: "desc",
+  },
 ];
 
 function useStatusDotColors(): Record<string, string> {
@@ -100,9 +130,18 @@ export function FilterSheet({ visible, onClose }: FilterSheetProps) {
   const statusDotColors = useStatusDotColors();
   const priorityDotColors = usePriorityDotColors();
 
-  const sortField = useInboxFilterStore((s) => s.sortField);
-  const sortDirection = useInboxFilterStore((s) => s.sortDirection);
-  const setSort = useInboxFilterStore((s) => s.setSort);
+  const {
+    sortField,
+    sortDirection,
+    createdWindow,
+    modelSortAvailable,
+    timeWindowAvailable,
+    selectSort,
+  } = useInboxActiveSort();
+  const setCreatedWindow = useInboxFilterStore((s) => s.setCreatedWindow);
+  const sortOptions = modelSortAvailable
+    ? [...SORT_OPTIONS, ...MODEL_SORT_OPTIONS]
+    : SORT_OPTIONS;
   const statusFilter = useInboxFilterStore((s) => s.statusFilter);
   const toggleStatus = useInboxFilterStore((s) => s.toggleStatus);
   const sourceProductFilter = useInboxFilterStore((s) => s.sourceProductFilter);
@@ -124,6 +163,7 @@ export function FilterSheet({ visible, onClose }: FilterSheetProps) {
   const hasActiveFilters =
     sourceProductFilter.length > 0 ||
     priorityFilter.length > 0 ||
+    createdWindow !== null ||
     statusFilter.length < INBOX_PIPELINE_STATUSES.length;
 
   return (
@@ -166,7 +206,7 @@ export function FilterSheet({ visible, onClose }: FilterSheetProps) {
           {/* Sort */}
           <SectionHeader title="Sort by" />
           <View className="mb-5">
-            {SORT_OPTIONS.map((option) => (
+            {sortOptions.map((option) => (
               <OptionRow
                 key={`${option.field}-${option.direction}`}
                 label={option.label}
@@ -174,10 +214,31 @@ export function FilterSheet({ visible, onClose }: FilterSheetProps) {
                   sortField === option.field &&
                   sortDirection === option.direction
                 }
-                onPress={() => setSort(option.field, option.direction)}
+                onPress={() => selectSort(option.field, option.direction)}
               />
             ))}
           </View>
+
+          {timeWindowAvailable && (
+            <>
+              <SectionHeader title="Created" />
+              <View className="mb-5">
+                <OptionRow
+                  label="Any time"
+                  selected={createdWindow === null}
+                  onPress={() => setCreatedWindow(null)}
+                />
+                {INBOX_CREATED_WINDOW_OPTIONS.map((option) => (
+                  <OptionRow
+                    key={option.value}
+                    label={option.label}
+                    selected={createdWindow === option.value}
+                    onPress={() => setCreatedWindow(option.value)}
+                  />
+                ))}
+              </View>
+            </>
+          )}
 
           {/* Status */}
           <SectionHeader title="Status" />

@@ -11,10 +11,15 @@ import {
   TrendUp,
   VideoIcon,
 } from "@phosphor-icons/react";
+import {
+  INBOX_CREATED_WINDOW_OPTIONS,
+  type InboxCreatedWindow,
+  type InboxSortDirection,
+  type InboxSortField,
+} from "@posthog/core/inbox/reportFiltering";
 import { EXTERNAL_INBOX_SOURCES } from "@posthog/shared";
 import type {
   AvailableSuggestedReviewer,
-  SignalReportOrderingField,
   SignalReportPriority,
   SourceProduct,
 } from "@posthog/shared/types";
@@ -26,15 +31,12 @@ import {
 import type { FilterOption } from "@posthog/ui/primitives/FilterMenu";
 import type { ReactNode } from "react";
 
-export type InboxSortField = Extract<
-  SignalReportOrderingField,
-  "priority" | "created_at" | "total_weight"
->;
+export type { InboxSortField };
 
 export type InboxSortOption = {
   label: string;
   field: InboxSortField;
-  direction: "asc" | "desc";
+  direction: InboxSortDirection;
   icon: ReactNode;
 };
 
@@ -64,6 +66,68 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
     icon: <Clock size={14} />,
   },
 ];
+
+/** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
+export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = [
+  {
+    label: "Most likely to merge",
+    field: "ranking_pr_merged",
+    direction: "desc",
+    icon: <BrainIcon size={14} />,
+  },
+  {
+    label: "Most likely to get a PR",
+    field: "ranking_pr_created",
+    direction: "desc",
+    icon: <BrainIcon size={14} />,
+  },
+  {
+    label: "Most likely to need action",
+    field: "ranking_action",
+    direction: "desc",
+    icon: <BrainIcon size={14} />,
+  },
+  {
+    label: "Most likely to be opened",
+    field: "ranking_open",
+    direction: "desc",
+    icon: <BrainIcon size={14} />,
+  },
+];
+
+/** The sorts a user can pick: the model sorts join the list only when they are available. */
+export function inboxSortOptions(
+  modelSortAvailable: boolean,
+): InboxSortOption[] {
+  return modelSortAvailable
+    ? [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
+    : INBOX_SORT_OPTIONS;
+}
+
+/** The menu value for "no created-in window", because a menu value cannot be null. */
+export const INBOX_ANY_CREATED_WINDOW = "any";
+
+export type InboxCreatedWindowMenuValue =
+  | InboxCreatedWindow
+  | typeof INBOX_ANY_CREATED_WINDOW;
+
+export const INBOX_CREATED_WINDOW_MENU_OPTIONS: readonly FilterOption<InboxCreatedWindowMenuValue>[] =
+  [
+    { value: INBOX_ANY_CREATED_WINDOW, label: "Any time" },
+    ...INBOX_CREATED_WINDOW_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.label,
+    })),
+  ];
+
+export function inboxCreatedWindowFromMenuValue(
+  value: string,
+): InboxCreatedWindow | null {
+  return (
+    INBOX_CREATED_WINDOW_OPTIONS.find((option) => option.value === value)
+      ?.value ?? null
+  );
+}
 
 export const INBOX_PRIORITY_OPTIONS: {
   value: SignalReportPriority;
@@ -143,18 +207,32 @@ export const INBOX_PRIORITY_MENU_OPTIONS: readonly FilterOption<SignalReportPrio
     ),
   }));
 
-/** The sort list as menu rows, keyed by field and direction together. */
-export const INBOX_SORT_MENU_OPTIONS: readonly FilterOption<string>[] =
-  INBOX_SORT_OPTIONS.map((option) => ({
+function toSortMenuOptions(
+  options: readonly InboxSortOption[],
+): FilterOption<string>[] {
+  return options.map((option) => ({
     value: inboxSortOptionKey(option.field, option.direction),
     label: option.label,
     icon: option.icon,
   }));
+}
+
+/** The sort list as menu rows, keyed by field and direction together. */
+export const INBOX_SORT_MENU_OPTIONS: readonly FilterOption<string>[] =
+  toSortMenuOptions(INBOX_SORT_OPTIONS);
+
+export function inboxSortMenuOptions(
+  modelSortAvailable: boolean,
+): readonly FilterOption<string>[] {
+  return modelSortAvailable
+    ? toSortMenuOptions(inboxSortOptions(true))
+    : INBOX_SORT_MENU_OPTIONS;
+}
 
 export function inboxSortOptionFromKey(
   key: string,
 ): InboxSortOption | undefined {
-  return INBOX_SORT_OPTIONS.find(
+  return inboxSortOptions(true).find(
     (option) => inboxSortOptionKey(option.field, option.direction) === key,
   );
 }
@@ -183,7 +261,7 @@ export function isDefaultInboxReportStateFilter(
 
 export function inboxSortOptionKey(
   field: InboxSortField,
-  direction: "asc" | "desc",
+  direction: InboxSortDirection,
 ) {
   return `${field}:${direction}`;
 }

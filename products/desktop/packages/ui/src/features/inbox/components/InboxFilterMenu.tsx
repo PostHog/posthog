@@ -8,15 +8,19 @@ import {
 import { DropdownMenu, DropdownMenuContent } from "@posthog/quill";
 import {
   getSuggestedReviewerDisplayName,
+  INBOX_ANY_CREATED_WINDOW,
+  INBOX_CREATED_WINDOW_MENU_OPTIONS,
   INBOX_PRIORITY_MENU_OPTIONS,
   INBOX_REPORT_STATE_OPTIONS,
-  INBOX_SORT_MENU_OPTIONS,
+  inboxCreatedWindowFromMenuValue,
   inboxPriorityFilterLabel,
   inboxReportStateFilterLabel,
+  inboxSortMenuOptions,
   inboxSortOptionFromKey,
   inboxSortOptionKey,
   isDefaultInboxReportStateFilter,
 } from "@posthog/ui/features/inbox/filterOptions";
+import { useInboxActiveSort } from "@posthog/ui/features/inbox/hooks/useInboxActiveSort";
 import { useInboxScopeOptions } from "@posthog/ui/features/inbox/hooks/useInboxScopeOptions";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -70,11 +74,17 @@ function InboxFilterMenuContent({
   active: boolean;
   onClearFilters: () => void;
 }): ReactElement {
-  const sortField = useInboxSignalsFilterStore((state) => state.sortField);
-  const sortDirection = useInboxSignalsFilterStore(
-    (state) => state.sortDirection,
+  const {
+    sortField,
+    sortDirection,
+    createdWindow,
+    modelSortAvailable,
+    timeWindowAvailable,
+    selectSort,
+  } = useInboxActiveSort();
+  const setCreatedWindow = useInboxSignalsFilterStore(
+    (state) => state.setCreatedWindow,
   );
-  const setSort = useInboxSignalsFilterStore((state) => state.setSort);
   const priorityFilter = useInboxSignalsFilterStore(
     (state) => state.priorityFilter,
   );
@@ -139,14 +149,25 @@ function InboxFilterMenuContent({
         onToggle={togglePriority}
         onClear={() => setPriorityFilter([])}
       />
+      {timeWindowAvailable && (
+        <FilterRadioSubMenu
+          label="Created"
+          options={INBOX_CREATED_WINDOW_MENU_OPTIONS}
+          value={createdWindow ?? INBOX_ANY_CREATED_WINDOW}
+          defaultValue={INBOX_ANY_CREATED_WINDOW}
+          onChange={(value) =>
+            setCreatedWindow(inboxCreatedWindowFromMenuValue(value))
+          }
+        />
+      )}
       <FilterRadioSubMenu
         label="Sort by"
-        options={INBOX_SORT_MENU_OPTIONS}
+        options={inboxSortMenuOptions(modelSortAvailable)}
         value={activeSortKey}
         defaultValue={DEFAULT_SORT_KEY}
         onChange={(key) => {
           const option = inboxSortOptionFromKey(key);
-          if (option) setSort(option.field, option.direction);
+          if (option) selectSort(option.field, option.direction);
         }}
       />
       <FilterRadioSubMenu
