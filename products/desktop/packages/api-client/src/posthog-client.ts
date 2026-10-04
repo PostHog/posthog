@@ -41,6 +41,7 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  RankingHead,
   RankingModelResult,
   RankingScoreArtefact,
   RepoSelectionArtefact,
@@ -1745,6 +1746,24 @@ function normalizeWorkReleaseArtefact(
   };
 }
 
+/** Reads the stored lift first. Otherwise mirrors `head_lifts` in `ranking/model_contract.py`. */
+function rankingHeadLift(
+  stored: unknown,
+  probability: number,
+  threshold: number | undefined,
+): number | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  return threshold !== undefined && threshold > 0
+    ? probability / threshold
+    : null;
+}
+
+function compareRankingHeads(a: RankingHead, b: RankingHead): number {
+  if (a.lift !== null && b.lift !== null) return b.lift - a.lift;
+  if (a.lift !== null || b.lift !== null) return a.lift === null ? 1 : -1;
+  return b.probability - a.probability;
+}
+
 function normalizeRankingModelResult(
   key: string,
   value: unknown,
@@ -1762,6 +1781,17 @@ function normalizeRankingModelResult(
       .filter((entry) => isObjectRecord(entry) && entry.readable === true)
       .map((entry) => String((entry as Record<string, unknown>).head)),
   );
+  // Mirrors `classification_thresholds` in `ranking/model_contract.py`.
+  const thresholds = new Map<string, number>();
+  for (const entry of metadataHeads) {
+    if (
+      isObjectRecord(entry) &&
+      typeof entry.refit_classification_threshold === "number"
+    ) {
+      thresholds.set(String(entry.head), entry.refit_classification_threshold);
+    }
+  }
+  const lifts = isObjectRecord(value.lifts) ? value.lifts : {};
   const scores = isObjectRecord(value.scores) ? value.scores : {};
   const heads = Object.entries(scores)
     .filter(
@@ -1771,9 +1801,10 @@ function normalizeRankingModelResult(
     .map(([name, probability]) => ({
       name,
       probability,
+      lift: rankingHeadLift(lifts[name], probability, thresholds.get(name)),
       readable: readable.has(name),
     }))
-    .sort((a, b) => b.probability - a.probability);
+    .sort(compareRankingHeads);
   return {
     key,
     roles: Array.isArray(value.roles)
