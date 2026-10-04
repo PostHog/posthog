@@ -10317,7 +10317,7 @@
         }
     },
     "project-create": {
-        "description": "Create a project in the caller's active organization. A project is a separate data container with its own API token, so use it to keep unrelated data apart, for example staging and production. Creating a project adds to the organization's plan usage, so always confirm the name with the user before calling this. The new project does not become active: call `switch-project` with the returned ID to work in it. The response carries the project API token, which is safe to put in client-side code.",
+        "description": "Create a project in the caller's active organization. A project is a separate data container with its own API token, so use it to keep unrelated data apart, for example staging and production. The organization's plan limits how many projects it can have, and the free plan allows only one. A deleted project that holds data still counts against the limit for 48 hours. Only organization admins can create projects, unless the organization lets members create them. Before you propose a new project, call `projects-get`. If the organization already has a project, tell the user about the plan limit and offer to use an existing project instead. Always confirm the name with the user before calling this. If this call fails because of the plan limit or the admin requirement, do not call it again. Tell the user to upgrade the plan or to ask an organization admin. The new project does not become active: call `switch-project` with the returned ID to work in it. The response carries the project API token, which is safe to put in client-side code.",
         "category": "Core",
         "feature": "core",
         "summary": "Create project",
