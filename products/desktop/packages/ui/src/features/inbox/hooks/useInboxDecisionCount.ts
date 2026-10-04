@@ -8,6 +8,7 @@ import {
 } from "@posthog/core/inbox/reportMembership";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { useInboxActiveSort } from "@posthog/ui/features/inbox/hooks/useInboxActiveSort";
 import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -32,6 +33,7 @@ export function useInboxDecisionCount(options?: {
   const priorityFilter = useInboxSignalsFilterStore((state) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : state.priorityFilter,
   );
+  const { createdWindow } = useInboxActiveSort();
   const isForYou = scope === INBOX_SCOPE_FOR_YOU;
   const teammateUuid = parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
@@ -50,6 +52,7 @@ export function useInboxDecisionCount(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
+      created_window: ignoreFilters ? undefined : (createdWindow ?? undefined),
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,

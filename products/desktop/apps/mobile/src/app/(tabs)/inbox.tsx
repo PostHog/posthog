@@ -134,6 +134,7 @@ export default function InboxScreen() {
   const hasActiveFilters =
     sourceProductFilter.length > 0 ||
     priorityFilter.length > 0 ||
+    createdWindow !== null ||
     statusFilter.length < INBOX_PIPELINE_STATUSES.length ||
     suggestedReviewerFilter.length > 0;
 
