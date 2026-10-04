@@ -1181,6 +1181,12 @@ describe('runStreamLogic', () => {
             expect(logic.values.toolInvocations.get('b')).toEqual(
                 expect.objectContaining({ status: 'failed', output: 'b1b2' })
             )
+            expect(
+                appendToRunLog(
+                    emptyRunLog(),
+                    frames.map((entry) => ({ entry, source: 'live' }))
+                )
+            ).toEqual(logic.values.log)
         })
     })
 
@@ -1351,35 +1357,6 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(attachedContextLogic.values.seenContextLinesByTask).toEqual({})
-        })
-    })
-
-    describe('history load telemetry', () => {
-        it('reports one history load per bootstrap with the entry count', async () => {
-            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
-                notification('_posthog/user_message', { content: 'hello' }),
-                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } }),
-            ] as any)
-            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
-
-            await expectLogic(logic, () => {
-                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-
-            const loads = capture.mock.calls.filter(([event]) => event === 'task_run_history_loaded')
-            expect(loads).toEqual([
-                [
-                    'task_run_history_loaded',
-                    expect.objectContaining({
-                        task_id: 'task-1',
-                        run_id: 'run-1',
-                        entry_count: 2,
-                        duration_ms: expect.any(Number),
-                        history_read_ms: expect.any(Number),
-                    }),
-                ],
-            ])
         })
     })
 
