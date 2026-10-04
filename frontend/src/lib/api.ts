@@ -204,7 +204,6 @@ import {
     TeamType,
     TwilioPhoneNumberType,
     UserBasicType,
-    UserInterviewType,
     UserType,
     WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
@@ -1201,15 +1200,6 @@ export class ApiRequest {
 
     public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
-    }
-
-    // # User interviews
-    public userInterviews(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_interviews')
-    }
-
-    public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.userInterviews(teamId).addPathComponent(id)
     }
 
     // # Users
@@ -4974,21 +4964,6 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
-        },
-    },
-
-    userInterviews: {
-        async list(): Promise<PaginatedResponse<UserInterviewType>> {
-            return await new ApiRequest().userInterviews().get()
-        },
-        async get(id: UserInterviewType['id']): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).get()
-        },
-        async update(
-            id: UserInterviewType['id'],
-            data: Pick<UserInterviewType, 'summary'>
-        ): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).update({ data })
         },
     },
 

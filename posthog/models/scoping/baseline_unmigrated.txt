@@ -99,7 +99,6 @@ InsightVariable
 InsightViewed
 Integration
 IntegrationRepositoryCacheEntry
-IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
@@ -179,8 +178,6 @@ TraceReview
 TraceReviewScore
 UploadedMedia
 UserHomeSettings
-UserInterview
-UserInterviewTopic
 UserProductList
 UserRepoPreference
 UserScenePersonalisation
