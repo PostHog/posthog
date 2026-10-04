@@ -29,6 +29,7 @@ class TestRunSandboxReview:
         mock_session = AsyncMock()
         parsed = DummyModel(result="ok")
         mock_start = AsyncMock(return_value=(mock_session, parsed))
+        attachments = {"review.diff": "saved patch contents"}
 
         with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
             result = await run_sandbox_review(
@@ -40,6 +41,7 @@ class TestRunSandboxReview:
                 system_prompt="system prompt",
                 model_to_validate=DummyModel,
                 step_name="split",
+                initial_text_attachments=attachments,
             )
 
         assert result is parsed
@@ -58,6 +60,7 @@ class TestRunSandboxReview:
         assert call_kwargs["ai_stage"] == "split"
         # Without the retry prompt a prose first turn fails the whole activity and reruns the review.
         assert call_kwargs["json_retry_prompt"] == JSON_RETRY_PROMPT
+        assert call_kwargs["initial_text_attachments"] == attachments
 
     @pytest.mark.asyncio
     async def test_context_built_from_explicit_identity(self) -> None:

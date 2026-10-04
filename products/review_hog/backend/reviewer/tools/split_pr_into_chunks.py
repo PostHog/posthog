@@ -12,6 +12,9 @@ from products.review_hog.backend.reviewer.tools.prompt_helpers import format_pr_
 
 logger = logging.getLogger(__name__)
 
+CHUNKING_DIFF_ATTACHMENT = "review.diff"
+CHUNKING_CONTEXT_ATTACHMENT = "review-context.txt"
+
 CHUNKING_SYSTEM_PROMPT = """You are a code review assistant analyzing GitHub PRs and organizing them into logical chunks.
 Focus on:
 - Understanding file relationships and dependencies
@@ -75,19 +78,59 @@ def reconcile_chunks(chunks: ChunksList, pr_files: list[PRFile]) -> ChunksList:
     return ChunksList(chunks=kept_chunks)
 
 
+def _format_chunking_diff_file(pr_file: PRFile) -> str:
+    sections = [f"=== File {json.dumps(pr_file.filename)} [{pr_file.status}] ==="]
+    for change in pr_file.changes:
+        sections.append(f"@@ {json.dumps(change.model_dump(exclude={'code'}))} @@\n{change.code}")
+    if not pr_file.changes:
+        sections.append("No patch content is available in the saved snapshot for this file.")
+    return "\n".join(sections) + "\n\n"
+
+
+def generate_chunking_attachments(
+    pr_metadata: PRMetadata,
+    pr_comments: list[PRComment],
+    pr_files: list[PRFile],
+) -> dict[str, str]:
+    comments = json.dumps([comment.model_dump(exclude={"id", "created_at"}) for comment in pr_comments], indent=2)
+    context = (
+        f"## PR intent (title + description)\n{format_pr_intent(pr_metadata)}\n\n## PR comments\n```\n{comments}\n```"
+    )
+    return {
+        CHUNKING_CONTEXT_ATTACHMENT: context,
+        CHUNKING_DIFF_ATTACHMENT: "".join(_format_chunking_diff_file(pr_file) for pr_file in pr_files),
+    }
+
+
 def generate_chunking_prompt(
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
+    *,
+    use_attachments: bool = False,
 ) -> str:
     """Render the chunking prompt for the sandbox agent (only reached for PRs over the single-chunk size)."""
     prompt_template, output_schema = load_template_and_schema("chunking")
+    files: list[dict[str, object]] = []
+    next_line = 1
+    for pr_file in pr_files:
+        if use_attachments:
+            file_info = pr_file.model_dump(mode="json", exclude={"changes"})
+            line_count = _format_chunking_diff_file(pr_file).count("\n")
+            file_info.update(diff_start_line=next_line, diff_line_count=line_count)
+            next_line += line_count
+        else:
+            file_info = pr_file.model_dump(mode="json")
+        files.append(file_info)
     return prompt_template.render(
-        PR_INTENT=format_pr_intent(pr_metadata),
-        PR_COMMENTS=json.dumps(
-            [x.model_dump(mode="json", exclude={"id", "created_at"}) for x in pr_comments], indent=2
-        ),
-        PR_FILES=json.dumps([x.model_dump(mode="json") for x in pr_files], indent=2),
+        USE_ATTACHMENTS=use_attachments,
+        DIFF_ATTACHMENT=CHUNKING_DIFF_ATTACHMENT,
+        CONTEXT_ATTACHMENT=CHUNKING_CONTEXT_ATTACHMENT,
+        PR_INTENT="" if use_attachments else format_pr_intent(pr_metadata),
+        PR_COMMENTS=""
+        if use_attachments
+        else json.dumps([x.model_dump(mode="json", exclude={"id", "created_at"}) for x in pr_comments], indent=2),
+        PR_FILES=json.dumps(files, indent=2),
         CHUNK_TARGET=CHUNK_TARGET_ADDITIONS,
         CHUNK_SOFT_MAX=CHUNK_SOFT_MAX_ADDITIONS,
         OUTPUT_SCHEMA=output_schema,

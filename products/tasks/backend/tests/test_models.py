@@ -30,6 +30,7 @@ from products.tasks.backend.models import (
     TaskOwnershipChangedError,
     TaskRun,
     TaskThreadMessage,
+    TaskWorkflowDispatch,
     bump_task_activity,
 )
 
@@ -126,6 +127,47 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
         self.assertEqual(task_run.task, task)
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+
+    @parameterized.expand(
+        [
+            ("upload", "write", None, RuntimeError, "storage unavailable"),
+            ("retention", "tag", None, RuntimeError, "storage unavailable"),
+            ("run_creation", None, datetime(2026, 1, 1), ValueError, "timezone-aware"),
+        ]
+    )
+    def test_create_and_run_removes_initial_attachments_on_failure(
+        self,
+        _name: str,
+        failing_operation: str | None,
+        scheduled_at: datetime | None,
+        expected_error: type[Exception],
+        expected_message: str,
+    ) -> None:
+        user = User.objects.create(email="attachments@example.com")
+        with (
+            patch("posthog.storage.object_storage.write") as write,
+            patch("posthog.storage.object_storage.tag") as tag,
+            patch("posthog.storage.object_storage.delete") as delete,
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as workflow,
+        ):
+            if failing_operation is not None:
+                operation = write if failing_operation == "write" else tag
+                operation.side_effect = [None, RuntimeError("storage unavailable")]
+            with self.assertRaisesRegex(expected_error, expected_message):
+                Task.create_and_run(
+                    team=self.team,
+                    title="Read attachments",
+                    description="Read the attached files",
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    user_id=user.id,
+                    scheduled_at=scheduled_at,
+                    initial_text_attachments={"first.diff": "+first\n", "second.diff": "+second\n"},
+                )
+
+        self.assertFalse(TaskRun.objects.filter(team=self.team).exists())
+        self.assertFalse(TaskWorkflowDispatch.objects.for_team(self.team.id).exists())
+        workflow.assert_not_called()
+        self.assertEqual(delete.call_count, 2)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_accepts_a_repository_list(self, mock_execute_workflow):

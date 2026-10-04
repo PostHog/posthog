@@ -133,6 +133,7 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     count_reviewable_additions,
+    generate_chunking_attachments,
     generate_chunking_prompt,
     plan_deterministic_chunks,
     reconcile_chunks,
@@ -854,12 +855,11 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
         await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
         return [chunk.chunk_id for chunk in planned.chunks]
 
-    prompt = generate_chunking_prompt(snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files)
-    # The chunking prompt is fully self-contained (metadata + comments + patches inline), so within
-    # the one-shot gate a direct gateway call replaces the sandbox; a PR too large to chunk in one
-    # shot keeps the agentic sandbox, which can navigate the repo instead of holding it all at once.
     additions = count_reviewable_additions(snapshot.pr_files)
     use_oneshot = bool(CHUNKING_ONESHOT_MAX_ADDITIONS) and additions <= CHUNKING_ONESHOT_MAX_ADDITIONS
+    prompt = generate_chunking_prompt(
+        snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files, use_attachments=not use_oneshot
+    )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if use_oneshot:
             chunks = await run_oneshot_review(
@@ -884,6 +884,9 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
                 runtime_adapter=CHUNKING_RUNTIME_ADAPTER,
                 model=CHUNKING_MODEL,
                 reasoning_effort=CHUNKING_REASONING_EFFORT,
+                initial_text_attachments=generate_chunking_attachments(
+                    snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files
+                ),
             )
     # The LLM's "every file in exactly one chunk" instruction is enforced in code, not trusted:
     # an omitted file would silently skip review in every downstream pass.

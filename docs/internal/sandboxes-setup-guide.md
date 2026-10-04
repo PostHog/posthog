@@ -226,6 +226,13 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
+### ReviewHog diff inputs
+
+For sandbox chunking, ReviewHog attaches the saved diff as a plain text file.
+The prompt lists the changed files and their line ranges in the attachment, so the agent can read relevant ranges without loading the whole diff into the conversation.
+The attachment comes from the saved PR snapshot for that review head.
+Smaller PRs use the single-chunk or direct LLM paths, and every reviewed file must appear in exactly one chunk.
+
 ### ReviewHog project access
 
 The boolean `review-hog` feature flag controls the Code review UI and all project ReviewHog APIs,

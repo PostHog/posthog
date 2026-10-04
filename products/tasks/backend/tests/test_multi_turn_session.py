@@ -30,7 +30,7 @@ from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner impor
     _EMPTY_TURN_RETRY_NUDGE,
     MultiTurnSession,
 )
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_error_line,
@@ -1357,6 +1357,82 @@ class TestMultiTurnSessionStartBranch:
         # held in memory by the in-process Task object.
         persisted = await sync_to_async(TaskRun.objects.get)(id=session.task_run.id)
         assert persisted.branch == branch
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("async_dispatch", [False, True])
+    async def test_initial_text_attachments_are_ready_before_dispatch(self, async_dispatch: bool) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, posthog_mcp_scopes="read_only")
+        attachments = {"review.diff": "diff --git a/example.py b/example.py\n+print('café')\n"}
+        stored: dict[str, bytes] = {}
+
+        def write_attachment(storage_path: str, content: bytes, _metadata: dict[str, str]) -> None:
+            assert not TaskRun.objects.filter(team=team).exists()
+            assert not TaskWorkflowDispatch.objects.for_team(team.id).exists()
+            stored[storage_path] = content
+
+        def start_workflow(**kwargs: object) -> None:
+            run_id = kwargs["run_id"]
+            assert isinstance(run_id, str)
+            run = TaskRun.objects.get(id=run_id)
+            assert run.state["pending_user_artifact_ids"] == [artifact["id"] for artifact in run.artifacts]
+            assert all(artifact["storage_path"] in stored for artifact in run.artifacts)
+            assert kwargs["posthog_mcp_scopes"] == "read_only"
+            assert kwargs["workflow_id_prefix"] == "attachment-test"
+            assert kwargs["create_pr"] is False
+
+        with (
+            patch("posthog.storage.object_storage.write", side_effect=write_attachment),
+            patch("posthog.storage.object_storage.tag") as tag,
+            patch(
+                "products.tasks.backend.feature_flags.is_workflow_dispatch_async_enabled", return_value=async_dispatch
+            ),
+            patch("products.tasks.backend.feature_flags.is_workflow_dispatch_shadow_enabled", return_value=False),
+            patch(
+                "products.tasks.backend.temporal.client.execute_task_processing_workflow", side_effect=start_workflow
+            ) as workflow,
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=AsyncMock(
+                    return_value=TurnPollResult(
+                        last_message='{"value":"ok"}', full_log=None, total_lines=1, printed_lines=1
+                    )
+                ),
+            ),
+        ):
+            session, result = await MultiTurnSession.start(
+                prompt="Read the attached review.diff",
+                context=context,
+                model=_Resp,
+                workflow_id_prefix="attachment-test",
+                output_schema=_Resp.model_json_schema(),
+                initial_text_attachments=attachments,
+            )
+        run = await sync_to_async(TaskRun.objects.get)(id=session.task_run.id)
+        artifact = run.artifacts[0]
+        expected_content = attachments["review.diff"].encode("utf-8")
+        assert result.value == "ok"
+        assert stored[artifact["storage_path"]] == expected_content
+        assert artifact["name"] == "review.diff"
+        assert artifact["size"] == len(expected_content)
+        assert f"/team_{team.id}/task_{session.task.id}/staged/" in artifact["storage_path"]
+        assert run.state["pending_user_message"] == "Read the attached review.diff"
+        assert run.state["pending_user_artifact_ids"] == [artifact["id"]]
+        assert run.state["caller_ends_run"] is True
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == "read_only"
+        assert run.state["pending_dispatch"]["workflow_id_prefix"] == "attachment-test"
+        assert expected_content.decode() not in json.dumps(run.state)
+        tag.assert_called_once_with(artifact["storage_path"], {"ttl_days": "30", "team_id": str(team.id)})
+        assert workflow.call_count == (0 if async_dispatch else 1)
+        if async_dispatch:
+            dispatch = await sync_to_async(lambda: TaskWorkflowDispatch.objects.for_team(team.id).get(task_run=run))()
+            assert dispatch.workflow_id == run.workflow_id
+            assert dispatch.payload["posthog_mcp_scopes"] == "read_only"
+            assert expected_content.decode() not in json.dumps(dispatch.payload)
 
 
 class TestMultiTurnSessionStartCleanup:

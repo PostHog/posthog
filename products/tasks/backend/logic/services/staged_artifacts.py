@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 from django.conf import settings
 from django.utils import timezone
@@ -155,3 +157,41 @@ def tag_task_artifact(storage_path: str, *, ttl_days: str, team_id: int, raise_o
         )
         if raise_on_error:
             raise
+
+
+def delete_task_artifact_files(storage_paths: Iterable[str]) -> None:
+    for storage_path in storage_paths:
+        try:
+            object_storage.delete(storage_path)
+        except Exception:
+            logger.exception("task_artifact.cleanup_failed", storage_path=storage_path)
+
+
+def upload_task_text_attachments(task: Task, attachments: Mapping[str, str]) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    storage_paths: list[str] = []
+    try:
+        for name, text in attachments.items():
+            artifact_id = str(uuid4())
+            safe_name = get_safe_artifact_name(name)
+            storage_path = build_task_staged_artifact_storage_path(task, artifact_id, safe_name)
+            content = text.encode("utf-8")
+            content_type = "text/plain; charset=utf-8"
+            storage_paths.append(storage_path)
+            object_storage.write(storage_path, content, {"ContentType": content_type})
+            tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id, raise_on_error=True)
+            artifacts.append(
+                build_task_artifact_entry(
+                    artifact_id=artifact_id,
+                    name=safe_name,
+                    artifact_type="user_attachment",
+                    source="user_attachment",
+                    size=len(content),
+                    content_type=content_type,
+                    storage_path=storage_path,
+                )
+            )
+    except Exception:
+        delete_task_artifact_files(storage_paths)
+        raise
+    return artifacts

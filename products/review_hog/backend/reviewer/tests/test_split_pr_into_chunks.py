@@ -12,9 +12,12 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNK_TARGET_ADDITIONS,
     SINGLE_CHUNK_GATE_ADDITIONS,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
+    CHUNKING_CONTEXT_ATTACHMENT,
+    CHUNKING_DIFF_ATTACHMENT,
+    generate_chunking_attachments,
     generate_chunking_prompt,
     plan_deterministic_chunks,
     reconcile_chunks,
@@ -55,21 +58,81 @@ class TestGenerateChunkingPrompt:
         assert match, f"missing '{heading}' block"
         return match.group(1)
 
-    def test_prompt_embeds_files_and_comments_as_json_arrays(self, pr_metadata: PRMetadata) -> None:
-        # The chunker is told to size chunks from each file's `additions` field, so the file/comment
-        # blocks must be one parseable JSON array — not Python's str(list) repr of pre-encoded strings.
+    @pytest.mark.parametrize("use_attachments", [False, True])
+    def test_prompt_embeds_files_and_comments_as_json_arrays(
+        self, pr_metadata: PRMetadata, use_attachments: bool
+    ) -> None:
+        code = "\n".join(f"added_value_{i} = {i}" for i in range(20_000))
+        pr_metadata = pr_metadata.model_copy(update={"body": "PR description\n" * 1000})
         comments = [
-            PRComment(id=7, path="a.py", line=3, body="prior note", diff_hunk="@@", user="hedgehog", created_at="c")
+            PRComment(
+                id=7, path="a.py", line=3, body="prior note\n" * 1000, diff_hunk="@@", user="hedgehog", created_at="c"
+            )
         ]
-        files = [_file("a.py", additions=12, deletions=1), _file("b.py", additions=30)]
+        files = [
+            PRFile(
+                filename="a.py",
+                status="modified",
+                additions=20_000,
+                deletions=1,
+                changes=[
+                    PRFileUpdate(type="addition", new_start_line=1, new_end_line=20_000, code=code),
+                    PRFileUpdate(type="deletion", old_start_line=4, old_end_line=4, code="deleted_value = 0"),
+                    PRFileUpdate(
+                        type="context",
+                        old_start_line=5,
+                        old_end_line=5,
+                        new_start_line=20_001,
+                        new_end_line=20_001,
+                        code="unchanged_value = 1",
+                    ),
+                ],
+            ),
+            PRFile(
+                filename='removed "file".py',
+                status="removed",
+                additions=0,
+                deletions=1,
+                changes=[PRFileUpdate(type="deletion", old_start_line=1, old_end_line=1, code="removed_value = 0")],
+            ),
+            _file("unavailable.py", additions=30),
+        ]
 
-        prompt = generate_chunking_prompt(pr_metadata, comments, files)
+        prompt = generate_chunking_prompt(pr_metadata, comments, files, use_attachments=use_attachments)
 
         parsed_files = json.loads(self._fenced_block(prompt, "PR files"))
-        assert [(f["filename"], f["additions"]) for f in parsed_files] == [("a.py", 12), ("b.py", 30)]
-        parsed_comments = json.loads(self._fenced_block(prompt, "PR comments"))
-        assert [c["body"] for c in parsed_comments] == ["prior note"]
-        assert "id" not in parsed_comments[0]
+        assert [(f["filename"], f["additions"]) for f in parsed_files] == [
+            ("a.py", 20_000),
+            ('removed "file".py', 0),
+            ("unavailable.py", 30),
+        ]
+        if use_attachments:
+            attachments = generate_chunking_attachments(pr_metadata, comments, files)
+            assert code not in prompt
+            assert pr_metadata.body not in prompt
+            assert comments[0].body not in prompt
+            assert len(prompt) < 20_000
+            assert pr_metadata.body in attachments[CHUNKING_CONTEXT_ATTACHMENT]
+            parsed_comments = json.loads(self._fenced_block(attachments[CHUNKING_CONTEXT_ATTACHMENT], "PR comments"))
+            assert parsed_comments[0]["body"] == comments[0].body
+            assert "id" not in parsed_comments[0]
+            diff = attachments[CHUNKING_DIFF_ATTACHMENT]
+            assert len(diff.encode()) > 256 * 1024
+            lines = diff.splitlines(keepends=True)
+            for source_file, file_info in zip(files, parsed_files, strict=True):
+                assert "changes" not in file_info
+                start = file_info["diff_start_line"] - 1
+                section = "".join(lines[start : start + file_info["diff_line_count"]])
+                assert json.dumps(source_file.filename) in section
+                for change in source_file.changes:
+                    assert change.code in section
+                    assert json.dumps(change.model_dump(exclude={"code"})) in section
+            assert "No patch content is available" in diff
+        else:
+            parsed_comments = json.loads(self._fenced_block(prompt, "PR comments"))
+            assert [c["body"] for c in parsed_comments] == [comments[0].body]
+            assert "id" not in parsed_comments[0]
+            assert parsed_files[0]["changes"][0]["code"] == code
 
     def test_chunks_list_rejects_duplicate_chunk_ids(self) -> None:
         # Fan-out and resume resolve chunks by id keeping the first match, so a duplicate id from the

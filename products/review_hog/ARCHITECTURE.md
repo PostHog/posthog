@@ -278,8 +278,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    `CHUNKING_ONESHOT_MAX_ADDITIONS` (5000 reviewable added lines) the call is a **one-shot gateway call**
    (`run_oneshot_review`, Sonnet 5 @ xhigh, structured outputs — the prompt embeds metadata + comments +
    patches inline, so no repo access is needed); above the gate it stays a sandbox call, pinned to the
-   same Sonnet 5 @ xhigh via the `CHUNKING_*` constants (identical prompt — the sandbox only adds repo
-   access the agent may not use). Returns the
+   same Sonnet 5 @ xhigh via the `CHUNKING_*` constants.
+   The sandbox receives the saved diff as a plain text attachment, with a file manifest and attachment line ranges in the prompt.
+   The agent reads relevant ranges from the attachment; both paths use the same saved PR snapshot and require each input file in exactly one chunk.
+   Returns the
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
 5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
    concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),

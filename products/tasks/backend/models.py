@@ -3,7 +3,7 @@ import re
 import copy
 import json
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -775,6 +775,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
+        initial_artifacts: list[dict[str, Any]] | None = None,
     ) -> "TaskRun":
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
             raise ValueError("scheduled_at must be timezone-aware")
@@ -889,6 +890,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 **({"environment": environment} if environment else {}),
                 state=state,
                 branch=branch,
+                artifacts=initial_artifacts or [],
             )
 
             def emit_created_events() -> None:
@@ -1497,6 +1499,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        initial_text_attachments: Mapping[str, str] | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1569,6 +1572,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # whether or not the run clones, so a repo-pinned caller that asks for read access
             # gets a checkout it can read and never write capability it did not ask for.
             run_extra_state["github_read_access"] = True
+        initial_artifacts = None
+        if initial_text_attachments:
+            from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — breaks the models/staged_artifacts import cycle
+                delete_task_artifact_files,
+                upload_task_text_attachments,
+            )
+
+            # Upload before a queued run exists so dispatch recovery cannot start without its files.
+            initial_artifacts = upload_task_text_attachments(task, initial_text_attachments)
+            run_extra_state["pending_user_message"] = pending_user_message or description
+            run_extra_state["pending_user_artifact_ids"] = [artifact["id"] for artifact in initial_artifacts]
         # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
         # reconciler can re-dispatch faithfully if the workflow start is ever lost.
         run_extra_state["pending_dispatch"] = {
@@ -1580,33 +1594,42 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         }
 
         with transaction.atomic():
-            task_run = task.create_run(
-                mode=mode,
-                extra_state=run_extra_state or None,
-                branch=branch,
-                acting_user_id=user_id,
-                scheduled_at=scheduled_at,
-            )
-
-            if start_workflow and scheduled_at is None:
-                # Defer the fire-and-forget workflow start until the creating transaction commits.
-                # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
-                # workflow's first activity can read the TaskRun before its row is visible and fail.
-                # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
-                # are unaffected. If the callback is lost (process recycled in the commit->callback
-                # window, or an earlier on_commit hook raising), the run stays QUEUED — the periodic
-                # reconciler re-dispatches it from the persisted pending_dispatch above.
-                execute_after_commit(lambda: observe_task_run_dispatch_callback(task_run, phase="scheduled"))
-                enqueue_or_start_workflow(
-                    task_run,
-                    options=WorkflowDispatchOptions(
-                        user_id=user_id,
-                        create_pr=create_pr,
-                        slack_thread_context=_normalize_slack_context(slack_thread_context),
-                        posthog_mcp_scopes=posthog_mcp_scopes,
-                        workflow_id_prefix=workflow_id_prefix,
-                    ),
+            # Keep the try inside the atomic block. Each failure it catches rolls back the run,
+            # so no run refers to the uploaded files. A dispatch failure after the commit must keep
+            # the files, because the reconciler re-dispatches that run.
+            try:
+                task_run = task.create_run(
+                    mode=mode,
+                    extra_state=run_extra_state or None,
+                    branch=branch,
+                    acting_user_id=user_id,
+                    scheduled_at=scheduled_at,
+                    initial_artifacts=initial_artifacts,
                 )
+
+                if start_workflow and scheduled_at is None:
+                    # Defer the fire-and-forget workflow start until the creating transaction commits.
+                    # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
+                    # workflow's first activity can read the TaskRun before its row is visible and fail.
+                    # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
+                    # are unaffected. If the callback is lost (process recycled in the commit->callback
+                    # window, or an earlier on_commit hook raising), the run stays QUEUED — the periodic
+                    # reconciler re-dispatches it from the persisted pending_dispatch above.
+                    execute_after_commit(lambda: observe_task_run_dispatch_callback(task_run, phase="scheduled"))
+                    enqueue_or_start_workflow(
+                        task_run,
+                        options=WorkflowDispatchOptions(
+                            user_id=user_id,
+                            create_pr=create_pr,
+                            slack_thread_context=_normalize_slack_context(slack_thread_context),
+                            posthog_mcp_scopes=posthog_mcp_scopes,
+                            workflow_id_prefix=workflow_id_prefix,
+                        ),
+                    )
+            except Exception:
+                if initial_artifacts:
+                    delete_task_artifact_files(artifact["storage_path"] for artifact in initial_artifacts)
+                raise
 
         return task
 

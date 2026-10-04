@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import TypeVar
 
 from pydantic import BaseModel
@@ -26,6 +27,7 @@ async def _run_prompt(
     branch: str | None = None,
     step_name: str = "",
     workflow_id_prefix: str | None = None,
+    initial_text_attachments: Mapping[str, str] | None = None,
 ) -> _ModelT:
     """Spawn a single-turn sandbox agent and return its validated end-of-turn.
 
@@ -52,6 +54,7 @@ async def _run_prompt(
             internal=True,
             ai_stage=step_name or None,
             json_retry_prompt=JSON_RETRY_PROMPT,
+            initial_text_attachments=initial_text_attachments,
         )
     except Exception:
         logger.exception("Sandbox execution failed")
@@ -77,6 +80,7 @@ async def run_sandbox_review(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
+    initial_text_attachments: Mapping[str, str] | None = None,
 ) -> _ModelT:
     """Run one review step in a sandbox and return its validated output.
 
@@ -115,6 +119,7 @@ async def run_sandbox_review(
         branch=branch,
         step_name=step_name,
         workflow_id_prefix=workflow_id_prefix,
+        initial_text_attachments=initial_text_attachments,
     )
 
 
