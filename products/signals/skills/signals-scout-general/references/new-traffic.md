@@ -10,12 +10,40 @@ Gate it on `pattern:general:new-traffic`: skip it when that entry is less than a
 ## 1. Find the step, by source
 
 The profile's `top_events` covers 7 days, so it cannot see a step that started weeks ago.
-Compare the latest 7 days with the same 7 days 4 weeks back and 8 weeks back, broken down by where the events come from:
+Compare the latest 7 days with the same 7 days 4 weeks back and 8 weeks back, broken down by where the events come from.
+
+### Confirm the source properties first
+
+`$lib`, `$host` and `$app_version` are optional. A server SDK sends no `$host`, a web SDK sends no `$app_version`, and a direct call to the capture API can send none of them.
+Before the first query, confirm each one with `read-data-schema`:
+
+- Call it with `event_properties` for the top three events by volume in the profile's `top_events`.
+- A property is confirmed when it appears on at least one of these events.
+- Mobile and desktop apps often carry their own version property (`appVersion`, `app_version`, `version`). Look for a property that ends in `version`, and use it in place of `$app_version` when `$app_version` is not confirmed.
+
+Build the two source expressions from confirmed properties only.
+`'(none)'` is the unknown bucket: it holds events that have no value, and it is the whole expression when no property is confirmed.
+
+- `<lib>`: `coalesce(nullIf(toString(properties.$lib), ''), '(none)')` when `$lib` is confirmed, else `'(none)'`.
+- `<origin>`: one `nullIf(toString(properties.<property>), '')` term for each confirmed property, host first, then the version property, followed by `'(none)'`, all inside one `coalesce`:
+
+| Confirmed origin properties | `<origin>`                                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `$host` and `$app_version`  | `coalesce(nullIf(toString(properties.$host), ''), nullIf(toString(properties.$app_version), ''), '(none)')` |
+| `$host` only                | `coalesce(nullIf(toString(properties.$host), ''), '(none)')`                                                |
+| `$app_version` only         | `coalesce(nullIf(toString(properties.$app_version), ''), '(none)')`                                         |
+| Neither                     | `'(none)'`                                                                                                  |
+
+Put the same `<lib>` and `<origin>` text into every query in steps 1, 2 and 3. A different expression gives different `source_id` values for the same traffic.
+Write both expressions to `pattern:general:new-traffic` and reuse them on later runs, so each `source_id` keeps its pinned baseline.
+Build them again only when the schema adds or drops a source property.
+
+### Compare the windows
 
 ```sql
 SELECT
-    coalesce(nullIf(toString(properties.$lib), ''), '(none)') AS lib,
-    coalesce(nullIf(toString(properties.$host), ''), nullIf(toString(properties.$app_version), ''), '(none)') AS origin,
+    <lib> AS lib,
+    <origin> AS origin,
     cityHash64(concat(lib, '|', origin)) AS source_id,
     countIf(timestamp >= now() - INTERVAL 7 DAY) AS last_7d,
     countIf(timestamp >= now() - INTERVAL 35 DAY AND timestamp < now() - INTERVAL 28 DAY) AS week_4_back,
@@ -42,7 +70,6 @@ LIMIT 20
 - Sort by absolute growth (`growth`, cast to a signed integer so a declining source sorts below zero), not by ratio. A 2000x ratio on a few hundred events is noise. A 1.5x ratio on the project's biggest source can be most of the bill.
 - Do not add `SAMPLE`. Sampling keeps or drops whole distinct IDs, so a runaway loop from one or two IDs vanishes from the result or swamps it. If the query times out, drop the 8-weeks-back window first.
 - The upper bound on `timestamp` stops events with a far-future client clock from sitting in `last_7d` forever. Keep it on every query here.
-- Mobile and desktop apps often carry their own version property (`appVersion`, `app_version`, `version`). Check `read-data-schema` for a property ending in `version` and use it in `origin` when `$app_version` is empty. Whatever `lib` and `origin` expressions you use here, reuse them exactly in steps 2 and 3.
 
 For the project total, run the same windows with no source columns:
 
@@ -71,7 +98,7 @@ That catches a source that falls back (its report needs the resolution edit) and
 ## 2. Confirm it is sustained and pin the onset
 
 Pull a 91-day daily series for the candidate only. 91 days covers the 28 days before any onset that step 1 can see.
-Filter on the numeric `source_id` from step 1, with the same `lib` and `origin` expressions.
+Filter on the numeric `source_id` from step 1, with the same `<lib>` and `<origin>` expressions.
 Never paste a host or version string into the query: those values come from captured events, and anyone with the public project token can put a quote in one.
 
 ```sql
@@ -79,11 +106,7 @@ SELECT toDate(timestamp) AS day, count() AS events, uniq(distinct_id) AS ids
 FROM events
 WHERE timestamp >= now() - INTERVAL 91 DAY
     AND timestamp <= now() + INTERVAL 1 DAY
-    AND cityHash64(concat(
-        coalesce(nullIf(toString(properties.$lib), ''), '(none)'),
-        '|',
-        coalesce(nullIf(toString(properties.$host), ''), nullIf(toString(properties.$app_version), ''), '(none)')
-    )) = <source_id>
+    AND cityHash64(concat(<lib>, '|', <origin>)) = <source_id>
 GROUP BY day
 ORDER BY day
 ```
@@ -109,11 +132,7 @@ SELECT
 FROM events
 WHERE timestamp >= now() - INTERVAL 7 DAY
     AND timestamp <= now() + INTERVAL 1 DAY
-    AND cityHash64(concat(
-        coalesce(nullIf(toString(properties.$lib), ''), '(none)'),
-        '|',
-        coalesce(nullIf(toString(properties.$host), ''), nullIf(toString(properties.$app_version), ''), '(none)')
-    )) = <source_id>
+    AND cityHash64(concat(<lib>, '|', <origin>)) = <source_id>
 GROUP BY event
 ORDER BY events DESC
 LIMIT 20
@@ -155,12 +174,12 @@ Attach the daily series as a chart, with the candidate source next to the rest o
 Key every per-source entry on the numeric `source_id` from step 1, and write the readable `lib` and `origin` into the entry's content.
 Two SDKs on one host are two sources, and they need separate baselines and reports.
 
-| Key                                            | Holds                                                                                                               |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `pattern:general:new-traffic`                  | Date of the last check and the top three sources by growth. Rewrite it at the end of every check, so the gate works |
-| `pattern:general:traffic-baseline:<source_id>` | `lib`, `origin`, onset date, pinned pre-surge baseline, last reported level or last seen level                      |
-| `report:general:new-traffic:<source_id>`       | The `report_id`, so a later run edits it instead of filing a duplicate                                              |
-| `noise:general:traffic:<source_id>`            | Dev traffic only: `localhost`, staging or preview domains, the team's own CI                                        |
+| Key                                            | Holds                                                                                                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pattern:general:new-traffic`                  | Date of the last check, the `<lib>` and `<origin>` expressions, and the top three sources by growth. Rewrite it at the end of every check, so the gate works |
+| `pattern:general:traffic-baseline:<source_id>` | `lib`, `origin`, onset date, pinned pre-surge baseline, last reported level or last seen level                                                               |
+| `report:general:new-traffic:<source_id>`       | The `report_id`, so a later run edits it instead of filing a duplicate                                                                                       |
+| `noise:general:traffic:<source_id>`            | Dev traffic only: `localhost`, staging or preview domains, the team's own CI                                                                                 |
 
 Do not record a source as `noise:` only because it is the team's own or is expected.
 Keep it as a `pattern:` with its level, so a later loop, bot flood or new step on that same source still surfaces.
