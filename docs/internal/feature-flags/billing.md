@@ -227,6 +227,17 @@ The usage report task queries ClickHouse for aggregated billing data.
 
 **Source file:** `posthog/tasks/usage_report.py`
 
+Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
+Each counter's feature flag selects `legacy`, `both`, or `realtime`.
+A counter in `RECORD_UNDERCOUNTS` resolves `realtime` to `both`, because its usage records have a known undercount.
+`legacy` queries billing events. `both` queries billing events and `billing_usage_records`, and keeps the legacy count authoritative.
+`realtime` uses the usage record count. A report for a complete day also queries billing events, for the comparison. Each caller states whether its period is a complete day. The daily report and finalized usage reports v2 runs pass a complete day. Intraday usage reports v2 runs and quota limiting pass a partial day and skip that query.
+Reports retain both totals in `counter_comparisons` for every counter that ran both queries. Both totals count each team under its current organization, the same as the report fields. A failed comparison query omits that counter's pair. A failure in a query needed for normal report fields still fails the report.
+The usage record query checks each counter's unit before returning totals, so incompatible units cannot be combined. A unit mismatch fails the record query, with the same failure behavior as a query error.
+Removing the complete-day legacy query will be a later code change.
+The mode selects the authoritative count for every caller and time window.
+Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
+
 ### Billable calculation
 
 Local evaluation requests are weighted 10x compared to decide requests:
@@ -242,7 +253,7 @@ This reflects the higher resource cost of local evaluation requests, which retur
 
 ### Token validation
 
-Queries filter events by the billing token to ensure only legitimate usage events are counted:
+Legacy queries filter events by the billing token to ensure only legitimate usage events are counted:
 
 ```sql
 AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
