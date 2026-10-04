@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from posthog.llm.gateway_client import team_distinct_id, team_trace_id
+import httpx
+from anthropic import APIStatusError as AnthropicAPIStatusError
+from openai import APIStatusError as OpenAIAPIStatusError
+from parameterized import parameterized
+
+from posthog.llm.gateway_client import TransientGatewayError, team_distinct_id, team_trace_id
 from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_ENRICHMENT_BATCHES,
@@ -194,6 +199,26 @@ class TestGenerateJsonCompletion:
             generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
 
         assert not isinstance(excinfo.value, TruncatedCompletionError)
+
+    @parameterized.expand(
+        [
+            ("anthropic_bad_gateway", AnthropicAPIStatusError, 502, True),
+            ("openai_bad_gateway", OpenAIAPIStatusError, 502, True),
+            ("anthropic_rate_limited", AnthropicAPIStatusError, 429, False),
+            ("openai_bad_request", OpenAIAPIStatusError, 400, False),
+        ]
+    )
+    def test_a_gateway_5xx_is_separable_from_a_fault_of_ours(self, _name, error_class, status_code, is_transient):
+        client = self._client("{}")
+        request = httpx.Request("POST", "https://gateway.example/v1/messages")
+        client.complete.side_effect = error_class(
+            "upstream call failed", response=httpx.Response(status_code, request=request), body=None
+        )
+
+        with pytest.raises(Exception) as excinfo:
+            generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
+
+        assert isinstance(excinfo.value, TransientGatewayError) is is_transient
 
     def test_injected_client_is_used_as_is(self):
         client = self._client("{}")
