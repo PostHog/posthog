@@ -508,8 +508,8 @@ function fileMeta(file: ArtifactFile): string {
         : `${artifactDetail(file.latest)} · ${age}`
 }
 
-function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
-    const { files, selectedFile, isEditing } = useValues(taskRunArtifactsLogic({ taskId }))
+function ArtifactFileList({ taskId, size, label }: { taskId: string; size: 'xs' | 'sm'; label: string }): JSX.Element {
+    const { files, selectedFile, isEditing, todayPhone } = useValues(taskRunArtifactsLogic({ taskId }))
     const { selectArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     // Cited PostHog objects sit under their own label, after the files.
     const objects = files.filter((file) => !!postHogObjectRef(file.latest))
@@ -529,14 +529,15 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
         next.focus()
     }
     const renderRow = (file: ArtifactFile): JSX.Element => {
-        const selected = file.key === selectedFile?.key
+        // The phone list opens a file, so no row shows as the open one.
+        const selected = !todayPhone && file.key === selectedFile?.key
         return (
             <Item
                 key={file.key}
-                size="xs"
+                size={size}
                 aria-selected={selected}
                 // Roving tabindex: Tab enters the list on the open file, and the arrow keys move from there.
-                tabIndex={selected ? 0 : -1}
+                tabIndex={selected || (todayPhone && file === files[0]) ? 0 : -1}
                 data-file-key={file.key}
                 className={cn(
                     'w-full cursor-pointer rounded-md border-transparent text-left hover:bg-fill-hover',
@@ -559,13 +560,42 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
         )
     }
     return (
+        <div
+            role="listbox"
+            aria-label={label}
+            onKeyDown={onKeyDown}
+            className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5"
+        >
+            {files.filter((file) => !postHogObjectRef(file.latest)).map(renderRow)}
+            {objects.length > 0 && (
+                <div role="group" aria-label="In PostHog" className="flex flex-col gap-px">
+                    <Text
+                        size="xs"
+                        weight="medium"
+                        variant="muted"
+                        render={<span aria-hidden />}
+                        className="px-2 pt-3 pb-1"
+                    >
+                        In PostHog
+                    </Text>
+                    {objects.map(renderRow)}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
+    const { files, isEditing } = useValues(taskRunArtifactsLogic({ taskId }))
+    const objectCount = files.filter((file) => !!postHogObjectRef(file.latest)).length
+    return (
         <aside className="hidden w-64 shrink-0 flex-col border-r border-border @[52rem]/main-content:flex">
             <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
                 <Text size="xs" weight="medium" variant="muted" render={<span />}>
                     Files
                 </Text>
                 <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                    {files.length - objects.length}
+                    {files.length - objectCount}
                 </Text>
             </div>
             {isEditing && (
@@ -573,28 +603,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                     Save or cancel your changes to open another file.
                 </Text>
             )}
-            <div
-                role="listbox"
-                aria-label="Files"
-                onKeyDown={onKeyDown}
-                className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5"
-            >
-                {files.filter((file) => !postHogObjectRef(file.latest)).map(renderRow)}
-                {objects.length > 0 && (
-                    <div role="group" aria-label="In PostHog" className="flex flex-col gap-px">
-                        <Text
-                            size="xs"
-                            weight="medium"
-                            variant="muted"
-                            render={<span aria-hidden />}
-                            className="px-2 pt-3 pb-1"
-                        >
-                            In PostHog
-                        </Text>
-                        {objects.map(renderRow)}
-                    </div>
-                )}
-            </div>
+            <ArtifactFileList taskId={taskId} size="xs" label="Files" />
         </aside>
     )
 }
@@ -928,8 +937,10 @@ function PreviewBody({ taskId, mode }: { taskId: string; mode: PreviewMode }): J
 }
 
 function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
-    const { files, selectedArtifact, isEditing } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { setActiveTab, reportFullPageOpened } = useActions(taskRunArtifactsLogic({ taskId }))
+    const { files, selectedArtifact, isEditing, todayPhone, showArtifactList } = useValues(
+        taskRunArtifactsLogic({ taskId })
+    )
+    const { setActiveTab, reportFullPageOpened, closeArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     const [mode, setMode] = useState<PreviewMode>('rendered')
     const [expanded, setExpanded] = useState(false)
     // A new file opens in its rendered form, whatever the last file showed.
@@ -976,6 +987,9 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
             </Empty>
         )
     }
+    if (showArtifactList && !isEditing) {
+        return <ArtifactFileList taskId={taskId} size="sm" label="Artifacts" />
+    }
     const toolbar =
         selectedArtifact && !isEditing ? (
             <ArtifactToolbar
@@ -1004,6 +1018,14 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
         <div className="flex min-h-0 flex-1">
             <ArtifactNav taskId={taskId} />
             <section className="flex min-w-0 flex-1 flex-col">
+                {todayPhone && !isEditing && (
+                    <div className="flex h-10 shrink-0 items-center border-b border-border px-1">
+                        <Button size="sm" onClick={closeArtifact} data-attr="task-artifact-back">
+                            <IconChevronLeft />
+                            Artifacts
+                        </Button>
+                    </div>
+                )}
                 {toolbar}
                 {!expanded && <PreviewBody taskId={taskId} mode={mode} />}
             </section>
