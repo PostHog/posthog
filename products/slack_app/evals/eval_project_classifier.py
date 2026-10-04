@@ -81,12 +81,17 @@ MAIN = _project(team_id=40, integration_id=400, name="Main")
 PROJECTS = [STAGING, PRODUCTION, WEBSITE, AGENT_PLATFORM, MOBILE, MAIN]
 
 
-# A second workspace, shaped like the one the misroute happened in: thirteen projects,
+# A second workspace, shaped like the one the misroute happened in: over a dozen projects,
 # several of them plausible homes for work on an AI agent. Six clean candidates turned out
 # not to reproduce anything — the model answers those correctly with or without the rules
 # this suite is here to measure. The pull towards an owner only appears when several
 # owners are on offer and the message reads like their subject matter.
 AUTOPILOT = _project(team_id=46, integration_id=460, name="Autopilot")
+# A project named after the company's own site, and one named after an environment with a
+# prefix. A domain or an environment word that matches only part of either name has pulled
+# the model onto it.
+SITE_DEV = _project(team_id=53, integration_id=530, name="northwind.dev site")
+BILLING_PROD = _project(team_id=54, integration_id=540, name="billing-prod")
 CROWD = [
     MAIN,
     STAGING,
@@ -101,6 +106,8 @@ CROWD = [
     _project(team_id=50, integration_id=500, name="DevEx"),
     _project(team_id=51, integration_id=510, name="Demo"),
     _project(team_id=52, integration_id=520, name="Statuspage"),
+    SITE_DEV,
+    BILLING_PROD,
 ]
 
 WORKSPACES: dict[str, tuple[list[Integration], Integration]] = {"simple": (PROJECTS, MAIN), "crowded": (CROWD, MAIN)}
@@ -342,6 +349,21 @@ NO_ROUTE_CASES = [
         prompt="@PostHog which of your evaluations regressed this week, and can you make the scorer stricter?",
         expected=_routes_to(),
     ),
+    _in_the_crowd(
+        name="crowded_domain_in_a_copy_edit",
+        prompt="@PostHog the footer on northwind.dev still says 2024, bump the year and fix the typo in 'privcy'",
+        expected=_routes_to(),
+    ),
+    _in_the_crowd(
+        name="crowded_domain_in_a_question",
+        prompt="@PostHog does northwind.dev/docs render the new sidebar for everyone, or only for me?",
+        expected=_routes_to(),
+    ),
+    _in_the_crowd(
+        name="crowded_partial_environment_word",
+        prompt="@PostHog did anything odd land in the prod env overnight? error volume looks high",
+        expected=_routes_to(),
+    ),
 ]
 
 # Crowding must not cost the classifier a project the author did name.
@@ -355,6 +377,17 @@ CROWDED_ROUTING_CASES = [
         name="crowded_owning_project_asked_a_data_question",
         prompt="@PostHog how many agent runs failed overnight on Autopilot?",
         expected=_routes_to(AUTOPILOT),
+    ),
+    # The counterparts to the partial matches: the full name still routes.
+    _in_the_crowd(
+        name="crowded_site_project_named_in_full",
+        prompt="@PostHog from northwind.dev site, which blog posts brought in the most signups last month?",
+        expected=_routes_to(SITE_DEV),
+    ),
+    _in_the_crowd(
+        name="crowded_prefixed_environment_named_in_full",
+        prompt="@PostHog on billing-prod, how many invoices failed to send yesterday?",
+        expected=_routes_to(BILLING_PROD),
     ),
 ]
 
