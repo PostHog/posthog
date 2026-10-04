@@ -94,6 +94,9 @@ tools:
     integrations-email-partial-update:
         operation: integrations_email_partial_update
         enabled: false
+    integrations-email-sandbox-sender-create:
+        operation: integrations_email_sandbox_sender_create
+        enabled: false
     integrations-email-verify-create:
         operation: integrations_email_verify_create
         enabled: false

@@ -89,7 +89,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
 from posthog.models.filters import Filter
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_PROVIDER, Integration
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
@@ -2253,6 +2253,7 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
         dict.fromkeys(
             domain
             for domain in Integration.objects.filter(team_id=team.id, kind="email", config__verified=True)
+            .exclude(config__contains={"provider": SANDBOX_EMAIL_PROVIDER})
             .order_by("id")
             .values_list("config__domain", flat=True)
             if domain
