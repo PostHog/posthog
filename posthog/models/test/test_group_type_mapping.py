@@ -847,7 +847,7 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
         )
 
         # Captured once across the throttle window, but the counter moves both times
-        mock_capture.assert_called_once_with(exc)
+        mock_capture.assert_called_once_with(exc, additional_properties=None)
         assert mock_counter.labels.call_count == 2
 
         first_kwargs = mock_logger.exception.call_args_list[0].kwargs
