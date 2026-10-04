@@ -17,6 +17,7 @@ from posthog.models.organization import OrganizationMembership
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
+from products.replay_vision.backend.learned_rules import current_ruleset_ids
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -153,8 +154,8 @@ def _admit_within_cap(scanner: ReplayScanner, cost: int, period: BillingPeriod) 
     """
     # SET LOCAL covers the whole admission transaction: the fast-path UPDATE and the refresh lock
     # both give up after 2s and defer to the activity's backoff instead of camping in Postgres's
-    # lock queue. The 2s grace absorbs the row's brief blocking holders (scanner save(),
-    # prompt-suggestion apply), which NOWAIT would turn into instant admission failures.
+    # lock queue. The 2s grace absorbs the row's brief blocking holders (scanner save()), which
+    # NOWAIT would turn into instant admission failures.
     with connection.cursor() as cursor:
         cursor.execute("SET LOCAL lock_timeout = '2s'")
     if _try_cached_admission(scanner.pk, cost, period):
@@ -298,6 +299,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             was_created=False,
             scanner_type=scanner.scanner_type,
         )
+    # Learned rules are not scanner config, so a backfill runs with the current ones rather than frozen ones.
+    snapshot_dict["learned_ruleset_ids"] = current_ruleset_ids(scanner.team_id, scanner.id)
 
     # Shared by the insert and the retake below, so a column added here can't be set on one path only.
     row_fields: dict[str, Any] = {
