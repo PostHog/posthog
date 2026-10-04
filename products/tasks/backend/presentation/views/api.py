@@ -45,9 +45,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
+from posthog.models.integration.claude import ClaudeReauthRequired
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
@@ -175,6 +176,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunBootstrapCreateRequestSerializer,
     TaskRunCancelRequestSerializer,
+    TaskRunClaudeSubscriptionTokenRequestSerializer,
+    TaskRunClaudeSubscriptionTokenResponseSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
@@ -2471,6 +2474,67 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
+        request_serializer=TaskRunClaudeSubscriptionTokenRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="X-Task-Run-Token",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+                required=True,
+                description="Run-scoped Claude subscription token handed to the agent-server at launch",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunClaudeSubscriptionTokenResponseSerializer,
+                description="The run owner's Claude token for this run",
+            ),
+            400: OpenApiResponse(description="Missing required header"),
+            403: OpenApiResponse(description="Caller is not this run's sandbox, or the run token is invalid"),
+            404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="reauth_required: the run owner must connect a new Claude token",
+            ),
+        },
+        summary="Issue the Claude token for a Claude run",
+        description="Give the run's agent-server the Claude token of the run owner. Only the run's sandbox may call "
+        "this, and it must present the run token it received at launch. Send the digest of a token Anthropic "
+        "rejected so the server marks the account for reconnection.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="claude_subscription_token",
+        required_scopes=["task:write"],
+    )
+    def claude_subscription_token(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if not is_sandbox_agent_request(request, task_id):
+            raise PermissionDenied("Only this run's sandbox can request its Claude token.")
+        run_token = request.headers.get("X-Task-Run-Token")
+        if not run_token:
+            raise ValidationError({"X-Task-Run-Token": "This header is required."})
+        try:
+            token = tasks_facade.issue_claude_subscription_token(
+                pk,
+                task_id,
+                self.team_id,
+                run_token=run_token,
+                rejected_token_sha256=request.validated_data.get("rejected_token_sha256"),
+            )
+        except ClaudeReauthRequired:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "The Claude token for this run must be connected again.", "code": "reauth_required"}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        if token is None:
+            raise PermissionDenied("The task run token is invalid")
+        return Response(TaskRunClaudeSubscriptionTokenResponseSerializer({"token": token}).data)
+
+    @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,
         responses={
             200: OpenApiResponse(
@@ -3334,6 +3398,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+        if method == "credential_response":
+            params, relay_blocked = tasks_facade.claude_relay_params(self._user_id(), params)
+            if relay_blocked:
+                report_user_action(request.user, "claude subscription reauth required", {"source": "relay_guard"})
 
         if method in _HUMAN_STEERING_COMMAND_METHODS and tasks_facade.task_run_awaits_report_activation(
             pk, task_id, self.team_id

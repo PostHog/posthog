@@ -90,6 +90,7 @@ class UserIntegration(UUIDModel):
         GITHUB = "github"
         SLACK = "slack"
         CODEX = "codex"
+        CLAUDE = "claude"
 
     user = models.ForeignKey(
         "posthog.User",
@@ -112,6 +113,9 @@ class UserIntegration(UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["user"], condition=models.Q(kind="codex"), name="unique_codex_user_integration"
+            ),
+            models.UniqueConstraint(
+                fields=["user"], condition=models.Q(kind="claude"), name="unique_claude_user_integration"
             ),
         ]
         indexes = [

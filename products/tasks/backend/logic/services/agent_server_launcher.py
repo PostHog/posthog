@@ -20,7 +20,11 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 
-from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.constants import (
+    CLAUDE_REJECTED_TOKEN_MESSAGE,
+    POSTHOG_EXEC_PERMISSION_REGEX,
+    SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
+)
 from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
@@ -47,6 +51,7 @@ from products.tasks.backend.logic.services.memory_watchdog import (
     read_memory_watchdog_script,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_REJECTED_CODE,
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
@@ -73,8 +78,8 @@ STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 # The agent-server reads this fd once at boot and closes it, so processes it starts never see the
 # token. The launch shell opens the file on fd 3 and deletes it before the server starts.
-CODEX_RUN_TOKEN_FD = 3
-CODEX_RUN_TOKEN_FILE = "/tmp/agent-codex-run-token"
+SUBSCRIPTION_RUN_TOKEN_FD = 3
+SUBSCRIPTION_RUN_TOKEN_FILE = "/tmp/agent-subscription-run-token"
 
 AGENT_SERVER_FREE_PORT_SCRIPT = (
     "agent_server_pids() { for p in $(pgrep -f '[a]gent-server'); do "
@@ -84,12 +89,13 @@ AGENT_SERVER_FREE_PORT_SCRIPT = (
     'pids=$(agent_server_pids); [ -n "$pids" ] && echo "$pids" | xargs kill -KILL 2>/dev/null; true'
 )
 
-AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "auto_publish", "exec_permission_regex")
+AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "auto_publish", "exec_permission_regex", "claude_subscription_server")
 AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX = "__posthog_agent_preflight_capability="
 AGENT_SERVER_PREFLIGHT_REUSE_MARKER = "__posthog_agent_preflight_reuse=1"
 AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE = 90
 AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE = 91
 AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE = 92
+AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE = 93
 AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS = 60
 
 # The read probe wants a large file the agent-server boot never opens, so its first read is cold:
@@ -243,7 +249,9 @@ def build_agent_server_preflight_script(
                 f"health_output=$({health_command})",
                 "health_status=$?",
                 'printf "%s\\n" "$health_output"',
-                f'case "$health_output" in *claude_credential_unavailable*|*codex_credential_unavailable*) '
+                f'case "$health_output" in *{CLAUDE_CREDENTIAL_REJECTED_CODE}*) '
+                f"exit {AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE};; "
+                "*claude_credential_unavailable*|*codex_credential_unavailable*) "
                 f"exit {AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE};; esac",
                 f'if [ "$health_status" -eq 0 ]; then '
                 f"echo {shlex.quote(AGENT_SERVER_PREFLIGHT_REUSE_MARKER)}; exit 0; fi",
@@ -259,7 +267,11 @@ CODEX_CREDENTIAL_UNAVAILABLE_MARKER = "codex_credential_unavailable"
 
 
 def _credential_marker(*sources: str) -> str | None:
-    for marker in (CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER, CODEX_CREDENTIAL_UNAVAILABLE_MARKER):
+    for marker in (
+        CLAUDE_CREDENTIAL_REJECTED_CODE,
+        CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER,
+        CODEX_CREDENTIAL_UNAVAILABLE_MARKER,
+    ):
         if any(marker in source for source in sources):
             return marker
     return None
@@ -338,7 +350,7 @@ class AgentServerLaunchMixin(SandboxBase):
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
-        codex_run_token_file: str | None = None,
+        subscription_run_token_file: str | None = None,
         sandbox_runtime: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
@@ -363,7 +375,9 @@ class AgentServerLaunchMixin(SandboxBase):
             peer_messaging=peer_messaging,
             unset_bedrock=self.disable_direct_bedrock,
         )
-        subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
+        subscription_flag = build_subscription_flags(
+            claude_model_access, codex_model_access, has_run_token=subscription_run_token_file is not None
+        )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -399,8 +413,8 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"{launch_started_at}; exec {server_cmd}"
             )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
-        if codex_run_token_file:
-            server_cmd = self._with_codex_run_token_fd(server_cmd, codex_run_token_file)
+        if subscription_run_token_file:
+            server_cmd = self._with_subscription_run_token_fd(server_cmd, subscription_run_token_file)
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
@@ -420,25 +434,25 @@ class AgentServerLaunchMixin(SandboxBase):
     def _sandbox_runtime(self) -> str | None:
         return None
 
-    def _stage_codex_run_token(self, codex_run_token: str) -> None:
-        self._write_required_file(CODEX_RUN_TOKEN_FILE, codex_run_token.encode())
+    def _stage_subscription_run_token(self, subscription_run_token: str) -> None:
+        self._write_required_file(SUBSCRIPTION_RUN_TOKEN_FILE, subscription_run_token.encode())
         # Best effort: a child process must not read the token out of the agent-server's memory.
         # agentsh still traces its own descendants under scope 1. Kernels without Yama ignore this,
         # and a sandbox with CAP_SYS_PTRACE bypasses it.
         self.execute(
-            f"chmod 600 {CODEX_RUN_TOKEN_FILE}; (echo 1 > /proc/sys/kernel/yama/ptrace_scope) 2>/dev/null || true",
+            f"chmod 600 {SUBSCRIPTION_RUN_TOKEN_FILE}; (echo 1 > /proc/sys/kernel/yama/ptrace_scope) 2>/dev/null || true",
             timeout_seconds=5,
         )
 
     @staticmethod
-    def _with_codex_run_token_fd(server_cmd: str, token_file: str) -> str:
+    def _with_subscription_run_token_fd(server_cmd: str, token_file: str) -> str:
         """Open the run token on fd 3 for the agent-server and remove the file before it starts.
 
         Runs inside the launched process tree, so it works the same under ``nohup`` and under
         ``agentsh exec``, which does not forward the caller's descriptors.
         """
         quoted_file = shlex.quote(token_file)
-        return f"bash -c {shlex.quote(f'exec {CODEX_RUN_TOKEN_FD}< {quoted_file} && rm -f {quoted_file} && exec {server_cmd}')}"
+        return f"bash -c {shlex.quote(f'exec {SUBSCRIPTION_RUN_TOKEN_FD}< {quoted_file} && rm -f {quoted_file} && exec {server_cmd}')}"
 
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""
@@ -558,7 +572,9 @@ class AgentServerLaunchMixin(SandboxBase):
     def _on_agent_server_reused(self) -> None:
         return None
 
-    def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
+    def _agent_server_preflight(
+        self, allowed_domains: list[str] | None, *, has_replacement_credential: bool = False
+    ) -> AgentServerPreflight:
         executable_paths = self._install_agent_server_launch_files()
         result = self.execute(
             build_agent_server_preflight_script(
@@ -576,6 +592,26 @@ class AgentServerLaunchMixin(SandboxBase):
                 {"sandbox_id": self.id, "paths": ",".join(executable_paths), "mode": "+x", "stderr": result.stderr},
                 cause=RuntimeError("agent-server preflight could not make the required files executable"),
             )
+        lines = result.stdout.splitlines()
+        capabilities = frozenset(
+            line.removeprefix(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
+            for line in lines
+            if line.startswith(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
+        )
+        if has_replacement_credential and result.exit_code in (
+            AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
+            AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+        ):
+            logger.info(f"Agent-server in sandbox {self.id} failed on its credential; relaunching with a new run token")
+            self._free_agent_server_port()
+            return AgentServerPreflight(reused=False, capabilities=capabilities)
+        if result.exit_code == AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE:
+            raise ProcessTaskFatalError(
+                CLAUDE_REJECTED_TOKEN_MESSAGE,
+                {"sandbox_id": self.id},
+                RuntimeError("Claude rejected the token"),
+                capture=False,
+            )
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
             raise ProcessTaskFatalError(
                 CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
@@ -590,12 +626,6 @@ class AgentServerLaunchMixin(SandboxBase):
                 cause=RuntimeError(result.stderr or "agent-server preflight returned a non-zero exit"),
             )
 
-        lines = result.stdout.splitlines()
-        capabilities = frozenset(
-            line.removeprefix(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
-            for line in lines
-            if line.startswith(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
-        )
         if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in lines:
             if allowed_domains is None or self._agentsh_daemon_is_healthy():
                 logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
@@ -703,7 +733,7 @@ class AgentServerLaunchMixin(SandboxBase):
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
-        codex_run_token: str | None = None,
+        subscription_run_token: str | None = None,
         sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
@@ -716,7 +746,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
         # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
         # and the agent reads its skill directories when a session starts, not when the server does.
-        preflight = self._agent_server_preflight(allowed_domains)
+        preflight = self._agent_server_preflight(
+            allowed_domains, has_replacement_credential=subscription_run_token is not None
+        )
         if preflight.reused:
             return 0 if wait_for_health else None
 
@@ -728,7 +760,17 @@ class AgentServerLaunchMixin(SandboxBase):
         self._prepare_agent_server_launch(allowed_domains)
         memory_watchdog_ready = self._install_memory_watchdog(preflight)
 
-        codex_run_token_file = CODEX_RUN_TOKEN_FILE if codex_run_token else None
+        if (
+            subscription_run_token
+            and claude_model_access == "own-subscription"
+            and not preflight.supports("claude_subscription_server")
+        ):
+            logger.warning(
+                f"Installed agent-server in sandbox {self.id} predates --claudeSubscriptionServer; "
+                "the Claude token comes from the Desktop relay"
+            )
+            subscription_run_token = None
+        subscription_run_token_file = SUBSCRIPTION_RUN_TOKEN_FILE if subscription_run_token else None
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -756,8 +798,8 @@ class AgentServerLaunchMixin(SandboxBase):
 
         def build_command(base_branch: str | None) -> str:
             # The launch shell deletes the token file, so every launch attempt needs its own copy.
-            if codex_run_token:
-                self._stage_codex_run_token(codex_run_token)
+            if subscription_run_token:
+                self._stage_subscription_run_token(subscription_run_token)
             command = self._build_agent_server_command(
                 repo_path,
                 task_id,
@@ -790,7 +832,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
                 codex_model_access=codex_model_access,
-                codex_run_token_file=codex_run_token_file,
+                subscription_run_token_file=subscription_run_token_file,
                 sandbox_runtime=sandbox_runtime or self._sandbox_runtime(),
             )
             if memory_watchdog_ready:
@@ -848,6 +890,13 @@ class AgentServerLaunchMixin(SandboxBase):
         timeout again for a token the user has to supply.
         """
         marker = _credential_marker(*sources)
+        if marker == CLAUDE_CREDENTIAL_REJECTED_CODE:
+            return ProcessTaskFatalError(
+                CLAUDE_REJECTED_TOKEN_MESSAGE,
+                context,
+                RuntimeError("Claude rejected the token"),
+                capture=False,
+            )
         if marker == CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER:
             return ProcessTaskFatalError(
                 CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,

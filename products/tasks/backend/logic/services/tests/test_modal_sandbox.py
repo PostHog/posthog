@@ -47,6 +47,8 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+    AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+    AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
     AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
     HOST_PRESSURE_PROBE_SCRIPT,
     STARTUP_LOG_MAX_BYTES,
@@ -898,18 +900,22 @@ class TestModalSandboxAgentServer:
         assert expected_env in command
 
     @pytest.mark.parametrize(
-        "claude_model_access, subscription_flag",
+        "claude_model_access, run_token, capabilities, subscription_flag, server_flag",
         [
-            ("own-subscription", True),
-            ("posthog-gateway", False),
-            (None, False),
+            ("own-subscription", None, AGENT_SERVER_LAUNCH_CAPABILITIES, True, False),
+            ("own-subscription", "claude-run-token", AGENT_SERVER_LAUNCH_CAPABILITIES, True, True),
+            ("own-subscription", "claude-run-token", ("auto_publish",), True, False),
+            ("posthog-gateway", None, AGENT_SERVER_LAUNCH_CAPABILITIES, False, False),
+            (None, None, AGENT_SERVER_LAUNCH_CAPABILITIES, False, False),
         ],
     )
     def test_start_agent_server_claude_subscription_flag(
-        self, mock_sandbox: Any, claude_model_access, subscription_flag
+        self, mock_sandbox: Any, claude_model_access, run_token, capabilities, subscription_flag, server_flag
     ):
         mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            return_value=ExecutionResult(
+                stdout=_preflight_stdout(capabilities=capabilities), stderr="", exit_code=0, error=None
+            ),
         )
 
         mock_sandbox.start_agent_server(
@@ -918,10 +924,55 @@ class TestModalSandboxAgentServer:
             run_id="run-456",
             mode="background",
             claude_model_access=claude_model_access,
+            subscription_run_token=run_token,
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert (" --claudeSubscription" in command) is subscription_flag
+        assert (" --claudeSubscriptionServer" in command) is server_flag
+        assert ("exec 3<" in command) is server_flag
+
+    @pytest.mark.parametrize(
+        "preflight_exit_code, run_token",
+        [
+            (AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE, "claude-run-token"),
+            (AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE, "claude-run-token"),
+            (AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE, None),
+            (AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE, None),
+        ],
+    )
+    def test_start_agent_server_replaces_a_server_that_failed_on_its_credential(
+        self, mock_sandbox: Any, preflight_exit_code, run_token
+    ):
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            if ENV_DISABLE_BUNDLED_SKILLS in command:
+                return ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=preflight_exit_code, error=None)
+            return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+
+        mock_sandbox.execute = MagicMock(side_effect=execute)
+
+        def start() -> None:
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                claude_model_access="own-subscription",
+                subscription_run_token=run_token,
+            )
+
+        with patch.object(mock_sandbox, "_free_agent_server_port") as free_port:
+            if run_token is None:
+                with pytest.raises(ProcessTaskFatalError):
+                    start()
+                free_port.assert_not_called()
+                return
+            start()
+
+        free_port.assert_called_once()
+        assert " --claudeSubscriptionServer" in _agent_server_launch_command(mock_sandbox.execute)
 
     @pytest.mark.parametrize(
         "keep_stream_open, debug, expected_env_value",
@@ -1006,16 +1057,17 @@ class TestModalSandboxAgentServer:
         [
             (0, "ok:3", True),
             (1, "", False),
-            (1, "claude_credential_unavailable", None),
-            (1, "codex_credential_unavailable", None),
+            (1, "claude_credential_unavailable", "The Claude token did not arrive"),
+            (1, "claude_credential_unavailable_rejected", "Claude does not accept your token"),
+            (1, "codex_credential_unavailable", "ChatGPT token"),
         ],
     )
     def test_wait_for_health_check(self, mock_sandbox: Any, exit_code, stdout, expected):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=exit_code, error=None),
         )
-        if expected is None:
-            with pytest.raises(ProcessTaskFatalError) as error:
+        if isinstance(expected, str):
+            with pytest.raises(ProcessTaskFatalError, match=expected) as error:
                 mock_sandbox._wait_for_health_check()
             assert error.value.non_retryable
         else:

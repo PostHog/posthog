@@ -34,6 +34,7 @@ from pydantic import BaseModel, model_validator
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.constants import (
+    CLAUDE_REJECTED_TOKEN_MESSAGE,
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
     SANDBOX_REPOSITORIES_ROOT,
@@ -426,6 +427,7 @@ AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
 
 AGENT_SERVER_CAPABILITY_TOKENS: dict[str, str] = {
     "auto_publish": "autoPublish",
+    "claude_subscription_server": "claudeSubscriptionServer",
     "exec_permission_regex": "posthogExecPermissionRegex",
     "pi_runtime": "POSTHOG_AGENT_RUNTIME",
     "prewarmed_resume_message_driven": "prewarmedResumeMessageDriven",
@@ -679,7 +681,7 @@ class SandboxBase(ABC):
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
-        codex_run_token: str | None = None,
+        subscription_run_token: str | None = None,
         sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
@@ -856,6 +858,8 @@ def parse_sandbox_repo_mount_map() -> dict[str, str]:
     return result
 
 
+CLAUDE_CREDENTIAL_REJECTED_CODE = "claude_credential_unavailable_rejected"
+
 CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE = (
     "This run could not get a ChatGPT token from PostHog. Start the task again. "
     "If it keeps failing, connect your ChatGPT account again in Settings > Harness."
@@ -876,11 +880,19 @@ CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE = (
 SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
 
 
-def build_subscription_flags(claude_model_access: str | None, codex_model_access: str | None) -> str:
+CLAUDE_SUBSCRIPTION_SERVER_CLI_FLAG = "--claudeSubscriptionServer"
+
+
+def build_subscription_flags(
+    claude_model_access: str | None, codex_model_access: str | None, *, has_run_token: bool = False
+) -> str:
     access = {"claude": claude_model_access, "codex": codex_model_access}
-    return "".join(
+    flags = "".join(
         f" {flag}" for adapter, flag in SUBSCRIPTION_CLI_FLAGS.items() if access[adapter] == "own-subscription"
     )
+    if has_run_token and claude_model_access == "own-subscription":
+        flags += f" {CLAUDE_SUBSCRIPTION_SERVER_CLI_FLAG}"
+    return flags
 
 
 def wait_for_health_check(
@@ -898,6 +910,15 @@ def wait_for_health_check(
     """
     health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if CLAUDE_CREDENTIAL_REJECTED_CODE in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            CLAUDE_REJECTED_TOKEN_MESSAGE,
+            {"sandbox_id": sandbox_id},
+            RuntimeError("Claude rejected the token"),
+            capture=False,
+        )
     if "claude_credential_unavailable" in result.stdout:
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
@@ -946,7 +967,8 @@ def build_health_check_command(
         f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        f'    case "$body" in *{CLAUDE_CREDENTIAL_REJECTED_CODE}*) echo "{CLAUDE_CREDENTIAL_REJECTED_CODE}"; exit 1;; '
+        '*claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
         '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "

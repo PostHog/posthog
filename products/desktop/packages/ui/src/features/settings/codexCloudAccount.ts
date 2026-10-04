@@ -7,6 +7,11 @@ import {
 import { useServiceOptional } from "@posthog/di/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import {
+  getAuthIdentity,
+  useAuthStateValue,
+} from "@posthog/ui/features/auth/store";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -17,18 +22,24 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
-export const codexCloudAccountQueryKey = ["codex-cloud-account"] as const;
+export function codexCloudAccountQueryKey(
+  authIdentity: string | null,
+): readonly ["codex-cloud-account", string] {
+  return ["codex-cloud-account", authIdentity ?? "anonymous"] as const;
+}
 
 export function useCodexCloudAccount(): UseQueryResult<UserCodexIntegration> {
   const client = useOptionalAuthenticatedClient();
+  const authIdentity = useAuthStateValue(getAuthIdentity);
   return useQuery({
-    queryKey: codexCloudAccountQueryKey,
+    queryKey: codexCloudAccountQueryKey(authIdentity),
     queryFn: () => {
       if (!client) throw new Error("Log in to PostHog first.");
       return client.getCodexUserIntegration();
     },
     enabled: !!client,
     retry: false,
+    meta: AUTH_SCOPED_QUERY_META,
   });
 }
 
@@ -44,6 +55,7 @@ export function useConnectCodexCloudAccount(): UseMutationResult<
   string
 > {
   const client = useOptionalAuthenticatedClient();
+  const authIdentity = useAuthStateValue(getAuthIdentity);
   const service = useCodexCloudAccountService();
   const queryClient = useQueryClient();
   return useMutation({
@@ -54,7 +66,10 @@ export function useConnectCodexCloudAccount(): UseMutationResult<
       return service.connect(attemptId, client);
     },
     onSuccess: ({ integration, staleFileError }) => {
-      queryClient.setQueryData(codexCloudAccountQueryKey, integration);
+      queryClient.setQueryData(
+        codexCloudAccountQueryKey(authIdentity),
+        integration,
+      );
       track(ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_CONNECTED);
       if (staleFileError) {
         toast.warning("ChatGPT account connected", {
@@ -73,6 +88,7 @@ export function useDisconnectCodexCloudAccount(): UseMutationResult<
   void
 > {
   const client = useOptionalAuthenticatedClient();
+  const authIdentity = useAuthStateValue(getAuthIdentity);
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => {
@@ -81,7 +97,7 @@ export function useDisconnectCodexCloudAccount(): UseMutationResult<
     },
     onSuccess: () => {
       queryClient.setQueryData<UserCodexIntegration>(
-        codexCloudAccountQueryKey,
+        codexCloudAccountQueryKey(authIdentity),
         {
           status: "not_connected",
           plan_type: null,
