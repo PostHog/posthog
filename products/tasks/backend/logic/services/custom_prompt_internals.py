@@ -272,7 +272,7 @@ async def create_task_and_trigger(
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
     initial_text_attachments: Mapping[str, str] | None = None,
-) -> tuple[Task, TaskRun]:
+):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
     # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
