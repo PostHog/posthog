@@ -216,7 +216,11 @@ def _gateway_error_outcome(status_code: int) -> AIDecisionOutcome:
             code=AIDecisionErrorCode.QUOTA_EXCEEDED, reason="gateway_status", status_code=status_code
         )
     # 200 is an answer the facade could not read. The model ran, so a retry would pay for the same failure again.
-    if status_code in (200, 400, 413, 422):
+    if status_code == 200:
+        return AIDecisionFailed(
+            code=AIDecisionErrorCode.MODEL_REFUSED, reason="unreadable_answer", status_code=status_code
+        )
+    if status_code in (400, 413, 422):
         return AIDecisionFailed(
             code=AIDecisionErrorCode.MODEL_REFUSED, reason="gateway_status", status_code=status_code
         )

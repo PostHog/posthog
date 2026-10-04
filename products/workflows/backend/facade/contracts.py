@@ -282,6 +282,7 @@ AIDecisionFailureReason = Literal[
     "gateway_not_configured",
     "region_without_decisions",
     "unreadable_state",
+    "unreadable_answer",
     "answer_does_not_fit_question",
 ]
 

@@ -6789,6 +6789,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
             ),
             ("empty_context", {"inputs": {"context": {"value": {}}}}, None, "context"),
             ("long_context_name", {"inputs": {"context": {"value": {"n" * 101: "{event.event}"}}}}, None, "context"),
+            ("blank_context_name", {"inputs": {"context": {"value": {" ": "{event.event}"}}}}, None, "context"),
             ("missing_answer_edge", {}, 1, "graph"),
             ("missing_unsure_edge", {"unsure_enabled": True}, 2, "graph"),
         ]
@@ -6817,6 +6818,18 @@ class TestAIDecisionActionValidation(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert ("missing its 'continue' edge" in str(response.json())) == (on_error is None), response.json()
+
+    def test_stores_the_defaults_the_runtime_branches_on(self) -> None:
+        response = self._post(_ai_decision_flow({"options": [{"name": "Developer"}, {"name": "Marketer"}]}))
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        config = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]
+        assert config["options"] == [
+            {"name": "Developer", "description": ""},
+            {"name": "Marketer", "description": ""},
+        ]
+        assert (config["unsure_enabled"], config["yes_threshold"], config["no_threshold"]) == (False, 50, 20)
+        assert config["min_pick_probability"] == 60
 
     def test_only_the_context_is_templated(self) -> None:
         flow = _ai_decision_flow(

@@ -191,6 +191,15 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert decide.call_args.args[0].properties == {"action_id": "action-1"}
 
+    def test_rejects_a_token_minted_for_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+
+        with patch(_DECIDE) as decide:
+            response = self._post(token=_token(self.team.id), team_id=other_team.id)
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        decide.assert_not_called()
+
     @parameterized.expand(
         [
             ("another_audience", PosthogJwtAudience.TASKS_CREATE, SECRET),
@@ -405,6 +414,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         [
             ("unreadable_state", None, "debug"),
             ("model_refused", DecisionGatewayError(400, "gateway-body-secret"), "debug"),
+            ("unreadable_answer", DecisionGatewayError(200, "gateway-body-secret"), "warning"),
             ("gateway_rejects_every_decision", DecisionGatewayError(403, "gateway-body-secret"), "warning"),
             ("throttled", DecisionGatewayError(429, "gateway-body-secret"), "debug"),
             ("unavailable", DecisionGatewayError(502, "gateway-body-secret"), "warning"),

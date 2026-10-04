@@ -184,8 +184,10 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
 
 
 def _fails_every_decision(code: AIDecisionErrorCode, reason: AIDecisionFailureReason | None) -> bool:
-    # An answer that does not fit its question is a gateway contract break, not one bad input.
+    # An answer the facade cannot read, or one that does not fit its question, is a gateway contract break,
+    # not one bad input.
     return code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE or reason in (
         "region_without_decisions",
+        "unreadable_answer",
         "answer_does_not_fit_question",
     )
