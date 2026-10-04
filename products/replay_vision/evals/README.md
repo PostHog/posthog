@@ -47,13 +47,13 @@ Compare `labeled_outcome` on the thumbs-downed `yes` cases against a run without
 
 ## Scorers
 
-| Scorer              | Applies to                               | Meaning                                                                                                    |
-| ------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `scan_completed`    | all cases                                | The scan produced schema-valid, semantically-valid output.                                                 |
-| `labeled_outcome`   | labeled monitor/classifier               | kept/fixed = 1, regressed/still_wrong = 0 (same semantics as the in-product prompt-suggestion evaluation). |
-| `output_stability`  | unlabeled monitor/classifier             | Fresh outcome matches the recorded baseline; measures churn, not correctness.                              |
-| `score_alignment`   | scorer (reference not thumbs-downed)     | 1 minus the scale-normalized distance from the recorded score.                                             |
-| `summary_alignment` | summarizer (reference not thumbs-downed) | LLM judge: does the fresh summary tell the same story as the recorded one?                                 |
+| Scorer              | Applies to                               | Meaning                                                                       |
+| ------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `scan_completed`    | all cases                                | The scan produced schema-valid, semantically-valid output.                    |
+| `labeled_outcome`   | labeled monitor/classifier               | kept/fixed = 1, regressed/still_wrong = 0                                     |
+| `output_stability`  | unlabeled monitor/classifier             | Fresh outcome matches the recorded baseline; measures churn, not correctness. |
+| `score_alignment`   | scorer (reference not thumbs-downed)     | 1 minus the scale-normalized distance from the recorded score.                |
+| `summary_alignment` | summarizer (reference not thumbs-downed) | LLM judge: does the fresh summary tell the same story as the recorded one?    |
 
 `output_stability` and `labeled_outcome` deliberately pull in opposite directions, so read them as a pair: a prompt change that only adds churn shows up as `labeled_outcome` flat or up while `output_stability` drops.
 

@@ -1412,7 +1412,7 @@ class ReplayObservationViewSet(
             )
         verdict_changed = previous is None or previous["is_correct"] != label.is_correct
         feedback_changed = previous is None or previous["feedback"] != label.feedback
-        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
+        # The core rating signal: thumbs up/down on whether the scanner got the session right.
         # The feedback box autosaves while the user types and resends the whole label each time, so a save
         # that changes nothing reaches here often. Reporting those counts one rated session many times over.
         if verdict_changed or feedback_changed:

@@ -27,7 +27,6 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
-from products.replay_vision.backend.prompt_evaluation import primary_outcome
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import apply_known_freeform_tags, run_scan
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
@@ -41,6 +40,7 @@ from products.replay_vision.evals.dataset import (
     ensure_dataset_fresh,
     load_dataset,
 )
+from products.replay_vision.evals.outcomes import primary_outcome
 from products.replay_vision.evals.scorers import (
     SUMMARY_FIELDS,
     LabeledOutcome,

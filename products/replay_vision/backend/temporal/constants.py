@@ -105,15 +105,8 @@ READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
-# prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
-# Overlap SKIP means a slow run absorbs later ticks instead of stacking.
+# budget check plus the candidate scan. Overlap SKIP means a slow run absorbs later ticks instead of stacking.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
-
-# The agentic refresh may run several tool rounds. _AGENT_BUDGET_BACKGROUND_S stops new rounds from
-# starting, but the in-flight round and the final structured turn can each add up to _MODEL_CALL_TIMEOUT_MS
-# on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
-# attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
-REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 # What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
 # scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
@@ -253,14 +246,6 @@ REFRESH_SCANNER_ESTIMATE_TIMEOUT = dt.timedelta(seconds=60)
 def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     """Deterministic Temporal workflow id for one (scanner, session) application."""
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
-
-
-EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
-
-
-def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
-    """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
-    return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
 
 
 # Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
