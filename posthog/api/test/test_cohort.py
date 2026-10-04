@@ -1044,7 +1044,39 @@ Jane Smith,25
         self.assertEqual(response_data["attr"], "csv")
         self.assertIn("distinct_id", response_data["detail"])
         self.assertIn("'name', 'age'", response_data["detail"])
+        self.assertIn("one ID per line", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @parameterized.expand(
+        [
+            ("single_row", "alice@example.com,bob@example.com\n", ["alice@example.com", "bob@example.com"]),
+            (
+                "several_rows",
+                "alice@example.com, bob@example.com\ncarol@example.com,\n",
+                ["alice@example.com", "bob@example.com", "carol@example.com"],
+            ),
+        ]
+    )
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_headerless_email_list(
+        self, _name, content, expected_ids, patch_calculate_cohort_from_list
+    ):
+        csv = SimpleUploadedFile("emails.csv", str.encode(content), content_type="application/csv")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_headerless_emails", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        patch_calculate_cohort_from_list.assert_called_once_with(
+            response.json()["id"],
+            expected_ids,
+            team_id=self.team.id,
+            id_type="email",
+            email_property_key=None,
+        )
 
     @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
     @patch(
