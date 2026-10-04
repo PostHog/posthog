@@ -424,6 +424,7 @@ def test_can_run_databricks_test_step_for_new_destination(
                 "catalog": "my-catalog",
                 "schema": "my-schema",
                 "table_name": "my-table-name",
+                "model": None,
                 "server_hostname": "my-server-hostname",
                 "client_id": "my-client-id",
                 "client_secret": "my-client-secret",

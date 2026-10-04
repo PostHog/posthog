@@ -2077,7 +2077,10 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         destination_test = get_destination_test(
             destination=serializer.validated_data["destination"]["type"],
         )
-        test_configuration = serializer.validated_data["destination"]["config"]
+        test_configuration = {
+            **serializer.validated_data["destination"]["config"],
+            "model": serializer.validated_data.get("model"),
+        }
 
         # if we have an integration, add its config and sensitive_config to test_configuration
         integration: Integration | None = serializer.validated_data["destination"].get("integration")
@@ -2116,7 +2119,10 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         destination_test = get_destination_test(
             destination=serializer.validated_data["destination"]["type"],
         )
-        test_configuration = serializer.validated_data["destination"]["config"]
+        test_configuration = {
+            **serializer.validated_data["destination"]["config"],
+            "model": serializer.validated_data.get("model") or batch_export.model,
+        }
 
         # if we have an integration, add its config and sensitive_config to test_configuration
         integration: Integration | None = serializer.validated_data["destination"].get("integration")

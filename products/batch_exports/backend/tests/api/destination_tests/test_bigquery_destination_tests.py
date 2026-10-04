@@ -16,6 +16,7 @@ from products.batch_exports.backend.api.destination_tests.bigquery import (
     BigQueryDatasetTestStep,
     BigQueryImpersonateServiceAccountTestStep,
     BigQueryProjectTestStep,
+    BigQueryQueryPermissionsTestStep,
     BigQueryTableTestStep,
     BigQueryVerifyServiceAccountOwnershipTestStep,
     Status,
@@ -190,9 +191,10 @@ async def test_bigquery_check_project_exists_test_step_without_project(integrati
     )
 
 
+@pytest.mark.parametrize("use_json_type", [False, True])
 @pytest.mark.parametrize("integration", ["impersonated", "key_file", None], indirect=True)
 async def test_bigquery_check_table_test_step(
-    project_id, bigquery_client, bigquery_dataset, integration, service_account_info
+    project_id, bigquery_client, bigquery_dataset, integration, service_account_info, use_json_type
 ):
     table_id = f"destination_test_{uuid.uuid4()}"
     fully_qualified_table_id = f"{project_id}.{bigquery_dataset.dataset_id}.{table_id}"
@@ -206,6 +208,7 @@ async def test_bigquery_check_table_test_step(
         table_id=table_id,
         integration=integration,
         service_account_info=service_account_info,
+        use_json_type=use_json_type,
     )
     result = await test_step.run()
 
@@ -241,6 +244,66 @@ async def test_bigquery_check_table_test_step_with_invalid_identifier(
 
     with pytest.raises(exceptions.NotFound):
         bigquery_client.get_table(fully_qualified_table_id)
+
+
+@pytest.mark.parametrize("table_exists", [False, True])
+@pytest.mark.parametrize("integration", ["key_file", None], indirect=True)
+async def test_bigquery_query_permissions_test_step(
+    project_id, bigquery_client, bigquery_dataset, integration, service_account_info, table_exists
+):
+    table_id = f"destination_test_{uuid.uuid4()}"
+    fully_qualified_table_id = f"{project_id}.{bigquery_dataset.dataset_id}.{table_id}"
+
+    if table_exists:
+        bigquery_client.create_table(
+            bigquery.Table(fully_qualified_table_id, schema=[bigquery.SchemaField("event", "STRING")])
+        )
+
+    test_step = BigQueryQueryPermissionsTestStep(
+        project_id=project_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        table_id=table_id,
+        integration=integration,
+        service_account_info=service_account_info,
+        model="persons",
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.PASSED, result.message
+    assert result.message is None
+
+    with pytest.raises(exceptions.NotFound):
+        bigquery_client.get_table(f"{fully_qualified_table_id}_test")
+
+
+@pytest.mark.parametrize(
+    "model,expected_status",
+    [
+        ("persons", Status.FAILED),
+        ("sessions", Status.FAILED),
+        ("events", Status.SKIPPED),
+        (None, Status.SKIPPED),
+    ],
+)
+async def test_bigquery_query_permissions_test_step_without_query_permissions(
+    project_id, bigquery_dataset, service_account_info, model, expected_status
+):
+    test_step = BigQueryQueryPermissionsTestStep(
+        project_id=project_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        table_id=f"destination_test_{uuid.uuid4()}",
+        service_account_info=service_account_info,
+        model=model,
+    )
+
+    with patch(
+        "products.batch_exports.backend.api.destination_tests.bigquery.BigQueryClient.check_for_query_permissions",
+        return_value=False,
+    ):
+        result = await test_step.run()
+
+    assert result.status == expected_status
+    assert result.message is not None
 
 
 @pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
@@ -335,6 +398,7 @@ async def test_bigquery_verify_service_account_ownership_test_step_with_no_imper
         BigQueryImpersonateServiceAccountTestStep(),
         BigQueryVerifyServiceAccountOwnershipTestStep(),
         BigQueryTableTestStep(),
+        BigQueryQueryPermissionsTestStep(),
         BigQueryProjectTestStep(),
         BigQueryDatasetTestStep(),
     ],

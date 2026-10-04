@@ -18,6 +18,10 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     get_our_google_cloud_credentials,
     impersonate_service_account,
 )
+from products.batch_exports.backend.temporal.pipeline.table import TableReference
+
+# Models that export to mutable tables. A batch export run must query these tables to merge into them.
+MUTABLE_TABLE_MODELS = {"persons", "sessions"}
 
 
 class ServiceAccountInfo(typing.TypedDict):
@@ -44,6 +48,18 @@ def get_client(
         raise ValueError("Either integration or service account information must be defined")
 
     return client
+
+
+def get_test_table_schema(use_json_type: bool) -> list[bigquery.SchemaField]:
+    """Return the schema of the table we create to test the destination.
+
+    When `use_json_type` is set, a batch export run creates JSON columns, so the
+    test table must have a JSON column too.
+    """
+    schema = [bigquery.SchemaField(name="event", field_type="STRING")]
+    if use_json_type:
+        schema.append(bigquery.SchemaField(name="properties", field_type="JSON"))
+    return schema
 
 
 class BigQueryImpersonateServiceAccountTestStep(DestinationTestStep):
@@ -307,7 +323,8 @@ class BigQueryTableTestStep(DestinationTestStep):
 
     A batch export will export data to an existing table or attempt to create
     a new one if a table doesn't exist. In the second case, we should have
-    permissions to create a table.
+    permissions to create a table. When `use_json_type` is set, the table we
+    create has a JSON column, as the batch export run creates JSON columns.
 
     We also check for permissions to delete a table, although more as a side-effect
     of needing to clean-up after ourselves.
@@ -318,6 +335,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         table_id: The ID of the table we are checking.
         service_account_info: Service account credentials used to access the
             project and dataset.
+        use_json_type: Whether the batch export creates JSON columns.
     """
 
     name = "Verify BigQuery table"
@@ -333,6 +351,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         table_id: str | None = None,
         integration: GoogleCloudServiceAccountIntegration | None = None,
         service_account_info: ServiceAccountInfo | None = None,
+        use_json_type: bool = False,
     ) -> None:
         super().__init__()
         self.dataset_id = dataset_id
@@ -340,6 +359,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         self.table_id = table_id
         self.integration = integration
         self.service_account_info = service_account_info
+        self.use_json_type = use_json_type
 
     def _is_configured(self) -> bool:
         """Ensure required configuration parameters are set."""
@@ -376,9 +396,7 @@ class BigQueryTableTestStep(DestinationTestStep):
                 # user in case the delete call later on fails.
                 fully_qualified_name = f"{fully_qualified_name}_test"
 
-                table = bigquery.Table(
-                    fully_qualified_name, schema=[bigquery.SchemaField(name="event", field_type="STRING")]
-                )
+                table = bigquery.Table(fully_qualified_name, schema=get_test_table_schema(self.use_json_type))
 
                 _ = client.sync_client.create_table(table, exists_ok=True)
             except BadRequest as err:
@@ -398,6 +416,108 @@ class BigQueryTableTestStep(DestinationTestStep):
         return DestinationTestStepResult(status=Status.PASSED)
 
 
+class BigQueryQueryPermissionsTestStep(DestinationTestStep):
+    """Test whether we can query a BigQuery table.
+
+    A batch export run queries the target table to check whether it can merge
+    into it. Exports to mutable tables (persons and sessions models) require
+    merges, so the run fails without query permissions. Other models load data
+    directly into the target table instead.
+
+    If the table doesn't exist, we create a test table, query it, and delete it.
+
+    Attributes:
+        project_id: ID of the BigQuery project containing the dataset.
+        dataset_id: The ID of the dataset containing the table.
+        table_id: The ID of the table we are checking.
+        service_account_info: Service account credentials used to access the
+            project and dataset.
+        use_json_type: Whether the batch export creates JSON columns.
+        model: The name of the model the batch export exports.
+    """
+
+    name = "Verify BigQuery query permissions"
+    description = (
+        "Ensure we have the required permissions to query the configured BigQuery table. "
+        "Exports of persons and sessions require these permissions to merge data into the table."
+    )
+
+    def __init__(
+        self,
+        project_id: str | None = None,
+        dataset_id: str | None = None,
+        table_id: str | None = None,
+        integration: GoogleCloudServiceAccountIntegration | None = None,
+        service_account_info: ServiceAccountInfo | None = None,
+        use_json_type: bool = False,
+        model: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.dataset_id = dataset_id
+        self.project_id = project_id
+        self.table_id = table_id
+        self.integration = integration
+        self.service_account_info = service_account_info
+        self.use_json_type = use_json_type
+        self.model = model
+
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if (
+            self.project_id is None
+            or self.dataset_id is None
+            or self.table_id is None
+            or (self.service_account_info is None and self.integration is None)
+        ):
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
+        """Run this test step."""
+        from google.cloud.exceptions import NotFound
+
+        client = get_client(self.project_id, self.integration, self.service_account_info)
+
+        fully_qualified_name = f"{self.project_id}.{self.dataset_id}.{self.table_id}"
+
+        try:
+            table = await client.get_table(TableReference.from_fully_qualified_name(fully_qualified_name))
+        except NotFound:
+            test_table = bigquery.Table(
+                f"{fully_qualified_name}_test", schema=get_test_table_schema(self.use_json_type)
+            )
+            _ = client.sync_client.create_table(test_table, exists_ok=True)
+            try:
+                can_query = await client.check_for_query_permissions(
+                    TableReference.from_fully_qualified_name(f"{fully_qualified_name}_test")
+                )
+            finally:
+                client.sync_client.delete_table(test_table, not_found_ok=True)
+        else:
+            can_query = await client.check_for_query_permissions(table)
+
+        if can_query:
+            return DestinationTestStepResult(status=Status.PASSED)
+
+        if self.model in MUTABLE_TABLE_MODELS:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=(
+                    f"We don't have permissions to query table '{self.table_id}'. "
+                    f"Exports of {self.model} merge data into the table, which requires permissions to run query jobs "
+                    "(for example, the 'BigQuery Job User' role) and to read table data."
+                ),
+            )
+
+        return DestinationTestStepResult(
+            status=Status.SKIPPED,
+            message=(
+                f"We don't have permissions to query table '{self.table_id}'. "
+                "Batch export runs will load data directly into the table instead of merging it."
+            ),
+        )
+
+
 class BigQueryDestinationTest(DestinationTest):
     """A concrete implementation of a `DestinationTest` for BigQuery.
 
@@ -406,6 +526,8 @@ class BigQueryDestinationTest(DestinationTest):
         dataset_id: ID of BigQuery dataset we are batch exporting to.
         table_id: ID of BigQuery table we are batch exporting to.
         service_account_info: Service account credentials used to access BigQuery.
+        use_json_type: Whether the batch export creates JSON columns.
+        model: The name of the model the batch export exports.
     """
 
     def __init__(self):
@@ -417,6 +539,8 @@ class BigQueryDestinationTest(DestinationTest):
         self.private_key: str | None = None
         self.private_key_id: str | None = None
         self.token_uri: str | None = None
+        self.use_json_type: bool = False
+        self.model: str | None = None
 
     def configure(self, **kwargs):
         """Configure this test with necessary attributes."""
@@ -424,6 +548,8 @@ class BigQueryDestinationTest(DestinationTest):
         self.service_account_email = kwargs.get("service_account_email", None) or kwargs.get("client_email", None)
         self.dataset_id = kwargs.get("dataset_id", None)
         self.table_id = kwargs.get("table_id", None)
+        self.use_json_type = bool(kwargs.get("use_json_type", False))
+        self.model = kwargs.get("model", None)
 
         self.private_key = kwargs.get("private_key", None)
         self.private_key_id = kwargs.get("private_key_id", None)
@@ -477,5 +603,15 @@ class BigQueryDestinationTest(DestinationTest):
                 table_id=self.table_id,
                 integration=self.integration,
                 service_account_info=self.service_account_info,
+                use_json_type=self.use_json_type,
+            ),
+            BigQueryQueryPermissionsTestStep(
+                project_id=self.project_id,
+                dataset_id=self.dataset_id,
+                table_id=self.table_id,
+                integration=self.integration,
+                service_account_info=self.service_account_info,
+                use_json_type=self.use_json_type,
+                model=self.model,
             ),
         ]
