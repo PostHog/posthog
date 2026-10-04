@@ -109,7 +109,6 @@ LLMProviderKey
 LLMSkill
 LLMTraceSummary
 Link
-LiveDebuggerBreakpoint
 LogsAlertConfiguration
 LogsExclusionRule
 LogsRetentionRule

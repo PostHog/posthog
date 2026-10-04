@@ -523,11 +523,10 @@ depends_on = ["posthog"]
 layer = "modules"
 
 [[modules]]
+# Vestigial app — only retains the migration history under the live_debugger
+# Django app label. The product is retired and its table waits for a drop.
 path = "products.live_debugger"
-depends_on = [
-    "ee",
-    "posthog", "products.access_control",
-]
+depends_on = ["posthog"]
 layer = "modules"
 
 [[modules]]

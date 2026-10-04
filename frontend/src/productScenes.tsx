@@ -126,7 +126,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIEnrichment: () => import('../../products/growth/frontend/aiEnrichment/AIEnrichmentScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
-    LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
     LogsAlertNotificationDetail: () =>
