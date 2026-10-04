@@ -108,12 +108,14 @@ class BriefingReportDetails:
 
 def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
     """The newest artefact content of one type per report, by report id."""
-    rows = (
+    # Pick the newest id per report first, so Postgres reads `content` once per report, not once per row.
+    latest_ids = (
         SignalReportArtefact.objects.filter(report_id__in=report_ids, type=artefact_type)
         .order_by("report_id", "-created_at")
         .distinct("report_id")
-        .values_list("report_id", "content")
+        .values("id")
     )
+    rows = SignalReportArtefact.objects.filter(id__in=latest_ids).values_list("report_id", "content")
     return {str(report_id): content for report_id, content in rows}
 
 

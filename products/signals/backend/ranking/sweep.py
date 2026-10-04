@@ -187,14 +187,16 @@ def _latest_scores(report_ids: Sequence[str]) -> dict[str, _ScoreStamp | None]:
     """The latest `ranking_score` stamp of each report that has one. A row that no longer parses is None."""
     scores: dict[str, _ScoreStamp | None] = {}
     for batch in _batches(report_ids):
-        rows = (
+        # Pick the newest id per report first, so Postgres reads `content` once per report, not once per score.
+        latest_ids = (
             SignalReportArtefact.objects.filter(
                 report_id__in=batch, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
             )
             .order_by("report_id", "-created_at")
             .distinct("report_id")
-            .values_list("report_id", "content")
+            .values("id")
         )
+        rows = SignalReportArtefact.objects.filter(id__in=latest_ids).values_list("report_id", "content")
         for report_id, content in rows:
             try:
                 scores[str(report_id)] = _ScoreStamp.model_validate_json(content)
