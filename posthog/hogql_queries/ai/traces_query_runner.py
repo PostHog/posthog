@@ -391,7 +391,11 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 ) AS tools
             FROM (
                 SELECT
-                    *,
+                    uuid,
+                    event,
+                    timestamp,
+                    distinct_id,
+                    properties,
                     coalesce(
                         nullIf(toString(properties.$ai_generation_id), ''),
                         nullIf(toString(properties.$ai_span_id), ''),
@@ -416,19 +420,20 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             """,
         )
 
-        # Add the trace IDs filter to the WHERE clause
+        # Attach the page's trace_id IN (...) to the inner subquery so ClickHouse
+        # can prune before the window. An outer WHERE after OVER is not pushed
+        # through the window and would scan every AI event in the date range.
         query = cast(ast.SelectQuery, query)
-
+        inner = cast(ast.SelectQuery, cast(ast.JoinExpr, query.select_from).table)
         trace_id_filter = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["properties", "$ai_trace_id"]),
             right=trace_ids_tuple,
         )
-
-        if query.where:
-            query.where = ast.And(exprs=[query.where, trace_id_filter])
+        if inner.where:
+            inner.where = ast.And(exprs=[inner.where, trace_id_filter])
         else:
-            query.where = trace_id_filter
+            inner.where = trace_id_filter
 
         return query
 
@@ -436,7 +441,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 12,
+            "schema_version": 13,
         }
 
     @cached_property
