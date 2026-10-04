@@ -1506,6 +1506,7 @@ export type SessionRecordingSnapshotParams = {
 export interface SessionRecordingSnapshotResponse {
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
+    replay_proxy_token?: string | null
 }
 
 export interface SessionPlayerSnapshotData {
