@@ -5,14 +5,17 @@ import asyncio
 import datetime as dt
 import resource
 from collections import defaultdict
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 
 import deltalake
+import pyarrow.fs as pa_fs
+import pyarrow.parquet as pq
 import posthoganalytics
 import deltalake.exceptions
+from deltalake.fs import DeltaStorageHandler
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -52,6 +55,10 @@ if TYPE_CHECKING:
 #   planning time) while staying under the per-partition bar. 5,000 is above p95 (~850)
 #   — so healthy tables never trip it — and well below the p99/pathological tail.
 #
+# Either count only starts a compaction when compaction can remove enough files (see
+# `_count_trigger_can_compact`). A table with one file in each of many partitions stays over the
+# total-files bar after any compaction.
+#
 # Tune further once the admin fragmentation view gives per-customer distributions.
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
@@ -77,7 +84,8 @@ COMPACT_OFFSET_OVERFLOW_RETRIES = 3
 # bin of highly compressible text (JSON documents, say) can decode to many times its target size.
 # Keep one bin's decoded bytes at half the 2 GiB Arrow offset limit, and inside the load slot the
 # compaction runs in. A running task holds its bin's decoded batches plus the writer's buffers for
-# the file it produces, so it is budgeted at twice the decoded bin.
+# the file it produces, so it is budgeted at twice the decoded bin. delta-rs also leaves every file larger
+# than the target out of the bins, so the target bounds the largest file that a compaction decodes.
 COMPACT_MAX_DECODED_BIN_BYTES = 1024 * 1024 * 1024
 COMPACT_MIN_TARGET_SIZE_BYTES = 8 * 1024 * 1024
 _COMPACT_TASK_MEMORY_FACTOR = 2
@@ -133,22 +141,24 @@ def plan_compaction(compression_ratio: float | None, slot_budget_mb: float | Non
 
 
 def _sample_compression_ratio(table: deltalake.DeltaTable) -> float | None:
-    """Decoded bytes per stored byte, from the footers of the table's largest files, or None if unreadable."""
+    """Decoded bytes per stored byte, from the footers of the table's largest files, or None if unreadable.
+
+    Reads the sampled footers directly. `to_pyarrow_dataset` builds a fragment for every live file
+    first, which costs seconds and a gigabyte of memory on a table with ten thousand files.
+    """
     sizes = table._table.get_add_file_sizes()
-    by_size = sorted(sizes.items(), key=lambda item: -(item[1] or 0))[:_COMPACT_RATIO_SAMPLE_FILES]
-    largest = {path.rpartition("/")[2] for path, _ in by_size}
-    decoded = stored = sampled = 0
-    for fragment in table.to_pyarrow_dataset().get_fragments():
-        if sampled >= _COMPACT_RATIO_SAMPLE_FILES:
-            break
-        if fragment.path.rpartition("/")[2] not in largest:
-            continue
-        metadata = fragment.metadata
+    largest = dict(sorted(sizes.items(), key=lambda item: -(item[1] or 0))[:_COMPACT_RATIO_SAMPLE_FILES])
+    if not largest:
+        return None
+    handler = DeltaStorageHandler.from_table(table._table, table._storage_options, largest)
+    filesystem = pa_fs.PyFileSystem(cast(pa_fs.FileSystemHandler, handler))
+    decoded = stored = 0
+    for path in largest:
+        metadata = pq.read_metadata(path, filesystem=filesystem)
         for index in range(metadata.num_row_groups):
             row_group = metadata.row_group(index)
             decoded += row_group.total_byte_size
             stored += sum(row_group.column(column).total_compressed_size for column in range(row_group.num_columns))
-        sampled += 1
     return decoded / stored if stored else None
 
 
@@ -161,6 +171,12 @@ def _peak_rss_mb() -> float:
 # table version must stay inside this window — see MAX_SNAPSHOT_ROLLBACK in the fan-out
 # warehouse-parent reader, which derives its bound from this value.
 VACUUM_RETENTION = dt.timedelta(hours=24)
+
+# A checkpoint drops tombstones older than `delta.deletedFileRetentionDuration` (delta's default,
+# which these tables keep). A lite vacuum finds dead files only through tombstones, so a file whose
+# tombstone was dropped before a vacuum ran is never deleted. A vacuum must run within this window,
+# less the retention, after each tombstone.
+DELTA_DELETED_FILE_RETENTION = dt.timedelta(days=7)
 
 
 def removable_file_count(file_sizes: Iterable[int], target_size: int = DEFAULT_COMPACT_TARGET_SIZE_BYTES) -> int:
@@ -235,6 +251,130 @@ def _small_file_fragmentation(
     )
 
 
+def _count_trigger_can_compact(small_files: _SmallFileFragmentation) -> bool:
+    # The count triggers exist to lower the file count, so they need a compaction that removes files
+    # in quantity. The table-wide count always applies here: the table is already over a count bar.
+    return (
+        small_files.max_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+        or small_files.total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD
+    )
+
+
+@frozen
+class VacuumCadence:
+    commit_threshold: int
+    max_interval: dt.timedelta
+    full_interval: dt.timedelta
+
+    @classmethod
+    def from_settings(cls) -> "VacuumCadence":
+        return cls(
+            commit_threshold=settings.DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD,
+            max_interval=dt.timedelta(hours=settings.DATA_WAREHOUSE_VACUUM_MAX_INTERVAL_HOURS),
+            full_interval=dt.timedelta(hours=settings.DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS),
+        )
+
+
+@frozen
+class VacuumWatermarks:
+    """The vacuum cadence state of one Delta table, persisted in the schema's `sync_type_config`.
+
+    One schema can back two Delta tables (the snapshot and its `_cdc` companion). Their versions are
+    unrelated numbers, so each table keeps its own keys.
+    """
+
+    version: int | None
+    vacuumed_at: dt.datetime | None
+    full_vacuumed_at: dt.datetime | None
+
+    @staticmethod
+    def _keys(is_cdc_companion: bool) -> tuple[str, str, str]:
+        suffix = "_cdc" if is_cdc_companion else ""
+        return f"last_vacuum_version{suffix}", f"last_vacuum_at{suffix}", f"last_full_vacuum_at{suffix}"
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any] | None, is_cdc_companion: bool) -> "VacuumWatermarks":
+        version_key, vacuumed_key, full_key = cls._keys(is_cdc_companion)
+        config = config or {}
+        return cls(
+            version=config.get(version_key),
+            vacuumed_at=_parse_timestamp(config.get(vacuumed_key)),
+            full_vacuumed_at=_parse_timestamp(config.get(full_key)),
+        )
+
+    def config_updates(self, previous: "VacuumWatermarks", is_cdc_companion: bool) -> dict[str, Any]:
+        version_key, vacuumed_key, full_key = self._keys(is_cdc_companion)
+        updates: dict[str, Any] = {}
+        if self.version is not None and self.version != previous.version:
+            updates[version_key] = self.version
+        if self.vacuumed_at is not None and self.vacuumed_at != previous.vacuumed_at:
+            updates[vacuumed_key] = self.vacuumed_at.isoformat()
+        if self.full_vacuumed_at is not None and self.full_vacuumed_at != previous.full_vacuumed_at:
+            updates[full_key] = self.full_vacuumed_at.isoformat()
+        return updates
+
+
+def _parse_timestamp(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=dt.UTC)
+
+
+@frozen
+class VacuumDecision:
+    # None when no vacuum is due. Otherwise "full", "commits" or "time".
+    reason: str | None
+    commits_since_vacuum: int
+    # The watermarks with every missing or stale value seeded, whether a vacuum runs or not.
+    watermarks: VacuumWatermarks
+
+    @property
+    def full(self) -> bool:
+        return self.reason == "full"
+
+
+def decide_vacuum(
+    watermarks: VacuumWatermarks, cadence: VacuumCadence, version: int, now: dt.datetime
+) -> VacuumDecision:
+    """Which vacuum, if any, this pass runs.
+
+    A missing watermark is seeded without a vacuum, so the tables that existed before a watermark do
+    not all vacuum at the same time after a deploy. A version above the table's current version means
+    the table was recreated (delta versions are monotonic within one incarnation), and no reset path
+    clears the persisted watermark. Left alone, it would block the commit cadence until the new table
+    out-versioned the old one, so it is seeded again.
+
+    The commit cadence alone lets a table that commits slowly go past the tombstone window (see
+    `DELTA_DELETED_FILE_RETENTION`), so a lite vacuum also runs when `max_interval` has passed. A lite
+    vacuum never finds files that no tombstone names: files a crashed writer left, or files whose
+    tombstone was dropped. A full vacuum lists the table instead, and runs once each `full_interval`.
+    A full vacuum also deletes everything that a lite vacuum deletes, so it replaces a lite one.
+    """
+    version_stale = watermarks.version is None or version < watermarks.version
+    seeded = VacuumWatermarks(
+        version=version if version_stale else watermarks.version,
+        vacuumed_at=watermarks.vacuumed_at or now,
+        full_vacuumed_at=watermarks.full_vacuumed_at or now,
+    )
+    reason = None
+    if watermarks.full_vacuumed_at is not None and now - watermarks.full_vacuumed_at >= cadence.full_interval:
+        reason = "full"
+    elif watermarks.version is not None and not version_stale:
+        if version - watermarks.version >= cadence.commit_threshold:
+            reason = "commits"
+    if reason is None and watermarks.vacuumed_at is not None and now - watermarks.vacuumed_at >= cadence.max_interval:
+        reason = "time"
+    return VacuumDecision(reason=reason, commits_since_vacuum=version - (seeded.version or 0), watermarks=seeded)
+
+
+def _utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.UTC)
+
+
 class DeltaMaintenance:
     """Compaction, vacuuming, and the vacuum-watermark cadence for one schema's Delta table.
 
@@ -244,12 +384,13 @@ class DeltaMaintenance:
     cleans up before adding to the pile) and the post-load pass.
     """
 
-    def __init__(self, table: "DeltaTableRef") -> None:
+    def __init__(self, table: "DeltaTableRef", *, clock: Callable[[], dt.datetime] = _utc_now) -> None:
         self._table = table
         self._logger = table.logger
+        self._clock = clock
 
-    async def _vacuum(self, table: deltalake.DeltaTable) -> None:
-        await self._logger.adebug("Vacuuming table...")
+    async def _vacuum(self, table: deltalake.DeltaTable, *, full: bool = False) -> int:
+        await self._logger.adebug("Vacuuming table...", vacuum_full=full)
         # vacuum() commits a REMOVE of tombstoned files, so it's just as subject to delta-rs's
         # conflict checker as merge/optimize.compact — see execute_with_conflict_retry.
         vacuum_stats = await execute_with_conflict_retry(
@@ -258,11 +399,13 @@ class DeltaMaintenance:
                 retention_hours=int(VACUUM_RETENTION.total_seconds() // 3600),
                 enforce_retention_duration=False,
                 dry_run=False,
+                full=full,
             ),
             "vacuum_table",
             self._logger,
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
+        return len(vacuum_stats) if isinstance(vacuum_stats, list) else 0
 
     async def _plan_compaction(self, table: deltalake.DeltaTable) -> CompactionPlan:
         try:
@@ -332,50 +475,31 @@ class DeltaMaintenance:
         await self._logger.adebug(json.dumps(compact_stats))
         return True
 
-    async def _vacuum_due(self, last_vacuum_version: int | None, commit_threshold: int) -> bool:
-        # The same cadence `vacuum_if_stale` applies. An unseeded watermark is never due.
-        table = await self._table.get_delta_table()
-        if table is None or last_vacuum_version is None:
-            return False
-        return await asyncio.to_thread(table.version) - last_vacuum_version >= commit_threshold
-
-    async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
-        """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
+    async def vacuum_if_due(self, watermarks: VacuumWatermarks, cadence: VacuumCadence) -> VacuumDecision | None:
+        """Vacuum when the cadence says so (see `decide_vacuum`), and return the decision.
 
         Decoupled from merge success (called pre-write) so a table that OOMs its merge every run still
-        gets cleaned — the post-load compaction never runs for it, which is how tables reach ~99% dead
-        files. Vacuum only deletes dead files (an S3 LIST + delete), so unlike `compact_if_fragmented`'s
-        `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
-
-        Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
-        decide. Returns the current version to persist as the new watermark when it vacuumed, on first
-        encounter, or when the table was recreated (both reseed the watermark without vacuuming);
-        None when nothing changed.
+        gets cleaned. Vacuum only deletes dead files (an S3 LIST + delete), so unlike
+        `compact_if_fragmented`'s `optimize.compact` (which rewrites partitions) it is memory-safe even
+        on an oversized table. The cadence needs no S3 request to decide. The returned watermarks are
+        the ones to persist; None means the table does not exist.
         """
         table = await self._table.get_delta_table()
         if table is None:
             return None
 
         version = await asyncio.to_thread(table.version)
-        if last_vacuum_version is None or version < last_vacuum_version:
-            # First encounter: seed the watermark without vacuuming so existing tables clean up gradually
-            # over the next `commit_threshold` commits rather than all vacuuming at once on deploy.
-            # A version below the watermark means the table was reset/recreated (delta versions are
-            # monotonic within one incarnation) and no reset path clears the persisted watermark —
-            # left alone it would block the cadence until the new table out-versioned the old one.
-            return version
+        now = self._clock()
+        decision = decide_vacuum(watermarks, cadence, version, now)
+        if decision.reason is None:
+            await self._logger.adebug(f"vacuum: not due, {decision.commits_since_vacuum} commits since the last vacuum")
+            return decision
 
-        commits_since = version - last_vacuum_version
-        if commits_since < commit_threshold:
-            await self._logger.adebug(
-                f"vacuum_if_stale: skipping, {commits_since} commits since last vacuum (< {commit_threshold})"
-            )
-            return None
-
-        await self._logger.ainfo(
-            f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
-        )
-        await self._vacuum(table)
+        await self._logger.ainfo(f"vacuum: due ({decision.reason}), vacuuming", vacuum_full=decision.full)
+        started = time.monotonic()
+        files_deleted = await self._vacuum(table, full=decision.full)
+        # Vacuum commits its own start and end entries, which must not count towards the next cadence.
+        version_after = await asyncio.to_thread(table.version)
         try:
             # Observability for the maintenance path — how often tables vacuum and how much log churn
             # accrued between vacuums. Best-effort: telemetry must never break the sync.
@@ -387,13 +511,25 @@ class DeltaMaintenance:
                     "schema_id": str(self._table.job.schema_id),
                     "source_id": str(self._table.job.pipeline_id),
                     "resource_name": self._table.resource_name,
-                    "commits_since_last_vacuum": commits_since,
+                    "commits_since_last_vacuum": decision.commits_since_vacuum,
                     "delta_version": version,
+                    "vacuum_reason": decision.reason,
+                    "vacuum_full": decision.full,
+                    "files_deleted": files_deleted,
+                    "duration_s": round(time.monotonic() - started, 2),
                 },
             )
         except Exception as e:
             capture_exception(e)
-        return version
+        return VacuumDecision(
+            reason=decision.reason,
+            commits_since_vacuum=decision.commits_since_vacuum,
+            watermarks=VacuumWatermarks(
+                version=version_after,
+                vacuumed_at=now,
+                full_vacuumed_at=now if decision.full else decision.watermarks.full_vacuumed_at,
+            ),
+        )
 
     async def compact_if_fragmented(
         self,
@@ -403,13 +539,16 @@ class DeltaMaintenance:
         compact_small_files: bool = False,
         table_wide_small_files: bool = False,
     ) -> bool:
-        """Run compact + vacuum if the table is fragmented past either threshold.
+        """Compact if the table is fragmented past either count threshold, or has small files to merge.
 
-        Fragmented = files-per-partition > `threshold` OR total files > `total_threshold`.
+        Count-fragmented = files-per-partition > `threshold` OR total files > `total_threshold`.
         The total-files backstop matters because delta enumerates every file's metadata
         during a merge even when partition pruning skips reading them, so merge planning
         time tracks total files — a high partition_count must not let a table accumulate
-        tens of thousands of files while staying under the per-partition bar.
+        tens of thousands of files while staying under the per-partition bar. A count trigger
+        compacts only when compaction can remove enough files (see `_count_trigger_can_compact`):
+        a table with one file in each of ten thousand partitions stays over the bar after a
+        compaction, and would otherwise plan and commit a compaction on every pass.
 
         `compact_small_files` adds the removable-file triggers (see
         `DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD`), plus a trigger for any
@@ -417,17 +556,19 @@ class DeltaMaintenance:
         post-load pass sets it. The pre-write pass is a backstop for a table that arrived
         fragmented, and a CDC final lands every tick, so these triggers would compact a CDC table
         every few ticks. `table_wide_small_files` also enables the table-wide removable-file
-        trigger, which `run_maintenance` sets only when the vacuum is due.
+        trigger, which `run_scheduled` sets only when a vacuum is due or ran earlier in the same sync.
 
         When `partition_count` is None it is derived from the table's actual layout (the
         distinct file directories in the delta log, no extra I/O) — only md5 partitioning
         persists a count on the schema, so datetime/numerical-partitioned tables always
         arrive here with None.
 
-        Returns True if compaction ran, False if it was skipped. Cheap when the table is
-        healthy: one S3 LIST via `table.file_uris`. Runs pre-write, so a sync that arrived at a
-        fragmented state (e.g. an earlier attempt that failed before reaching post-load) cleans up
-        before adding to the pile, and again post-load once the sync's own files have landed.
+        Returns True if compaction ran, False if it was skipped. The decision reads only the
+        Delta log. Runs pre-write, so a sync that arrived at a fragmented state (e.g. an earlier
+        attempt that failed before reaching post-load) cleans up before adding to the pile, and
+        again post-load once the sync's own files have landed. Compaction does not vacuum: the
+        files it removes are younger than `VACUUM_RETENTION`, so a vacuum right after it could not
+        delete them, and the vacuum cadence collects them later.
         """
         table = await self._table.get_delta_table()
         if table is None:
@@ -445,44 +586,44 @@ class DeltaMaintenance:
         files_per_partition = total_files / effective_partitions
 
         count_fragmented = files_per_partition > threshold or total_files > total_threshold
-        fragmented = count_fragmented
         stats = (
             f"total_files={total_files}, partitions={effective_partitions}, "
             f"files_per_partition={files_per_partition:.1f}, threshold={threshold}, "
             f"total_threshold={total_threshold}"
         )
-        if compact_small_files and not fragmented:
-            partitions = await asyncio.to_thread(_partition_file_stats, table)
-            # Repartition detection runs after this pass and compares partition bytes to its budget.
-            # Small files take more bytes at rest than the same rows after compaction, so an
-            # over-budget partition that compaction can shrink must be compacted before it is measured.
-            small_file_stats = _small_file_fragmentation(partitions, table_wide_small_files)
-            fragmented = small_file_stats.fragmented
-            stats += (
-                f", max_removable_files_per_partition={small_file_stats.max_removable}, "
-                f"removable_files={small_file_stats.total_removable}, "
-                f"compactable_over_budget={small_file_stats.compactable_over_budget}"
-            )
-        if not fragmented:
+        if not count_fragmented and not compact_small_files:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
 
-        if count_fragmented:
-            await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-            if not await self._compact(table):
-                return False
-            await self._vacuum(table)
-            return True
+        def triggered(small_file_stats: _SmallFileFragmentation) -> bool:
+            return (count_fragmented and _count_trigger_can_compact(small_file_stats)) or (
+                compact_small_files and small_file_stats.fragmented
+            )
+
+        partitions = await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+        # Repartition detection runs after this pass and compares partition bytes to its budget.
+        # Small files take more bytes at rest than the same rows after compaction, so an
+        # over-budget partition that compaction can shrink must be compacted before it is measured.
+        small_file_stats = _small_file_fragmentation(partitions, table_wide_small_files)
+        stats += (
+            f", count_fragmented={count_fragmented}, "
+            f"max_removable_files_per_partition={small_file_stats.max_removable}, "
+            f"removable_files={small_file_stats.total_removable}, "
+            f"compactable_over_budget={small_file_stats.compactable_over_budget}"
+        )
+        if not triggered(small_file_stats):
+            await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
+            return False
 
         plan = await self._plan_compaction(table)
         if plan.target_size is None:
             await self._compact(table, plan)
             return False
 
-        if compact_small_files:
+        if plan.target_size != DEFAULT_COMPACT_TARGET_SIZE_BYTES:
+            # A smaller bin can merge fewer of the files, so the trigger must hold at the planned size too.
             partitions = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
-            fragmented = _small_file_fragmentation(partitions, table_wide_small_files).fragmented
-            if not fragmented:
+            if not triggered(_small_file_fragmentation(partitions, table_wide_small_files)):
                 await self._logger.adebug(
                     f"compact_if_fragmented: skipping; no files are removable at planned target_size="
                     f"{plan.target_size} ({stats})"
@@ -490,41 +631,17 @@ class DeltaMaintenance:
                 return False
 
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-        if not await self._compact(table, plan):
+        return await self._compact(table, plan)
+
+    def _vacuumed_during_job(self, watermarks: VacuumWatermarks) -> bool:
+        # The pre-write pass vacuums before it writes, and it never checks small files. The post-load
+        # pass of the same sync then sees no vacuum due, but must still run the table-wide check.
+        job_started_at = getattr(self._table.job, "created_at", None)
+        if watermarks.vacuumed_at is None or not isinstance(job_started_at, dt.datetime):
             return False
-        await self._vacuum(table)
-        return True
-
-    async def run_maintenance(
-        self,
-        partition_count: int | None,
-        last_vacuum_version: int | None,
-        commit_threshold: int,
-        compact_small_files: bool = False,
-    ) -> int | None:
-        """Single threshold-maintenance step: compact if fragmented, else vacuum on commit cadence.
-
-        The two triggers are orthogonal — fragmentation (active file count) vs. commit cadence (tombstone
-        accrual) — but they share one outcome, the vacuum watermark. `compact_if_fragmented` already
-        vacuums as part of compaction, so when it runs it supersedes the cadence vacuum (no double vacuum
-        in one run) and the watermark advances to the post-compaction version. When nothing was fragmented,
-        fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
-        `last_vacuum_version` watermark, or None when nothing changed — `run_scheduled` persists it.
-        """
-        compacted = await self.compact_if_fragmented(
-            partition_count=partition_count,
-            compact_small_files=compact_small_files,
-            table_wide_small_files=compact_small_files
-            and await self._vacuum_due(last_vacuum_version, commit_threshold),
-        )
-        if compacted:
-            table = await self._table.get_delta_table()
-            if table is None:
-                return None
-            # Compaction (which vacuumed) added a commit, advancing the version; reset the cadence
-            # watermark to it so the next vacuum is measured from this cleanup, not the old baseline.
-            return await asyncio.to_thread(table.version)
-        return await self.vacuum_if_stale(last_vacuum_version, commit_threshold)
+        if job_started_at.tzinfo is None:
+            job_started_at = job_started_at.replace(tzinfo=dt.UTC)
+        return watermarks.vacuumed_at >= job_started_at
 
     async def run_scheduled(
         self,
@@ -536,12 +653,17 @@ class DeltaMaintenance:
     ) -> None:
         """Best-effort threshold maintenance owning the vacuum-watermark lifecycle for `schema`.
 
-        Reads the right watermark, runs `run_maintenance`, and persists the returned watermark via
-        `update_sync_type_config_keys` (row-locked merge) — both call sites (the pre-write defensive
-        pass and the post-load pass) share this, so the watermark can't drift between them.
+        Vacuums when the cadence is due (see `decide_vacuum`), persists the watermarks via
+        `update_sync_type_config_keys` (row-locked merge), and then compacts if fragmented. Both call
+        sites (the pre-write defensive pass and the post-load pass) share this, so the watermarks
+        can't drift between them. The persisted keys are also merged into the in-memory schema, so
+        the post-load pass of the same sync sees the vacuum that the pre-write pass ran.
+
+        The vacuum runs and persists before the compaction, so a compaction that fails on every
+        sync does not stop the vacuum cadence.
 
         One schema can back two delta tables (snapshot + `_cdc` companion) whose delta versions are
-        unrelated numbers, so each table's vacuum cadence gets its own watermark key — sharing one
+        unrelated numbers, so each table's vacuum cadence gets its own watermark keys — sharing them
         would corrupt both cadences. The companion also ignores `schema.partition_count` (it
         describes the snapshot table); `compact_if_fragmented` derives the companion's count from
         its actual layout instead.
@@ -556,29 +678,29 @@ class DeltaMaintenance:
         so a refused pass leaves every live row queryable and costs the table nothing but a delayed
         cleanup. It is a policy condition on our own bucket rather than a maintenance defect, so a
         report per sync would say the same thing repeatedly about something no code change fixes.
-        The watermark is not persisted either, so the cadence re-attempts the vacuum on the next pass
-        instead of waiting another `commit_threshold` commits for a cleanup that never ran.
+        The watermarks are not persisted either, so the cadence re-attempts the vacuum on the next
+        pass instead of waiting for a cleanup that never ran.
         """
         try:
-            if is_cdc_companion:
-                partition_count = None
-                watermark_key = "last_vacuum_version_cdc"
-                last_vacuum_version = schema.last_vacuum_version_cdc
-            else:
-                partition_count = schema.partition_count or partition_count_fallback
-                watermark_key = "last_vacuum_version"
-                last_vacuum_version = schema.last_vacuum_version
+            partition_count = None if is_cdc_companion else (schema.partition_count or partition_count_fallback)
+            watermarks = VacuumWatermarks.from_config(schema.sync_type_config, is_cdc_companion)
 
-            new_version = await self.run_maintenance(
-                partition_count=partition_count,
-                last_vacuum_version=last_vacuum_version,
-                commit_threshold=settings.DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD,
-                compact_small_files=compact_small_files,
-            )
-            if new_version is not None and new_version != last_vacuum_version:
+            decision = await self.vacuum_if_due(watermarks, VacuumCadence.from_settings())
+            if decision is None:
+                return
+            updates = decision.watermarks.config_updates(watermarks, is_cdc_companion)
+            if updates:
                 await database_sync_to_async_pool(update_sync_type_config_keys)(
-                    schema.id, schema.team_id, updates={watermark_key: new_version}
+                    schema.id, schema.team_id, updates=updates
                 )
+                schema.sync_type_config = {**(schema.sync_type_config or {}), **updates}
+
+            await self.compact_if_fragmented(
+                partition_count=partition_count,
+                compact_small_files=compact_small_files,
+                table_wide_small_files=compact_small_files
+                and (decision.reason is not None or self._vacuumed_during_job(watermarks)),
+            )
         except ObjectStorePermissionDeniedError:
             await self._logger.awarning("Delta maintenance skipped: the object store denied the operation")
             return

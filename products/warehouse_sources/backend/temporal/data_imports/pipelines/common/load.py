@@ -282,9 +282,10 @@ async def _run_delta_maintenance(
     )
 
     # Threshold maintenance for every sync type: most final batches leave the table with nothing
-    # to compact, and an unconditional compact still lists and plans every file. Compact when
-    # fragmented, otherwise vacuum once enough commits have accrued; see DeltaMaintenance.run_scheduled.
-    # A non-CDC sync also compacts once its small merge files add up (see compact_if_fragmented).
+    # to compact, and an unconditional compact still lists and plans every file. Vacuum when the
+    # commit or time cadence is due, then compact when compaction can remove files; see
+    # DeltaMaintenance.run_scheduled. A non-CDC sync also compacts once its small merge files add up
+    # (see compact_if_fragmented).
     logger.debug("Running threshold-based delta maintenance")
     with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
         await DeltaMaintenance(delta_table_ref).run_scheduled(
