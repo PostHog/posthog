@@ -12,7 +12,7 @@ import {
     reportMetricWindowLabel,
     selectReportCardImpactMetric,
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
-import type { ImpactNumberApi, ReportPageApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
+import type { ImpactNumberApi, ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 
 import type { TodayFigureCardContent } from './todayFigureSources'
 import { shortDate } from './todayProse'
@@ -130,8 +130,8 @@ function metricNumber(report: Pick<SignalReport, 'metrics'>): TodayImpactNumber 
     }
 }
 
-function pageNumber(number: ImpactNumberApi, signals: SignalViewApi[]): TodayImpactNumber {
-    const signal = signals.find((candidate) => candidate.signal_id === number.signal_id)
+function pageNumber(number: ImpactNumberApi): TodayImpactNumber {
+    const signal = number.signal
     return {
         key: number.key,
         value: number.value,
@@ -142,7 +142,7 @@ function pageNumber(number: ImpactNumberApi, signals: SignalViewApi[]): TodayImp
             ? {
                   kind: 'signal',
                   signal,
-                  excerpt: number.excerpt,
+                  excerpt: signal.headline,
                   values: number.values.length ? number.values : undefined,
                   working: number.working ?? undefined,
               }
@@ -152,9 +152,8 @@ function pageNumber(number: ImpactNumberApi, signals: SignalViewApi[]): TodayImp
 
 export function impactNumbers(
     report: Pick<SignalReport, 'metrics'>,
-    page: Pick<ReportPageApi, 'impact_numbers'> | null,
-    signals: SignalViewApi[]
+    page: Pick<ReportPageApi, 'impact_numbers'> | null
 ): TodayImpactNumber[] {
-    const fromSignals = (page?.impact_numbers ?? []).map((number) => pageNumber(number, signals))
+    const fromSignals = (page?.impact_numbers ?? []).map(pageNumber)
     return [metricNumber(report), ...fromSignals].filter(isNotNil)
 }
