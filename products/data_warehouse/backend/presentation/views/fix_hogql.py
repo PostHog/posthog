@@ -77,8 +77,8 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # without a generic error toast.
             return Response(
                 {
-                    "trace_id": trace_id,
                     "error": "AI could not fix this query right now. Try again later, or edit the query by hand.",
+                    "trace_id": trace_id,
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
