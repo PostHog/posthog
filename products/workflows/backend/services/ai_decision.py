@@ -139,14 +139,13 @@ def decide(call: AIDecisionCall) -> AIDecisionOutcome:
 
 
 def _is_over_ai_credit_budget(team: Team) -> bool:
-    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the API import path
-        is_team_over_ai_credit_budget,
-    )
-
     try:
+        # Inside the try because posthog-foss ships without ee, and it keeps the billing query stack off the API import path.
+        from ee.billing.quota_limiting import is_team_over_ai_credit_budget  # noqa: PLC0415
+
         return is_team_over_ai_credit_budget(team.api_token)
     except Exception:
-        # A team that is really out of credits still gets a 402 from the gateway, so a cache outage fails open.
+        # A team that is really out of credits still gets a 402 from the gateway, so a failed lookup fails open.
         logger.warning("workflow_ai_decision_credit_lookup_failed", team_id=team.id, exc_info=True)
         return False
 

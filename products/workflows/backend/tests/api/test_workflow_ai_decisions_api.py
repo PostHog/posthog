@@ -1,3 +1,4 @@
+import sys
 import json
 from datetime import timedelta
 from typing import Any
@@ -219,14 +220,15 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_check_raises", _FLAG, status.HTTP_503_SERVICE_UNAVAILABLE, None),
-            ("credit_lookup_raises", _CREDITS, status.HTTP_200_OK, "succeeded"),
+            ("flag_check_raises", patch(_FLAG, side_effect=RuntimeError("blip")), 503, None),
+            ("credit_lookup_raises", patch(_CREDITS, side_effect=RuntimeError("blip")), 200, "succeeded"),
+            ("billing_module_missing", patch.dict(sys.modules, {"ee.billing.quota_limiting": None}), 200, "succeeded"),
         ]
     )
     def test_a_lookup_that_raises_never_fails_the_decision_for_good(
-        self, _name: str, target: str, expected_status: int, expected_outcome: str | None
+        self, _name: str, lookup_failure: Any, expected_status: int, expected_outcome: str | None
     ) -> None:
-        with patch(target, side_effect=RuntimeError("blip")), patch(_DECIDE, return_value=_pick_one_result()):
+        with lookup_failure, patch(_DECIDE, return_value=_pick_one_result()):
             response = self._post()
 
         assert response.status_code == expected_status, response.json()
