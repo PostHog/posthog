@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, path, reducers, selectors
 import { urlToAction } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hasSuperpowers } from 'lib/utils/superpowers'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -100,7 +101,7 @@ export const appLogic = kea<appLogicType>([
     })),
     urlToAction(({ actions }) => ({
         '*': (_, __, hash) => {
-            if ('kea' in hash) {
+            if ('kea' in hash && hasSuperpowers(userLogic.values.user, preflightLogic.values.preflight)) {
                 actions.showDevTools()
             }
         },

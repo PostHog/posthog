@@ -33,6 +33,7 @@ import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLog
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
+import { hasSuperpowers } from 'lib/utils/superpowers'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -40,6 +41,7 @@ import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { EventsNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
@@ -176,7 +178,10 @@ export function InsightRefreshDataHint({
 }
 
 function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element | null {
-    if (queryId == null) {
+    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    if (queryId == null || !hasSuperpowers(user, preflight)) {
         return null
     }
 
@@ -345,6 +350,10 @@ export function StatelessInsightLoadingState({
     setProgress?: (loadId: string, progress: number) => void
     progress?: number
 }): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
+    const showQueryDetails = hasSuperpowers(user, preflight)
+
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
     const [secondsElapsed, setSecondsElapsed] = useState(0)
@@ -355,7 +364,7 @@ export function StatelessInsightLoadingState({
     const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
-        if (!isPageVisible) {
+        if (!isPageVisible || !showQueryDetails) {
             return
         }
 
@@ -379,7 +388,7 @@ export function StatelessInsightLoadingState({
         }, 100)
 
         return () => clearInterval(interval)
-    }, [pollResponse, isPageVisible])
+    }, [pollResponse, isPageVisible, showQueryDetails])
 
     // Toggle between loading messages every 3-5 seconds
     useEffect(() => {
@@ -442,13 +451,15 @@ export function StatelessInsightLoadingState({
             >
                 <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                 {suggestions}
-                <LoadingDetails
-                    pollResponse={pollResponse}
-                    queryId={queryId}
-                    rowsRead={rowsRead}
-                    bytesRead={bytesRead}
-                    secondsElapsed={secondsElapsed}
-                />
+                {showQueryDetails && (
+                    <LoadingDetails
+                        pollResponse={pollResponse}
+                        queryId={queryId}
+                        rowsRead={rowsRead}
+                        bytesRead={bytesRead}
+                        secondsElapsed={secondsElapsed}
+                    />
+                )}
             </div>
         </div>
     )
