@@ -566,6 +566,10 @@ async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tom
     let person = ctx.insert_person("attach_race_a", None).await.unwrap();
 
     let mut attach = ctx.pool.begin().await.unwrap();
+    let attach_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *attach)
+        .await
+        .unwrap();
     let op_id = claim_merge_mark(&mut attach, ctx.team_id, &person).await;
     sqlx::query(
         "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ('attach_race_b', $1, $2, 1)",
@@ -595,8 +599,10 @@ async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tom
     loop {
         let waiting: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM pg_stat_activity
-             WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO lifecycle_op_person%'",
+             WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
+               AND query LIKE '%INSERT INTO lifecycle_op_person%'",
         )
+        .bind(attach_pid)
         .fetch_one(&ctx.pool)
         .await
         .unwrap();

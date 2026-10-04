@@ -1443,13 +1443,9 @@ async fn tombstone_persons_by_uuids(
     })
 }
 
-/// The person row lock cannot stop an ingestion attach: its foreign-key check
-/// passes on a tombstoned row. The attach checks liveness under this mark, so a
-/// held mark makes it wait and then see the tombstone.
-///
-/// Claims go in person id order, as ingestion claims, so claimants block instead
-/// of deadlocking. A person missing from the response reads as "no longer
-/// exists" to the caller, so a mark held elsewhere fails the whole call.
+/// The person row lock cannot stop an ingestion attach, whose FK check passes on a tombstone, so the
+/// attach re-checks liveness under this mark; claims go in id order, as ingestion's do, to avoid deadlock.
+/// A mark held elsewhere fails the whole call, because the caller reads a missing person as already gone.
 async fn claim_delete_marks(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
