@@ -90,6 +90,7 @@ def _paginator(config: HiBobEndpointConfig) -> BasePaginator:
         cursor_path="response_metadata.next_cursor",
         cursor_param="cursor",
         param_location=config.cursor_location,
+        raise_on_repeated_cursor=True,
     )
 
 

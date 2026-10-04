@@ -195,6 +195,20 @@ class TestEmployeeHistoryTables:
         assert captured[0]["params"] == {"limit": 200}
         assert captured[1]["params"] == {"limit": 200, "cursor": "c2"}
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejects_repeated_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"results": [], "response_metadata": {"next_cursor": "stalled"}}),
+                _response({"results": [], "response_metadata": {"next_cursor": "stalled"}}),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="repeated cursor"):
+            _rows(hibob_source("service-id", "token", "employee_lifecycle", team_id=1, job_id="j"))
+
 
 class TestCandidates:
     @mock.patch(CLIENT_SESSION_PATCH)

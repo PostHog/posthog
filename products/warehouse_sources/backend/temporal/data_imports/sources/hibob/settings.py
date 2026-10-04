@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class HiBobEndpointConfig:
     name: str
     path: str
