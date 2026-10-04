@@ -22,6 +22,11 @@ import {
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import {
+    MODEL_BREAKDOWN_DESCRIPTION,
+    NORMALIZED_MODEL_BREAKDOWN_HOGQL,
+    normalizedModelPropertyFilter,
+} from '../utils/modelBreakdown'
 
 export type AIObservabilityDashboardLogicProps = Record<string, never>
 
@@ -494,6 +499,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                 },
                 {
                     title: 'Cost by model',
+                    description: MODEL_BREAKDOWN_DESCRIPTION,
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
@@ -506,8 +512,8 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                             },
                         ],
                         breakdownFilter: {
-                            breakdown_type: 'event',
-                            breakdown: '$ai_model',
+                            breakdown_type: 'hogql',
+                            breakdown: NORMALIZED_MODEL_BREAKDOWN_HOGQL,
                         },
                         trendsFilter: {
                             aggregationAxisPrefix: '$',
@@ -533,12 +539,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                                 date_to: dashboardDateFilter.dateTo,
                                 filters: [
                                     ...((router.values.searchParams.filters as AnyPropertyFilter[]) || []),
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$ai_model',
-                                        operator: PropertyOperator.Exact,
-                                        value: breakdown as string,
-                                    },
+                                    normalizedModelPropertyFilter(breakdown as string),
                                 ],
                             })
                         },
@@ -625,6 +626,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                 },
                 {
                     title: 'Generation latency by model (median)',
+                    description: MODEL_BREAKDOWN_DESCRIPTION,
                     query: {
                         kind: NodeKind.TrendsQuery,
                         series: [
@@ -637,7 +639,8 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                             },
                         ],
                         breakdownFilter: {
-                            breakdown: '$ai_model',
+                            breakdown_type: 'hogql',
+                            breakdown: NORMALIZED_MODEL_BREAKDOWN_HOGQL,
                         },
                         trendsFilter: {
                             aggregationAxisPostfix: ' s',
@@ -661,12 +664,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                                     date_to,
                                     filters: [
                                         ...((router.values.searchParams.filters as AnyPropertyFilter[]) || []),
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: '$ai_model',
-                                            operator: PropertyOperator.Exact,
-                                            value: series.breakdown as string,
-                                        },
+                                        normalizedModelPropertyFilter(series.breakdown as string),
                                     ] as AnyPropertyFilter[],
                                 })
                             }
