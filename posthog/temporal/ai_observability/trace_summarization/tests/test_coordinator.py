@@ -19,6 +19,7 @@ from posthog.temporal.ai_observability.shared_activities import (
     resolve_level_jobs_for_team,
 )
 from posthog.temporal.ai_observability.team_discovery import TeamDiscoveryInput
+from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
@@ -54,10 +55,13 @@ class FakeTeamSummarizationWorkflow:
         started = workflow.now()
         await workflow.sleep(timedelta(minutes=10 if inputs.team_id == SLOW_TEAM_ID else 1))
         if not workflow.unsafe.is_replaying():
+            parent = workflow.info().parent
+            assert parent is not None
             child_runs.append(
                 {
                     "team_id": inputs.team_id,
                     "window": (inputs.window_start, inputs.window_end),
+                    "coordinator_run_id": parent.run_id,
                     "started": started,
                     "finished": workflow.now(),
                 }
@@ -279,6 +283,20 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert sorted(runs_by_team) == sorted(DISCOVERED_TEAM_IDS)
         assert _max_overlap(child_runs) == 2
         assert all(run["finished"] <= runs_by_team[SLOW_TEAM_ID]["finished"] for run in child_runs)
+        windows = {run["window"] for run in child_runs}
+        assert len(windows) == 1
+        assert None not in next(iter(windows))
+
+    @pytest.mark.asyncio
+    async def test_continue_as_new_carries_remaining_teams_results_and_window(self, monkeypatch):
+        child_runs.clear()
+        monkeypatch.setattr(constants, "CONTINUE_AS_NEW_HISTORY_LENGTH", 20)
+        result = await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2))
+
+        assert len({run["coordinator_run_id"] for run in child_runs}) > 1
+        assert sorted(run["team_id"] for run in child_runs) == sorted(DISCOVERED_TEAM_IDS)
+        assert result.teams_processed == len(DISCOVERED_TEAM_IDS)
+        assert result.total_summaries == len(DISCOVERED_TEAM_IDS)
         windows = {run["window"] for run in child_runs}
         assert len(windows) == 1
         assert None not in next(iter(windows))

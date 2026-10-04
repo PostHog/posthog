@@ -68,6 +68,13 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
 # The patch id keeps coordinator executions that started with fixed batches deterministic on replay.
 SLIDING_WINDOW_PATCH_ID = "llma-summarization-sliding-window-2026-09"
 
+# Continue-as-new waits for the running children to finish, so each continuation leaves slots idle.
+# Temporal suggests continue-as-new at about 4K history events, which is only about 480 children.
+# These limits stay below the Temporal warning levels of 10K events and 10 MiB.
+CONTINUE_AS_NEW_HISTORY_LENGTH = 10_000
+CONTINUE_AS_NEW_HISTORY_SIZE_BYTES = 8 * 1024 * 1024
+FEWER_CONTINUATIONS_PATCH_ID = "llma-summarization-fewer-continuations-2026-10"
+
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 
