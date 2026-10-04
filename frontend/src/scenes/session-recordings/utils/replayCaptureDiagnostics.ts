@@ -4,8 +4,10 @@ export type DiagnosisVerdict =
     | 'captured'
     | 'ad_blocked'
     | 'disabled'
+    | 'script_loading'
     | 'trigger_pending'
     | 'sampled_out'
+    | 'below_minimum_duration'
     | 'buffering_empty'
     | 'recorder_error'
     | 'unknown'
@@ -93,7 +95,10 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     const eventTrigger = properties['$sdk_debug_replay_event_trigger_status']
     const flagTrigger = properties['$sdk_debug_replay_linked_flag_trigger_status']
     const bufferLength = toNumber(properties['$sdk_debug_replay_internal_buffer_length'])
+    const bufferSize = toNumber(properties['$sdk_debug_replay_internal_buffer_size'])
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
+    const sampleRate = toNumber(properties['$replay_sample_rate'])
+    const minimumDuration = toNumber(properties['$replay_minimum_duration'])
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
     const rrwebError = properties['$sdk_debug_replay_rrweb_error']
 
@@ -126,6 +131,19 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             reasons: [
                 'The SDK reported that the recorder script was not loaded on the page.',
                 'This is usually caused by a browser ad blocker or content security policy blocking the recorder asset.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    if (recordingStatus === 'lazy_loading') {
+        return {
+            verdict: 'script_loading',
+            headline: 'The recorder script never finished loading',
+            reasons: [
+                'The SDK asked for the recorder script, but the script had not loaded by the end of this session, so no snapshots were produced.',
+                'A blocked or slow request for the script causes this. Check that requests to the PostHog asset host pass ad blockers, content blockers, and your content security policy.',
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],
@@ -186,8 +204,29 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             verdict: 'sampled_out',
             headline: 'This session was excluded by sampling',
             reasons: [
-                'The SDK selected this session to be dropped based on the configured replay sample rate.',
+                sampleRate !== null
+                    ? `The replay sample rate is ${sampleRate}, so about ${Math.round(sampleRate * 100)}% of sessions are kept. The SDK dropped this one.`
+                    : 'The SDK selected this session to be dropped based on the configured replay sample rate.',
                 'Sampling is random per-session. Increase the sample rate in project settings to capture more sessions.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    const heldSnapshots = (bufferLength !== null && bufferLength > 0) || (bufferSize !== null && bufferSize > 0)
+    if (
+        minimumDuration !== null &&
+        minimumDuration > 0 &&
+        heldSnapshots &&
+        (flushedSize === null || flushedSize === 0)
+    ) {
+        return {
+            verdict: 'below_minimum_duration',
+            headline: 'This session was shorter than the minimum recording duration',
+            reasons: [
+                `This project keeps a recording only when the session lasts at least ${Math.round(minimumDuration / 100) / 10} seconds.`,
+                'The recorder held snapshots for this session and never sent them, which is what happens when a session ends before it reaches that floor. Lower the minimum duration in project settings to keep short sessions.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
