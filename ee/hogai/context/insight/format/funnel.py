@@ -231,9 +231,9 @@ class FunnelResultsFormatter:
         return " -> ".join(series_labels)
 
     def _format_trends_series(self, results: list[dict[str, Any]]) -> str:
-        # Get dates and series labels
-        result = results[0]
-        dates = result["days"]
+        # Breakdown series can have different lengths, so align them by date.
+        dates = sorted({date for series in results for date in series["days"]})
+        values_by_date = [dict(zip(series["days"], series["data"])) for series in results]
         label = self._format_filter_series_label()
 
         now_local = self._query_date_range.now_with_timezone.replace(tzinfo=None)
@@ -260,9 +260,13 @@ class FunnelResultsFormatter:
             if partial[i]:
                 date_cell += PARTIAL_BUCKET_MARKER
             row = [date_cell]
-            for series in results:
-                row.append(format_percentage(series["data"][i] / 100))
-                row.append(format_percentage((100 - series["data"][i]) / 100))
+            for series_values in values_by_date:
+                value = series_values.get(date)
+                if value is None:
+                    row.extend(["", ""])
+                    continue
+                row.append(format_percentage(value / 100))
+                row.append(format_percentage((100 - value) / 100))
             matrix.append(row)
 
         formatted = format_matrix(matrix)
