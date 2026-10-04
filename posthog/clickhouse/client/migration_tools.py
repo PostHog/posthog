@@ -1,7 +1,9 @@
 import logging
+from dataclasses import dataclass
 from functools import cache
-from typing import Optional
+from typing import Any, Optional
 
+from clickhouse_driver import Client
 from infi.clickhouse_orm import migrations
 
 from posthog import settings
@@ -32,12 +34,36 @@ def _collapses_to_all_nodes() -> bool:
     return (settings.E2E_TESTING or not run_mode().is_deployed_cloud) and not settings.MULTINODE_CLICKHOUSE
 
 
+# NodeRole.ALL matches every host, including hosts whose role macro names no NodeRole member.
+# Migrations never create tables for such hosts on purpose, so an ALTER must not reach them.
+KNOWN_NODE_ROLES: list[NodeRole] = [role for role in NodeRole if role is not NodeRole.ALL]
+
+
+@dataclass(frozen=True)
+class SkipIfTableMissing:
+    """Run ``query`` only on a host that has ``table`` in its current database."""
+
+    table: str
+    query: Query
+
+    def __call__(self, client: Client) -> Any:
+        [[count]] = client.execute(
+            "SELECT count() FROM system.tables WHERE database = currentDatabase() AND name = %(table)s",
+            {"table": self.table},
+        )
+        if not count:
+            logger.info("       Table %s does not exist on this host, skipping", self.table)
+            return None
+        return self.query(client)
+
+
 def run_sql_with_exceptions(
     sql: str,
     node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: Optional[bool] = None,
     is_alter_on_replicated_table: Optional[bool] = None,
     require_hosts: bool = False,
+    skip_if_table_missing: str | None = None,
 ):
     """
     Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
@@ -60,6 +86,9 @@ def run_sql_with_exceptions(
         This will run on just one host per shard or one host for the whole cluster if there is no sharding.
     require_hosts: bool, optional (default is False)
         Raises when none of the requested node roles exist in the migration topology.
+    skip_if_table_missing: str, optional (default is None)
+        Skips each host that does not have this table. Use it for an ALTER that is safe to skip,
+        for example when a later migration recreates the table.
 
     Returns:
     migrations.RunPython
@@ -86,11 +115,15 @@ def run_sql_with_exceptions(
         # MULTINODE_CLICKHOUSE opts back into role-based routing so the smoke-test
         # stack can verify migrations actually land on the correct cluster.
         node_roles_list = [NodeRole.ALL]
+    elif NodeRole.ALL in node_roles_list and sql.lstrip().upper().startswith("ALTER"):
+        node_roles_list = KNOWN_NODE_ROLES
 
     def run_migration():
         cluster = get_migrations_cluster()
 
-        query = Query(sql)
+        query: Query | SkipIfTableMissing = Query(sql)
+        if skip_if_table_missing is not None:
+            query = SkipIfTableMissing(skip_if_table_missing, query)
 
         if sharded and is_alter_on_replicated_table:
             is_local_or_test = _collapses_to_all_nodes()

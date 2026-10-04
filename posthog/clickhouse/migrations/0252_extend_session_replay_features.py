@@ -69,11 +69,13 @@ operations = [
     run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
     # 2. ALTER the sharded source-of-truth table in place (it holds the actual data).
+    # 0255 drops the table and 0266 recreates it, so a host without it has nothing to lose.
     run_sql_with_exceptions(
         _alter_sharded(),
         node_roles=[NodeRole.AUX],
         sharded=True,
         is_alter_on_replicated_table=True,
+        skip_if_table_missing=SESSION_REPLAY_FEATURES_DATA_TABLE(),
     ),
     # 3. Drop and recreate the Distributed read/write tables. They have no data
     run_sql_with_exceptions(
