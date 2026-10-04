@@ -258,6 +258,7 @@ rules:
                               |PlaygroundChat
                               |PlaygroundTurn
                               |Link
+                              |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
                               |LogsExclusionRule
                               |LogsMetricRule
@@ -701,6 +702,7 @@ rules:
                         |PlaygroundChat
                         |PlaygroundTurn
                         |Link
+                        |LiveDebuggerBreakpoint
                         |Loop
                         |LoopFire
                         |LoopTrigger
