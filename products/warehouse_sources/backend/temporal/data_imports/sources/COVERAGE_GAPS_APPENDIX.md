@@ -4271,7 +4271,7 @@ Note: Endpoint count is a wildly misleading measure of this API's size: of ~800 
 
 ## Inflowinventory — gaps
 
-Today (5): `customers`, `products`, `purchase_orders`, `sales_orders`, `vendors`
+Today (9): `categories`, `customers`, `locations`, `manufacturing_orders`, `products`, `purchase_orders`, `sales_orders`, `stock_transfers`, `vendors`
 
 Diffed against: <https://cloudapi.inflowinventory.com/docs/api/swagger.json>
 
