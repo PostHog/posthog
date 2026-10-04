@@ -29,7 +29,7 @@ export type Facing = 'left' | 'right'
 
 export const LIMITS = {
     eventLog: 600,
-    maxPlayers: 150,
+    maxPlayers: 500,
     maxPlayersPerAddress: 10,
     idleTimeoutMs: 20_000,
     // A browser reconnects a dropped event stream within this time. A closed tab or a killed Chrome does not.
