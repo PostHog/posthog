@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -14,6 +14,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     convertUniversalFiltersToRecordingsQuery,
@@ -121,7 +122,9 @@ function ScannerFilterGroup(): JSX.Element {
 // Legacy targeting on other types is read-only: the API refuses a new target but accepts a clear.
 function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
-    const { detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
+    const { setExperimentVariant, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
+    // Until experiment scanners ship, legacy targeting keeps its variant picker.
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     if (!experimentContext || !scanner) {
         return null
@@ -138,6 +141,44 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
                     This scanner watches sessions of people exposed to {experimentLink}
                     {variants?.length ? <span> in {variants.join(', ')}</span> : null}. Filters you add here narrow it
                     further.
+                </div>
+            </LemonCard>
+        )
+    }
+
+    if (!experimentScanners) {
+        // A null value targets every variant; each experiment variant is a single-select option.
+        const variantOptions: { value: string | null; label: string }[] = [
+            { value: null, label: 'All variants' },
+            ...getExperimentVariants(experiment).map((variant) => ({ value: variant.key, label: variant.key })),
+        ]
+        return (
+            <LemonCard hoverEffect={false} className="p-3 space-y-3" data-attr="vision-experiment-targeting">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <LemonLabel>Experiment targeting</LemonLabel>
+                        <div className="text-xs text-muted">
+                            This scanner watches sessions of people exposed to {experimentLink}. Pick a variant to
+                            narrow it, or watch every variant. Filters you add yourself are kept.
+                        </div>
+                    </div>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => detachExperimentContext()}
+                        tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
+                        data-attr="vision-experiment-targeting-detach"
+                    >
+                        Remove targeting
+                    </LemonButton>
+                </div>
+                <div className="max-w-160">
+                    <LemonSelect
+                        value={variantKey}
+                        onChange={(key) => setExperimentVariant(key)}
+                        options={variantOptions}
+                        data-attr="vision-experiment-targeting-variants"
+                    />
                 </div>
             </LemonCard>
         )

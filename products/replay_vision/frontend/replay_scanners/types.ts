@@ -440,6 +440,12 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
     },
 ]
 
+/** The type options to offer. The experiment type is behind a flag until it ships, but a scanner that already
+ * has it, or a team that already has one, still sees it. */
+export function scannerTypeOptions(includeExperiment: boolean): typeof SCANNER_TYPE_OPTIONS {
+    return includeExperiment ? SCANNER_TYPE_OPTIONS : SCANNER_TYPE_OPTIONS.filter(({ value }) => value !== 'experiment')
+}
+
 export interface MonitorScannerConfig {
     prompt: string
     allow_inconclusive?: boolean

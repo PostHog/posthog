@@ -64,7 +64,7 @@ import {
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
-import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
+import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant, scannerTypeOptions } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -394,7 +394,10 @@ function ConfigureStep(): JSX.Element {
                             }
                             setScannerType(next)
                         }}
-                        options={SCANNER_TYPE_OPTIONS.map((opt) => ({
+                        options={scannerTypeOptions(
+                            !!featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER] ||
+                                scanner.scanner_type === 'experiment'
+                        ).map((opt) => ({
                             value: opt.value,
                             label: opt.label,
                             labelInMenu: (
