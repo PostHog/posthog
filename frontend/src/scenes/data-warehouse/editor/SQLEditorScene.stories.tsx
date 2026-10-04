@@ -410,6 +410,25 @@ export const BIModeWorksheet: Story = {
     },
 }
 
+export const BICalculatedMeasureEditor: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-calculated-measure-modal"] .monaco-editor',
+            viewport: { width: 1050, height: 900 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const addMeasure = await canvas.findByText('Add calculated measure', {}, { timeout: 15000 })
+        await waitFor(() => expect(addMeasure.closest('button')).toBeEnabled())
+        await userEvent.click(addMeasure)
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
+    },
+}
+
 export const LazySchema: Story = {
     parameters: {
         pageUrl: urls.sqlEditor({ query: 'SELECT * FROM events LIMIT 100' }),

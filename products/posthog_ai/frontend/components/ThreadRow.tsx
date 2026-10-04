@@ -10,12 +10,11 @@ import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
-import { runStreamLogic } from '../logics/runStreamLogic'
 import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
-import type { ProgressStep, ThreadItem } from '../types/streamTypes'
+import type { ProgressStep, ThreadItem, ToolInvocation } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
@@ -27,10 +26,8 @@ import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
 
-type ToolInvocations = typeof runStreamLogic.values.toolInvocations
-
 /** Maps a raw merged `ToolInvocation` into the flat `ToolCallMessage` the registry renderers read. */
-function toolInvocationToMessage(invocation: ReturnType<ToolInvocations['get']>): ToolCallMessage | null {
+function toolInvocationToMessage(invocation: ToolInvocation | undefined): ToolCallMessage | null {
     if (!invocation) {
         return null
     }
@@ -107,7 +104,7 @@ export interface ThreadRowProps {
     /** Last item in the thread — drives reasoning collapse alongside `isThinking`. */
     isLast: boolean
     isThinking: boolean
-    toolInvocations: ToolInvocations
+    invocation?: ToolInvocation
     turnComplete: boolean
     turnCancelled: boolean
     /** The current run reached a terminal status; only then is the last error the run's ending. */
@@ -144,7 +141,7 @@ export const ThreadRow = memo(function ThreadRow({
     item,
     isLast,
     isThinking,
-    toolInvocations,
+    invocation,
     turnComplete,
     turnCancelled,
     runEnded = true,
@@ -188,7 +185,7 @@ export const ThreadRow = memo(function ThreadRow({
         return <ReasoningAnswer content={item.text} id={item.id} completed={completed} showCompletionIcon={false} />
     }
     if (item.type === 'tool_invocation' && item.toolCallId) {
-        const message = toolInvocationToMessage(toolInvocations.get(item.toolCallId))
+        const message = toolInvocationToMessage(invocation)
         if (!message) {
             return null
         }
