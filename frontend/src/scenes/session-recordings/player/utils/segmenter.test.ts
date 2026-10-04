@@ -81,6 +81,37 @@ describe('segmenter', () => {
         expect(segments).toMatchSnapshot()
     })
 
+    // A gap is filled from whichever window covers it, so an unusable window id must not reach the lookup
+    it.each([
+        {
+            name: 'the tracked window has no loaded snapshots',
+            trackedWindow: 99,
+            windowIds: [1, 1, 2, 2],
+        },
+        {
+            name: 'a snapshot has no window id',
+            trackedWindow: null,
+            windowIds: [undefined, 1, 1, 1],
+        },
+    ])('fills a gap when $name', ({ trackedWindow, windowIds }) => {
+        const start = dayjs('2023-01-01T00:00:00.000Z')
+        const end = dayjs('2023-01-01T00:10:00.000Z')
+        const timestamps = [start.valueOf(), start.valueOf() + 100, end.valueOf() - 100, end.valueOf()]
+
+        const snapshots: RecordingSnapshot[] = timestamps.map(
+            (timestamp, index) => ({ windowId: windowIds[index], timestamp, type: 3, data: {} }) as any
+        )
+
+        const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
+        const segments = createSegments(snapshots, start, end, trackedWindow, snapshotsByWindowId)
+
+        const loadedWindowIds = windowIds.filter((id) => id !== undefined)
+        expect(segments.filter((segment) => segment.kind === 'gap')).not.toHaveLength(0)
+        expect(
+            segments.filter((segment) => segment.windowId !== undefined && !loadedWindowIds.includes(segment.windowId))
+        ).toEqual([])
+    })
+
     it('ends a segment if it is the last window', () => {
         const start = dayjs('2023-01-01T00:00:00.000Z')
         const end = start.add(1000, 'milliseconds')
