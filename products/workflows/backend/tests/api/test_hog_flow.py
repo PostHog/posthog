@@ -6754,9 +6754,32 @@ def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None, f
 
 
 class TestAIDecisionActionValidation(APIBaseTest):
-    def _post(self, flow: dict, flag_enabled: bool | None = True) -> Any:
+    def _post(self, flow: dict, *, flag_enabled: bool | None) -> Any:
         with _ai_decision_flag(flag_enabled):
             return self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, format="json")
+
+    def _patch(self, flow_id: str, body: dict, *, flag_enabled: bool | None) -> Any:
+        with _ai_decision_flag(flag_enabled):
+            return self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", body, format="json")
+
+    def _stage_as_api_client(self, flow_id: str, body: dict) -> Any:
+        with _ai_decision_flag(True):
+            return self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {**body, "stage_draft": True},
+                format="json",
+                HTTP_USER_AGENT="posthog-cli",
+            )
+
+    def _publish(self, flow_id: str) -> Any:
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish"
+        with _ai_decision_flag(True):
+            with patch(
+                "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+                side_effect=Exception("down"),
+            ):
+                confirm_token = self.client.post(url, {}).json()["confirm_token"]
+            return self.client.post(url, {"confirm": True, "confirm_token": confirm_token})
 
     @parameterized.expand(
         [
@@ -6768,7 +6791,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
         ]
     )
     def test_saves_a_valid_decision_with_every_answer_edge(self, _name: str, overrides: dict) -> None:
-        response = self._post(_ai_decision_flow(overrides))
+        response = self._post(_ai_decision_flow(overrides), flag_enabled=True)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -6797,7 +6820,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
     def test_rejects_a_decision_that_cannot_run(
         self, _name: str, overrides: dict, answer_edges: int | None, error_field: str
     ) -> None:
-        response = self._post(_ai_decision_flow(overrides, answer_edges))
+        response = self._post(_ai_decision_flow(overrides, answer_edges), flag_enabled=True)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert error_field in response.json()["attr"], response.json()
@@ -6814,13 +6837,15 @@ class TestAIDecisionActionValidation(APIBaseTest):
         flow = _ai_decision_flow({}, failure_edge=False)
         flow["actions"][1]["on_error"] = on_error
 
-        response = self._post(flow)
+        response = self._post(flow, flag_enabled=True)
 
         assert response.status_code == expected_status, response.json()
         assert ("missing its 'continue' edge" in str(response.json())) == (on_error is None), response.json()
 
     def test_stores_the_defaults_the_runtime_branches_on(self) -> None:
-        response = self._post(_ai_decision_flow({"options": [{"name": "Developer"}, {"name": "Marketer"}]}))
+        response = self._post(
+            _ai_decision_flow({"options": [{"name": "Developer"}, {"name": "Marketer"}]}), flag_enabled=True
+        )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         config = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]
@@ -6842,7 +6867,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
             }
         )
 
-        response = self._post(flow)
+        response = self._post(flow, flag_enabled=True)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         config = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]
@@ -6850,17 +6875,13 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert set(config["inputs"]) == {"context"}
         assert config["inputs"]["context"]["bytecode"]
 
-    def _patch(self, flow_id: str, body: dict, flag_enabled: bool | None = False) -> Any:
-        with _ai_decision_flag(flag_enabled):
-            return self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", body, format="json")
-
     @parameterized.expand([("flag_off", False), ("flag_not_evaluated", None)])
     def test_the_flag_rejects_new_decisions_and_keeps_the_ones_an_active_flow_holds(
         self, _name: str, flag_value: bool | None
     ) -> None:
         flow = _ai_decision_flow({})
         rejected = self._post(flow, flag_enabled=flag_value)
-        flow_id = self._post(flow).json()["id"]
+        flow_id = self._post(flow, flag_enabled=True).json()["id"]
         second_decision = {**flow["actions"][1], "id": "decide_again"}
         second_decision_edges = [{**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"]
 
@@ -6880,7 +6901,9 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert added.json()["attr"] == "actions__3__type", added.json()
 
     def test_activating_an_unwired_builder_draft_needs_every_decision_edge(self) -> None:
-        flow_id = self._post({**_ai_decision_flow({}, answer_edges=0), "status": "draft"}).json()["id"]
+        flow_id = self._post({**_ai_decision_flow({}, answer_edges=0), "status": "draft"}, flag_enabled=True).json()[
+            "id"
+        ]
 
         activated = self._patch(flow_id, {"status": "active"}, flag_enabled=True)
 
@@ -6888,16 +6911,16 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert "graph" in activated.json()["attr"], activated.json()
 
     def test_a_draft_does_not_grandfather_a_decision_past_the_flag(self) -> None:
-        flow_id = self._post({**_ai_decision_flow({}), "status": "draft"}).json()["id"]
+        flow_id = self._post({**_ai_decision_flow({}), "status": "draft"}, flag_enabled=True).json()["id"]
 
-        activated = self._patch(flow_id, {"status": "active"})
+        activated = self._patch(flow_id, {"status": "active"}, flag_enabled=False)
 
         assert activated.status_code == status.HTTP_400_BAD_REQUEST, activated.json()
         assert "AI decisions aren't available" in str(activated.json()), activated.json()
 
     def test_an_edit_of_an_active_flow_that_sends_only_edges_still_needs_every_answer_edge(self) -> None:
         flow = _ai_decision_flow({})
-        flow_id = self._post(flow).json()["id"]
+        flow_id = self._post(flow, flag_enabled=True).json()["id"]
         without_last_answer = [edge for edge in flow["edges"] if not (edge["type"] == "branch" and edge["index"] == 1)]
 
         response = self._patch(flow_id, {"edges": without_last_answer}, flag_enabled=True)
@@ -6905,13 +6928,35 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "graph" in response.json()["attr"], response.json()
 
+    @parameterized.expand(
+        [("wired_in_the_draft", True, status.HTTP_200_OK), ("unwired", False, status.HTTP_400_BAD_REQUEST)]
+    )
+    def test_a_staged_save_that_sends_only_actions_leaves_the_edge_check_to_publish(
+        self, _name: str, wired_in_the_draft: bool, publish_status: int
+    ) -> None:
+        flow = _ai_decision_flow({})
+        flow_id = self._post(flow, flag_enabled=True).json()["id"]
+        second_decision = {**flow["actions"][1], "id": "decide_again"}
+        if wired_in_the_draft:
+            second_decision_edges = [
+                {**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"
+            ]
+            self._stage_as_api_client(flow_id, {"edges": [*flow["edges"], *second_decision_edges]})
+
+        staged = self._stage_as_api_client(flow_id, {"actions": [*flow["actions"], second_decision]})
+        published = self._publish(flow_id)
+
+        assert staged.status_code == status.HTTP_200_OK, staged.json()
+        assert published.status_code == publish_status, published.json()
+        assert ("missing" in str(published.json())) == (not wired_in_the_draft), published.json()
+
     def test_a_stored_decision_does_not_unlock_a_flag_gated_template(self) -> None:
         template = deepcopy(webhook_template)
         template["id"] = "template-posthog-run-scout"
         template["inputs_schema"] = [{"key": "skill_name", "type": "string", "label": "Scout", "required": True}]
         sync_template_to_db(template)
         flow = _ai_decision_flow({"template_id": "template-posthog-run-scout"})
-        flow_id = self._post(flow).json()["id"]
+        flow_id = self._post(flow, flag_enabled=True).json()["id"]
         run_scout = {
             "id": "decide",
             "name": "decide",
@@ -6919,7 +6964,9 @@ class TestAIDecisionActionValidation(APIBaseTest):
             "config": {"template_id": "template-posthog-run-scout", "inputs": {"skill_name": {"value": "s"}}},
         }
 
-        response = self._patch(flow_id, {"actions": [flow["actions"][0], run_scout, flow["actions"][2]]})
+        response = self._patch(
+            flow_id, {"actions": [flow["actions"][0], run_scout, flow["actions"][2]]}, flag_enabled=False
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__template_id", response.json()
@@ -6942,7 +6989,9 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert (config["question"], config["options"]) == ("", [{"name": "Only"}])
 
     def test_an_unrelated_programmatic_edit_does_not_trip_over_an_unwired_draft_decision(self) -> None:
-        flow_id = self._post({**_ai_decision_flow({}, answer_edges=0), "status": "draft"}).json()["id"]
+        flow_id = self._post({**_ai_decision_flow({}, answer_edges=0), "status": "draft"}, flag_enabled=True).json()[
+            "id"
+        ]
 
         with _ai_decision_flag(True):
             renamed = self.client.patch(
