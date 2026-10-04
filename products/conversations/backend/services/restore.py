@@ -18,6 +18,11 @@ from products.conversations.backend.models.restore_token import hash_token
 logger = logging.getLogger(__name__)
 
 
+def is_restore_enabled(team: Team) -> bool:
+    """Teams can turn the email restore flow off. An absent key means on, so existing teams keep it."""
+    return bool((team.conversations_settings or {}).get("widget_restore_enabled", True))
+
+
 @dataclass
 class RestoreResult:
     status: Literal["success", "expired", "used", "invalid"]
