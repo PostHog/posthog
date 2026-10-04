@@ -101,6 +101,12 @@ export class ServerTaskDefaultsContribution implements Contribution {
       if (Object.keys(sync.upload).length > 0) {
         await client.setMyTaskDefaults(projectId, sync.upload);
       }
+      // The local setting is shared by every project, so a reply for a
+      // project the person has left must not change it. The sync for the
+      // current project runs on its own.
+      if (useAuthStore.getState().authState.currentProjectId !== projectId) {
+        return;
+      }
       const store = useSettingsStore.getState();
       if (store.autoPublishCloudRuns !== local) {
         // The person changed the setting while the request ran. The rerun
