@@ -6,17 +6,20 @@ type OrganizationMemberSnapshot = {
     expiresAt: number
 }
 
+const MAX_SNAPSHOT_AGE_MS = 60_000
+const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - 1_000
+
 export class OrganizationMembersService {
-    private members: LazyLoader<OrganizationMemberSnapshot>
+    private snapshots: LazyLoader<OrganizationMemberSnapshot>
 
     constructor(private postgres: PostgresRouter) {
-        this.members = new LazyLoader({
+        this.snapshots = new LazyLoader({
             name: 'organization_email_members',
-            refreshAgeMs: 59_000,
+            refreshAgeMs: REFRESH_AGE_MS,
             refreshJitterMs: 0,
             bufferMs: 0,
             loader: async (organizationIds) => {
-                const expiresAt = Date.now() + 60_000
+                const expiresAt = Date.now() + MAX_SNAPSHOT_AGE_MS
                 const { rows } = await postgres.query<{ organization_id: string; email: string }>(
                     PostgresUse.COMMON_WRITE,
                     `SELECT membership.organization_id, users.email
@@ -27,19 +30,21 @@ export class OrganizationMembersService {
                     [organizationIds],
                     'fetch-organization-email-members'
                 )
-                const members: Record<string, Set<string>> = Object.fromEntries(
+                const emailsByOrganization: Record<string, Set<string>> = Object.fromEntries(
                     organizationIds.map((id) => [id, new Set<string>()])
                 )
                 for (const row of rows) {
-                    members[row.organization_id].add(row.email.trim().toLowerCase())
+                    emailsByOrganization[row.organization_id].add(row.email.trim().toLowerCase())
                 }
-                return Object.fromEntries(Object.entries(members).map(([id, emails]) => [id, { emails, expiresAt }]))
+                return Object.fromEntries(
+                    Object.entries(emailsByOrganization).map(([id, emails]) => [id, { emails, expiresAt }])
+                )
             },
         })
     }
 
     public async getBlockedRecipients(teamId: number, recipients: string[]): Promise<string[]> {
-        const expiresAt = Date.now() + 60_000
+        const expiresAt = Date.now() + MAX_SNAPSHOT_AGE_MS
         const {
             rows: [team],
         } = await this.postgres.query<{ organization_id: string }>(
@@ -51,18 +56,18 @@ export class OrganizationMembersService {
         if (!team) {
             throw new Error('Could not identify the organization for this team')
         }
-        let members = await this.members.get(team.organization_id)
-        if (members && Date.now() >= members.expiresAt && Date.now() < expiresAt) {
-            this.members.markForRefresh(team.organization_id)
-            members = await this.members.get(team.organization_id)
+        let snapshot = await this.snapshots.get(team.organization_id)
+        if (snapshot && Date.now() >= snapshot.expiresAt && Date.now() < expiresAt) {
+            this.snapshots.markForRefresh(team.organization_id)
+            snapshot = await this.snapshots.get(team.organization_id)
         }
-        if (!members) {
+        if (!snapshot) {
             throw new Error('Could not check organization members')
         }
-        if (Date.now() >= Math.min(expiresAt, members.expiresAt)) {
-            this.members.markForRefresh(team.organization_id)
+        if (Date.now() >= Math.min(expiresAt, snapshot.expiresAt)) {
+            this.snapshots.markForRefresh(team.organization_id)
             throw new Error('The organization member check expired')
         }
-        return recipients.filter((email) => !members.emails.has(email.trim().toLowerCase()))
+        return recipients.filter((email) => !snapshot.emails.has(email.trim().toLowerCase()))
     }
 }

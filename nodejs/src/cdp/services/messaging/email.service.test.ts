@@ -385,10 +385,63 @@ describe('EmailService', () => {
             })
 
             it.each(
-                [false, true].flatMap((isTest) =>
-                    ['cc', 'bcc', 'multiple', 'unverified', 'legacy', 'inactive', 'other organization'].map(
-                        (recipient) => [isTest, recipient] as const
+                [false, true].flatMap((isTest) => [false, true].map((checkFailed) => [isTest, checkFailed] as const))
+            )(
+                'keeps all blocked addresses and guidance in long logs (isTest=%s, checkFailed=%s)',
+                async (isTest, checkFailed) => {
+                    const outside = Array.from(
+                        { length: 49 },
+                        (_, index) =>
+                            `${'a'.repeat(60)}${index}@${'b'.repeat(48)}.${'c'.repeat(48)}.${'d'.repeat(48)}.example.com`
                     )
+                    const membersPostgres = checkFailed ? new PostgresRouter(hub) : hub.postgres
+                    if (checkFailed) {
+                        await membersPostgres.end()
+                    }
+                    service = createSandboxService(true, null, undefined, membersPostgres)
+                    invocation.queueParameters = createSandboxParams({
+                        from: { integrationId: 4 },
+                        cc: outside.join(', '),
+                    })
+
+                    const result = await service.executeSendEmail(invocation, isTest)
+
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                    const messages = result.logs.map(({ message }) => message).join('\n')
+                    for (const email of checkFailed ? [memberEmail(), ...outside] : outside) {
+                        expect(messages).toContain(email)
+                    }
+                    expect(messages.toLowerCase()).toContain('verify your own domain to send to anyone.')
+                    expect(messages).not.toContain('(truncated)')
+                    expect(capture).toHaveBeenCalledTimes(1)
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        {
+                            reason: checkFailed ? 'check_failed' : 'recipient_not_member',
+                            is_test: isTest,
+                            blocked_recipient_count: checkFailed ? 50 : 49,
+                        }
+                    )
+                }
+            )
+
+            it.each(
+                [false, true].flatMap((isTest) =>
+                    [
+                        'cc',
+                        'bcc',
+                        'cc list',
+                        'bcc list',
+                        'multiple',
+                        'unverified',
+                        'legacy',
+                        'inactive',
+                        'other organization',
+                    ].map((recipient) => [isTest, recipient] as const)
                 )
             )('blocks all delivery for %s / %s', async (isTest, recipient) => {
                 let blocked = ['outside@example.com']
@@ -396,6 +449,9 @@ describe('EmailService', () => {
                 if (recipient === 'cc' || recipient === 'bcc') {
                     params = { ...params, [recipient]: 'Outside member <OUTSIDE@example.com>' }
                     blocked = ['OUTSIDE@example.com']
+                } else if (recipient === 'cc list' || recipient === 'bcc list') {
+                    const field = recipient === 'cc list' ? 'cc' : 'bcc'
+                    params = { ...params, [field]: `"Example, colleague" <${memberEmail(field)}>, outside@example.com` }
                 } else if (recipient === 'multiple') {
                     params = { ...params, cc: 'outside@example.com', bcc: 'another@example.com' }
                     blocked = ['outside@example.com', 'another@example.com']
@@ -439,7 +495,7 @@ describe('EmailService', () => {
 
             it.each(
                 [false, true].flatMap((isTest) =>
-                    ['Example colleague', '"member@example.com"', '"Example, colleague"'].map(
+                    ['Example colleague', '"member@example.com"', '"Example, colleague"', '"Example" Colleague'].map(
                         (name) => [isTest, name] as const
                     )
                 )
@@ -449,7 +505,7 @@ describe('EmailService', () => {
                     from: { integrationId: 4 },
                     to: { email: memberEmail().toUpperCase() },
                     cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
-                    bcc: ` ${memberEmail('bcc').toUpperCase()} `,
+                    bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
                 })
 
                 const result = await service.executeSendEmail(invocation, isTest)
@@ -459,6 +515,11 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
                 expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
+                    ToAddresses: [memberEmail().toUpperCase()],
+                    CcAddresses: [memberEmail('cc').toUpperCase()],
+                    BccAddresses: [memberEmail('bcc').toUpperCase()],
+                })
                 expect(capture).toHaveBeenCalledWith(
                     expect.objectContaining({ id: team.id }),
                     'workflows sandbox email sent',
@@ -466,25 +527,32 @@ describe('EmailService', () => {
                 )
             })
 
-            it.each([false, true].flatMap((isTest) => ['cc', 'bcc'].map((field) => [isTest, field] as const)))(
-                'accepts escaped quoted display names in %s / %s',
-                async (isTest, field) => {
-                    service = createSandboxService(true)
-                    invocation.queueParameters = createSandboxParams({
-                        from: { integrationId: 4 },
-                        [field]: `"Example \\"colleague, teammate\\"" <${memberEmail(field)}>`,
-                    })
-                    const result = await service.executeSendEmail(invocation, isTest)
-                    expect(result.error).toBeUndefined()
-                    expect(result.skipped).not.toBe(true)
-                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                    const destination = (sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination
-                    expect(field === 'cc' ? destination?.CcAddresses : destination?.BccAddresses).toEqual([
-                        memberEmail(field),
-                    ])
-                }
-            )
+            it.each(
+                [false, true].flatMap((isTest) =>
+                    ['cc', 'bcc'].flatMap((field) => [false, true].map((list) => [isTest, field, list] as const))
+                )
+            )('accepts escaped quoted display names (isTest=%s, field=%s, list=%s)', async (isTest, field, list) => {
+                service = createSandboxService(true)
+                invocation.queueParameters = createSandboxParams({
+                    from: { integrationId: 4 },
+                    [field]: `"Example \\"colleague, teammate\\"" <${memberEmail(field)}>${list ? `, ${memberEmail(field === 'cc' ? 'bcc' : 'cc')}` : ''}`,
+                })
+                const result = await service.executeSendEmail(invocation, isTest)
+                expect(result.error).toBeUndefined()
+                expect(result.skipped).not.toBe(true)
+                expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                const destination = (sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination
+                expect(field === 'cc' ? destination?.CcAddresses : destination?.BccAddresses).toEqual([
+                    memberEmail(field),
+                    ...(list ? [memberEmail(field === 'cc' ? 'bcc' : 'cc')] : []),
+                ])
+                expect(capture).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: team.id }),
+                    'workflows sandbox email sent',
+                    { recipient_count: list ? 3 : 2, source: isTest ? 'test' : 'workflow', is_test: isTest }
+                )
+            })
 
             it.each(
                 [false, true].flatMap((isTest) =>

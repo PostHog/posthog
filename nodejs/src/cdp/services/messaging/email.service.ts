@@ -12,7 +12,7 @@ import {
     IntegrationType,
     MessageAssetRow,
 } from '~/cdp/types'
-import { createAddLogFunction, logEntry } from '~/cdp/utils'
+import { MAX_LOG_LENGTH, createAddLogFunction, logEntry, sanitizeLogMessage } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { logger } from '~/common/utils/logger'
 
@@ -362,7 +362,7 @@ function sandboxAddressList(value?: string): string[] {
         .filter(Boolean)
         .map(
             (address) =>
-                address.match(/^(?:"(?:[^"\\\r\n]|\\[^\r\n])*"[ \t]*|[^<>"@;\r\n]*)<([^<>]+)>$/)?.[1].trim() ?? address
+                address.match(/^(?:"(?:[^"\\\r\n]|\\[^\r\n])*"|[^<>"@;\r\n])*<([^<>]+)>$/)?.[1].trim() ?? address
         )
 }
 
@@ -931,13 +931,7 @@ export class EmailService {
         if (!blockedRecipients.length) {
             return true
         }
-        const addresses = blockedRecipients.map((address) => address.trim() || '(empty address)').join(', ')
-        createAddLogFunction(result.logs)(
-            'info',
-            reason === 'check_failed'
-                ? `Skipping send: could not check organization members for these addresses: ${addresses}. Try again, or verify your own domain to send to anyone.`
-                : `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${addresses}. Verify your own domain to send to anyone.`
-        )
+        this.logSandboxRecipientBlock(result, blockedRecipients, reason)
         result.skipped = true
         result.invocation.state.vmState?.stack.push({ success: false })
         await this.sandboxSender!.capture(invocation.teamId, isTest, {
@@ -946,6 +940,44 @@ export class EmailService {
             blockedRecipientCount: blockedRecipients.length,
         })
         return false
+    }
+
+    private logSandboxRecipientBlock(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        blockedRecipients: string[],
+        reason: 'recipient_not_member' | 'check_failed'
+    ): void {
+        const addLog = createAddLogFunction(result.logs)
+        const addresses = blockedRecipients.map((address) => address.trim() || '(empty address)')
+        const explanation =
+            reason === 'check_failed'
+                ? 'Skipping send: could not check organization members'
+                : 'Skipping send: the sandbox sender only sends to active organization members with verified email addresses'
+        const guidance =
+            reason === 'check_failed'
+                ? 'Try again, or verify your own domain to send to anyone.'
+                : 'Verify your own domain to send to anyone.'
+        const label = reason === 'check_failed' ? ' for these addresses: ' : '. Blocked addresses: '
+        const message = `${explanation}${label}${addresses.join(', ')}. ${guidance}`
+        if (sanitizeLogMessage([message]) === message) {
+            addLog('info', message)
+            return
+        }
+        addLog('info', `${explanation}. ${guidance}`)
+        const chunkLength = Math.floor(MAX_LOG_LENGTH / 2)
+        for (const address of addresses) {
+            let chunk = ''
+            let prefix = 'Blocked address: '
+            for (const character of address) {
+                if (chunk.length + character.length > chunkLength) {
+                    addLog('info', `${prefix}${chunk}`)
+                    prefix = 'Blocked address (continued): '
+                    chunk = ''
+                }
+                chunk += character
+            }
+            addLog('info', `${prefix}${chunk}`)
+        }
     }
 
     // Returns a human-readable log string when any destination address is suppressed for the team,
