@@ -15,7 +15,6 @@ import dagster
 import psycopg2
 from clickhouse_driver import Client
 from prometheus_client import CollectorRegistry
-from psycopg2 import OperationalError
 
 from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_DELETED_PERSONS_TABLE,
@@ -309,6 +308,7 @@ def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: Clickhou
     old = datetime.now(UTC) - timedelta(days=2)
     young = datetime.now(UTC) - timedelta(hours=1)
     swept = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=old)
+    held = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=old)
     young_tombstone = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=young)
     deleted_recently = create_person(team_id=TEAM_ID, version=0, timestamp=old)
     create_person(uuid=deleted_recently, team_id=TEAM_ID, version=1, is_deleted=True, timestamp=young)
@@ -319,8 +319,9 @@ def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: Clickhou
     for distinct_id, owner, tombstoned_at in [
         ("young_tombstone", live, young),
         ("old_tombstone", live, old),
-        # Its own tombstone is still young, so it waits even though its owner is swept.
-        ("young_tombstone_of_swept_person", swept, young),
+        # Its own tombstone is still young, so it waits, and its owner waits with it. Sweeping the owner
+        # would let the drain hard-delete this key's Postgres row along with the person.
+        ("young_tombstone_of_held_person", held, young),
     ]:
         insert_distinct_id(cluster, distinct_id, owner, version=0, produced_at=old)
         insert_distinct_id(cluster, distinct_id, owner, version=1, produced_at=tombstoned_at, is_deleted=True)
@@ -328,7 +329,7 @@ def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: Clickhou
     insert_distinct_id(cluster, "live_of_swept_person", swept, version=0, produced_at=young)
 
     floor = clickhouse_cleanup.DEFAULT_MIN_TOMBSTONE_AGE_SECONDS
-    run_job(
+    result = run_job(
         cluster,
         persons_database,
         run_config={
@@ -337,12 +338,14 @@ def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: Clickhou
     )
 
     assert cluster.any_host(rows_for(swept)).result() == 0
+    assert cluster.any_host(rows_for(held)).result() == 1
     assert cluster.any_host(rows_for(young_tombstone)).result() == 1
     # A background merge may collapse two versions at any point, so only survival is stable.
     assert cluster.any_host(rows_for(deleted_recently)).result() > 0
     assert cluster.any_host(rows_for(deleted_again)).result() > 0
     assert [str(row[1]) for row in queued_rows(persons_database)] == [swept]
-    assert cluster.any_host(surviving_distinct_ids).result() == {"young_tombstone", "young_tombstone_of_swept_person"}
+    assert result.output_for_node("publish_sweep_metrics").deferred_person_count == 1
+    assert cluster.any_host(surviving_distinct_ids).result() == {"young_tombstone", "young_tombstone_of_held_person"}
 
 
 def test_the_age_floor_rejects_a_negative_age():
@@ -377,8 +380,9 @@ def test_queues_the_deleted_persons_for_postgres(cluster: ClickhouseCluster, per
 def test_a_failed_person_delete_queues_nothing_for_postgres(
     cluster: ClickhouseCluster, persons_database, failing_op: str
 ):
-    # The drain removes every queued person from Postgres. A person queued ahead of a delete that
-    # then fails is gone from Postgres while ClickHouse still holds it.
+    # The drain removes every queued person from Postgres, so the queue write has to follow the
+    # ClickHouse delete. A person queued ahead of a delete that then fails is gone from Postgres
+    # while ClickHouse still holds it.
     doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     real_runner = clickhouse_cleanup.LightweightDeleteMutationRunner
 
@@ -388,7 +392,8 @@ def test_a_failed_person_delete_queues_nothing_for_postgres(
         return real_runner(*args, **kwargs)
 
     def fail_the_queue_write(*args, **kwargs):
-        raise RuntimeError("queue write failed")
+        # allow_retries=False skips the op's retry policy, whose delays run on the wall clock.
+        raise dagster.Failure("queue write failed", allow_retries=False)
 
     failure = (
         patch.object(clickhouse_cleanup, "LightweightDeleteMutationRunner", fail_on_the_person_table)
@@ -584,7 +589,8 @@ def test_a_postgres_connect_failure_drops_the_dictionaries(cluster: ClickhouseCl
         # keep working, or the cohort op fails first and the wrong step trips the hook.
 
         if args and isinstance(args[0], str):
-            raise OperationalError("connection timed out")
+            # allow_retries=False skips the op's retry policy, whose delays run on the wall clock.
+            raise dagster.Failure("connection timed out", allow_retries=False)
 
         return real_connect(*args, **kwargs)
 
@@ -1195,12 +1201,16 @@ def test_the_sweep_sensor_launches_a_real_run_after_deletes():
     assert request.run_key == "11111111-1111-1111-1111-111111111111"
 
 
-def test_the_job_carries_the_operational_tags():
+def test_the_job_carries_its_operational_settings():
     # The charts run-queue limit matches the concurrency tag, and the janitor's unconditional reap
     # depends on it. max_runtime is the only bound on total runtime.
     tags = clickhouse_deletion_sweep_job.tags
     assert tags["clickhouse_deletion_sweep_concurrency"] == "v1"
     assert int(tags["dagster/max_runtime"]) == 43200
+    # The persist follows the person delete, so a dropped connection without a retry leaves every
+    # person the run deleted in Postgres, where no later snapshot finds them.
+    persist_retries = clickhouse_cleanup.persist_deleted_persons.retry_policy
+    assert persist_retries is not None and persist_retries.max_retries >= 1
 
 
 @pytest.mark.parametrize(
@@ -1321,6 +1331,7 @@ def test_publishes_every_measurement_the_run_took() -> None:
         _sweep_run(dry_run=False),
         persons_count=11,
         orphaned_count=22,
+        deferred_person_count=5,
         revived_person_count=3,
         revived_distinct_id_count=4,
         queued_for_postgres=7,
@@ -1334,6 +1345,7 @@ def test_publishes_every_measurement_the_run_took() -> None:
     prefix = "posthog_clickhouse_deletion_sweep_"
     assert registry.get_sample_value(f"{prefix}snapshot_deleted_persons") == 11
     assert registry.get_sample_value(f"{prefix}snapshot_orphaned_distinct_ids") == 22
+    assert registry.get_sample_value(f"{prefix}deferred_persons") == 5
     assert registry.get_sample_value(f"{prefix}revived_persons") == 3
     assert registry.get_sample_value(f"{prefix}revived_distinct_ids") == 4
     assert registry.get_sample_value(f"{prefix}queued_for_postgres") == 7
