@@ -73,11 +73,11 @@ class TestQueryLogArchiveCostPlannerAliases(ClickhouseTestMixin, SimpleTestCase)
 
     @parameterized.expand([("private", True, False), ("ordinary", False, True), ("missing", None, True)])
     def test_hogql_excludes_only_private_scout_queries(self, name: str, marker: bool | None, visible: bool) -> None:
-        log_comment: dict[str, object] = {"team_id": 1}
+        log_comment: dict[str, object] = {"team_id": 2}
         if marker is not None:
             log_comment["is_scout_experiment"] = marker
         self._insert(name, log_comment)
-        table = RawQueryLogArchiveTable().to_printed_clickhouse_table_ref(HogQLContext(team_id=1))
+        table = RawQueryLogArchiveTable().to_printed_clickhouse_table_ref(HogQLContext(team_id=2))
         table = table.replace("FROM query_log_archive ", f"FROM {TABLE} ")
 
         rows = sync_execute(f"SELECT query_id FROM {table} WHERE query_id = %(query_id)s", {"query_id": name})

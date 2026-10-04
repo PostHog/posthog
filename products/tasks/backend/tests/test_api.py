@@ -38,6 +38,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, POSTHOG_AI_APP_CLIENT_ID_DEV
@@ -919,6 +920,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             enable_local_evaluation=False,
             enable_exception_autocapture=False,
             log_captured_exceptions=False,
+            before_send=filter_scout_experiment_capture,
         ):
             sdk = posthoganalytics.setup()
             try:

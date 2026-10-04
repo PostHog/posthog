@@ -41,6 +41,7 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
+from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
@@ -1497,6 +1498,7 @@ class TestTrialDispatch(SimpleTestCase):
             enable_local_evaluation=False,
             enable_exception_autocapture=False,
             log_captured_exceptions=False,
+            before_send=filter_scout_experiment_capture,
         ):
             client = posthoganalytics.setup()
             try:
