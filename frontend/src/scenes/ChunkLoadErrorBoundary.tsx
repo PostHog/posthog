@@ -23,6 +23,8 @@ interface ChunkLoadErrorBoundaryProps {
     children: ReactNode
     reload?: () => void
     fallback?: (error: unknown) => ReactNode
+    /** Called for a chunk-load failure the boundary handles, which the outer reporter never sees. */
+    onChunkLoadError?: (error: unknown) => void
 }
 
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
@@ -36,6 +38,7 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (!isChunkLoadError(error)) {
             return
         }
+        this.props.onChunkLoadError?.(error)
         let lastReload = 0
         try {
             lastReload = Number(window.localStorage.getItem(RELOAD_GUARD_KEY) ?? 0)
@@ -64,13 +67,14 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
 
     override render(): ReactNode {
         const { error, surface } = this.state
-        if (error && surface && isChunkLoadError(error) && this.props.fallback) {
+        const chunkLoadError = error && isChunkLoadError(error)
+        if (chunkLoadError && surface && this.props.fallback) {
             return this.props.fallback(error)
         }
-        if (error && (!isChunkLoadError(error) || surface)) {
+        if (error && (!chunkLoadError || surface)) {
             throw error
         }
-        if (error && isChunkLoadError(error)) {
+        if (chunkLoadError) {
             return null
         }
         return this.props.children
