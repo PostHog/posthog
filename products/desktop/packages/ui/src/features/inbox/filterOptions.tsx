@@ -12,6 +12,7 @@ import {
   VideoIcon,
 } from "@phosphor-icons/react";
 import {
+  INBOX_MODEL_SORT_OPTIONS as CORE_INBOX_MODEL_SORT_OPTIONS,
   INBOX_CREATED_WINDOW_OPTIONS,
   type InboxCreatedWindow,
   type InboxSortDirection,
@@ -67,33 +68,12 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
   },
 ];
 
-/** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
-export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = [
-  {
-    label: "Most likely to merge",
-    field: "ranking_pr_merged",
-    direction: "desc",
+/** The core model sorts, with the icon the menus draw beside them. */
+export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] =
+  CORE_INBOX_MODEL_SORT_OPTIONS.map((option) => ({
+    ...option,
     icon: <BrainIcon size={14} />,
-  },
-  {
-    label: "Most likely to get a PR",
-    field: "ranking_pr_created",
-    direction: "desc",
-    icon: <BrainIcon size={14} />,
-  },
-  {
-    label: "Most likely to need action",
-    field: "ranking_action",
-    direction: "desc",
-    icon: <BrainIcon size={14} />,
-  },
-  {
-    label: "Most likely to be opened",
-    field: "ranking_open",
-    direction: "desc",
-    icon: <BrainIcon size={14} />,
-  },
-];
+  }));
 
 /** The sorts a user can pick: the model sorts join the list only when they are available. */
 export function inboxSortOptions(

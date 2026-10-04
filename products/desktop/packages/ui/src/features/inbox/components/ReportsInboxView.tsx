@@ -4,13 +4,13 @@ import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxR
 import { InboxReportRow } from "@posthog/ui/features/inbox/components/InboxReportRow";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
+import { useHasActiveReportsListFilters } from "@posthog/ui/features/inbox/hooks/useHasActiveReportsListFilters";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
 import { useInboxTriageHotkey } from "@posthog/ui/features/inbox/hooks/useInboxTriageHotkey";
 import { useSelfDrivingSetupStatus } from "@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
   DEFAULT_INBOX_REPORT_STATE_FILTER,
-  hasActiveReportsListFilters,
   useInboxSignalsFilterStore,
 } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { INBOX_TRIAGE_ROUTE } from "@posthog/ui/features/inbox/triageRoute";
@@ -22,9 +22,7 @@ export function ReportsInboxView(): React.JSX.Element {
   const triageEnabled = useTriageFocusEnabled();
   const setupStatus = useSelfDrivingSetupStatus();
   const navigate = useNavigate();
-  const hasActiveFilters = useInboxSignalsFilterStore(
-    hasActiveReportsListFilters,
-  );
+  const hasActiveFilters = useHasActiveReportsListFilters();
   const resetFilters = useInboxSignalsFilterStore(
     (state) => state.resetFilters,
   );

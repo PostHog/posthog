@@ -168,6 +168,34 @@ const RANKING_SORT_HEADS: Record<SignalReportRankingOrderingField, string> = {
   ranking_open: "open",
 };
 
+/** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
+export const INBOX_MODEL_SORT_OPTIONS: readonly {
+  label: string;
+  field: SignalReportRankingOrderingField;
+  direction: InboxSortDirection;
+}[] = [
+  {
+    label: "Most likely to merge",
+    field: "ranking_pr_merged",
+    direction: "desc",
+  },
+  {
+    label: "Most likely to get a PR",
+    field: "ranking_pr_created",
+    direction: "desc",
+  },
+  {
+    label: "Most likely to need action",
+    field: "ranking_action",
+    direction: "desc",
+  },
+  {
+    label: "Most likely to be opened",
+    field: "ranking_open",
+    direction: "desc",
+  },
+];
+
 export function isRankingSortField(
   field: string,
 ): field is SignalReportRankingOrderingField {

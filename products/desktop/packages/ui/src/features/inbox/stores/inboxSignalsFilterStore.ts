@@ -76,12 +76,16 @@ export function hasActiveInboxFilters(
     includeSourceFilter?: boolean;
     includeReportStateFilter?: boolean;
     includeSearchFilter?: boolean;
+    /** Pass the time-window flag, so a window stored while the flag was on does not count once it is off. */
+    includeCreatedWindowFilter?: boolean;
   },
 ): boolean {
   const includePrFilter = options?.includePrFilter ?? true;
   const includeSourceFilter = options?.includeSourceFilter ?? true;
   const includeReportStateFilter = options?.includeReportStateFilter ?? false;
   const includeSearchFilter = options?.includeSearchFilter ?? true;
+  const includeCreatedWindowFilter =
+    options?.includeCreatedWindowFilter ?? false;
   const stateFilterChanged =
     state.reportStateFilter.length !==
       DEFAULT_INBOX_REPORT_STATE_FILTER.length ||
@@ -92,7 +96,7 @@ export function hasActiveInboxFilters(
     (includeSearchFilter && state.searchQuery.trim().length > 0) ||
     (includeSourceFilter && state.sourceProductFilter.length > 0) ||
     state.priorityFilter.length > 0 ||
-    state.createdWindow !== null ||
+    (includeCreatedWindowFilter && state.createdWindow !== null) ||
     (includeReportStateFilter && stateFilterChanged) ||
     (includePrFilter && state.prFilter !== "all")
   );
@@ -100,17 +104,19 @@ export function hasActiveInboxFilters(
 
 /**
  * What "filtered" counts as for the reports list: exactly the controls its
- * filter menu shows. Pass it straight to the store hook, so every surface
- * drawing that list agrees, and the selector keeps one identity.
+ * filter menu shows. Read it through `useHasActiveReportsListFilters`, so every
+ * surface drawing that list agrees.
  */
 export function hasActiveReportsListFilters(
   state: InboxSignalsFilterState,
+  timeWindowAvailable: boolean,
 ): boolean {
   return hasActiveInboxFilters(state, {
     includePrFilter: false,
     includeSourceFilter: false,
     includeReportStateFilter: true,
     includeSearchFilter: false,
+    includeCreatedWindowFilter: timeWindowAvailable,
   });
 }
 

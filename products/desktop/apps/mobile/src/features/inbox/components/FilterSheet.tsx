@@ -1,6 +1,7 @@
 import { Text } from "@components/text";
 import {
   INBOX_CREATED_WINDOW_OPTIONS,
+  INBOX_MODEL_SORT_OPTIONS,
   INBOX_PIPELINE_STATUSES,
   type InboxSortDirection,
   type InboxSortField,
@@ -33,30 +34,6 @@ const SORT_OPTIONS: SortOption[] = [
   { label: "Strongest signal", field: "total_weight", direction: "desc" },
   { label: "Newest first", field: "created_at", direction: "desc" },
   { label: "Oldest first", field: "created_at", direction: "asc" },
-];
-
-/** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
-const MODEL_SORT_OPTIONS: SortOption[] = [
-  {
-    label: "Most likely to merge",
-    field: "ranking_pr_merged",
-    direction: "desc",
-  },
-  {
-    label: "Most likely to get a PR",
-    field: "ranking_pr_created",
-    direction: "desc",
-  },
-  {
-    label: "Most likely to need action",
-    field: "ranking_action",
-    direction: "desc",
-  },
-  {
-    label: "Most likely to be opened",
-    field: "ranking_open",
-    direction: "desc",
-  },
 ];
 
 function useStatusDotColors(): Record<string, string> {
@@ -140,7 +117,7 @@ export function FilterSheet({ visible, onClose }: FilterSheetProps) {
   } = useInboxActiveSort();
   const setCreatedWindow = useInboxFilterStore((s) => s.setCreatedWindow);
   const sortOptions = modelSortAvailable
-    ? [...SORT_OPTIONS, ...MODEL_SORT_OPTIONS]
+    ? [...SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
     : SORT_OPTIONS;
   const statusFilter = useInboxFilterStore((s) => s.statusFilter);
   const toggleStatus = useInboxFilterStore((s) => s.toggleStatus);
