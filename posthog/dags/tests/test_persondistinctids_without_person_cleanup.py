@@ -347,7 +347,7 @@ class TestScanDeleteChunkForPdwp:
         scan_query = next(call for call in _executed(mock_db) if SCAN_MARKER in call)
         assert "WHERE pd.id >=" in scan_query
         assert "AND pd.id <=" in scan_query
-        assert "AND NOT pd.is_deleted" in scan_query
+        assert "is_deleted" not in scan_query
         assert "NOT EXISTS" in scan_query
 
     def test_scan_delete_chunk_session_settings_applied_once(self, stub_tombstone):

@@ -1,6 +1,7 @@
-"""Dagster job for tombstoning live posthog_persondistinctid rows that have no associated posthog_person_new row.
+"""Dagster job for tombstoning posthog_persondistinctid rows that have no associated posthog_person_new row.
 
 It publishes ClickHouse tombstones at the Postgres versions, so a re-created distinct id revives above both.
+Each run also republishes the rows it tombstoned before, which repairs a publish that failed after commit.
 The tombstones stay as version floors, because the drain deletes mappings only together with their person.
 """
 
@@ -212,10 +213,11 @@ def scan_delete_chunk_for_pdwp(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
+                    # Tombstoned orphans match too, so a re-run republishes them.
+                    # The set cannot grow, because the foreign key blocks new orphans.
                     scan_query = f"""
 SELECT pd.team_id, pd.distinct_id FROM posthog_persondistinctid pd
 WHERE pd.id >= %s AND pd.id <= %s
-  AND NOT pd.is_deleted
   AND NOT EXISTS (
     SELECT 1
     FROM {config.persons_table} AS p
@@ -533,8 +535,8 @@ def postgres_env_check(context: dagster.AssetExecutionContext) -> None:
 )
 def persondistinctids_without_person_cleanup_job():
     """
-    Scan posthog_persondistinctid table for live records that have no associated posthog_person_new row,
-    and tombstone them in Postgres and ClickHouse.
+    Scan posthog_persondistinctid table for records that have no associated posthog_person_new row,
+    and tombstone them in Postgres and ClickHouse, republishing the ones already tombstoned.
     Divides the ID space into chunks and processes them in parallel.
     """
     id_range = get_id_range_for_pdwp()
