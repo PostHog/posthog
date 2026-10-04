@@ -102,8 +102,13 @@ def _summarize_series_item(item: Any) -> str:
     return " ".join(parts)
 
 
-def summarize_query_for_naming(query: InsightVizNode, team: Team | None = None) -> str:
-    """Extract only the fields that matter for naming an insight into a compact summary."""
+def summarize_query_for_naming(
+    query: InsightVizNode, team: Team | None = None, *, include_path_points: bool = True
+) -> str:
+    """Extract only the fields that matter for naming an insight into a compact summary.
+
+    ``include_path_points=False`` leaves out path start and end points, which can hold URLs or IDs a person typed.
+    """
     source = query.source
     if not source:
         return "Unknown query"
@@ -150,9 +155,9 @@ def summarize_query_for_naming(query: InsightVizNode, team: Team | None = None) 
         pf = source.pathsFilter
         if pf.includeEventTypes:
             lines.append(f"Path type: {', '.join(str(t) for t in pf.includeEventTypes)}")
-        if pf.startPoint:
+        if include_path_points and pf.startPoint:
             lines.append(f"Start point: {pf.startPoint}")
-        if pf.endPoint:
+        if include_path_points and pf.endPoint:
             lines.append(f"End point: {pf.endPoint}")
 
     # Aggregation group

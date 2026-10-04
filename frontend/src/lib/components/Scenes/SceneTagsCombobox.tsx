@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { SuggestTagsButton } from 'lib/components/Scenes/SuggestTagsButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
@@ -14,6 +15,9 @@ type SceneTagsComboboxProps = SceneCanEditProps &
         tags?: string[]
         tagsAvailable?: string[]
         loading?: boolean
+        /** Asks the Jev decision model which of the project's existing tags apply. Renders a sparkle button in the label. */
+        onSuggest?: () => void
+        suggesting?: boolean
     }
 
 /**
@@ -27,6 +31,8 @@ export function SceneTagsCombobox({
     dataAttrKey,
     canEdit = true,
     loading,
+    onSuggest,
+    suggesting = false,
 }: SceneTagsComboboxProps): JSX.Element {
     const { tags: allExistingTags, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
@@ -34,6 +40,14 @@ export function SceneTagsCombobox({
         <span className="flex items-center gap-1.5">
             Tags
             {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
+            {onSuggest && canEdit && onSave ? (
+                <SuggestTagsButton
+                    onClick={onSuggest}
+                    loading={suggesting}
+                    saving={loading}
+                    dataAttrKey={dataAttrKey}
+                />
+            ) : null}
         </span>
     )
 
@@ -46,7 +60,7 @@ export function SceneTagsCombobox({
                 loading={tagsLoading}
                 options={tagsAvailable ?? allExistingTags.filter((tag) => !tags?.includes(tag))}
                 placeholder="Add tags..."
-                disabled={!onSave || !canEdit}
+                disabled={!onSave || !canEdit || suggesting}
                 allowCustomValues
                 customValueNoun="tag"
                 dataAttr={`${dataAttrKey}-tags-input`}

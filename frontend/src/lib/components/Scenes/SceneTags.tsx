@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { SuggestTagsButton } from 'lib/components/Scenes/SuggestTagsButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -17,6 +18,9 @@ type SceneTagsProps = SceneCanEditProps &
         tags?: string[]
         tagsAvailable?: string[]
         loading?: boolean
+        /** Asks the Jev decision model which of the project's existing tags apply. Renders a sparkle button in the label. */
+        onSuggest?: () => void
+        suggesting?: boolean
     }
 
 export const SceneTags = ({
@@ -26,6 +30,8 @@ export const SceneTags = ({
     dataAttrKey,
     canEdit = true,
     loading,
+    onSuggest,
+    suggesting = false,
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -49,35 +55,45 @@ export const SceneTags = ({
         <span className="flex items-center gap-1.5">
             Tags
             {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
+            {onSuggest && canEdit && onSave ? (
+                <SuggestTagsButton
+                    onClick={onSuggest}
+                    loading={suggesting}
+                    saving={loading}
+                    dataAttrKey={dataAttrKey}
+                />
+            ) : null}
         </span>
     )
 
+    // Pressing the suggest button blurs the editor, which commits any typed tag and closes the editor before the
+    // click lands. Both branches render the same label element at the root, so the button survives that
+    // re-render and still receives the click. An `htmlFor` would turn the label into a different element.
     return localIsEditing ? (
-        <div className="flex flex-col gap-1">
-            <ScenePanelLabel htmlFor="new-tag-input" title={label}>
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
-                    value={localTags}
-                    options={availableTags.map((t) => ({ key: t, label: t }))}
-                    onChange={handleTagsChange}
-                    onBlur={() => setLocalIsEditing(false)}
-                    loading={tagsLoading}
-                    data-attr={`${dataAttrKey}-new-tag-input`}
-                    placeholder='try "official"'
-                    size="xsmall"
-                    autoFocus
-                    className="max-w-full"
-                />
-            </ScenePanelLabel>
-        </div>
+        <ScenePanelLabel title={label}>
+            <LemonInputSelect
+                mode="multiple"
+                allowCustomValues
+                value={localTags}
+                options={availableTags.map((t) => ({ key: t, label: t }))}
+                onChange={handleTagsChange}
+                onBlur={() => setLocalIsEditing(false)}
+                loading={tagsLoading}
+                data-attr={`${dataAttrKey}-new-tag-input`}
+                aria-label="Tags"
+                placeholder='try "official"'
+                size="xsmall"
+                autoFocus
+                className="max-w-full"
+            />
+        </ScenePanelLabel>
     ) : (
         <ScenePanelLabel title={label}>
             <ButtonPrimitive
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"
                 onClick={() => {
-                    if (onSave && canEdit) {
+                    if (onSave && canEdit && !suggesting) {
                         loadTagsIfNeeded()
                         setLocalIsEditing(true)
                     }
@@ -85,7 +101,7 @@ export const SceneTags = ({
                 tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
                 autoHeight
                 menuItem
-                inert={!canEdit}
+                inert={!canEdit || suggesting}
                 data-attr={`${dataAttrKey}-tags-button`}
                 variant="panel"
             >
