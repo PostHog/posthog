@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from temporalio.exceptions import ApplicationError
 
 from posthog.llm.gateway_client import build_async_anthropic_client
+from posthog.temporal.common.errors import truncate_for_temporal_payload
 
 from products.review_hog.backend.reviewer.constants import ONESHOT_MODEL, ONESHOT_REASONING_EFFORT
 
@@ -24,6 +25,19 @@ _MAX_OUTPUT_TOKENS = 64_000
 _TIMEOUT_SECONDS = 600.0
 # HTTP statuses that are client errors yet still worth a Temporal retry.
 _RETRYABLE_CLIENT_STATUSES = (408, 409, 429)
+# A whole APIError chain does not fit Temporal's failure serialization, but the provider's own
+# message does at this size, and it is the only statement of why the request was rejected. Without
+# it a non-retryable 4xx reaches error tracking as a bare status and cannot be root-caused.
+_MAX_PROVIDER_MESSAGE_CHARS = 500
+
+
+def _provider_message(error: APIError) -> str:
+    # Collapsed to one line because the message lands in a single-line Temporal failure and in an
+    # error-tracking title, where an embedded newline hides the rest of the text.
+    message = " ".join(error.message.split())
+    if not message:
+        return "no provider message"
+    return truncate_for_temporal_payload(message, _MAX_PROVIDER_MESSAGE_CHARS)
 
 
 async def run_oneshot_review(
@@ -52,9 +66,10 @@ async def run_oneshot_review(
 
     Raises on failure so the calling Temporal activity retries, mirroring the sandbox contract.
     Anthropic ``APIError``s are re-raised as compact ``ApplicationError``s — a raw ``APIError``
-    chain is too large for Temporal's failure serialization — with 4xx (except 408/409/429) marked
-    non-retryable. ``step_name`` is stamped on the captured ``$ai_generation`` event as ``ai_stage``
-    so dumps and cost queries can attribute the call to its pipeline stage.
+    chain is too large for Temporal's failure serialization — that keep a truncated copy of the
+    provider's message, with 4xx (except 408/409/429) marked non-retryable. ``step_name`` is
+    stamped on the captured ``$ai_generation`` event as ``ai_stage`` so dumps and cost queries can
+    attribute the call to its pipeline stage.
     """
     # The Go gateway reads ai_stage from the builder; the Python fallback reads the per-call header below.
     client = build_async_anthropic_client(
@@ -82,7 +97,7 @@ async def run_oneshot_review(
             non_retryable = status is not None and 400 <= status < 500 and status not in _RETRYABLE_CLIENT_STATUSES
             logger.exception("One-shot %s call failed (status=%s)", step_name, status)
             raise ApplicationError(
-                f"One-shot {step_name} LLM call failed: {type(e).__name__} (status={status})",
+                f"One-shot {step_name} LLM call failed: {type(e).__name__} (status={status}): {_provider_message(e)}",
                 non_retryable=non_retryable,
             ) from None
         except pydantic.ValidationError as e:
