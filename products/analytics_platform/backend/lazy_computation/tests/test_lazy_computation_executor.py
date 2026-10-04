@@ -2420,6 +2420,64 @@ class TestComputationExecutorExecute(BaseTest):
         returned_jobs = list(PreaggregationJob.objects.filter(id__in=result.job_ids))
         assert find_missing_contiguous_windows(returned_jobs, start, end) == []
 
+    def test_peer_rebuild_after_the_coverage_proof_does_not_shrink_the_served_range(self):
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            find_existing_jobs as real_find_existing_jobs,
+        )
+
+        query_info, query_hash = self._make_query_info()
+        now = django_timezone.now()
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 4, tzinfo=UTC)
+
+        broad = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=start,
+            time_range_end=end,
+            status=PreaggregationJob.Status.READY,
+            expires_at=now + timedelta(days=7),
+        )
+        PreaggregationJob.objects.filter(id=broad.id).update(created_at=now - timedelta(hours=2))
+
+        peer_has_rebuilt = False
+
+        def rebuild_one_window_after_the_coverage_proof(*args, **kwargs):
+            nonlocal peer_has_rebuilt
+            jobs = real_find_existing_jobs(*args, **kwargs)
+            if not peer_has_rebuilt:
+                peer_has_rebuilt = True
+                # A peer refreshing Jan 2 lands right after the coverage proof. Its row
+                # is newer, so it wins the overlap filter and evicts the broad job.
+                narrow = PreaggregationJob.objects.create(
+                    team=self.team,
+                    query_hash=query_hash,
+                    time_range_start=datetime(2024, 1, 2, tzinfo=UTC),
+                    time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+                    status=PreaggregationJob.Status.READY,
+                    expires_at=now + timedelta(days=7),
+                )
+                PreaggregationJob.objects.filter(id=narrow.id).update(created_at=now)
+            return jobs
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.find_existing_jobs",
+            side_effect=rebuild_one_window_after_the_coverage_proof,
+        ):
+            result = LazyComputationExecutor().execute(
+                team=self.team,
+                query_info=query_info,
+                start=start,
+                end=end,
+                run_insert=lambda t, j: None,
+            )
+
+        assert result.ready is True
+        served = list(PreaggregationJob.objects.filter(id__in=result.job_ids))
+        assert find_missing_contiguous_windows(served, start, end) == [], (
+            "the served jobs must still tile the range the coverage proof accepted"
+        )
+
     def test_variable_ttl_creates_jobs_with_different_expiry(self):
         query_info, _ = self._make_query_info()
 
