@@ -124,7 +124,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.api import ai_decision_enabled, create_batch_job
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
     get_account_audience_ids_page,
@@ -186,6 +186,12 @@ from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGE
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
+from products.workflows.backend.presentation.views.ai_decision_validation import (
+    AI_DECISION_INPUTS_SCHEMA,
+    MIN_OPTIONS,
+    AIDecisionConfigSerializer,
+    ai_decision_context_error,
+)
 from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.presentation.views.graph_validation import missing_ai_decision_edges, validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
@@ -205,14 +211,7 @@ from products.workflows.backend.presentation.views.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
-from products.workflows.backend.presentation.views.workflow_ai_decisions import (
-    AI_DECISION_INPUTS_SCHEMA,
-    MIN_OPTIONS,
-    AIDecisionConfigSerializer,
-    ai_decision_context_error,
-)
 from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.ai_decision import ai_decision_enabled
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -3241,7 +3240,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         edges = data.get("edges", instance.edges if instance else [])
 
         # Unlike the advisory checks below, an AI decision's answer edges are enforced on every strict
-        # save. The step type is new, so no stored workflow carries a legacy gap here.
+        # save. The step is validated strictly from its first save, so this blocks no legacy flow.
         if strict:
             missing_edges = missing_ai_decision_edges(actions, edges)
             if missing_edges:

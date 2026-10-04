@@ -5,7 +5,10 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+from products.ml_inference.backend.facade.contracts import JsonValue
 from products.workflows.backend.facade.enums import (
+    AIDecisionAnswerType,
+    AIDecisionErrorCode,
     HogFlowBatchJobState,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
@@ -241,3 +244,53 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+# The largest rendered context, as compact UTF-8 JSON, sized to the decision model's 8,192-token window.
+MAX_AI_DECISION_STATE_BYTES = 8192
+
+
+@frozen
+class AIDecisionQuestion:
+    answer_type: AIDecisionAnswerType
+    question: str
+    options: dict[str, str]
+    yes_means: str
+    no_means: str
+
+
+@frozen
+class AIDecisionCall:
+    team: "Team"
+    hog_flow_id: str | None
+    action_id: str
+    invocation_id: str
+    question: AIDecisionQuestion
+    state: JsonValue
+
+
+@frozen
+class AIDecisionAnswered:
+    probabilities: dict[str, float]
+    model: str
+    input_tokens: int
+
+
+@frozen
+class AIDecisionFailed:
+    code: AIDecisionErrorCode
+
+
+@frozen
+class AIDecisionThrottled:
+    retry_after_seconds: int
+    source: str
+
+
+@frozen
+class AIDecisionUnavailable:
+    # A cause for logs only, never a state value or a gateway body.
+    reason: str
+
+
+AIDecisionOutcome = AIDecisionAnswered | AIDecisionFailed | AIDecisionThrottled | AIDecisionUnavailable

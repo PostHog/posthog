@@ -11,7 +11,6 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from parameterized import parameterized
-from redis.exceptions import RedisError
 from rest_framework import status
 from structlog.testing import capture_logs
 
@@ -199,28 +198,32 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             ("state_too_large", 3, "state_too_large"),
         ]
     )
-    def test_the_first_closed_gate_fails_the_decision_without_asking_the_model(
+    @override_settings(WORKFLOWS_AI_DECISION_TEAM_BURST=1, WORKFLOWS_AI_DECISION_TEAM_PER_HOUR=1)
+    def test_the_first_closed_gate_fails_the_decision_without_asking_the_model_or_spending_admission(
         self, _name: str, first_closed_gate: int, expected_code: str
     ) -> None:
         self.flag.return_value = first_closed_gate > 0
-        if first_closed_gate <= 1:
-            self.organization.is_ai_data_processing_approved = False
-            self.organization.save()
-        with (
-            patch(_CREDITS, return_value=first_closed_gate <= 2),
-            patch(_DECIDE) as decide,
-        ):
+        self.organization.is_ai_data_processing_approved = first_closed_gate > 1
+        self.organization.save()
+        with patch(_CREDITS, return_value=first_closed_gate <= 2), patch(_DECIDE) as decide:
             response = self._post({"state": {"reply": "x" * 9000}})
+        decide.assert_not_called()
+        self.flag.return_value = True
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with patch(_CREDITS, return_value=False), patch(_DECIDE, return_value=_pick_one_result()):
+            next_valid = self._post()
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["status"] == "failed"
         assert response.json()["error"]["code"] == expected_code
         assert response.json()["error"]["message"]
-        decide.assert_not_called()
+        assert next_valid.status_code == status.HTTP_200_OK, next_valid.json()
 
     @parameterized.expand(
         [
             ("flag_check_raises", patch(_FLAG, side_effect=RuntimeError("blip")), 503, None),
+            ("flag_definitions_not_loaded", patch(_FLAG, return_value=None), 503, None),
             ("credit_lookup_raises", patch(_CREDITS, side_effect=RuntimeError("blip")), 200, "succeeded"),
             ("billing_module_missing", patch.dict(sys.modules, {"ee.billing.quota_limiting": None}), 200, "succeeded"),
         ]
@@ -237,21 +240,28 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ascii_at_the_cap", "a" * 8184, "succeeded"),
-            ("two_byte_characters_at_the_cap", "é" * 4092, "succeeded"),
-            ("two_byte_characters_over_the_cap", "é" * 4093, "failed"),
-            ("lone_surrogate_from_a_split_emoji", "\ud83d", "succeeded"),
-            ("property_the_person_does_not_have", None, "succeeded"),
+            ("ascii_at_the_cap", "a" * 8184, "a" * 8184),
+            ("two_byte_characters_at_the_cap", "é" * 4092, "é" * 4092),
+            ("two_byte_characters_over_the_cap", "é" * 4093, None),
+            ("lone_surrogate_from_a_split_emoji", "ok \ud83d", "ok \ufffd"),
+            ("property_the_person_does_not_have", None, None),
         ]
     )
-    def test_accepts_any_rendered_state_up_to_the_compact_utf8_byte_cap(
-        self, _name: str, value: str | None, expected_outcome: str
+    def test_sends_any_rendered_state_up_to_the_compact_utf8_byte_cap(
+        self, _name: str, value: str | None, sent_value: str | None
     ) -> None:
-        with patch(_DECIDE, return_value=_pick_one_result()):
+        with patch(_DECIDE, return_value=_pick_one_result()) as decide:
             response = self._post({"state": {"t": value}})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["status"] == expected_outcome
+        if value is not None and sent_value is None:
+            assert response.json()["error"]["code"] == "state_too_large"
+            decide.assert_not_called()
+        else:
+            assert response.json()["status"] == "succeeded", response.json()
+            sent_state = decide.call_args.args[0].state
+            assert sent_state == {"t": sent_value}
+            json.dumps(sent_state, ensure_ascii=False).encode("utf-8")
 
     @parameterized.expand(
         [
@@ -337,7 +347,6 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         [
             ("bucket_unavailable", patch(_CONSUME, return_value=BucketUnavailable(error="down"))),
             ("redis_not_configured", patch(_GET_CLIENT, side_effect=ImproperlyConfigured("no redis"))),
-            ("redis_error", patch(_GET_CLIENT, side_effect=RedisError("down"))),
         ]
     )
     def test_admission_fails_closed_when_redis_is_unavailable(self, _name: str, redis_failure: Any) -> None:

@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db.models import F
@@ -9,6 +9,8 @@ from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    AIDecisionCall,
+    AIDecisionOutcome,
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
@@ -20,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowTaskDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.services import ai_decision
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
@@ -39,6 +42,9 @@ from products.workflows.backend.utils.email_sending_tiers import (
     max_email_sending_tier,
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
@@ -318,3 +324,11 @@ def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccou
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()
+
+
+def ai_decision_enabled(team: "Team") -> bool:
+    return ai_decision.ai_decision_enabled(team)
+
+
+def decide_ai_decision(call: AIDecisionCall) -> AIDecisionOutcome:
+    return ai_decision.decide(call)

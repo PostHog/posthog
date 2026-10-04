@@ -6829,14 +6829,19 @@ class TestAIDecisionActionValidation(APIBaseTest):
         rejected = self._post(flow, flag_enabled=False)
         flow_id = self._post(flow).json()["id"]
         second_decision = {**flow["actions"][1], "id": "decide_again"}
+        second_decision_edges = [{**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"]
 
         kept = self._patch(flow_id, {"name": "Renamed", "actions": flow["actions"], "edges": flow["edges"]})
-        added = self._patch(flow_id, {"actions": [*flow["actions"], second_decision], "edges": flow["edges"]})
+        added = self._patch(
+            flow_id,
+            {"actions": [*flow["actions"], second_decision], "edges": [*flow["edges"], *second_decision_edges]},
+        )
 
         assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.json()
         assert rejected.json()["attr"] == "actions__1__type", rejected.json()
         assert kept.status_code == status.HTTP_200_OK, kept.json()
         assert added.status_code == status.HTTP_400_BAD_REQUEST, added.json()
+        assert added.json()["attr"] == "actions__3__type", added.json()
 
     def test_a_draft_does_not_grandfather_a_decision_past_the_flag(self) -> None:
         flow_id = self._post({**_ai_decision_flow({}), "status": "draft"}).json()["id"]
@@ -6844,6 +6849,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
         activated = self._patch(flow_id, {"status": "active"})
 
         assert activated.status_code == status.HTTP_400_BAD_REQUEST, activated.json()
+        assert "AI decisions aren't available" in str(activated.json()), activated.json()
 
     def test_a_stored_decision_does_not_unlock_a_flag_gated_template(self) -> None:
         template = deepcopy(webhook_template)
@@ -6864,9 +6870,10 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__template_id", response.json()
 
-    def test_a_builder_draft_saves_without_the_flag_and_drops_templated_inputs_but_the_context(self) -> None:
+    def test_a_builder_draft_saves_unwired_without_the_flag_and_keeps_only_the_context_input(self) -> None:
         flow = _ai_decision_flow(
-            {"inputs": {"context": {"value": {"a": "{event.event}"}}, "question": {"value": "{person.id}"}}}
+            {"inputs": {"context": {"value": {"a": "{event.event}"}}, "question": {"value": "{person.id}"}}},
+            answer_edges=0,
         )
 
         response = self._post({**flow, "status": "draft"}, flag_enabled=False)

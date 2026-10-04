@@ -2,6 +2,7 @@ from typing import Any, cast
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from prometheus_client import Counter
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -10,37 +11,35 @@ from rest_framework.response import Response
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.models import Team
 
-from products.ml_inference.backend.facade.contracts import MAX_OPTIONS_PER_QUESTION, JsonValue
-from products.workflows.backend.facade.enums import AIDecisionAnswerType, AIDecisionErrorCode, AIDecisionStatus
-from products.workflows.backend.facade.service_jwt import WORKFLOW_AI_DECISION_PURPOSE
-from products.workflows.backend.services.ai_decision import (
-    MAX_STATE_BYTES,
+from products.ml_inference.backend.facade.contracts import JsonValue
+from products.workflows.backend.facade.api import decide_ai_decision
+from products.workflows.backend.facade.contracts import (
+    MAX_AI_DECISION_STATE_BYTES,
+    AIDecisionAnswered,
     AIDecisionCall,
+    AIDecisionFailed,
     AIDecisionOutcome,
     AIDecisionQuestion,
-    Decided,
-    Failed,
-    Throttled,
-    Unavailable,
-    decide,
+    AIDecisionThrottled,
+    AIDecisionUnavailable,
 )
+from products.workflows.backend.facade.enums import AIDecisionAnswerType, AIDecisionErrorCode, AIDecisionStatus
+from products.workflows.backend.facade.service_jwt import WORKFLOW_AI_DECISION_PURPOSE
+from products.workflows.backend.presentation.views.ai_decision_validation import AIDecisionConfigSerializer
 
 logger = structlog.get_logger(__name__)
 
-MIN_OPTIONS = 2
-MAX_CONTEXT_FIELD_NAME_LENGTH = 100
-
-# The step's only templated input. Fixed here rather than read from a template, so no saved config can
-# turn the question or the options into templates that render person or event data as instructions.
-AI_DECISION_INPUTS_SCHEMA: list[dict[str, Any]] = [
-    {"key": "context", "type": "dictionary", "label": "Context", "required": True, "templating": "hog"}
-]
+AI_DECISION_OUTCOMES = Counter(
+    "workflows_ai_decision_outcomes",
+    "Workflow AI decision route outcomes, by the code, throttle source, or unavailable cause.",
+    ["outcome", "reason"],
+)
 
 ERROR_MESSAGES: dict[AIDecisionErrorCode, str] = {
     AIDecisionErrorCode.FEATURE_UNAVAILABLE: "AI decisions aren't available for this organization. Remove the step or contact support.",
     AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED: "Your organization hasn't approved AI data processing. An organization admin can approve it in organization settings.",
     AIDecisionErrorCode.QUOTA_EXCEEDED: "Your organization is out of AI credits. Add credits in billing settings, then try again.",
-    AIDecisionErrorCode.STATE_TOO_LARGE: f"The step's context is larger than {MAX_STATE_BYTES // 1024} KB. Remove fields from the context or shorten them.",
+    AIDecisionErrorCode.STATE_TOO_LARGE: f"The step's context is larger than {MAX_AI_DECISION_STATE_BYTES // 1024} KB. Remove fields from the context or shorten them.",
     AIDecisionErrorCode.MODEL_REFUSED: "The AI model refused the request. Check the step's question, options, and context.",
     AIDecisionErrorCode.GATEWAY_UNAVAILABLE: "The AI service isn't set up on this PostHog deployment.",
 }
@@ -49,94 +48,12 @@ ERROR_MESSAGES: dict[AIDecisionErrorCode, str] = {
 class WorkflowAIDecisionJWTAuthentication(ScopedServiceJWTAuthentication):
     purpose = WORKFLOW_AI_DECISION_PURPOSE
 
-
-class AIDecisionOptionSerializer(serializers.Serializer):
-    name = serializers.CharField(
-        max_length=500, help_text="The answer's name. It labels the step's output for this answer."
-    )
-    description = serializers.CharField(
-        max_length=500,
-        allow_blank=True,
-        default="",
-        help_text="When this answer applies, in plain words. The model reads it to choose between options.",
-    )
-
-
-class AIDecisionConfigSerializer(serializers.Serializer):
-    """The question an AI decision step asks. A workflow save and the decide route validate it alike,
-    so a step that saves never fails at run time on its own config."""
-
-    question = serializers.CharField(
-        max_length=2000,
-        help_text="The question the model answers, in plain words. Never templated: person and event data go in the context.",
-    )
-    answer_type = serializers.ChoiceField(
-        choices=AIDecisionAnswerType.choices,
-        help_text="yes_no: the step has a Yes and a No output. pick_one: the step has one output per option.",
-    )
-    options = serializers.ListField(
-        child=AIDecisionOptionSerializer(),
-        required=False,
-        default=list,
-        help_text=f"pick_one only: {MIN_OPTIONS} to {MAX_OPTIONS_PER_QUESTION} options with unique names, in output order.",
-    )
-    yes_means = serializers.CharField(
-        max_length=500,
-        allow_blank=True,
-        default="",
-        help_text="yes_no only: what a yes means, to help the model judge.",
-    )
-    no_means = serializers.CharField(
-        max_length=500,
-        allow_blank=True,
-        default="",
-        help_text="yes_no only: what a no means, to help the model judge.",
-    )
-    yes_threshold = serializers.IntegerField(
-        min_value=1,
-        max_value=99,
-        default=50,
-        help_text="yes_no only: answer yes when the probability of yes is at or above this percent.",
-    )
-    unsure_enabled = serializers.BooleanField(
-        default=False,
-        help_text="Adds an Unsure output after the answer outputs, for answers the model is not sure about.",
-    )
-    min_pick_probability = serializers.IntegerField(
-        min_value=1,
-        max_value=99,
-        default=60,
-        help_text="pick_one with unsure_enabled: answer Unsure when the top option's probability is below this percent.",
-    )
-    no_threshold = serializers.IntegerField(
-        min_value=1,
-        max_value=98,
-        default=20,
-        help_text="yes_no with unsure_enabled: answer no at or below this percent. Must be below yes_threshold.",
-    )
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs["answer_type"] == AIDecisionAnswerType.PICK_ONE:
-            names = [option["name"] for option in attrs["options"]]
-            if not MIN_OPTIONS <= len(names) <= MAX_OPTIONS_PER_QUESTION:
-                raise serializers.ValidationError(
-                    {"options": f"Enter between {MIN_OPTIONS} and {MAX_OPTIONS_PER_QUESTION} options."}
-                )
-            if len(set(names)) != len(names):
-                raise serializers.ValidationError({"options": "Give each option a different name."})
-        elif attrs["unsure_enabled"] and attrs["no_threshold"] >= attrs["yes_threshold"]:
-            raise serializers.ValidationError({"no_threshold": "Set the no threshold below the yes threshold."})
-        return attrs
-
-
-def ai_decision_context_error(inputs: Any) -> str | None:
-    context_input = inputs.get("context") if isinstance(inputs, dict) else None
-    context = context_input.get("value") if isinstance(context_input, dict) else None
-    if not isinstance(context, dict) or not context:
-        return "Add at least one field for the model to read."
-    if any(not name.strip() or len(name) > MAX_CONTEXT_FIELD_NAME_LENGTH for name in context):
-        return f"Give each context field a name of 1 to {MAX_CONTEXT_FIELD_NAME_LENGTH} characters."
-    return None
+    # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
+        user, _ = super()._authenticate_claims(request, claims)
+        # A test run of an unsaved workflow has no workflow id. The id only labels the decision.
+        hog_flow_id = claims.get("hog_flow_id")
+        return user, str(hog_flow_id) if hog_flow_id else None
 
 
 class WorkflowAIDecisionRequestSerializer(AIDecisionConfigSerializer):
@@ -203,15 +120,14 @@ class WorkflowAIDecisionViewSet(viewsets.GenericViewSet):
         team = Team.objects.select_related("organization").get(id=cast(int, user.current_team_id))
         serializer = WorkflowAIDecisionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        claims = cast(dict[str, Any], request.auth)
-        outcome = decide(_call(team, claims.get("hog_flow_id"), serializer.validated_data))
+        outcome = decide_ai_decision(_call(team, cast(str | None, request.auth), serializer.validated_data))
         return _response(team.id, outcome)
 
 
-def _call(team: Team, hog_flow_id: Any, data: dict[str, Any]) -> AIDecisionCall:
+def _call(team: Team, hog_flow_id: str | None, data: dict[str, Any]) -> AIDecisionCall:
     return AIDecisionCall(
         team=team,
-        hog_flow_id=str(hog_flow_id) if hog_flow_id else None,
+        hog_flow_id=hog_flow_id,
         action_id=data["action_id"],
         invocation_id=data["invocation_id"],
         question=AIDecisionQuestion(
@@ -227,7 +143,8 @@ def _call(team: Team, hog_flow_id: Any, data: dict[str, Any]) -> AIDecisionCall:
 
 def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
     match outcome:
-        case Decided(probabilities=probabilities, model=model, input_tokens=input_tokens):
+        case AIDecisionAnswered(probabilities=probabilities, model=model, input_tokens=input_tokens):
+            AI_DECISION_OUTCOMES.labels("succeeded", "").inc()
             body = {
                 "status": AIDecisionStatus.SUCCEEDED,
                 "probabilities": probabilities,
@@ -235,18 +152,22 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
                 "input_tokens": input_tokens,
             }
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
-        case Failed(code=code):
+        case AIDecisionFailed(code=code):
+            AI_DECISION_OUTCOMES.labels("failed", code.value).inc()
             logger.info("workflow_ai_decision_failed", team_id=team_id, code=code.value)
             body = {"status": AIDecisionStatus.FAILED, "error": {"code": code, "message": ERROR_MESSAGES[code]}}
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
-        case Throttled(retry_after_seconds=retry_after_seconds):
-            logger.debug("workflow_ai_decision_throttled", team_id=team_id, retry_after=retry_after_seconds)
+        case AIDecisionThrottled(retry_after_seconds=retry_after_seconds, source=source):
+            AI_DECISION_OUTCOMES.labels("throttled", source).inc()
+            # Debug level because a large batch run can throttle thousands of times; the counter carries the rate.
+            logger.debug("workflow_ai_decision_throttled", team_id=team_id, source=source)
             return Response(
                 WorkflowAIDecisionRetrySerializer({"detail": "Too many AI decisions right now."}).data,
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
                 headers={"Retry-After": str(retry_after_seconds)},
             )
-        case Unavailable(reason=reason):
+        case AIDecisionUnavailable(reason=reason):
+            AI_DECISION_OUTCOMES.labels("unavailable", reason).inc()
             logger.warning("workflow_ai_decision_unavailable", team_id=team_id, reason=reason)
             return Response(
                 WorkflowAIDecisionRetrySerializer({"detail": "The AI decision service is unavailable."}).data,

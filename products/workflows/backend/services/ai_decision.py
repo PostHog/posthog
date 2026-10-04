@@ -5,13 +5,11 @@ from django.core.exceptions import ImproperlyConfigured
 
 import structlog
 import posthoganalytics
-from redis.exceptions import RedisError
 
-from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.redis import get_client
-from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume, refund
+from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 
 from products.ml_inference.backend.facade import api as decision_api
 from products.ml_inference.backend.facade.contracts import (
@@ -26,12 +24,21 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.workflows.backend.facade.contracts import (
+    MAX_AI_DECISION_STATE_BYTES,
+    AIDecisionAnswered,
+    AIDecisionCall,
+    AIDecisionFailed,
+    AIDecisionOutcome,
+    AIDecisionQuestion,
+    AIDecisionThrottled,
+    AIDecisionUnavailable,
+)
 from products.workflows.backend.facade.enums import AIDecisionAnswerType, AIDecisionErrorCode
 
 logger = structlog.get_logger(__name__)
 
 AI_DECISION_FEATURE_FLAG = "workflows-ai-decision"
-MAX_STATE_BYTES = 8192
 GATEWAY_TIMEOUT_SECONDS = 5
 GATEWAY_BUSY_RETRY_AFTER_SECONDS = 5
 _QUESTION_ID = "answer"
@@ -39,68 +46,20 @@ _ADMISSION_KEY = "workflows:ai_decision:admission"
 _REDIS_TIMEOUT_SECONDS = 0.1
 
 
-@frozen
-class AIDecisionQuestion:
-    answer_type: AIDecisionAnswerType
-    question: str
-    options: dict[str, str]
-    yes_means: str
-    no_means: str
-
-
-@frozen
-class AIDecisionCall:
-    team: Team
-    hog_flow_id: str | None
-    action_id: str
-    invocation_id: str
-    question: AIDecisionQuestion
-    state: JsonValue
-
-
-@frozen
-class Decided:
-    probabilities: dict[str, float]
-    model: str
-    input_tokens: int
-
-
-@frozen
-class Failed:
-    code: AIDecisionErrorCode
-
-
-@frozen
-class Throttled:
-    retry_after_seconds: int
-
-
-@frozen
-class Unavailable:
-    # A cause for logs only, never a state value or a gateway body.
-    reason: str
-
-
-AIDecisionOutcome = Decided | Failed | Throttled | Unavailable
-
-
 def ai_decision_enabled(team: Team) -> bool:
-    """For saves: a flag evaluation error hides the step rather than exposing it."""
-    try:
-        return _flag_enabled(team)
-    except Exception:
-        logger.warning("workflow_ai_decision_flag_check_failed", team_id=team.id, exc_info=True)
-        return False
+    """For saves: a flag that cannot be evaluated hides the step rather than exposing it."""
+    return _flag_state(team) is True
 
 
-def _flag_enabled(team: Team) -> bool:
+def _flag_state(team: Team) -> bool | None:
+    """None when the flag cannot be evaluated, for example before the flag definitions load."""
     # Evaluated locally because every workflow save and every decision reads it, and a remote
     # evaluation would add a network call to each of them.
     if settings.DEBUG:
         return True
     organization_id = str(team.organization_id)
-    return bool(
-        posthoganalytics.feature_enabled(
+    try:
+        enabled = posthoganalytics.feature_enabled(
             AI_DECISION_FEATURE_FLAG,
             str(team.uuid),
             groups={"organization": organization_id},
@@ -108,34 +67,42 @@ def _flag_enabled(team: Team) -> bool:
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-    )
+    except Exception:
+        logger.warning("workflow_ai_decision_flag_check_failed", team_id=team.id, exc_info=True)
+        return None
+    return None if enabled is None else bool(enabled)
+
+
+def without_lone_surrogates(state: JsonValue) -> JsonValue:
+    """A template can cut an emoji in half. The gateway client cannot encode the lone surrogate that
+    remains, so it becomes U+FFFD."""
+    text = json.dumps(state, ensure_ascii=False)
+    return json.loads(text.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
 
 
 def state_size_bytes(state: JsonValue) -> int:
-    # surrogatepass counts a lone surrogate, such as half of an emoji cut by a template, instead of raising.
-    return len(json.dumps(state, separators=(",", ":"), ensure_ascii=False).encode("utf-8", "surrogatepass"))
+    return len(json.dumps(state, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
 def decide(call: AIDecisionCall) -> AIDecisionOutcome:
     team = call.team
-    try:
-        enabled = _flag_enabled(team)
-    except Exception:
-        # A decision that fails here is final for the person, so an evaluation error asks for a retry instead.
-        logger.warning("workflow_ai_decision_flag_check_failed", team_id=team.id, exc_info=True)
-        return Unavailable(reason="flag_check_failed")
+    enabled = _flag_state(team)
+    if enabled is None:
+        # A failed decision is final for the person, so a flag that cannot be evaluated asks for a retry.
+        return AIDecisionUnavailable(reason="flag_undetermined")
     if not enabled:
-        return Failed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE)
+        return AIDecisionFailed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE)
     if not team.organization.is_ai_data_processing_approved:
-        return Failed(code=AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED)
+        return AIDecisionFailed(code=AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED)
     if _is_over_ai_credit_budget(team):
-        return Failed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
-    if state_size_bytes(call.state) > MAX_STATE_BYTES:
-        return Failed(code=AIDecisionErrorCode.STATE_TOO_LARGE)
+        return AIDecisionFailed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
+    state = without_lone_surrogates(call.state)
+    if state_size_bytes(state) > MAX_AI_DECISION_STATE_BYTES:
+        return AIDecisionFailed(code=AIDecisionErrorCode.STATE_TOO_LARGE)
     admission = _admit(team.id)
     if admission is not None:
         return admission
-    return _ask_the_model(call)
+    return _ask_the_model(call, state)
 
 
 def _is_over_ai_credit_budget(team: Team) -> bool:
@@ -150,7 +117,7 @@ def _is_over_ai_credit_budget(team: Team) -> bool:
         return False
 
 
-def _admit(team_id: int) -> Throttled | Unavailable | None:
+def _admit(team_id: int) -> AIDecisionThrottled | AIDecisionUnavailable | None:
     team_key = f"{_ADMISSION_KEY}:team:{team_id}"
     team_budget = Budget(
         burst=settings.WORKFLOWS_AI_DECISION_TEAM_BURST, per_hour=settings.WORKFLOWS_AI_DECISION_TEAM_PER_HOUR
@@ -160,30 +127,31 @@ def _admit(team_id: int) -> Throttled | Unavailable | None:
     )
     try:
         client = get_client(socket_timeout=_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=_REDIS_TIMEOUT_SECONDS)
-    except (RedisError, ImproperlyConfigured):
-        return Unavailable(reason="redis_unavailable")
+    except ImproperlyConfigured:
+        return AIDecisionUnavailable(reason="redis_unavailable")
     team_decision = consume(team_key, team_budget, client=client)
     if isinstance(team_decision, BucketUnavailable):
-        return Unavailable(reason="redis_unavailable")
+        return AIDecisionUnavailable(reason="redis_unavailable")
     if not team_decision.allowed:
-        return Throttled(retry_after_seconds=max(1, team_decision.retry_after))
+        return AIDecisionThrottled(retry_after_seconds=max(1, team_decision.retry_after), source="team")
     global_decision = consume(_ADMISSION_KEY, global_budget, client=client)
-    if isinstance(global_decision, BucketDecision) and global_decision.allowed:
-        return None
-    # No decision ran, so the team keeps its token for the retry.
-    refund(team_key, team_budget)
     if isinstance(global_decision, BucketUnavailable):
-        return Unavailable(reason="redis_unavailable")
-    return Throttled(retry_after_seconds=max(1, global_decision.retry_after))
+        # No refund: it would wait on the default Redis timeouts against a store that just failed.
+        return AIDecisionUnavailable(reason="redis_unavailable")
+    if not global_decision.allowed:
+        # No decision ran, so the team keeps its token for the retry.
+        refund(team_key, team_budget)
+        return AIDecisionThrottled(retry_after_seconds=max(1, global_decision.retry_after), source="global")
+    return None
 
 
-def _ask_the_model(call: AIDecisionCall) -> AIDecisionOutcome:
+def _ask_the_model(call: AIDecisionCall, state: JsonValue) -> AIDecisionOutcome:
     properties = {"action_id": call.action_id}
     if call.hog_flow_id:
         properties["hog_flow_id"] = call.hog_flow_id
     request = DecisionRequest(
         team_id=call.team.id,
-        state=call.state,
+        state=state,
         questions={_QUESTION_ID: _decision_question(call.question)},
         ai_product="workflows",
         trace_id=call.invocation_id,
@@ -193,17 +161,17 @@ def _ask_the_model(call: AIDecisionCall) -> AIDecisionOutcome:
     try:
         result = decision_api.decide_when_available(request, timeout_seconds=GATEWAY_TIMEOUT_SECONDS)
     except DecisionsDisabledError:
-        return Failed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE)
+        return AIDecisionFailed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE)
     except GatewayNotConfiguredError:
-        return Failed(code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE)
+        return AIDecisionFailed(code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE)
     except DecisionGatewayUnreachableError:
-        return Unavailable(reason="gateway_unreachable")
+        return AIDecisionUnavailable(reason="gateway_unreachable")
     except DecisionGatewayError as error:
         return _gateway_error_outcome(error.status_code)
     probabilities = _probabilities(result, call.question)
     if probabilities is None:
-        return Failed(code=AIDecisionErrorCode.MODEL_REFUSED)
-    return Decided(probabilities=probabilities, model=result.model, input_tokens=result.input_tokens)
+        return AIDecisionFailed(code=AIDecisionErrorCode.MODEL_REFUSED)
+    return AIDecisionAnswered(probabilities=probabilities, model=result.model, input_tokens=result.input_tokens)
 
 
 def _decision_question(question: AIDecisionQuestion) -> DecisionQuestion:
@@ -219,16 +187,16 @@ def _decision_question(question: AIDecisionQuestion) -> DecisionQuestion:
 
 def _gateway_error_outcome(status_code: int) -> AIDecisionOutcome:
     if status_code == 429:
-        return Throttled(retry_after_seconds=GATEWAY_BUSY_RETRY_AFTER_SECONDS)
+        return AIDecisionThrottled(retry_after_seconds=GATEWAY_BUSY_RETRY_AFTER_SECONDS, source="gateway")
     if status_code >= 500:
-        return Unavailable(reason=f"gateway_{status_code}")
+        return AIDecisionUnavailable(reason=f"gateway_{status_code}")
     if status_code == 402:
-        return Failed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
+        return AIDecisionFailed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
     # 200 is an answer the facade could not read. The model ran, so a retry would pay for the same failure again.
     if status_code in (200, 400, 413, 422):
-        return Failed(code=AIDecisionErrorCode.MODEL_REFUSED)
+        return AIDecisionFailed(code=AIDecisionErrorCode.MODEL_REFUSED)
     # Any other 4xx means the gateway credential or route is wrong for every decision, which a retry cannot fix.
-    return Failed(code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE)
+    return AIDecisionFailed(code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE)
 
 
 def _probabilities(result: DecisionResult, question: AIDecisionQuestion) -> dict[str, float] | None:
