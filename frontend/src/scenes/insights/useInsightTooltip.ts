@@ -319,24 +319,33 @@ export function unpinTooltip(id: string): void {
     callback?.()
 }
 
+function clearHoverNow(): void {
+    hover.owner = null
+    activeRenderId = null
+    hover.lastRendered = null
+    hover.lastRenderedOwner = null
+    hover.isMouseOver = false
+    clearHoverHideTimeout()
+    hover.root?.render(null)
+    hideHoverNow()
+}
+
 export function cleanupTooltip(id: string): void {
-    if (hover.owner !== id && pinned.owner !== id) {
-        return
-    }
-    if (hover.owner === id) {
-        hover.owner = null
-        if (activeRenderId === id) {
-            activeRenderId = null
-        }
-        if (hover.lastRenderedOwner === id) {
-            hover.lastRendered = null
-            hover.lastRenderedOwner = null
-            hover.root?.render(null)
-        }
-        hideHoverNow()
-    }
+    // Hide the hover surface whoever owns it: an owner that unmounted under the pointer can
+    // no longer hide it, and the element stays on the body. Hover content returns on the next
+    // mousemove, but a pin is deliberate, so only its owner drops that.
+    clearHoverNow()
     if (pinned.owner === id) {
         unpinTooltip(id)
+    }
+}
+
+/** Take both surfaces down, whoever owns them. Call this when the page they belong to goes
+ *  away: they are attached to the body, so nothing in the scene tree removes them. */
+export function dismissInsightTooltips(): void {
+    clearHoverNow()
+    if (pinned.owner) {
+        unpinTooltip(pinned.owner)
     }
 }
 

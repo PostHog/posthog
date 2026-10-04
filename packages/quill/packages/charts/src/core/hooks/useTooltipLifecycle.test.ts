@@ -1,6 +1,7 @@
 import { act, renderHook, type RenderHookResult } from '@testing-library/react'
 
 import type { TooltipContext } from '../types'
+import { dismissChartTooltips } from '../tooltip-dismiss'
 import { isTooltipContextEquivalent, useTooltipLifecycle } from './useTooltipLifecycle'
 
 interface Meta {
@@ -160,6 +161,7 @@ describe('useTooltipLifecycle', () => {
                 document.body.removeChild(outside)
             },
         ],
+        ['host teardown signal', () => dismissChartTooltips()],
         [
             'pointer-down outside',
             () => {
@@ -176,6 +178,18 @@ describe('useTooltipLifecycle', () => {
         })
 
         expect(result.current.tooltipCtx).toBeNull()
+    })
+
+    it('clears an unpinned hover tooltip on the host teardown signal', () => {
+        const { result } = renderLifecycle()
+        publishHoverCtx(result)
+
+        act(() => {
+            dismissChartTooltips()
+        })
+
+        expect(result.current.tooltipCtx).toBeNull()
+        expect(result.current.hoverIndex).toBe(-1)
     })
 
     it('does not clear pinned tooltip on non-Escape key', () => {

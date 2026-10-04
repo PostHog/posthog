@@ -1,5 +1,6 @@
-import { fireEvent } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
+import { dismissChartTooltips } from '../../core/tooltip-dismiss'
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { dimensions as testDimensions, getHogChart, rawDrag, renderHogChart } from '../../testing'
@@ -253,6 +254,20 @@ describe('LineChart', () => {
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('Tue')
+        })
+
+        it('removes the tooltip from the document when the host dismisses it', async () => {
+            // The tooltip is portaled onto the body, so it outlives a page the host takes
+            // down without unmounting the chart.
+            const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
+            chart.hoverAtIndex(1)
+            await chart.waitForTooltip()
+
+            act(() => {
+                dismissChartTooltips()
+            })
+
+            expect(document.querySelector('[data-hog-charts-tooltip]')).toBeNull()
         })
 
         it('invokes onPointClick with the clicked column', async () => {

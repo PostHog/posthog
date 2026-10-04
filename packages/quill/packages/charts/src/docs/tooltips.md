@@ -34,6 +34,7 @@ Usable from a custom `tooltip` render prop by spreading the context: `<DefaultTo
 - `footer` renders arbitrary content below all rows, after a divider. Useful for "click to inspect" hints.
 
 Pinned tooltips are copy-friendly.
+`dismissChartTooltips()` takes every mounted chart's tooltip down. Tooltips render into a portal on the body, so a host that replaces or hides a page without unmounting its charts must call it, for example on a route change. Without that call the tooltip stays on screen over the next page.
 Outside dismissal keys off where the press started (pointer-down outside the tooltip or chart, or Escape), so a text-selection drag that releases outside the tooltip does not dismiss it, and a click that completes a selection inside a row does not fire `onRowClick`.
 
 ## Custom tooltip pieces
