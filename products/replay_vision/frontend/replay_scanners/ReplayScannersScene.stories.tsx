@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -12,8 +14,6 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
-
-import { userEvent, within } from 'storybook/test'
 
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
 import type {
