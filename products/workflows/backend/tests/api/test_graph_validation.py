@@ -5,7 +5,7 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
-from products.workflows.backend.presentation.views.graph_validation import validate_graph
+from products.workflows.backend.presentation.views.graph_validation import missing_ai_decision_edges, validate_graph
 
 TRIGGER = {"id": "t", "name": "trigger", "type": "trigger", "config": {"type": "event"}}
 EXIT = {"id": "x", "name": "exit", "type": "exit", "config": {}}
@@ -129,6 +129,15 @@ class TestValidateGraph(TestCase):
             actions, [_edge("t", "d"), *answer_edges[:-1], _edge("d", "x")]
         )
         assert "missing its 'continue' edge" in _graph_errors(actions, [_edge("t", "d"), *answer_edges])
+        assert "missing its 'continue' edge" in str(
+            missing_ai_decision_edges(actions, [_edge("t", "d"), *answer_edges, _edge("d", "ghost")])
+        )
+        assert f"index {slots - 1}" in str(
+            missing_ai_decision_edges(
+                actions,
+                [_edge("t", "d"), *answer_edges[:-1], _edge("d", "ghost", "branch", slots - 1), _edge("d", "x")],
+            )
+        )
         aborting = {**decision, "on_error": "abort"}
         assert validate_graph([TRIGGER, aborting, EXIT], [_edge("t", "d"), *answer_edges]) == []
 

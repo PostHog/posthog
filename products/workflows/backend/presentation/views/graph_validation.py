@@ -38,8 +38,11 @@ def missing_ai_decision_edges(actions: list[dict], edges: list[dict]) -> list[st
     """The runtime follows the branch edge of the answer the model gives, and the 'continue' edge when the
     decision fails. A missing one stops the run for that person, so each must exist before the step can run.
     A step set to abort on error ends the run instead of following 'continue'."""
-    branch_keys = {(edge.get("from"), edge.get("index")) for edge in edges if edge.get("type") == "branch"}
-    continue_sources = {edge.get("from") for edge in edges if edge.get("type") == "continue"}
+    # An edge only counts when its target exists, because a dangling one strands the person just the same.
+    action_ids = {action.get("id") for action in actions}
+    wired = [edge for edge in edges if edge.get("to") in action_ids]
+    branch_keys = {(edge.get("from"), edge.get("index")) for edge in wired if edge.get("type") == "branch"}
+    continue_sources = {edge.get("from") for edge in wired if edge.get("type") == "continue"}
     errors: list[str] = []
     for action in actions:
         if action.get("type") != "ai_decision":
