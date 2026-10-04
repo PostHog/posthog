@@ -57,7 +57,8 @@ const PANE_LABELS = {
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth } = useValues(todayShellLogic)
+    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+        useValues(todayShellLogic)
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
     const { pickPane, setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } =
@@ -141,7 +142,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         return (
             <ToastProvider>
                 <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
-                    {!sidebarVisible && <TodayPhoneHeader />}
+                    {!sidebarVisible && !phoneHeaderHidden && <TodayPhoneHeader />}
                     <aside
                         ref={drawerRef}
                         tabIndex={-1}

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { IconArchive, IconChevronLeft } from '@posthog/icons'
@@ -76,7 +76,8 @@ export function TaskRunSceneShell({
     children,
 }: TaskRunSceneShellProps): JSX.Element {
     const skin = useThreadSkin()
-    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const { todayRailEnabled, phoneLayout, phoneHeaderHidden } = useValues(todayShellLogic)
+    const { goBackOnPhone } = useActions(todayShellLogic)
     const todayPhone = todayRailEnabled && phoneLayout
     return (
         <SceneContent className="h-full min-h-0 gap-y-0">
@@ -158,6 +159,17 @@ export function TaskRunSceneShell({
                                         nativeButton={false}
                                         render={<LinkPrimitive to={urls.ai()} />}
                                         aria-label="Back to PostHog AI"
+                                    >
+                                        <IconChevronLeft />
+                                    </Button>
+                                ) : phoneHeaderHidden ? (
+                                    <Button
+                                        variant="default"
+                                        size="icon-lg"
+                                        className="-ml-2 rounded-full"
+                                        aria-label="Back"
+                                        onClick={goBackOnPhone}
+                                        data-attr="today-phone-back"
                                     >
                                         <IconChevronLeft />
                                     </Button>

@@ -13263,6 +13263,8 @@ export namespace Schemas {
       archived_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+      /** True if this model is in the pipeline's shadow set: the champion, the previous champion, and up to 3 recent fitted challengers with distinct recipes. */
+      readonly in_shadow_set: boolean;
     }
 
     /**
@@ -13489,7 +13491,7 @@ export namespace Schemas {
     }
 
     /**
-     * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+     * Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest.
      */
     export type AutoresearchRunMetrics = { [key: string]: unknown };
 
@@ -13550,7 +13552,7 @@ export namespace Schemas {
          * @nullable
          */
       rows_scored?: number | null;
-      /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+      /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
       metrics: AutoresearchRunMetrics;
       /** Error message if the run failed. */
       error?: string;
@@ -19195,6 +19197,15 @@ export namespace Schemas {
       Week: 'week',
       Month: 'month',
     } as const;
+
+    export interface CalibrationBin {
+      /** Number of scored users in this bin. */
+      n: number;
+      /** Mean predicted probability of the users in this bin. */
+      mean_p_y: number;
+      /** Fraction of the users in this bin who did the target event within the horizon. */
+      positive_rate: number;
+    }
 
     /**
      * * `needs_approval` - needs_approval
@@ -36711,7 +36722,9 @@ export namespace Schemas {
 
     export interface Edge {
       readonly id: string;
+      /** ID of the upstream node. */
       readonly source_id: string;
+      /** ID of the downstream node. */
       readonly target_id: string;
       dag: string;
       readonly dag_name: string;
@@ -65447,6 +65460,89 @@ export namespace Schemas {
       Provisioned: 'provisioned',
     } as const;
 
+    export interface OnlinePerformanceRow {
+      /** UUID of the validation run that recorded these metrics. */
+      validation_run_id: string;
+      /** Date the predictions were made for (UTC). */
+      prediction_date: string;
+      /** Prediction horizon, in days, the predictions were made under. */
+      horizon_days: number;
+      /** ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects. */
+      weekday: number;
+      /** UUID of the model that emitted the predictions. */
+      model_id: string;
+      /** Role the model had when it emitted the predictions: 'champion' or 'challenger'. */
+      emitted_role: string;
+      /** Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows. */
+      current_role: string;
+      /** Number of users the model scored on this date. */
+      n_scored: number;
+      /** Number of scored users who did the target event in the horizon. */
+      n_positive: number;
+      /** Fraction of scored users who did the target event (n_positive / n_scored). */
+      base_rate: number;
+      /**
+         * Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.
+         * @nullable
+         */
+      mean_p_y: number | null;
+      /**
+         * Realized ROC AUC against actual outcomes. Null when the date has one class only.
+         * @nullable
+         */
+      realized_auc: number | null;
+      /**
+         * Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+         * @nullable
+         */
+      realized_auc_ci_low: number | null;
+      /**
+         * Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+         * @nullable
+         */
+      realized_auc_ci_high: number | null;
+      /**
+         * Brier score. Lower is better.
+         * @nullable
+         */
+      brier_score: number | null;
+      /**
+         * Expected calibration error over 10 equal-width bins. Lower is better.
+         * @nullable
+         */
+      calibration_error: number | null;
+      /**
+         * Positives in the top 10% by score, relative to a random 10%.
+         * @nullable
+         */
+      lift_at_10: number | null;
+      /**
+         * Positives in the top 20% by score, relative to a random 20%.
+         * @nullable
+         */
+      lift_at_20: number | null;
+      /**
+         * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
+         * @nullable
+         */
+      calibration_bins: CalibrationBin[] | null;
+      /**
+         * 'single_class_no_auc' when every scored user had the same outcome, otherwise null.
+         * @nullable
+         */
+      warning: string | null;
+      /**
+         * When the validation run completed.
+         * @nullable
+         */
+      validated_at: string | null;
+    }
+
+    export interface OnlinePerformance {
+      /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
+      rows: OnlinePerformanceRow[];
+    }
+
     /**
      * * `eq` - eq
      * * `neq` - neq
@@ -75640,7 +75736,9 @@ export namespace Schemas {
 
     export interface PatchedEdge {
       readonly id?: string;
+      /** ID of the upstream node. */
       readonly source_id?: string;
+      /** ID of the downstream node. */
       readonly target_id?: string;
       dag?: string;
       readonly dag_name?: string;
@@ -93597,6 +93695,75 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `none` - None
+     * * `emit` - Emit
+     * * `edit` - Edit
+     * * `both` - Both
+     */
+    export type ScoutRubricReportChannelEnum = typeof ScoutRubricReportChannelEnum[keyof typeof ScoutRubricReportChannelEnum];
+
+
+    export const ScoutRubricReportChannelEnum = {
+      None: 'none',
+      Emit: 'emit',
+      Edit: 'edit',
+      Both: 'both',
+    } as const;
+
+    export interface ScoutRubricReferenceTextDocument {
+      /** Path of the reference supplied to the generator. */
+      path: string;
+      /** Content type of the supplied reference. */
+      content_type: string;
+      /** Exact reference text supplied to the generator. */
+      content: string;
+    }
+
+    export interface ScoutRubricReferenceLimitsDocument {
+      /**
+         * Number of reference files not supplied.
+         * @minimum 0
+         */
+      omitted_files: number;
+      /** Reference paths whose supplied content was truncated. */
+      truncated_files: string[];
+    }
+
+    export interface ScoutRubricReferenceContextDocument {
+      /** Version of the saved reference-context format. */
+      schema_version: number;
+      /** Exact skill record used for generation. */
+      skill_id: string;
+      /** Name of the skill used for generation. */
+      skill_name: string;
+      /** Skill version used for generation. */
+      skill_version: number;
+      /** Scout description supplied to the generator. */
+      description: string;
+      /** Exact instructions supplied to the generator. */
+      instructions: string;
+      /** Whether the supplied instructions were truncated. */
+      instructions_truncated: boolean;
+      /** Report capabilities used to select the source rules.
+       *
+       * * `none` - None
+       * * `emit` - Emit
+       * * `edit` - Edit
+       * * `both` - Both */
+      report_channel: ScoutRubricReportChannelEnum;
+      /** Exact report-disposition rules supplied to the generator. */
+      report_disposition_instructions: string;
+      /** Reference-file inventory supplied to the generator. */
+      reference_files: string[];
+      /** Whether the reference-file inventory was truncated. */
+      reference_files_truncated: boolean;
+      /** Reference texts supplied to the generator. */
+      reference_texts: ScoutRubricReferenceTextDocument[];
+      /** Limits on the supplied reference texts. */
+      reference_limits: ScoutRubricReferenceLimitsDocument;
+    }
+
     export interface ScoutRubricGeneration {
       /** Identifier for this generation attempt. */
       id: string;
@@ -93638,6 +93805,8 @@ export namespace Schemas {
       suggestions: ScoutRubricCriterion[];
       /** Investigation summary and limitations. */
       summary: string;
+      /** Immutable governing source captured for this generation. */
+      readonly reference_context: ScoutRubricReferenceContextDocument | null;
     }
 
     export interface ScoutRubricDocument {
@@ -93654,6 +93823,13 @@ export namespace Schemas {
       criteria: ScoutRubricCriterion[];
       /** Latest background generation, if any. */
       generation: ScoutRubricGeneration | null;
+      /** Governing source explicitly adopted for the saved rubric. */
+      readonly reference_context: ScoutRubricReferenceContextDocument | null;
+      /**
+         * Generation whose governing source was adopted for the saved rubric.
+         * @nullable
+         */
+      readonly reference_generation_id: string | null;
     }
 
     export interface ScoutRubricGenerate {
@@ -93664,6 +93840,44 @@ export namespace Schemas {
       context?: string;
     }
 
+    export type ScoutRubricReportChannel = typeof ScoutRubricReportChannel[keyof typeof ScoutRubricReportChannel];
+
+
+    export const ScoutRubricReportChannel = {
+      None: 'none',
+      Emit: 'emit',
+      Edit: 'edit',
+      Both: 'both',
+    } as const;
+
+    export interface ScoutRubricReferenceText {
+      path: string;
+      content_type: string;
+      content: string;
+    }
+
+    export interface ScoutRubricReferenceLimits {
+      /** @minimum 0 */
+      omitted_files: number;
+      truncated_files: string[];
+    }
+
+    export interface ScoutRubricReferenceContext {
+      schema_version?: 1;
+      skill_id: string;
+      skill_name: string;
+      skill_version: number;
+      description: string;
+      instructions: string;
+      instructions_truncated: boolean;
+      report_channel: ScoutRubricReportChannel;
+      report_disposition_instructions: string;
+      reference_files: string[];
+      reference_files_truncated: boolean;
+      reference_texts: ScoutRubricReferenceText[];
+      reference_limits: ScoutRubricReferenceLimits;
+    }
+
     export interface ScoutRubricSave {
       /**
          * Revision read by the editor; stale saves return 409.
@@ -93672,6 +93886,11 @@ export namespace Schemas {
       revision: number;
       /** Complete set of criteria to save. */
       criteria: ScoutRubricCriterion[];
+      /**
+         * Use this completed generation's governing source for the whole saved rubric. Omit to keep its source.
+         * @nullable
+         */
+      adopt_generation_id?: string | null;
     }
 
     /**
@@ -93873,6 +94092,479 @@ export namespace Schemas {
       grantable_write_scopes: string[];
     }
 
+    export interface ScoutTrialComparisonVariant {
+      /** Variant identity. */
+      id: string;
+      /** Saved variant name. */
+      label: string;
+      /** Scout runs in this variant. */
+      launch_ids: string[];
+      /** Saved scout model. */
+      model: string;
+      /** Saved reasoning effort. */
+      reasoning_effort: string;
+      /** Hash of the saved scout instructions. */
+      skill_body_sha256: string;
+    }
+
+    /**
+     * * `not_started` - not_started
+     * * `starting` - starting
+     * * `running` - running
+     * * `judging` - judging
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `unknown` - unknown
+     */
+    export type ScoutTrialComparisonStatusEnum = typeof ScoutTrialComparisonStatusEnum[keyof typeof ScoutTrialComparisonStatusEnum];
+
+
+    export const ScoutTrialComparisonStatusEnum = {
+      NotStarted: 'not_started',
+      Starting: 'starting',
+      Running: 'running',
+      Judging: 'judging',
+      Completed: 'completed',
+      Failed: 'failed',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ScoutTrialEvaluationVariant {
+      /** Stable identity for this variant, independent of its display label. */
+      id: string;
+      /**
+         * Name shown in the comparison report.
+         * @maxLength 100
+         */
+      label: string;
+      /**
+         * Trial launches forming this variant's repeats.
+         * @minItems 1
+         * @maxItems 20
+         */
+      launch_ids: string[];
+    }
+
+    /**
+     * * `saved` - Saved
+     */
+    export type TrialRubricSourceEnum = typeof TrialRubricSourceEnum[keyof typeof TrialRubricSourceEnum];
+
+
+    export const TrialRubricSourceEnum = {
+      Saved: 'saved',
+    } as const;
+
+    export interface ScoutTrialEvaluationRequest {
+      /** Stable evaluation identity. Reuse for retries of this exact request. */
+      evaluation_id: string;
+      /** Variant to use as the baseline for descriptive differences. */
+      baseline_variant_id: string;
+      /** Up to 20 variant groups, each with up to 20 trial runs. */
+      variants: ScoutTrialEvaluationVariant[];
+      /** Judge every run against the scout's saved rubric, frozen when the trial starts.
+       *
+       * * `saved` - Saved */
+      rubric_source: TrialRubricSourceEnum;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `unknown` - Unknown
+     * * `not_started` - Not Started
+     */
+    export type TrialEvaluationStatusEnum = typeof TrialEvaluationStatusEnum[keyof typeof TrialEvaluationStatusEnum];
+
+
+    export const TrialEvaluationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Unknown: 'unknown',
+      NotStarted: 'not_started',
+    } as const;
+
+    export type TrialComparisonOutcomeStatusEnum = typeof TrialComparisonOutcomeStatusEnum[keyof typeof TrialComparisonOutcomeStatusEnum];
+
+
+    export const TrialComparisonOutcomeStatusEnum = {
+      Winner: 'winner',
+      Tie: 'tie',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    export interface TrialComparisonOutcome {
+      status: TrialComparisonOutcomeStatusEnum;
+      variant_ids?: string[];
+      summary: string;
+    }
+
+    export interface TrialEvaluationCriterion {
+      id: string;
+      title: string;
+      description: string;
+      pass_condition: string;
+      applicability: string;
+    }
+
+    export interface TrialCriterionAggregate {
+      criterion_id: string;
+      passed: number;
+      failed: number;
+      unknown: number;
+      not_applicable: number;
+      pass_rate: number | null;
+      coverage: number | null;
+      baseline_delta?: number | null;
+    }
+
+    export interface TrialVariantAggregate {
+      variant_id: string;
+      label: string;
+      is_baseline: boolean;
+      total_runs: number;
+      judged_runs: number;
+      excluded_runs: number;
+      judge_errors: number;
+      score: number | null;
+      coverage: number | null;
+      baseline_delta?: number | null;
+      criteria: TrialCriterionAggregate[];
+    }
+
+    export type TrialRunJudgmentStatusEnum = typeof TrialRunJudgmentStatusEnum[keyof typeof TrialRunJudgmentStatusEnum];
+
+
+    export const TrialRunJudgmentStatusEnum = {
+      Judged: 'judged',
+      Excluded: 'excluded',
+      JudgeError: 'judge_error',
+    } as const;
+
+    export type TrialCriterionVerdictVerdictEnum = typeof TrialCriterionVerdictVerdictEnum[keyof typeof TrialCriterionVerdictVerdictEnum];
+
+
+    export const TrialCriterionVerdictVerdictEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Unknown: 'unknown',
+      NotApplicable: 'not_applicable',
+    } as const;
+
+    export interface TrialCriterionEvidence {
+      /** @maxLength 100 */
+      source_id: string;
+      /**
+         * @minLength 1
+         * @maxLength 1000
+         */
+      quote: string;
+    }
+
+    export interface TrialCriterionVerdict {
+      /** @maxLength 100 */
+      criterion_id: string;
+      verdict: TrialCriterionVerdictVerdictEnum;
+      /**
+         * @minLength 1
+         * @maxLength 2000
+         */
+      reason: string;
+      confidence: ConfidenceTierEnum;
+      /** @maxItems 6 */
+      evidence: TrialCriterionEvidence[];
+    }
+
+    export interface TrialRunJudgment {
+      launch_id: string;
+      variant_id: string;
+      status: TrialRunJudgmentStatusEnum;
+      score?: number | null;
+      coverage?: number | null;
+      summary: string;
+      criteria?: TrialCriterionVerdict[];
+      error?: string | null;
+      input_tokens?: number | null;
+      output_tokens?: number | null;
+    }
+
+    export type TrialEvidenceSourceKindEnum = typeof TrialEvidenceSourceKindEnum[keyof typeof TrialEvidenceSourceKindEnum];
+
+
+    export const TrialEvidenceSourceKindEnum = {
+      Instructions: 'instructions',
+      Context: 'context',
+      Summary: 'summary',
+      Report: 'report',
+      Memory: 'memory',
+      Trace: 'trace',
+    } as const;
+
+    export interface TrialEvidenceFile {
+      /**
+         * @minLength 1
+         * @maxLength 100
+         */
+      id: string;
+      kind: TrialEvidenceSourceKindEnum;
+      /**
+         * @maxLength 120
+         * @pattern ^[a-z0-9][a-z0-9_-]*\.(txt|jsonl)$
+         */
+      filename: string;
+      /** @pattern ^[0-9a-f]{64}$ */
+      sha256: string;
+      /** @minimum 0 */
+      size_bytes: number;
+    }
+
+    export interface TrialEvidenceSource {
+      id: string;
+      kind: TrialEvidenceSourceKindEnum;
+      text: string;
+    }
+
+    export interface TrialRunEvidence {
+      launch_id: string;
+      variant_id: string;
+      run_id: string | null;
+      task_id: string | null;
+      task_run_id: string | null;
+      execution_status: string;
+      exclusion_reason?: string | null;
+      model: string;
+      runtime_adapter: RuntimeAdapterEnum;
+      service_tier?: string | null;
+      reasoning_effort: string;
+      skill_body_sha256: string;
+      input_tokens?: number | null;
+      output_tokens?: number | null;
+      files?: TrialEvidenceFile[];
+      sources?: TrialEvidenceSource[];
+      limitations?: string[];
+    }
+
+    export interface TrialComparisonReport {
+      version?: 1;
+      evaluation_id: string;
+      context_id: string;
+      created_at: string;
+      completed_at: string;
+      summary: string;
+      outcome?: TrialComparisonOutcome | null;
+      rubric_source: 'saved';
+      rubric_revision: number;
+      rubric_reference_context?: ScoutRubricReferenceContext | null;
+      rubric_reference_generation_id?: string | null;
+      criteria: TrialEvaluationCriterion[];
+      baseline_variant_id: string;
+      judge_model: string;
+      judge_prompt_version: string;
+      variants: TrialVariantAggregate[];
+      runs: TrialRunJudgment[];
+      evidence: TrialRunEvidence[];
+      limitations: string[];
+    }
+
+    export interface ScoutTrialEvaluation {
+      /** Immutable request for exact retries, including saved variant labels. */
+      request: ScoutTrialEvaluationRequest;
+      /** Stable identity for this saved evaluation. */
+      evaluation_id: string;
+      /** Starting context shared by every evaluated run. */
+      context_id: string;
+      /** Evaluation workflow status.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `unknown` - Unknown
+       * * `not_started` - Not Started */
+      status: TrialEvaluationStatusEnum;
+      /**
+         * Sanitized execution error, separate from quality verdicts.
+         * @nullable
+         */
+      error: string | null;
+      /** Saved comparison scores and their supporting evidence. */
+      report: TrialComparisonReport | null;
+    }
+
+    export interface ScoutTrialComparison {
+      /** Comparison and automatic evaluation identity. */
+      comparison_id: string;
+      /** Source scout configuration. */
+      config_id: string;
+      /** Frozen starting context shared by every run. */
+      context_id: string;
+      /** Time the comparison was saved. */
+      created_at: string;
+      /** Baseline variant identity. */
+      baseline_variant_id: string;
+      /** Reviewed rubric revision frozen before the runs started. */
+      rubric_revision: number;
+      /** Saved variant groups and runtime settings. */
+      variants: ScoutTrialComparisonVariant[];
+      /** Comparison lifecycle, including automatic judging.
+       *
+       * * `not_started` - not_started
+       * * `starting` - starting
+       * * `running` - running
+       * * `judging` - judging
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `unknown` - unknown */
+      status: ScoutTrialComparisonStatusEnum;
+      /**
+         * Sanitized comparison error, if any.
+         * @nullable
+         */
+      error: string | null;
+      /** Saved evaluation and report when available. */
+      evaluation: ScoutTrialEvaluation | null;
+    }
+
+    export interface ScoutTrialComparisonHistory {
+      /** This operator's most recent saved comparisons. */
+      results: ScoutTrialComparison[];
+      /** Whether more comparisons exist than the requested limit. */
+      has_more: boolean;
+    }
+
+    export interface ScoutTrialComparisonQuery {
+      /** Saved comparison identity. */
+      comparison_id: string;
+    }
+
+    export interface ScoutTrialComparisonVariantRequest {
+      /** Stable variant identity within this comparison. */
+      id: string;
+      /**
+         * Variant name shown in the report.
+         * @maxLength 100
+         */
+      label: string;
+      /**
+         * Stable run IDs for this variant's repeats.
+         * @minItems 1
+         * @maxItems 20
+         */
+      launch_ids: string[];
+      /**
+         * Scout model to run.
+         * @maxLength 200
+         */
+      model: string;
+      /**
+         * Reasoning effort supported by this model.
+         * @maxLength 20
+         */
+      reasoning_effort: string;
+      /**
+         * Replacement scout instructions. Omit to use the saved source instructions.
+         * @maxLength 100000
+         */
+      skill_body?: string;
+    }
+
+    export interface ScoutTrialComparisonRequest {
+      /** Stable comparison ID. Reuse for an exact request retry. */
+      comparison_id: string;
+      /** Variant used as the comparison baseline. */
+      baseline_variant_id: string;
+      /** Up to 20 variants, each with up to 20 scout runs. */
+      variants: ScoutTrialComparisonVariantRequest[];
+      /**
+         * Shared investigation note.
+         * @maxLength 1000
+         */
+      note?: string;
+      /**
+         * Source version shown in the editor. Refuse a new trial if the instructions changed since setup.
+         * @minimum 1
+         */
+      expected_skill_version?: number;
+    }
+
+    export interface ScoutTrialHistoryItem {
+      /** Launch identity for result retrieval. */
+      launch_id: string;
+      /** Saved starting context shared by comparison runs. */
+      context_id: string;
+      /** Operator label for this variant. */
+      variant: string;
+      /** Requested model identifier. */
+      model: string;
+      /** Requested reasoning effort. */
+      reasoning_effort: string;
+      /** Current underlying task execution status. */
+      status: string;
+      /** Task execution creation time. */
+      started_at: string;
+      /**
+         * Task execution completion time.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Scout run identity. */
+      run_id: string;
+      /** Task identity for existing log and cancellation tools. */
+      task_id: string;
+      /** Task execution identity for logs. */
+      task_run_id: string;
+    }
+
+    export interface ScoutTrialHistory {
+      /** Recent private runs started by this operator. */
+      results: ScoutTrialHistoryItem[];
+      /** Whether additional recent runs exceed the requested limit. */
+      has_more: boolean;
+    }
+
+    export interface ScoutTrialLaunch {
+      /** Unique launch ID. Reuse it only when retrying this exact request. */
+      launch_id: string;
+      /** Saved starting context from a previous launch in this comparison. */
+      context_id?: string;
+      /**
+         * Operator label for this variant.
+         * @maxLength 100
+         */
+      variant?: string;
+      /**
+         * Replacement skill body for this run. Supporting files and tool permissions stay pinned.
+         * @maxLength 100000
+         */
+      skill_body?: string;
+      /**
+         * Model identifier for this run.
+         * @maxLength 200
+         */
+      model?: string;
+      /**
+         * Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.
+         * @maxLength 20
+         */
+      reasoning_effort?: string;
+      /**
+         * Common investigation note, saved before applying any variant overrides.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
+    export interface ScoutTrialModelChoice {
+      /** Model identifier supported by the scout harness and this account. */
+      model: string;
+      /** Reasoning efforts supported by this model. */
+      reasoning_efforts: string[];
+    }
+
     /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
@@ -93911,6 +94603,167 @@ export namespace Schemas {
          * @nullable
          */
       created_by_run_url?: string | null;
+    }
+
+    /**
+     * Private memory replacements and deleted keys for this run.
+     */
+    export type ScoutTrialResultMemory = {[key: string]: ScratchpadEntry | null};
+
+    export type TrialReportDocument = {[key: string]: JsonValue};
+
+    export type TrialReportPayload = {[key: string]: JsonValue};
+
+    export type TrialReportEditsItem = {[key: string]: JsonValue};
+
+    export type TrialReportOperatorMetadata = {[key: string]: JsonValue};
+
+    export type TrialReportEvidenceItem = {[key: string]: JsonValue};
+
+    export type TrialReportArtefactsItem = {[key: string]: JsonValue};
+
+    export interface TrialReport {
+      id: string;
+      source_report_id?: string | null;
+      document: TrialReportDocument;
+      payload?: TrialReportPayload;
+      edits?: TrialReportEditsItem[];
+      operator_metadata?: TrialReportOperatorMetadata;
+      evidence?: TrialReportEvidenceItem[];
+      artefacts?: TrialReportArtefactsItem[];
+      content_revision_count?: number;
+      corroboration_count?: number;
+    }
+
+    export interface ScoutTrialResult {
+      /** Launch identity. */
+      launch_id: string;
+      /** Saved starting context identity. */
+      context_id: string;
+      /** Resolved model identifier. */
+      model: string;
+      /** Resolved reasoning effort. */
+      reasoning_effort: string;
+      /** Hash of the skill body delivered to this run. */
+      skill_body_sha256: string;
+      /**
+         * Private object-storage result reference, when exported.
+         * @nullable
+         */
+      result_key: string | null;
+      /**
+         * Whether the durable export needs a retry; inline results remain available.
+         * @nullable
+         */
+      export_error: string | null;
+      /**
+         * Execution start time.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * Execution completion time.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Scout run identity once the sandbox is prepared.
+         * @nullable
+         */
+      run_id: string | null;
+      /**
+         * Task identity for existing log and cancellation tools.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Task execution identity for logs and usage.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /** Execution status, or pending while the workflow prepares the run. */
+      status: string;
+      /**
+         * Underlying task status; cancel an active task if its workflow failed.
+         * @nullable
+         */
+      task_status: string | null;
+      /**
+         * Setup or workflow failure, including failures before a task was created.
+         * @nullable
+         */
+      error: string | null;
+      /** Scout close-out summary. */
+      summary: string;
+      /**
+         * Why this execution cannot be used for comparison.
+         * @nullable
+         */
+      invalid_reason: string | null;
+      /** Privately captured report creations and edits. */
+      reports: TrialReport[];
+      /** Private memory replacements and deleted keys for this run. */
+      memory: ScoutTrialResultMemory;
+      /**
+         * Attributed model cost when available; null means unknown.
+         * @nullable
+         */
+      cost_usd: number | null;
+      /**
+         * Input tokens reported by the agent runtime.
+         * @nullable
+         */
+      input_tokens: number | null;
+      /**
+         * Output tokens reported by the agent runtime.
+         * @nullable
+         */
+      output_tokens: number | null;
+    }
+
+    export interface ScoutTrialSetup {
+      /** Source scout configuration. */
+      config_id: string;
+      /** Source scout skill name. */
+      skill_name: string;
+      /** Source skill version shown in the comparison editor. */
+      skill_version: number;
+      /** Source skill body before applying variant changes. */
+      skill_body: string;
+      /** Whether deployment and source scout checks permit a comparison. */
+      ready: boolean;
+      /**
+         * Why a comparison cannot start yet.
+         * @nullable
+         */
+      blocked_reason: string | null;
+      /**
+         * Resolved source model before variant overrides.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Resolved source effort; null requires an explicit selection before launching.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+      /** Available models and their supported efforts. */
+      models: ScoutTrialModelChoice[];
+    }
+
+    export interface ScoutTrialStarted {
+      /** Retry-stable launch identity. */
+      launch_id: string;
+      /** Starting context to reuse across variants and repetitions. */
+      context_id: string;
+      /** Workflow dispatch identity. */
+      workflow_id: string;
+      /** Resolved model identifier. */
+      model: string;
+      /** Resolved reasoning effort. */
+      reasoning_effort: string;
+      /** Operator label for this variant. */
+      variant: string;
     }
 
     /**
@@ -105749,7 +106602,7 @@ export namespace Schemas {
     } as const;
 
     export interface ValidationWarning {
-      /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+      /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population, or each scoring run scores a rolling part of it: users never scored first, then users whose last score was oldest. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
       code: string;
       /** Human-readable warning description. */
       message: string;
@@ -105762,7 +106615,7 @@ export namespace Schemas {
     }
 
     export interface ValidatePipelineResponse {
-      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
+      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
       can_proceed: boolean;
       /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
       requires_acknowledgement: boolean;
@@ -112796,6 +113649,15 @@ export namespace Schemas {
      * Maximum number of prior runs to return (default 5, at most 20).
      * @minimum 1
      * @maximum 20
+     */
+    limit?: number;
+    };
+
+    export type AutoresearchOnlinePerformanceRetrieveParams = {
+    /**
+     * Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.
+     * @minimum 1
+     * @maximum 180
      */
     limit?: number;
     };
@@ -121759,6 +122621,52 @@ export namespace Schemas {
      * @minLength 1
      */
     tags?: string;
+    };
+
+    export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type SignalsScoutConfigTrialComparisonRetrieveParams = {
+    /**
+     * Saved comparison identity.
+     */
+    comparison_id: string;
+    };
+
+    export type SignalsScoutConfigTrialEvaluationRetrieveParams = {
+    /**
+     * Saved evaluation identity to inspect without starting a judge.
+     */
+    evaluation_id: string;
+    };
+
+    export type SignalsScoutConfigTrialHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type SignalsScoutConfigTrialResultParams = {
+    /**
+     * Launch identity returned by the trial action.
+     */
+    launch_id: string;
+    };
+
+    export type SignalsScoutConfigTrialSetupParams = {
+    /**
+     * Saved comparison context to inspect instead of the current source skill.
+     */
+    context_id?: string;
     };
 
     export type SignalsScoutConfigSyncParams = {
