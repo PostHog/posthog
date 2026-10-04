@@ -61,17 +61,19 @@ class GitLabIntegration:
     def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> model.Integration:
         project = cls.get(hostname, f"projects/{project_id}", project_access_token)
 
-        integration = model.Integration.objects.create(
+        integration, _ = model.Integration.objects.update_or_create(
             team_id=team_id,
             kind=model.Integration.IntegrationKind.GITLAB,
             integration_id=project.get("name_with_namespace"),
-            config={
-                "hostname": hostname,
-                "path_with_namespace": project.get("path_with_namespace"),
-                "project_id": project.get("id"),
+            defaults={
+                "config": {
+                    "hostname": hostname,
+                    "path_with_namespace": project.get("path_with_namespace"),
+                    "project_id": project.get("id"),
+                },
+                "sensitive_config": {"access_token": project_access_token},
+                "created_by": user,
             },
-            sensitive_config={"access_token": project_access_token},
-            created_by=user,
         )
 
         return integration
