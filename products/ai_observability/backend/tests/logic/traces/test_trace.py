@@ -38,6 +38,14 @@ def trace(*rows: dict[str, Any], person: PersonRow | None = None) -> Trace:
             ],
             5.0,
         ),
+        (
+            "orphans whose parent is missing from the trace are summed as roots",
+            [
+                {"event": "$ai_span", "span_id": "child", "parent_id": "missing-edge-root", "latency": 1.5},
+                {"event": "$ai_generation", "generation_id": "gen", "parent_id": "missing-edge-root", "latency": 0.5},
+            ],
+            2.0,
+        ),
     ]
 )
 def test_total_latency(_name: str, rows: list[dict[str, Any]], expected: float) -> None:

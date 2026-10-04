@@ -289,10 +289,16 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                             THEN sumIf(toFloat(properties.$ai_latency),
                                        event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
                                  )
-                            -- Otherwise sum the direct children of the trace
+                            -- Otherwise sum root-level latency: direct children of the
+                            -- trace, self-parents, and orphans whose parent id is not among
+                            -- this trace's span/generation keys (e.g. a missing edge-root
+                            -- span). Matches products/ai_observability build_tree.
                             ELSE sumIf(toFloat(properties.$ai_latency),
                                        properties.$ai_parent_id IS NULL
+                                       OR toString(properties.$ai_parent_id) = ''
                                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                                       OR toString(properties.$ai_parent_id) = node_key
+                                       OR NOT has(known_span_ids, toString(properties.$ai_parent_id))
                                  )
                         END
                     ), 2
@@ -332,7 +338,17 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     arraySort(x -> x.3,
                         groupArrayIf(
                             tuple(uuid, event, timestamp, properties),
-                            event IN ('$ai_metric', '$ai_feedback') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                            event IN ('$ai_metric', '$ai_feedback')
+                            OR (
+                                event IN ('$ai_span', '$ai_generation', '$ai_embedding')
+                                AND (
+                                    properties.$ai_parent_id IS NULL
+                                    OR toString(properties.$ai_parent_id) = ''
+                                    OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                                    OR toString(properties.$ai_parent_id) = node_key
+                                    OR NOT has(known_span_ids, toString(properties.$ai_parent_id))
+                                )
+                            )
                         )
                     )
                 ) AS events,
@@ -373,29 +389,51 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         )
                     )
                 ) AS tools
-            FROM events
-            WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
-            )
-              AND {filter_conditions}
+            FROM (
+                SELECT
+                    uuid,
+                    event,
+                    timestamp,
+                    distinct_id,
+                    properties,
+                    coalesce(
+                        nullIf(toString(properties.$ai_generation_id), ''),
+                        nullIf(toString(properties.$ai_span_id), ''),
+                        toString(uuid)
+                    ) AS node_key,
+                    groupUniqArrayIf(
+                        coalesce(
+                            nullIf(toString(properties.$ai_generation_id), ''),
+                            nullIf(toString(properties.$ai_span_id), ''),
+                            toString(uuid)
+                        ),
+                        event IN ('$ai_span', '$ai_generation', '$ai_embedding')
+                    ) OVER (PARTITION BY properties.$ai_trace_id) AS known_span_ids
+                FROM events
+                WHERE event IN (
+                    '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                )
+                  AND {filter_conditions}
+            ) AS events
             GROUP BY properties.$ai_trace_id
             ORDER BY first_timestamp DESC
             """,
         )
 
-        # Add the trace IDs filter to the WHERE clause
+        # Attach the page's trace_id IN (...) to the inner subquery so ClickHouse
+        # can prune before the window. An outer WHERE after OVER is not pushed
+        # through the window and would scan every AI event in the date range.
         query = cast(ast.SelectQuery, query)
-
+        inner = cast(ast.SelectQuery, cast(ast.JoinExpr, query.select_from).table)
         trace_id_filter = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["properties", "$ai_trace_id"]),
             right=trace_ids_tuple,
         )
-
-        if query.where:
-            query.where = ast.And(exprs=[query.where, trace_id_filter])
+        if inner.where:
+            inner.where = ast.And(exprs=[inner.where, trace_id_filter])
         else:
-            query.where = trace_id_filter
+            inner.where = trace_id_filter
 
         return query
 
@@ -403,7 +441,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 11,
+            "schema_version": 13,
         }
 
     @cached_property

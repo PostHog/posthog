@@ -323,8 +323,10 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         self.assertIsNone(trace.person)
         self.assertEqual(trace.distinctId, "person1")
-        # Since these generation events don't have parent_id = trace_id, they are not root-level
-        self.assertEqual(len(trace.events), 0)
+        # Generations with no parent_id are treated as list roots (orphan / null-parent rule)
+        self.assertEqual(len(trace.events), 2)
+        self.assertEqual(trace.events[0].event, "$ai_generation")
+        self.assertEqual(trace.events[1].event, "$ai_generation")
 
         trace = response.results[1]
         self.assertTraceEqual(
@@ -342,9 +344,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         self.assertIsNone(trace.person)
         self.assertEqual(trace.distinctId, "person2")
-        # List view only returns summary events (metrics, feedback, and root-level events)
-        # Since these generation events don't have parent_id = trace_id, they are not root-level
-        self.assertEqual(len(trace.events), 0)
+        self.assertEqual(len(trace.events), 1)
+        self.assertEqual(trace.events[0].event, "$ai_generation")
 
     # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
 
@@ -1371,11 +1372,11 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        # List view only returns metrics, feedback, and root-level events
-        # The generation event is not root-level (no parent_id = trace_id)
-        self.assertEqual(len(response.results[0].events), 2)
-        self.assertEqual(response.results[0].events[0].event, "$ai_metric")
-        self.assertEqual(response.results[0].events[1].event, "$ai_feedback")
+        # Null-parent generation is a list root, plus metrics and feedback
+        self.assertEqual(len(response.results[0].events), 3)
+        self.assertEqual(response.results[0].events[0].event, "$ai_generation")
+        self.assertEqual(response.results[0].events[1].event, "$ai_metric")
+        self.assertEqual(response.results[0].events[2].event, "$ai_feedback")
 
     def test_aggregates_full_trace_events_with_property_filters(self):
         trace_id = str(uuid.uuid4())
@@ -1468,8 +1469,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        # Generation events without parent_id = trace_id are not root-level, so not included
-        self.assertEqual(len(response.results[0].events), 0)
+        # Duplicate uuid collapses to one root-level generation
+        self.assertEqual(len(response.results[0].events), 1)
+        self.assertEqual(response.results[0].events[0].event, "$ai_generation")
 
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
@@ -2009,6 +2011,55 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         # Should sum both root children: 100 + 150 = 250
         self.assertEqual(response.results[0].totalLatency, 250.0)
+
+    def test_latency_and_events_for_orphans_with_missing_parent_span(self):
+        """
+        When an edge/root span is missing (e.g. Railway), children parented to that
+        missing span_id still appear as list roots and contribute latency.
+
+        Tree structure:
+        Trace "trace_missing_edge_root" (no $ai_trace, no edge-root span in the trace)
+        ├── Span A ($ai_span_id="span_a", $ai_parent_id="missing-edge-root", 1.5s)
+        └── Generation B ($ai_parent_id="missing-edge-root", 0.5s)
+
+        Expected: both as list events; latency 2.0 (orphan-sum branch, not all-generation)
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_missing_edge_root"
+
+        _create_ai_span_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            span_id="span_a",
+            parent_id="missing-edge-root",
+            span_name="edge-child",
+            input_state={},
+            output_state={},
+            properties={"$ai_latency": 1.5},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={
+                "$ai_parent_id": "missing-edge-root",
+                "$ai_latency": 0.5,
+            },
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].totalLatency, 2.0)
+        self.assertEqual(len(response.results[0].events), 2)
+        self.assertEqual(response.results[0].events[0].event, "$ai_span")
+        self.assertEqual(response.results[0].events[1].event, "$ai_generation")
 
     def test_latency_mixed_span_id_presence(self):
         """
