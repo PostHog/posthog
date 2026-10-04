@@ -178,4 +178,33 @@ describe('welcomeDialogLogic', () => {
         expect(logic.values.organizationName).toBe('Beta Corp')
         await expectLogic(logic).toDispatchActions(['resetForOrgChange', 'loadWelcomeData'])
     })
+
+    it.each(['two_factor_setup_required', 'two_factor_verification_required'])(
+        'closes the dialog instead of offering a retry on a %s gate',
+        async (code) => {
+            // A member of a 2FA-enforcing org with no device yet cannot pass this gate by retrying,
+            // and the forced setup modal is already on screen behind the dialog.
+            useMocks({ get: { '/api/organizations/@current/welcome/current/': () => [403, { code }] } })
+            userLogic.actions.loadUserSuccess(INVITED_USER)
+            logic = welcomeDialogLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWelcomeData', 'blockForAuthGate'])
+            expect(logic.values.shouldShowDialog).toBe(false)
+            expect(logic.values.welcomeDataError).toBe(false)
+        }
+    )
+
+    it('keeps the dialog and its retry for a failure that a retry can fix', async () => {
+        useMocks({
+            get: { '/api/organizations/@current/welcome/current/': () => [500, { detail: 'boom' }] },
+        })
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeData', 'setWelcomeDataError'])
+        expect(logic.values.welcomeDataError).toBe(true)
+        expect(logic.values.shouldShowDialog).toBe(true)
+    })
 })
