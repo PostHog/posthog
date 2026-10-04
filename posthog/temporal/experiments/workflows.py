@@ -36,6 +36,31 @@ type MetricInput = ExperimentRegularMetricInput | ExperimentSavedMetricInput
 type MetricResult = ExperimentRegularMetricResult | ExperimentSavedMetricResult
 
 
+def _record_publish_outcome(succeeded: int, recalculations_synced: int) -> None:
+    """Per-run publish counter for the executions that still publish.
+
+    A run that computed metrics but published zero recalculation rows is the silent-failure mode
+    where results exist yet never reach users. Only the legacy branches call this, so the counter
+    keeps that meaning: on the calculate-only path nothing publishes by design, and emitting there
+    would report every healthy run as missing.
+
+    `workflow.metric_meter()` skips emission during replay, so no patch gate is needed.
+    """
+    if succeeded == 0:
+        return
+    status = "published" if recalculations_synced > 0 else "missing"
+    try:
+        temporalio.workflow.metric_meter().with_additional_attributes(
+            {"workflow_type": temporalio.workflow.info().workflow_type, "status": status}
+        ).create_counter(
+            "experiment_timeseries_publish_runs",
+            "Hourly experiment timeseries runs that computed metrics, by whether they published recalculation rows.",
+        ).add(1)
+    except Exception:
+        # A meter failure must not fail a run whose calculations and publishes already finished.
+        temporalio.workflow.logger.warning("Failed to record the publish outcome counter", exc_info=True)
+
+
 async def _create_recalculations_from_timeseries(
     experiments: set[tuple[int, int]], run_started_at: datetime, semaphore: asyncio.Semaphore
 ) -> int:
@@ -184,16 +209,18 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
         # Only an execution carrying this marker skips the publish activities. A history without it
         # replays the commands it recorded, so the branches below must stay until no such execution
         # is left. These workflows set no execution timeout, so nothing bounds that wait.
+        published: int | None = None
         if temporalio.workflow.patched("experiment-drop-timeseries-publish-2026-10"):
             results = await _calculate_metrics(calculate_experiment_regular_metric, experiment_metrics, semaphore)
         elif temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
-            results, _ = await _calculate_and_publish_per_experiment(
+            results, published = await _calculate_and_publish_per_experiment(
                 calculate_experiment_regular_metric, experiment_metrics, run_started_at, semaphore
             )
         else:
             results = await _calculate_metrics(calculate_experiment_regular_metric, experiment_metrics, semaphore)
+            published = 0
             if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
-                await _create_recalculations_from_timeseries(
+                published = await _create_recalculations_from_timeseries(
                     {(em.experiment_id, em.team_id) for em in experiment_metrics if em.team_id is not None},
                     run_started_at,
                     semaphore,
@@ -210,6 +237,9 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
                 succeeded += 1
             else:
                 failed += 1
+
+        if published is not None:
+            _record_publish_outcome(succeeded, published)
 
         return {
             "hour": inputs.hour,
@@ -259,16 +289,18 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
         # Only an execution carrying this marker skips the publish activities. A history without it
         # replays the commands it recorded, so the branches below must stay until no such execution
         # is left. These workflows set no execution timeout, so nothing bounds that wait.
+        published: int | None = None
         if temporalio.workflow.patched("experiment-drop-timeseries-publish-2026-10"):
             results = await _calculate_metrics(calculate_experiment_saved_metric, experiment_metrics, semaphore)
         elif temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
-            results, _ = await _calculate_and_publish_per_experiment(
+            results, published = await _calculate_and_publish_per_experiment(
                 calculate_experiment_saved_metric, experiment_metrics, run_started_at, semaphore
             )
         else:
             results = await _calculate_metrics(calculate_experiment_saved_metric, experiment_metrics, semaphore)
+            published = 0
             if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
-                await _create_recalculations_from_timeseries(
+                published = await _create_recalculations_from_timeseries(
                     {(em.experiment_id, em.team_id) for em in experiment_metrics if em.team_id is not None},
                     run_started_at,
                     semaphore,
@@ -285,6 +317,9 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                 succeeded += 1
             else:
                 failed += 1
+
+        if published is not None:
+            _record_publish_outcome(succeeded, published)
 
         return {
             "hour": inputs.hour,
