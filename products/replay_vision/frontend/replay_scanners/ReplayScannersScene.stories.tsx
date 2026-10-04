@@ -400,7 +400,6 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
-            verify_positives: 'off',
         },
         scanner_result: {
             model_output: {
@@ -548,7 +547,6 @@ const observationDetail = observation({
                 'The user spent most of the session in checkout, retrying an invalid coupon three times before abandoning the cart at the payment step.',
         },
         signals_count: 1,
-        verification: null,
     },
 })
 
@@ -574,7 +572,6 @@ const monitorObservationDetail = observation({
             prompt: MONITOR_DETAIL_PROMPT,
             allow_inconclusive: true,
         },
-        verify_positives: 'off',
     },
     scanner_result: {
         model_output: {
@@ -592,7 +589,6 @@ const monitorObservationDetail = observation({
             ].join('\n'),
         },
         signals_count: 1,
-        verification: null,
     },
 })
 
@@ -731,7 +727,6 @@ const meta: Meta = {
                                     provider: 'google',
                                     emits_signals: true,
                                     scanner_config: { prompt: 'Did the user hesitate at checkout?' },
-                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -747,7 +742,6 @@ const meta: Meta = {
                                         key_moment_ms: 154000,
                                     },
                                     signals_count: 2,
-                                    verification: null,
                                 },
                                 viewed: false,
                             }),
@@ -766,7 +760,6 @@ const meta: Meta = {
                                     provider: 'google',
                                     emits_signals: false,
                                     scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
-                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -781,7 +774,6 @@ const meta: Meta = {
                                         ],
                                     },
                                     signals_count: 0,
-                                    verification: null,
                                 },
                                 viewed: false,
                             }),
@@ -808,7 +800,6 @@ const meta: Meta = {
                                         summary: 'Hit an error dialog and filed feedback from the toast.',
                                     },
                                     signals_count: 0,
-                                    verification: null,
                                 },
                                 viewed: true,
                             }),
@@ -1197,7 +1188,6 @@ const observationDetailFor = (
         scanner_result: {
             model_output: { scanner_type: scannerResponse.scanner_type, ...output },
             signals_count: 0,
-            verification: null,
         },
     })
 
@@ -1611,7 +1601,6 @@ const inconclusiveObservationDetail = observation({
                 'The user added two items to the cart and opened the payment step, where the card fields are masked. The recording ends about ten seconds later with the page still loading, so it does not show whether the payment went through or whether the user gave up. There is no retry, error message or backtracking before the recording stops.',
         },
         signals_count: 0,
-        verification: null,
     },
 })
 
@@ -1661,7 +1650,6 @@ const inlineScanObservationDetail = observation({
                 'The user opened the pricing page twice, expanded the plan comparison, and left the app from there both times without starting a checkout.',
         },
         signals_count: 0,
-        verification: null,
     },
 })
 

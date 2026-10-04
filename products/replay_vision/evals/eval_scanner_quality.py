@@ -7,10 +7,8 @@ Edit the templates under backend/temporal/scanners/prompts/ and re-run to compar
 in the local logs (this suite is private; nothing is sent to Braintrust).
 
 Requires REPLAY_VISION_EVAL_DATASET (a directory written by collect.py) and GEMINI_API_KEY.
-Set REPLAY_VISION_EVAL_VERIFY_POSITIVES to `shadow` or `enforce` to run monitor cases with verify-positives on.
 """
 
-import os
 import time
 import asyncio
 from functools import partial
@@ -31,7 +29,6 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
-from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 from products.replay_vision.evals.dataset import (
     DATASET_ENV_VAR,
@@ -55,17 +52,6 @@ SUITE_KIND = SuiteKind.ONE_SHOT
 logger = structlog.get_logger(__name__)
 
 _MAX_PROCESSING_WAIT_SECONDS = 300
-VERIFY_POSITIVES_ENV_VAR = "REPLAY_VISION_EVAL_VERIFY_POSITIVES"
-
-
-def _eval_snapshot(golden: GoldenCase) -> ScannerSnapshot:
-    """The recorded snapshot, with the verify-positives mode overridden when the run asks for one."""
-    mode = os.environ.get(VERIFY_POSITIVES_ENV_VAR, "").strip()
-    if not mode:
-        return golden.snapshot
-    if mode not in ("shadow", "enforce"):
-        raise ValueError(f"{VERIFY_POSITIVES_ENV_VAR} must be `shadow` or `enforce`, got {mode!r}")
-    return golden.snapshot.model_copy(update={"verify_positives": mode})
 
 
 def build_case(golden: GoldenCase) -> BaseEvalCase:
@@ -163,7 +149,7 @@ async def _scan_task(
     try:
         try:
             result = await run_scan(
-                snapshot=_eval_snapshot(golden),
+                snapshot=golden.snapshot,
                 scanner=scanner,
                 llm_inputs=llm_inputs,
                 team_name=golden.team_name,
@@ -196,7 +182,6 @@ async def _scan_task(
         "scanner_type": golden.scanner_type,
         "signals_count": len(result.signals),
         "signals": [signal.model_dump(mode="json") for signal in result.signals],
-        "verification": result.verification.model_dump(mode="json") if result.verification else None,
         "primary": primary,
         "last_message": primary or "",
     }
