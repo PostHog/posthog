@@ -184,7 +184,7 @@ jobs:
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
             # Which engine runs this event's backend tests. Depot CI never decides on its
             # own: it waits for the hand-off job below and runs only when that succeeded.
-            engine: ${{ steps.route.outputs.engine || 'github' }}
+            engine: ${{ steps.master-owner.outputs.engine || steps.route.outputs.engine || 'github' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -196,7 +196,24 @@ jobs:
                       .github/scripts/ci_backend_route.py
                       .github/scripts/ci_backend_relay.py
                       .github/scripts/ci_backend_depot_failures.py
+                      .github/scripts/ci_backend_master_*.py
                   sparse-checkout-cone-mode: false
+            - name: Select the master lane owner
+              id: master-owner
+              if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  MASTER_LANE_MODE: ${{ vars.CI_BACKEND_DEPOT_MASTER_LANES }}
+                  MASTER_SCHEDULE: ${{ github.event.schedule }}
+              run: python3 .github/scripts/ci_backend_master_controller.py select --directory "$RUNNER_TEMP/backend-master-receipts"
+            - name: Persist the master lane owner
+              if: steps.master-owner.outputs.owner_exists == 'false'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: backend-master-owner
+                  path: ${{ runner.temp }}/backend-master-receipts/owner.json
+                  if-no-files-found: error
+                  retention-days: 90
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -547,10 +564,94 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 2
         needs: [changes]
-        if: needs.changes.outputs.engine == 'depot'
+        if: needs.changes.outputs.engine == 'depot' && github.event_name == 'pull_request'
         permissions: {}
         steps:
             - run: echo "::notice::Depot CI runs the backend tests for this event. GitHub Actions runs none."
+
+    master-depot:
+        name: Dispatch and relay master Backend CI
+        needs: [changes]
+        if: >-
+            needs.changes.outputs.engine == 'depot' && github.ref == 'refs/heads/master' &&
+            (github.event_name == 'push' || github.event_name == 'schedule')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 120
+        permissions:
+            contents: read
+            actions: read
+        env:
+            GH_TOKEN: ${{ github.token }}
+            MASTER_SCHEDULE: ${{ github.event.schedule }}
+            DEPOT_ORG_ID: ntsdt08fpt
+        outputs:
+            mig_schema_key: ${{ steps.schema-key.outputs.key }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/ci_backend_master_*.py
+                      .github/actions/relay-master-artifacts
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - name: Dispatch the owned Depot run
+              id: dispatch
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+              run: python3 .github/scripts/ci_backend_master_controller.py dispatch --directory "$RUNNER_TEMP/backend-master-receipts"
+            - name: Persist the dispatch acknowledgment
+              if: steps.dispatch.outputs.dispatch_exists == 'false'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: backend-master-dispatch
+                  path: ${{ runner.temp }}/backend-master-receipts/dispatch.json
+                  if-no-files-found: error
+                  retention-days: 90
+            - name: Bind the dispatched workflow
+              id: bind
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+              run: python3 .github/scripts/ci_backend_master_controller.py bind --directory "$RUNNER_TEMP/backend-master-receipts"
+            - name: Persist the workflow binding
+              if: steps.bind.outputs.binding_exists == 'false'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: backend-master-depot-binding
+                  path: ${{ runner.temp }}/backend-master-receipts/binding.json
+                  if-no-files-found: error
+                  retention-days: 90
+            - name: Relay the bound workflow and collect artifacts
+              id: relay
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+              run: >-
+                  python3 .github/scripts/ci_backend_master_controller.py relay
+                  --directory "$RUNNER_TEMP/backend-master-receipts"
+                  --artifact-directory "$RUNNER_TEMP/backend-master-artifacts" --timeout 6600
+            - name: Republish the bound workflow artifacts
+              if: always() && steps.relay.outputs.verdict != ''
+              uses: ./.github/actions/relay-master-artifacts
+              with:
+                  manifest: ${{ runner.temp }}/backend-master-receipts/artifacts.json
+                  root: ${{ runner.temp }}/backend-master-artifacts
+            - name: Validate the schema cache key
+              id: schema-key
+              if: steps.relay.outputs.verdict == 'success' && github.event_name == 'push'
+              env:
+                  KEY_FILE: ${{ runner.temp }}/backend-master-artifacts/migrated-schema/schema-cache-key.txt
+              run: |
+                  python3 - <<'PY'
+                  import os
+                  import re
+                  from pathlib import Path
+                  key = Path(os.environ['KEY_FILE']).read_text().strip()
+                  if key and not re.fullmatch(r'posthog-schema-mig-[a-zA-Z0-9_-]+-[0-9a-f]{40}', key):
+                      raise ValueError('Invalid migration-set schema cache key')
+                  with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+                      output.write(f'key={key}\n')
+                  PY
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -2417,12 +2518,17 @@ jobs:
                   fi
 
     mirror-schema-cache:
-        needs: [check-migrations]
+        needs: [changes, check-migrations, master-depot]
         # Fork PRs run without secrets, so they aren't authenticated to Depot Cache and
         # read only GitHub's own cache, where check-migrations' Depot-runner saves never land.
         # Mirror the dump there so fork PRs prime instead of migrating from scratch.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: >-
+            !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+            (needs.changes.outputs.engine == 'depot' && needs.master-depot.result == 'success' ||
+            needs.changes.outputs.engine != 'depot' && needs.check-migrations.result == 'success')
         name: Mirror schema cache to GitHub cache
+        env:
+            SCHEMA_MIG_KEY: ${{ needs.check-migrations.outputs.mig_schema_key || needs.master-depot.outputs.mig_schema_key }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
@@ -2441,11 +2547,11 @@ jobs:
                   key: posthog-schema-master-${{ github.sha }}
 
             - name: Save schema to GitHub cache (migration-set key)
-              if: github.ref == 'refs/heads/master' && needs.check-migrations.outputs.mig_schema_key != ''
+              if: github.ref == 'refs/heads/master' && env.SCHEMA_MIG_KEY != ''
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  key: ${{ needs.check-migrations.outputs.mig_schema_key }}
+                  key: ${{ env.SCHEMA_MIG_KEY }}
 
     check-openapi-types:
         needs: [changes]
@@ -4258,6 +4364,7 @@ jobs:
         needs:
             [
                 changes,
+                master-depot,
                 get_clickhouse_versions,
                 build_django_matrix,
                 django,
@@ -4291,7 +4398,7 @@ jobs:
             || needs.check-openapi-types.outputs.deterministic_failure == 'true'
         steps:
             - name: Check out the relay script
-              if: needs.changes.outputs.engine == 'depot'
+              if: needs.changes.outputs.engine == 'depot' && github.event_name == 'pull_request'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
@@ -4302,13 +4409,13 @@ jobs:
             # The relay reads a failed run's steps and log lines with the Depot CLI. Without
             # the CLI, the relay prints a warning and still reports the verdict.
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-              if: needs.changes.outputs.engine == 'depot'
+              if: needs.changes.outputs.engine == 'depot' && github.event_name == 'pull_request'
               continue-on-error: true
             # The script finds this event's Depot run by the event in its wait job's check
             # name, then waits for that run's gate. Its docstring explains why check times
             # and pull request lists cannot identify the run.
             - name: Relay the Depot verdict
-              if: needs.changes.outputs.engine == 'depot'
+              if: needs.changes.outputs.engine == 'depot' && github.event_name == 'pull_request'
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   GH_TOKEN: ${{ github.token }}
@@ -4318,6 +4425,15 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   HEAD_REF: ${{ github.head_ref }}
               run: python3 .github/scripts/ci_backend_relay.py gate
+            - name: Check the master Depot result
+              if: needs.changes.outputs.engine == 'depot' && github.event_name != 'pull_request'
+              env:
+                  MASTER_RESULT: ${{ needs.master-depot.result }}
+              run: |
+                  if [ "$MASTER_RESULT" != success ]; then
+                      echo "::error::Master Backend CI did not complete successfully. Inspect the master Depot relay before retrying."
+                      exit 1
+                  fi
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |
@@ -4463,6 +4579,7 @@ jobs:
                   # zero backend tests run. Naming them makes the failure hit the gate
                   # directly; legitimate skips (frontend-only PRs) and plain successes still pass.
                   check_required_result "Change detection" "${{ needs.changes.result }}"
+                  check_required_result "Master Depot hand-off" "${{ needs.master-depot.result }}"
                   check_required_result "ClickHouse versions" "${{ needs.get_clickhouse_versions.result }}"
                   check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"

@@ -42,14 +42,13 @@
 # - Artifact uploads, run-scoped sharding plans, and the failing-test rollup
 #   require side effects, including duration writes. Depot stores these separately
 #   from GitHub Actions.
-# - Hourly scheduled master run: canonical no longer runs the test matrices on master push
-#   (the merge queue's trunk-merge/** run gates every commit) and runs them from an hourly
-#   `schedule` trigger instead — the shape this shadow always had (its `!= 'push'` gates on
-#   turbo-discover / get_clickhouse_versions). A sampling trial must not run on a timer, so
-#   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
-#   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
-#   exclusion, the paths-filter schedule skip, and build_django_matrix's RUN_JSON_TARGETS
-#   check of the EVENTS_JSON_SCHEDULE cron) are depot-exempt.
+# - Master ownership stays on GitHub Actions. There are no push or schedule triggers here:
+#   the canonical owner dispatches master_run_id/SHA/event/cron inputs, persists the dispatch
+#   and workflow binding, and republishes the bound artifacts into its GitHub run.
+#   wait-for-handoff authorizes that binding before releasing any tests or side effects.
+#   Master inputs preserve the canonical per-commit/scheduled checks, cron-specific JSON
+#   variants, and interpreter teardown. Every worker checks out the authorized SHA, not
+#   the potentially newer master commit that supplied the dispatched workflow.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
@@ -128,7 +127,7 @@
 #   that same cache, so shard counts match GitHub Actions. Committed .test_durations is the
 #   fallback.
 # - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
-#   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
+#   serves both engines. The `(inputs.master_run_id && inputs.master_event || github.event_name) != 'push'` guards stay to mirror canonical.
 #   Trunk merge-queue PRs run here only when canonical's router hands them off, which its own
 #   CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT controls apart from source PRs.
 # - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
@@ -150,6 +149,18 @@ name: Backend CI on Depot
 on:
     workflow_dispatch:
         inputs:
+            master_run_id:
+                description: Canonical GitHub run ID. Requires an immutable owner and workflow binding
+                type: string
+            master_sha:
+                description: Canonical commit SHA authorized by the owner receipt
+                type: string
+            master_event:
+                description: Canonical push or schedule event authorized by the owner receipt
+                type: string
+            master_schedule:
+                description: Canonical schedule expression authorized by the owner receipt
+                type: string
             clickhouseServerVersion:
                 description: ClickHouse server version. Leave blank for default
                 type: string
@@ -170,9 +181,14 @@ on:
 concurrency:
     # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    group: ${{ github.workflow }}-${{ inputs.master_run_id && format('master-{0}', inputs.master_run_id) || (inputs.master_run_id && inputs.master_event || github.event_name) == 'push' && (inputs.master_run_id && inputs.master_sha || github.sha) || (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || (inputs.master_run_id && 'refs/heads/master' || github.ref) }}
+    cancel-in-progress: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' }}
 env:
+    MASTER_RUN_ID: ${{ inputs.master_run_id }}
+    MASTER_SHA: ${{ inputs.master_sha }}
+    MASTER_EVENT: ${{ inputs.master_event }}
+    MASTER_SCHEDULE: ${{ inputs.master_schedule }}
+    EVENTS_JSON_SCHEDULE: '23 */3 * * *'
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the PR-base
     # and HEAD (push) key computations below can't drift.
@@ -201,7 +217,7 @@ env:
     TEST: 1
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
-    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
+    POSTHOG_PYTEST_HARD_EXIT: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'schedule' && '0' || '1' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -225,7 +241,7 @@ env:
     DISPLAY: ':99.0'
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    RUNS_ON_INTERNAL_PR: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 permissions:
     contents: read
@@ -237,7 +253,7 @@ jobs:
     # tests and their side effects never run on both engines.
     wait-for-handoff:
         if: >-
-            github.event_name != 'pull_request'
+            (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request'
             || github.event.pull_request.draft != true
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         runs-on: depot-ubuntu-24.04
@@ -248,16 +264,45 @@ jobs:
         # Depot scopes the ambient token by this block, and the workflow-level block has no
         # `checks`, so without it the check-runs read below answers 403.
         permissions:
+            contents: read
+            actions: read
             checks: read
         outputs:
-            handed_off: ${{ steps.handoff.outputs.handed_off }}
+            handed_off: ${{ steps.master-handoff.outputs.handed_off || steps.handoff.outputs.handed_off }}
             github_run_url: ${{ steps.handoff.outputs.github_run_url }}
         steps:
+            - name: Check out the trusted master controller
+              if: inputs.master_run_id != ''
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  sparse-checkout: .github/scripts/ci_backend_master_*.py
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              if: inputs.master_run_id != ''
+            - name: Mint the master receipt read token
+              id: master-receipt-token
+              if: inputs.master_run_id != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-actions: read
+            - name: Authorize the master workflow binding
+              id: master-handoff
+              if: inputs.master_run_id != ''
+              env:
+                  GH_TOKEN: ${{ steps.master-receipt-token.outputs.token || github.token }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  DEPOT_ORG_ID: ntsdt08fpt
+              run: python3 .github/scripts/ci_backend_master_controller.py authorize --directory "$RUNNER_TEMP/backend-master-receipts"
             # Depot's ambient token can come from an installation spent for the hour. It answers 403,
             # and the wait would decline a real hand-off. The same token posts the relay's checks.
             - name: Mint hand-off token
               id: handoff-token
-              if: contains(fromJSON('["pull_request", "workflow_dispatch", "api"]'), github.event_name) && github.event.pull_request.head.repo.fork != true
+              if: contains(fromJSON('["pull_request", "workflow_dispatch", "api"]'), (inputs.master_run_id && inputs.master_event || github.event_name)) && github.event.pull_request.head.repo.fork != true
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -267,7 +312,7 @@ jobs:
             # .github/scripts/ci_backend_route.py waits for this check. Depot posts its own check
             # for this job only when the job ends, which is after the hand-off.
             - name: Tell GitHub Actions that Depot started a run for this event
-              if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && steps.handoff-token.outputs.token != ''
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ steps.handoff-token.outputs.token }}
@@ -279,12 +324,13 @@ jobs:
                       -f status=completed -f conclusion=success -f details_url="$DEPOT_JOB_URL" --silent
             - name: Wait for the hand-off check from GitHub Actions
               id: handoff
+              if: inputs.master_run_id == ''
               env:
                   GH_TOKEN: ${{ steps.handoff-token.outputs.token || github.token }}
                   REPO: ${{ github.repository }}
-                  EVENT: ${{ github.event_name }}
+                  EVENT: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
-                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+                  SHA: ${{ github.event.pull_request.head.sha || (inputs.master_run_id && inputs.master_sha || github.sha) }}
                   # A no-ci draft marked ready keeps its SHA, so its earlier skipped hand-off
                   # check is still on the commit. Only a check that started after this event counts.
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
@@ -347,7 +393,7 @@ jobs:
             # Mirrors Depot's own checks for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
             # A declined event also gets the gate's skipped check, as Depot posts it.
             - name: Post the hand-off checks for the relay
-              if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && steps.handoff-token.outputs.token != ''
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ steps.handoff-token.outputs.token }}
@@ -364,7 +410,7 @@ jobs:
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
     cancel-superseded-runs:
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Cancel superseded Backend CI runs
@@ -373,6 +419,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   sparse-checkout: .github/scripts/cancel_superseded_depot_runs.py
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -425,6 +472,7 @@ jobs:
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   clean: false
                   sparse-checkout: .depot/actions/paths-filter
                   sparse-checkout-cone-mode: false
@@ -435,19 +483,15 @@ jobs:
               continue-on-error: true
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.depot/actions/paths-filter
               id: filter
-              # No `!= 'schedule'` arm, unlike canonical: this shadow has no `schedule`
-              # trigger (depot-exempt, see the header), so there is no cron run whose
-              # filter could narrow to a single commit. Canonical's reason for the extra
-              # arm is "The hourly master lane" in
-              # .agents/skills/authoring-ci-workflows/SKILL.md.
-              if: github.event_name != 'push' # Run all tests on master push
+              # Cron inputs must not narrow the matrices to a single commit's diff.
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'push' && (inputs.master_run_id && inputs.master_event || github.event_name) != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -751,7 +795,7 @@ jobs:
         timeout-minutes: 5
         needs: [changes]
         # Not on master push: only feeds the matrices, which master pushes skip.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.backend == 'true' && (inputs.master_run_id && inputs.master_event || github.event_name) != 'push'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
@@ -789,7 +833,7 @@ jobs:
     turbo-discover:
         needs: [wait-for-handoff, changes]
         # Not on master push: master only primes the schema cache; this cascades the matrices off.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.backend == 'true' && (inputs.master_run_id && inputs.master_event || github.event_name) != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
@@ -798,10 +842,10 @@ jobs:
             # trunk-merge/** run (that run is the merge gate and stays full), and without
             # the run-ci-backend label. turbo-discover.js reads it too, so a run that never
             # selects reports an empty mode rather than a selector error.
-            SELECTION_APPLIES: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && needs.changes.outputs.backend == 'true' }}
+            SELECTION_APPLIES: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && needs.changes.outputs.backend == 'true' }}
             # GitHub tests PRs as synthetic merges. The first parent pins the exact integrated
             # base for ordinary, stacked, and merge-queue PRs.
-            TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('{0}^1', github.sha) || '' }}
+            TURBO_SCM_BASE: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && format('{0}^1', (inputs.master_run_id && inputs.master_sha || github.sha)) || '' }}
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
@@ -824,6 +868,8 @@ jobs:
             # the tree in a second request. Check out at depth 1, then add the history the merge-base
             # steps read, without file contents.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
             - name: Fetch history without file contents
               # --depth, not --deepen: --deepen adds no history once GitHub has replaced the PR's
               # merge ref, because no ref then points at GITHUB_SHA.
@@ -834,7 +880,7 @@ jobs:
                   echo "History depth: $(git rev-list --count HEAD)"
             - name: Verify PR merge for test selection
               id: verify-merge
-              if: github.event_name == 'pull_request'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request'
               env:
                   PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
@@ -846,13 +892,13 @@ jobs:
                   git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
 
             - name: Fetch PR base for schema cache
-              if: github.event_name == 'pull_request'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
             - name: Compute schema cache key from PR base
               id: schema-key
-              if: github.event_name == 'pull_request'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request'
               env:
                   PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
@@ -918,7 +964,7 @@ jobs:
             # at merge peaks, so it gets one to itself.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -979,7 +1025,7 @@ jobs:
             - name: Restore the events_json prune manifest from cache
               # The timing workflow rebuilds it from the newest hourly recording. A miss
               # leaves the file absent, and the events_json rows then run every listed test.
-              if: github.event_name == 'pull_request'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request'
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: events-schema-prune.json
@@ -1049,7 +1095,7 @@ jobs:
               env:
                   # On pushes to master, always run everything.
                   # On PRs, use the path filter to detect legacy changes.
-                  LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
+                  LEGACY_CHANGED: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || needs.changes.outputs.legacy }}
                   # Empty when the selector did not run or failed, which falls back to the
                   # full matrices on a ready PR and skips them on a draft.
                   SELECTION_JSON: ${{ steps.select.outcome == 'success' && '/tmp/selection.json' || '' }}
@@ -1060,8 +1106,8 @@ jobs:
                   # the heavy matrices there instead of running all of them.
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
-                  SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
-                  TURBO_SCM_HEAD: ${{ github.sha }}
+                  SCHEMA_CHANGED: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || needs.changes.outputs.schema }}
+                  TURBO_SCM_HEAD: ${{ (inputs.master_run_id && inputs.master_sha || github.sha) }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
                   SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
               run: |
@@ -1094,7 +1140,7 @@ jobs:
         needs: [changes, turbo-discover]
         if: >-
             !cancelled() &&
-            github.event_name == 'pull_request' &&
+            (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' &&
             needs.changes.outputs.backend == 'true' &&
             needs.turbo-discover.result == 'success'
         name: Prime schema cache
@@ -1117,7 +1163,7 @@ jobs:
               with:
                   # Shared dumps represent the PR base. Run-scoped dumps include
                   # the PR merge commit because their routing inputs may differ.
-                  ref: ${{ needs.turbo-discover.outputs.schema_cache_key != '' && needs.turbo-discover.outputs.schema_base_sha || github.sha }}
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || needs.turbo-discover.outputs.schema_cache_key != '' && needs.turbo-discover.outputs.schema_base_sha || (inputs.master_run_id && inputs.master_sha || github.sha) }}
             - name: Start database services
               if: steps.schema-cache.outputs.cache-matched-key == ''
               env:
@@ -1237,6 +1283,8 @@ jobs:
                 include: ${{ fromJson(needs.build-product-test-matrix.outputs.include) }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
             # used by core-tests/django and makes the later wait step negligible.
@@ -1265,7 +1313,7 @@ jobs:
             # setup-action volume, enough to threaten any shared 15k/hr bucket.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -1316,7 +1364,7 @@ jobs:
                   bin/ci-wait-for-docker wait objectstorage \
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1333,7 +1381,7 @@ jobs:
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -1354,7 +1402,7 @@ jobs:
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -1461,10 +1509,10 @@ jobs:
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
-                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' && '--store-durations' || '' }}
                       ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && '--junitxml=junit-product.xml' || '' }}
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
-                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=' || '' }}
+                      ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && '--cov=backend --cov-report=' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
                   # scopes coverage to that product and saves its data to products/<name>/.coverage. This works
                   # for bin-packed buckets (each product writes its own file) and split products, whose data
@@ -1572,7 +1620,7 @@ jobs:
               # timings either. Its artifact would hold only the restored map, and the timing
               # refresh then rejects the whole Products slice because the timing and JUnit shard
               # sets differ.
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.ref == 'refs/heads/master' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '') }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
@@ -1582,7 +1630,7 @@ jobs:
             - name: Stage product coverage
               # Rename each products/<name>/.coverage to <name>.coverage so the product name
               # survives upload-artifact's least-common-ancestor path collapse.
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request') }}
               shell: bash
               run: |
                   mkdir -p cov-staging
@@ -1595,7 +1643,7 @@ jobs:
             - name: Upload product coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # always(): a failing test shard still has partial coverage worth reporting.
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request') }}
               with:
                   name: coverage-products-${{ strategy.job-index }}
                   path: cov-staging/*.coverage
@@ -1650,20 +1698,22 @@ jobs:
     # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
     sdk-major-guard:
         needs: [changes]
-        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.sdk_manifests == 'true' && (inputs.master_run_id && inputs.master_event || github.event_name) != 'schedule'
         timeout-minutes: 5
         permissions: {}
         name: SDK major-version guard (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
             - name: Check every SDK stays on its pinned major
               run: python3 .github/scripts/check_sdk_majors.py
 
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'push'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && (inputs.master_run_id && inputs.master_event || github.event_name) != 'schedule'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1674,9 +1724,11 @@ jobs:
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -1701,7 +1753,7 @@ jobs:
             # run-cancelling deterministic failure. The classifier runs below.
             - name: Fetch deleted migration paths
               id: fetch-deleted-migrations
-              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   REPO: ${{ github.repository }}
@@ -1772,7 +1824,7 @@ jobs:
         if: >
             always() &&
             needs.repo-checks.outputs.deterministic_failure == 'true' &&
-            github.event_name == 'pull_request' &&
+            (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
         timeout-minutes: 5
         permissions:
@@ -1797,13 +1849,15 @@ jobs:
         needs: [changes]
         if: >
             needs.changes.outputs.product_yamls == 'true' &&
-            github.event_name == 'pull_request' &&
+            (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
         timeout-minutes: 5
         name: Validate product.yaml owners (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
             - name: Get app token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -1855,7 +1909,7 @@ jobs:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true') && (inputs.master_run_id && inputs.master_event || github.event_name) != 'schedule'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.
@@ -1868,6 +1922,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -1887,7 +1942,7 @@ jobs:
               run: nohup bin/ci-wait-for-docker launch --background --down db redis7 clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -1907,7 +1962,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ (inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' }}
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -1921,7 +1976,7 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: PostHog/posthog
-                  ref: master
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || 'master' }}
                   path: upstream-master
             - name: Install python dependencies for master
               working-directory: upstream-master
@@ -1932,7 +1987,7 @@ jobs:
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
               # that "Run migrations up to master" would build from scratch.
-              if: github.event_name != 'push'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'push'
               id: master-schema-key
               working-directory: upstream-master
               run: |
@@ -1951,7 +2006,7 @@ jobs:
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
             - name: Restore master schema dump from cache
-              if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'push' && steps.master-schema-key.outputs.key != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1970,7 +2025,7 @@ jobs:
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
               # of a full migration run.
-              if: github.event_name != 'push'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'push'
               run: |
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Master schema cache miss — the next step runs all migrations from scratch"
@@ -2011,7 +2066,7 @@ jobs:
                   # For same-repo PRs, checkout the actual branch (not the merge commit)
                   # so upstream/master..HEAD reflects PR files. Fork PRs fall back
                   # to the default merge commit.
-                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || ((inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || (inputs.master_run_id && 'refs/heads/master' || github.ref) }}
                   clean: false
             - name: Install python dependencies for this PR
               run: |
@@ -2021,7 +2076,7 @@ jobs:
               # posthog-tests token that can write pull requests and nothing else. When the
               # mint fails, the CI report check below marks the report unavailable, so a mint
               # failure never reddens migration validation.
-              if: needs.wait-for-handoff.outputs.handed_off == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              if: needs.wait-for-handoff.outputs.handed_off == 'true' && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.fork == false
               id: ci-report-app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -2048,7 +2103,7 @@ jobs:
                       echo "Skipping the CI report sections: Node.js is missing, or this checkout predates Depot CI authorship"
                   fi
             - name: Check migrations and post SQL to CI report
-              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   CI_REPORT_TOKEN: ${{ steps.ci-report.outputs.available == 'true' && steps.ci-report-app-token.outputs.token || '' }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
@@ -2139,7 +2194,7 @@ jobs:
                         SQL_OUTPUT="-- sqlmigrate failed for this migration (see the Validate migrations job log)"
                       fi
 
-                      COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                      COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ (inputs.master_run_id && inputs.master_sha || github.sha) }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
                   done
 
@@ -2165,7 +2220,7 @@ jobs:
                   post_migration_section sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
 
             - name: Run migration risk analysis and update CI report
-              if: github.event_name == 'pull_request'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request'
               # Step timeout: an analyzer hang fails THIS step (a failure, which
               # !cancelled() still publishes as a definitive verdict) instead of
               # running out the job timeout. A job timeout counts as a
@@ -2231,7 +2286,7 @@ jobs:
               # PR code, so that code never holds a token that can publish this check.
               # continue-on-error: publishing the check is auxiliary. On failure the
               # token output is empty and the publish step below is skipped.
-              if: ${{ !cancelled() && needs.wait-for-handoff.outputs.handed_off == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
+              if: ${{ !cancelled() && needs.wait-for-handoff.outputs.handed_off == 'true' && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
               id: migration-risk-app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -2265,7 +2320,7 @@ jobs:
               # Also skipped when the token step failed: its output is then
               # empty and the check-runs POST would fall back to the ambient
               # Depot token.
-              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
+              if: ${{ !cancelled() && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
               env:
                   GH_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -2336,7 +2391,7 @@ jobs:
                     | gh api "repos/$REPO/check-runs" --method POST --input -
 
             - name: Upload migration analysis artifact
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request') }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
@@ -2367,7 +2422,7 @@ jobs:
               # sees it only while it is current with master. The replay is by far the
               # most expensive part of this job, so paying it once per batch rather than
               # on every push of every migration branch is what keeps it affordable.
-              if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.migration_replay == 'true'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.migration_replay == 'true'
               env:
                   REPLAY_DB: posthog_migration_replay
               run: |
@@ -2380,7 +2435,7 @@ jobs:
                       exit 1
                   fi
             - name: Dump migrated schema
-              if: github.event_name == 'push'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'push'
               run: |
                   set -e
                   set -o pipefail
@@ -2391,26 +2446,10 @@ jobs:
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
 
-            - name: Upload migrated schema artifact
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.event_name == 'push') }}
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: migrated-schema
-                  path: schema.sql.gz
-                  # Consumers only ever take the newest artifact, so a longer window just
-                  # adds pages to the artifacts listing that db:download-schema walks.
-                  retention-days: 7
-            - name: Save schema to Actions cache for PR shards
-              # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
-              if: github.event_name == 'push'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
             - name: Compute migration-set schema key
               # Must match the PR-base computation in turbo-discover and the
               # master restore key above (inputs, hash, and key prefix).
-              if: github.event_name == 'push'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'push'
               id: mig-schema-key
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
@@ -2428,15 +2467,38 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
+            - name: Record the migration-set key for the artifact bridge
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'push'
+              env:
+                  SCHEMA_KEY: ${{ steps.mig-schema-key.outputs.key }}
+              run: printf '%s\n' "$SCHEMA_KEY" > schema-cache-key.txt
+            - name: Upload migrated schema artifact
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((inputs.master_run_id && inputs.master_event || github.event_name) == 'push') }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: migrated-schema
+                  path: |
+                      schema.sql.gz
+                      schema-cache-key.txt
+                  # Consumers only ever take the newest artifact, so a longer window just
+                  # adds pages to the artifacts listing that db:download-schema walks.
+                  retention-days: 7
+            - name: Save schema to Actions cache for PR shards
+              # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'push'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ (inputs.master_run_id && inputs.master_sha || github.sha) }}
             - name: Save schema to Actions cache (migration-set key)
-              if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'push' && steps.mig-schema-key.outputs.key != ''
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ steps.mig-schema-key.outputs.key }}
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
-              if: github.event_name != 'push'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'push'
               env:
                   MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
@@ -2486,7 +2548,7 @@ jobs:
               # (environment -> node type(s) -> SQL). Environments that render identically are
               # grouped together; if all environments match, the environment level is collapsed.
               id: render_ch_sql
-              if: github.event_name == 'pull_request'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request'
               run: |
                   CHANGED=$(cat "$RUNNER_TEMP/ch-migrations-changed.txt")
                   if [ -z "$CHANGED" ]; then
@@ -2550,7 +2612,7 @@ jobs:
               # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
               # unread. Skipped when the CI report is not available, because an empty token
               # would leave the ambient Depot token in place.
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') && steps.ci-report.outputs.available == 'true'
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') && steps.ci-report.outputs.available == 'true'
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
                   CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
@@ -2566,7 +2628,7 @@ jobs:
     check-openapi-types:
         needs: [changes]
         # Not on master push: master only primes the schema cache.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && (inputs.master_run_id && inputs.master_event || github.event_name) != 'schedule'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -2575,7 +2637,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || ((inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || (inputs.master_run_id && 'refs/heads/master' || github.ref) }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -2594,7 +2656,7 @@ jobs:
               run: nohup bin/ci-wait-for-docker launch --background --down db clickhouse </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -2614,7 +2676,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ (inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' }}
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -2639,7 +2701,7 @@ jobs:
             - name: Check and update OpenAPI types
               id: openapi-check
               env:
-                  EVENT_NAME: ${{ github.event_name }}
+                  EVENT_NAME: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) }}
                   HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
                   BRANCH: ${{ github.event.pull_request.head.ref }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -2761,7 +2823,7 @@ jobs:
         if: >
             always() &&
             needs.check-openapi-types.outputs.deterministic_failure == 'true' &&
-            github.event_name == 'pull_request' &&
+            (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
         timeout-minutes: 5
         permissions:
@@ -2813,7 +2875,7 @@ jobs:
                   # at all. Not-draft makes the empty MODE fall through to the full
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
-                  IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  IS_PR_RUN: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # The new-events-schema variants double the matrix, so they run only on
                   # opted-in PRs. Every other run takes the events_json rows, which cover
@@ -2823,6 +2885,7 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
+                  RUN_JSON_TARGETS: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) != 'schedule' || (inputs.master_run_id && inputs.master_schedule || github.event.schedule) == env.EVENTS_JSON_SCHEDULE }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
@@ -3134,6 +3197,11 @@ jobs:
                       json_targets_count="${JSON_TARGETS_SHARDS:-0}"
                   fi
 
+                  if [[ "$RUN_JSON_TARGETS" != "true" ]]; then
+                      echo "Skipping the events_json rows on this hourly run"
+                      json_targets_count=0
+                  fi
+
                   # The events_json rows: Core jobs over the listed paths with the
                   # native-JSON events table. They keep Core's person-on-events default.
                   json_targets=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$json_targets_count" '
@@ -3210,6 +3278,7 @@ jobs:
             # from this tree, so a checkout of any other ref can lack a file that the selection lists.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   fetch-depth: 1
                   lfs: true
                   clean: false
@@ -3256,7 +3325,7 @@ jobs:
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              if: (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -3286,7 +3355,7 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
             - name: Save Python tool cache
-              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              if: (inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3299,7 +3368,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ (inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' }}
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash
@@ -3410,7 +3479,7 @@ jobs:
                   bin/ci-wait-for-docker wait \
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -3427,7 +3496,7 @@ jobs:
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -3448,7 +3517,7 @@ jobs:
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -3549,7 +3618,7 @@ jobs:
                   SHARD_CONCURRENCY: ${{ matrix.concurrency }}
                   CLICKHOUSE_IMAGE: ${{ matrix.clickhouse-server-image }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-                  COMMIT_SHA: ${{ github.sha }}
+                  COMMIT_SHA: ${{ (inputs.master_run_id && inputs.master_sha || github.sha) }}
                   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
               run: |
                   echo "=== Test Environment Diagnostics ==="
@@ -3626,9 +3695,12 @@ jobs:
                   # Mirrors canonical: the coverage report skips narrowed runs, so
                   # instrumenting one is pure overhead, and the events_json rows rerun
                   # tests the legacy rows already measure.
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && !matrix.json-targets && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
+                  COV_ARGS: ${{ (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && !matrix.json-targets && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
+                  if [ -n "$MASTER_RUN_ID" ]; then
+                      export GITHUB_EVENT_NAME="$MASTER_EVENT" GITHUB_SHA="$MASTER_SHA" GITHUB_REF=refs/heads/master
+                  fi
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
                   # Enable retries only when the checkout includes retry diagnostics.
@@ -3780,7 +3852,7 @@ jobs:
                   SHARD_GROUP: ${{ matrix.group }}
                   SHARD_CONCURRENCY: ${{ matrix.concurrency }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-                  COMMIT_SHA: ${{ github.sha }}
+                  COMMIT_SHA: ${{ (inputs.master_run_id && inputs.master_sha || github.sha) }}
                   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
               run: |
                   echo "=== Test Environment Diagnostics ==="
@@ -3880,7 +3952,7 @@ jobs:
               # cache miss must never red a green run.
               continue-on-error: true
               if: |
-                  github.ref == 'refs/heads/master' &&
+                  (inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' &&
                   matrix.segment == 'Core' &&
                   matrix.group == 1 &&
                   !matrix.person-on-events &&
@@ -3911,7 +3983,7 @@ jobs:
 
             - name: Upload events schema recording
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && matrix.json-targets && github.event_name == 'schedule') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && matrix.json-targets && (inputs.master_run_id && inputs.master_event || github.event_name) == 'schedule') }}
               with:
                   name: events-schema-record-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: events-schema-record.json
@@ -3924,13 +3996,13 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.new-events-schema && !matrix.compat) }}
               with:
-                  name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
+                  name: email_renders-${{ (inputs.master_run_id && inputs.master_sha || github.sha) }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' && !matrix.json-targets) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' && !matrix.json-targets) }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
                   path: .coverage
@@ -3942,7 +4014,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Upload on master, or on PRs that change timing/sharding scripts (for validation)
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (((inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -4012,6 +4084,9 @@ jobs:
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               env:
+                  GITHUB_SHA: ${{ inputs.master_run_id && inputs.master_sha || github.sha }}
+                  GITHUB_REF: ${{ inputs.master_run_id && 'refs/heads/master' || github.ref }}
+                  GITHUB_EVENT_NAME: ${{ inputs.master_run_id && inputs.master_event || github.event_name }}
                   TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
@@ -4031,6 +4106,9 @@ jobs:
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               env:
+                  GITHUB_SHA: ${{ inputs.master_run_id && inputs.master_sha || github.sha }}
+                  GITHUB_REF: ${{ inputs.master_run_id && 'refs/heads/master' || github.ref }}
+                  GITHUB_EVENT_NAME: ${{ inputs.master_run_id && inputs.master_event || github.event_name }}
                   TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
@@ -4053,7 +4131,7 @@ jobs:
     get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.backend == 'true' && (inputs.master_run_id && inputs.master_event || github.event_name) != 'push'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -4068,6 +4146,7 @@ jobs:
             # Reading the version from another ref would split an atomic version+config bump.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
             - name: Read ClickHouse versions from JSON
@@ -4179,7 +4258,7 @@ jobs:
               if: steps.check-patches.outputs.has-patches == 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ steps.app-token.outputs.token }}
                   fetch-depth: 1
@@ -4420,7 +4499,7 @@ jobs:
             # A separate checks:write token, minted in a job that runs no pull request code.
             - name: Mint gate check token
               id: gate-token
-              if: ${{ always() && github.event_name == 'pull_request' }}
+              if: ${{ always() && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' }}
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -4470,7 +4549,7 @@ jobs:
         # — there is no selection to score and no JUnit to score it against. The decision
         # itself is still recorded, by capture-test-selection.
         if: >-
-            !cancelled() && github.event_name == 'pull_request' &&
+            !cancelled() && (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' &&
             needs.changes.result != 'skipped' &&
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped')
         runs-on: depot-ubuntu-24.04
@@ -4480,6 +4559,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   fetch-depth: 1000
                   filter: blob:none
 
@@ -4532,7 +4612,7 @@ jobs:
 
             - name: Run test selection and verdict
               env:
-                  DIFF_BASE: ${{ format('{0}^1', github.sha) }}
+                  DIFF_BASE: ${{ format('{0}^1', (inputs.master_run_id && inputs.master_sha || github.sha)) }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
@@ -4613,15 +4693,15 @@ jobs:
             github.repository == 'PostHog/posthog' &&
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
-            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
-            (github.event_name == 'pull_request' &&
+            ((inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' && (inputs.master_run_id && inputs.master_event || github.event_name) != 'push' && (inputs.master_run_id && 'refs/heads/master' || github.ref) == 'refs/heads/master') ||
+            ((inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.base.sha || (inputs.master_run_id && inputs.master_sha || github.sha) }}
                   fetch-depth: 1
             - name: Check for trusted timing reporter
               id: timing-reporter
@@ -4677,7 +4757,7 @@ jobs:
             contents: read
         if: >-
             !cancelled() &&
-            github.event_name == 'pull_request' &&
+            (inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' &&
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
@@ -4685,6 +4765,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   fetch-depth: 0
                   filter: blob:none
             - name: Check for coverage reporter
@@ -4770,8 +4851,8 @@ jobs:
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
         if: >-
             !cancelled() && github.actor != 'dependabot[bot]' && (
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            ((inputs.master_run_id && inputs.master_event || github.event_name) == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            ((inputs.master_run_id && inputs.master_event || github.event_name) != 'pull_request' && github.repository == 'PostHog/posthog'))
             && needs.changes.result == 'success'
         permissions:
             contents: read
@@ -4782,6 +4863,7 @@ jobs:
               if: github.run_attempt == '1'
               continue-on-error: true
               with:
+                  ref: ${{ inputs.master_run_id && inputs.master_sha || '' }}
                   sparse-checkout: .github/scripts/capture_depot_running_time.py
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1

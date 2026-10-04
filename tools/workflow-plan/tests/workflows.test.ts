@@ -1,14 +1,18 @@
 // These tests check the workflows under .github/workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
-import { readdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { evaluateTemplate, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
     type StepStub,
     type Workflow,
+    flattenSteps,
     formatPlanError,
     loadWorkflow,
     planWorkflow,
@@ -283,7 +287,12 @@ const EXPECTATIONS: Expectation[] = [
                 changes: { filter: pathsFilter({ backend: true, legacy: false }) },
                 'turbo-discover': {
                     discover: {
-                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":""}',
+                        },
                     },
                 },
             },
@@ -294,7 +303,15 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'dynamic-ci-filter'],
+            skipped: [
+                'changes',
+                'django',
+                'turbo-tests',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'dynamic-ci-filter',
+            ],
         }
     ),
     backend(
@@ -328,8 +345,17 @@ const EXPECTATIONS: Expectation[] = [
     backend(
         { name: 'master push', github: push() },
         {
-            runs: ['changes', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
+            runs: [
+                'changes',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'mirror-schema-cache',
+                'django_tests',
+            ],
             skipped: [
+                'master-depot',
+                'hand-off-to-depot',
                 'dynamic-ci-filter',
                 'detect-snapshot-mode',
                 'turbo-tests',
@@ -345,8 +371,44 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'hourly schedule', github: schedule() },
         {
             runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
-            skipped: ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
+            skipped: [
+                'master-depot',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'check-openapi-types',
+                'mirror-schema-cache',
+            ],
         }
+    ),
+    ...(['push', 'schedule'] as const).map((event) =>
+        backend(
+            {
+                name: `master ${event} owned by Depot`,
+                github: event === 'push' ? push() : schedule(),
+                steps: {
+                    changes: { 'master-owner': { outputs: { engine: 'depot', owner_exists: 'false' } } },
+                    'master-depot': {
+                        dispatch: { outputs: { dispatch_exists: 'false' } },
+                        bind: { outputs: { binding_exists: 'false' } },
+                        relay: { outputs: { verdict: 'success' } },
+                        'schema-key': { outputs: { key: 'posthog-schema-mig-v2-' + 'a'.repeat(40) } },
+                    },
+                },
+            },
+            {
+                runs: ['changes', 'master-depot', 'django_tests', ...(event === 'push' ? ['mirror-schema-cache'] : [])],
+                skipped: [
+                    'hand-off-to-depot',
+                    'repo-checks',
+                    'sdk-major-guard',
+                    'check-migrations',
+                    'check-openapi-types',
+                    'django',
+                    'turbo-tests',
+                ],
+            }
+        )
     ),
     backend(
         { name: 'ready PR, superseded and cancelled', cancelled: true },
@@ -536,14 +598,14 @@ describe('.github/workflows run plans', () => {
             },
         })
         expect(plan.errors).toEqual([])
-        const steps = plan.jobs['update-sandbox-agent-version'].steps
+        const steps = plan.jobs['update-sandbox-agent-version']!.steps
         expect(steps.find((step) => step.id === 'commit')?.runs).toBe(action === 'bump')
         expect(steps.find((step) => step.id === 'enqueue')?.runs).toBe(enqueue)
         expect(steps.find((step) => step.id === 'nightly-smoke')?.runs).toBe(nightly)
     })
 
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
-        const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
+        const testStep = workflow('ci-phrocs.yml').jobs.test!.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
     })
 
@@ -556,7 +618,7 @@ describe('.github/workflows run plans', () => {
                 : field.split(',').map(Number)
 
         expect(crons).toContain(backend.env?.EVENTS_JSON_SCHEDULE)
-        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1])).sort((a, b) => a - b)).toEqual([
+        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1]!)).sort((a, b) => a - b)).toEqual([
             ...Array(24).keys(),
         ])
     })
@@ -577,7 +639,7 @@ describe('.github/workflows run plans', () => {
             },
         })
         expect(plan.errors).toEqual([])
-        expect(plan.jobs['code-quality'].steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+        expect(plan.jobs['code-quality']!.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
     it.each(['success', 'failure'] as const)(
@@ -597,10 +659,123 @@ describe('.github/workflows run plans', () => {
                 },
             })
             expect(plan.errors).toEqual([])
-            expect(plan.jobs.build.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
-            expect(plan.jobs.build.result).toBe(outcome)
+            expect(plan.jobs.build!.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
+            expect(plan.jobs.build!.result).toBe(outcome)
         }
     )
+
+    it.each(['success', 'failure', 'skipped', 'cancelled'])(
+        'master Depot gate handles %s without accepting a missing run',
+        (result) => {
+            const step = workflow('ci-backend.yml').jobs.django_tests!.steps?.find(
+                (step) => step.name === 'Check the master Depot result'
+            )
+            expect(step?.run).toBeDefined()
+            const run = spawnSync('bash', ['-c', step!.run!], { env: { ...process.env, MASTER_RESULT: result } })
+            expect(run.status).toBe(result === 'success' ? 0 : 1)
+        }
+    )
+
+    it.each(['', 'posthog-schema-mig-v2-' + 'a'.repeat(40), 'invalid'])(
+        'schema cache key bridge validates %j',
+        (key) => {
+            const directory = mkdtempSync(path.join(tmpdir(), 'backend-schema-key-'))
+            try {
+                const keyFile = path.join(directory, 'key.txt')
+                const outputFile = path.join(directory, 'output.txt')
+                writeFileSync(keyFile, key + '\n')
+                const step = workflow('ci-backend.yml').jobs['master-depot']!.steps?.find(
+                    (step) => step.id === 'schema-key'
+                )
+                const result = spawnSync('bash', ['-c', step!.run!], {
+                    env: { ...process.env, KEY_FILE: keyFile, GITHUB_OUTPUT: outputFile },
+                })
+                expect(result.status).toBe(key === 'invalid' ? 1 : 0)
+                if (key !== 'invalid') expect(readFileSync(outputFile, 'utf8')).toBe(`key=${key}\n`)
+            } finally {
+                rmSync(directory, { recursive: true, force: true })
+            }
+        }
+    )
+
+    it('republishes failed Depot diagnostics before the canonical gate reports failure', () => {
+        const plan = planWorkflow(workflow('ci-backend.yml'), {
+            name: 'failed master relay',
+            github: schedule(),
+            steps: {
+                ...backendSelectors,
+                changes: { 'master-owner': { outputs: { engine: 'depot', owner_exists: 'true' } } },
+                'master-depot': { relay: { outcome: 'failure', outputs: { verdict: 'failure' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs['master-depot']!.result).toBe('failure')
+        expect(
+            plan.jobs['master-depot']!.steps.find((step) => step.name === 'Republish the bound workflow artifacts')
+                ?.runs
+        ).toBe(true)
+        expect(plan.jobs.django_tests!.steps.find((step) => step.name === 'Check the master Depot result')?.runs).toBe(
+            true
+        )
+        expect(plan.jobs.changes!.steps.find((step) => step.name === 'Persist the master lane owner')?.runs).toBe(false)
+    })
+
+    it.each([
+        ['push', '', false],
+        ['schedule', '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *', false],
+        ['schedule', '23 */3 * * *', true],
+    ] as const)('bound Depot worker preserves %s cron %s', (event, cron, jsonTargets) => {
+        const worker = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const inputs = { master_run_id: '123', master_sha: 'b'.repeat(40), master_event: event, master_schedule: cron }
+        const github = workflowDispatch()
+        const plan = planWorkflow(worker, {
+            name: 'authorized master worker',
+            github,
+            inputs,
+            steps: {
+                ...backendSelectors,
+                'wait-for-handoff': { 'master-handoff': { outputs: { handed_off: 'true' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes!.result).toBe('success')
+        expect(plan.jobs.changes!.steps.find((step) => step.id === 'filter')?.runs).toBe(false)
+        for (const job of ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types']) {
+            expect(plan.jobs[job]!.result).toBe(event === 'push' ? 'success' : 'skipped')
+        }
+        expect(plan.jobs.django!.result).toBe(event === 'push' ? 'skipped' : 'success')
+        expect(plan.jobs['wait-for-handoff']!.steps.find((step) => step.id === 'handoff')?.runs).toBe(false)
+        const context = { github, inputs, env: { EVENTS_JSON_SCHEDULE: worker.env!.EVENTS_JSON_SCHEDULE as string } }
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(evaluateTemplate(worker.env!.POSTHOG_PYTEST_HARD_EXIT, context, functions)).toBe(
+            event === 'schedule' ? '0' : '1'
+        )
+        const build = worker.jobs.build_django_matrix!.steps?.find((step) => step.id === 'build')
+        expect(evaluateTemplate(build!.env!.RUN_JSON_TARGETS, context, functions)).toBe(
+            String(event !== 'schedule' || jsonTargets)
+        )
+        for (const job of Object.values(worker.jobs)) {
+            for (const step of flattenSteps(job.steps).filter((step) => step.uses?.startsWith('actions/checkout@'))) {
+                const expected =
+                    step.name === 'Check out the trusted master controller' ? github.sha : inputs.master_sha
+                expect(evaluateTemplate(step.with!.ref, context, functions)).toBe(expected)
+            }
+        }
+    })
+
+    it('a Depot dispatch without an authorized master binding releases no worker or gate', () => {
+        const worker = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const plan = planWorkflow(worker, {
+            name: 'unauthorized master worker',
+            github: workflowDispatch(),
+            inputs: { master_run_id: '123', master_sha: 'b'.repeat(40), master_event: 'push', master_schedule: '' },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes!.result).toBe('skipped')
+        expect(plan.jobs['check-migrations']!.result).toBe('skipped')
+        expect(plan.jobs.django!.result).toBe('skipped')
+        expect(plan.jobs.django_tests!.result).toBe('skipped')
+    })
 
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)

@@ -75,7 +75,11 @@ function prContext(sha: string, head: string, base: string, queued = false): Con
     github.base_ref = base
     pr.head = { ...(pr.head as object), sha: head }
     pr.base = { ...(pr.base as object), ref: base }
-    return { github, needs: { changes: { outputs: { backend: 'true', legacy: 'false', schema: 'false' } } } }
+    return {
+        inputs: {},
+        github,
+        needs: { changes: { outputs: { backend: 'true', legacy: 'false', schema: 'false' } } },
+    }
 }
 
 function step(wf: Workflow, name: string): RawStep {

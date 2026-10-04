@@ -1,0 +1,37 @@
+name: Relay master backend artifacts
+description: Publish bound Depot artifacts into the canonical GitHub run
+inputs:
+    manifest:
+        description: Artifact manifest produced by the master controller
+        required: true
+    root:
+        description: Directory containing the extracted artifacts
+        required: true
+runs:
+    using: composite
+    steps:
+        - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+          with:
+              node-version-file: .nvmrc
+        - name: Install the pinned artifact client
+          shell: bash
+          env:
+              CLIENT_PATH: ${{ github.action_path }}
+          run: npm ci --prefix "$CLIENT_PATH" --ignore-scripts --no-audit --no-fund
+        - name: Republish the artifact manifest
+          uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+          env:
+              CLIENT_PATH: ${{ github.action_path }}
+              MANIFEST_PATH: ${{ inputs.manifest }}
+              ARTIFACT_ROOT: ${{ inputs.root }}
+          with:
+              script: |
+                  const { pathToFileURL } = require('node:url')
+                  const path = require('node:path')
+                  const { DefaultArtifactClient } = await import(pathToFileURL(path.join(process.env.CLIENT_PATH, 'node_modules/@actions/artifact/lib/artifact.js')).href)
+                  const { relayArtifacts } = require(path.join(process.env.CLIENT_PATH, 'index.cjs'))
+                  await relayArtifacts({
+                      manifestPath: process.env.MANIFEST_PATH,
+                      root: process.env.ARTIFACT_ROOT,
+                      client: new DefaultArtifactClient(),
+                  })
