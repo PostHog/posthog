@@ -566,6 +566,18 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                     )}
                 </div>
             )}
+            {effectiveVisualizationType === ChartDisplayType.ActionsTable && (
+                <LemonSwitch
+                    label="Wrap text"
+                    data-attr="sql-table-wrap-text"
+                    checked={ySeriesLogicProps.series.settings?.display?.wrapText ?? false}
+                    onChange={(wrapText) =>
+                        updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                            display: { wrapText },
+                        })
+                    }
+                />
+            )}
             {!showTableSettings && !hideChartSpecificOptions && (
                 <>
                     {!selectedSeriesBreakdownColumn && (

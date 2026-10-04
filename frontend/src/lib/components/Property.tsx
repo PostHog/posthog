@@ -5,7 +5,15 @@ import { isExternalLink } from 'lib/utils/url'
 
 import { getPropertyValueUrl } from '~/taxonomy/propertySources'
 
-export function Property({ value, propertyKey }: { value: any; propertyKey?: string }): JSX.Element {
+export function Property({
+    value,
+    propertyKey,
+    wrapText = false,
+}: {
+    value: any
+    propertyKey?: string
+    wrapText?: boolean
+}): JSX.Element {
     let valueString: string
     let valueComponent: JSX.Element | string
     if (typeof value === 'object') {
@@ -15,7 +23,7 @@ export function Property({ value, propertyKey }: { value: any; propertyKey?: str
         if (externalUrl) {
             valueString = String(value)
             valueComponent = (
-                <span className="line-clamp-3 whitespace-normal">
+                <span className={wrapText ? 'whitespace-pre-wrap wrap-anywhere' : 'line-clamp-3 whitespace-normal'}>
                     <Link
                         to={externalUrl}
                         target="_blank"
