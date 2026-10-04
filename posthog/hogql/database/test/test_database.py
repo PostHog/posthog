@@ -557,6 +557,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "DELETED" not in serialized_database
         assert "DELETED" not in database._view_table_names
 
+    def test_serialize_database_saved_query_with_unmapped_column_type(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_view",
+            query={"kind": "HogQLQuery", "query": "select event from events"},
+            columns={
+                "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "vector": {"hogql": "NotARealDatabaseField", "clickhouse": "Array(Float64)", "valid": True},
+                "legacy": "NotARealClickHouseType",
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        view = serialized_database.get("saved_view")
+        assert view is not None
+        assert view.fields["event"].type == "string"
+        assert view.fields["vector"].type == "unknown"
+        assert view.fields["legacy"].type == "unknown"
+
     def test_serialize_database_warehouse_table_s3_with_unknown_field(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(

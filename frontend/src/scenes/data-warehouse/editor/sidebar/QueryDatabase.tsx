@@ -166,6 +166,7 @@ export const QueryDatabase = ({
         setEditingDraft,
         renameDraft,
         openUnsavedQuery,
+        retryTableFields,
         deleteUnsavedQuery,
         setPropertyDefinitionSearch,
         openPropertyDefinitionEditor,
@@ -464,6 +465,10 @@ export const QueryDatabase = ({
 
                 if (item && item.record?.type === 'metric') {
                     openMetricEditor(item)
+                }
+
+                if (item && item.record?.type === 'fields-load-retry') {
+                    retryTableFields(item.record.retryTableName)
                 }
             }}
             renderItem={(item) => {

@@ -927,12 +927,17 @@ describe('queryDatabaseLogic', () => {
             }
         )
 
-        it('shows an error node when hydrating a table failed', () => {
+        it('shows an error node with a retry that hydrates the table again', async () => {
             dbLogic.actions.hydrateTableFieldsStart(['events'])
             dbLogic.actions.hydrateTableFieldsFailure(['events'])
 
-            const errorNode = findTableNode()?.children?.[0]
+            const [errorNode, retryNode] = findTableNode()?.children ?? []
             expect(errorNode?.record?.type).toEqual('fields-load-error')
+            expect(retryNode?.record).toEqual({ type: 'fields-load-retry', retryTableName: 'events' })
+
+            logic.actions.retryTableFields(retryNode!.record!.retryTableName)
+            await expectLogic(dbLogic).toFinishAllListeners()
+            expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['events'] }))
         })
     })
 
