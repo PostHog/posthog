@@ -4,6 +4,7 @@ import { IconX } from '@posthog/icons'
 import { Button } from '@posthog/quill-primitives'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -96,6 +97,7 @@ function ChartsScopeHeader(): JSX.Element {
 
 export function MCPAnalyticsToolQuality(): JSX.Element {
     const {
+        accessDenied,
         dailyChartData,
         dailyStatsLoading,
         interval,
@@ -109,6 +111,10 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
+
+    if (accessDenied) {
+        return <AccessDenied inline reason="You need viewer access to MCP analytics to see tool quality." />
+    }
 
     return (
         <div className="flex flex-col gap-4">
