@@ -59,10 +59,13 @@ class TestTokenBucket(SimpleTestCase):
             client = FakeRedis()
             first = consume("bucket:client", budget, client=client)
             second = consume("bucket:client", budget, client=client)
+            refund("bucket:client", budget, client=client)
+            after_refund = consume("bucket:client", budget, client=client)
             default = consume("bucket:client", budget)
 
         assert isinstance(first, BucketDecision) and first.allowed
         assert isinstance(second, BucketDecision) and not second.allowed
+        assert isinstance(after_refund, BucketDecision) and after_refund.allowed
         assert isinstance(default, BucketDecision) and not default.allowed
 
     def test_refund_returns_tokens_capped_at_capacity(self) -> None:

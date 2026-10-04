@@ -39,6 +39,11 @@ _CREDITS = "ee.billing.quota_limiting.is_team_over_ai_credit_budget"
 _CONSUME = "products.workflows.backend.services.ai_decision.consume"
 _GET_CLIENT = "products.workflows.backend.services.ai_decision.get_client"
 _ADMITTED = BucketDecision(allowed=True, remaining=1, limit=2, retry_after=0, reset=1)
+_OUTCOME_LOG_EVENTS = (
+    "workflow_ai_decision_failed",
+    "workflow_ai_decision_throttled",
+    "workflow_ai_decision_unavailable",
+)
 OPTIONS = [
     {"name": "spam", "description": "Cold outreach or marketing"},
     {"name": "support", "description": "A customer asking for help"},
@@ -397,17 +402,20 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unreadable_state", None),
-            ("model_refused", DecisionGatewayError(400, "gateway-body-secret")),
-            ("throttled", DecisionGatewayError(429, "gateway-body-secret")),
-            ("unavailable", DecisionGatewayError(502, "gateway-body-secret")),
+            ("unreadable_state", None, "debug"),
+            ("model_refused", DecisionGatewayError(400, "gateway-body-secret"), "debug"),
+            ("gateway_rejects_every_decision", DecisionGatewayError(403, "gateway-body-secret"), "warning"),
+            ("throttled", DecisionGatewayError(429, "gateway-body-secret"), "debug"),
+            ("unavailable", DecisionGatewayError(502, "gateway-body-secret"), "warning"),
         ]
     )
-    def test_logs_never_carry_the_state_or_a_gateway_body(self, _name: str, error: Exception | None) -> None:
+    def test_logs_never_carry_the_state_or_a_gateway_body(
+        self, _name: str, error: Exception | None, outcome_log_level: str
+    ) -> None:
         reply: Any = json.loads("[" * 300 + '"state-secret"' + "]" * 300) if error is None else "state-secret"
         with capture_logs(processors=[format_exc_info]) as logs, patch(_DECIDE, side_effect=error):
             response = self._post({"state": {"reply": reply}})
 
-        assert logs
+        assert [entry["log_level"] for entry in logs if entry["event"] in _OUTCOME_LOG_EVENTS] == [outcome_log_level]
         assert "secret" not in str(logs)
         assert "secret" not in str(response.json())

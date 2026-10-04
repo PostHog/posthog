@@ -1410,14 +1410,16 @@ class HogFlowActionSerializer(serializers.Serializer):
             data={"inputs_schema": AI_DECISION_INPUTS_SCHEMA, "inputs": config.get("inputs") or {}},
             context={"function_type": "destination", "is_dwh_source": self.context.get("is_dwh_source", False)},
         )
-        if strict:
-            if not config_serializer.is_valid():
-                raise serializers.ValidationError({"config": config_serializer.errors})
-            inputs_serializer.is_valid(raise_exception=True)
+        config_valid = config_serializer.is_valid()
+        inputs_valid = inputs_serializer.is_valid()
+        if strict and not config_valid:
+            raise serializers.ValidationError({"config": config_serializer.errors})
+        if strict and not inputs_valid:
+            raise serializers.ValidationError(inputs_serializer.errors)
         normalized = dict(config)
-        if config_serializer.is_valid():
+        if config_valid:
             normalized.update(config_serializer.validated_data)
-        if inputs_serializer.is_valid():
+        if inputs_valid:
             normalized["inputs"] = inputs_serializer.validated_data["inputs"]
         data["config"] = normalized
 

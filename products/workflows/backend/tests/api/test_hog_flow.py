@@ -6801,7 +6801,12 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert error_field in response.json()["attr"], response.json()
 
-    @parameterized.expand([("continue_on_error", None, 400), ("abort_on_error", "abort", 201)])
+    @parameterized.expand(
+        [
+            ("continue_on_error", None, status.HTTP_400_BAD_REQUEST),
+            ("abort_on_error", "abort", status.HTTP_201_CREATED),
+        ]
+    )
     def test_a_decision_needs_its_failure_edge_unless_it_aborts(
         self, _name: str, on_error: str | None, expected_status: int
     ) -> None:
@@ -6811,6 +6816,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
         response = self._post(flow)
 
         assert response.status_code == expected_status, response.json()
+        assert ("missing its 'continue' edge" in str(response.json())) == (on_error is None), response.json()
 
     def test_only_the_context_is_templated(self) -> None:
         flow = _ai_decision_flow(
