@@ -18,10 +18,13 @@ import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
@@ -210,6 +213,42 @@ function BatchExportSceneHeader(): JSX.Element {
     )
 }
 
+function BatchExportPausedBanner({ onShowRuns }: { onShowRuns: () => void }): JSX.Element | null {
+    const { batchExportConfig, resumingBatchExport, configurationChanged } = useValues(batchExportConfigFormLogic)
+    const { resumeBatchExport } = useActions(batchExportConfigFormLogic)
+
+    if (!batchExportConfig?.paused) {
+        return null
+    }
+
+    return (
+        <LemonBanner
+            type="warning"
+            action={{
+                children: 'Resume',
+                onClick: resumeBatchExport,
+                loading: resumingBatchExport,
+                disabledReason: configurationChanged ? 'Save or clear your changes first' : undefined,
+            }}
+        >
+            <p className="mb-1 font-semibold">
+                {batchExportConfig.last_paused_at ? (
+                    <>
+                        This batch export was paused <TZLabel time={batchExportConfig.last_paused_at} />.
+                    </>
+                ) : (
+                    'This batch export is paused.'
+                )}{' '}
+                Scheduled runs do not happen until you resume it.
+            </p>
+            <p className="mb-0 font-normal">
+                PostHog also pauses an export automatically after too many failed runs. Check the{' '}
+                <Link onClick={onShowRuns}>Runs</Link> tab for errors before you resume.
+            </p>
+        </LemonBanner>
+    )
+}
+
 export function BatchExportScene(componentProps: any): JSX.Element {
     const { id, service: serviceParam } = componentProps
     const logicProps: BatchExportConfigFormLogicProps = {
@@ -335,6 +374,7 @@ function BatchExportSceneContentInner({
     return (
         <SceneContent>
             <BatchExportSceneHeader />
+            <BatchExportPausedBanner onShowRuns={() => setCurrentTab('runs')} />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )

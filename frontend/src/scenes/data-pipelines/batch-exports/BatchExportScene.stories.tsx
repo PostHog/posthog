@@ -15,6 +15,13 @@ const EXISTING_EXPORT = {
     filters: [],
 }
 
+const PAUSED_EXPORT = {
+    ...EXISTING_EXPORT,
+    id: '018cf79f-a9e5-0001-cd6a-edc4886d939e',
+    paused: true,
+    last_paused_at: '2024-01-10T09:52:42Z',
+}
+
 const EXISTING_LEGACY_S3_PARQUET_EXPORT = {
     ...batchExports.results[2],
     id: '018a6fab-2c21-0001-d451-724c2995e2c1',
@@ -45,6 +52,9 @@ const meta: Meta = {
                 '/api/environments/:team_id/batch_exports/test/': { steps: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: { results: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
+                [`/api/environments/:team_id/batch_exports/${PAUSED_EXPORT.id}/`]: PAUSED_EXPORT,
+                [`/api/environments/:team_id/batch_exports/${PAUSED_EXPORT.id}/runs/`]: { results: [] },
+                [`/api/environments/:team_id/batch_exports/${PAUSED_EXPORT.id}/backfills/`]: { results: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_LEGACY_S3_PARQUET_EXPORT.id}/`]:
                     EXISTING_LEGACY_S3_PARQUET_EXPORT,
                 [`/api/environments/:team_id/batch_exports/${EXISTING_LEGACY_S3_PARQUET_EXPORT.id}/runs/`]: {
@@ -124,6 +134,12 @@ export const NewBigQueryExport: Story = {
 export const ExistingBigQueryExport: Story = {
     parameters: {
         pageUrl: urls.batchExport(EXISTING_EXPORT.id),
+    },
+}
+
+export const PausedBigQueryExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExport(PAUSED_EXPORT.id),
     },
 }
 

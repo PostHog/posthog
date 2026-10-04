@@ -403,6 +403,7 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
 ]
 
 const SAVE_FAILS_ID = 'test-save-fails-id'
+const PAUSED_ID = 'test-paused-id'
 const SAVE_FAILS_DETAIL = 'Prefix is not valid'
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -449,6 +450,11 @@ describe('batchExportConfigFormLogic', () => {
         }
         patchMocks[`/api/environments/:team_id/batch_exports/${SAVE_FAILS_ID}/`] = async () =>
             [400, { detail: SAVE_FAILS_DETAIL }] as unknown as [number, BatchExportConfiguration]
+        getMocks[`/api/environments/:team_id/batch_exports/${PAUSED_ID}`] = {
+            ...AWS_S3_BATCH_EXPORT,
+            id: PAUSED_ID,
+            paused: true,
+        }
         useMocks({
             get: {
                 ...getMocks,
@@ -468,6 +474,7 @@ describe('batchExportConfigFormLogic', () => {
                     lastPostBody = (await request.json()) as Record<string, any>
                     return [200, { ...AWS_S3_BATCH_EXPORT, id: 'new-export-id' }]
                 },
+                [`/api/environments/:team_id/batch_exports/${PAUSED_ID}/unpause/`]: [200, { paused: false }],
             },
             patch: patchMocks,
         })
@@ -887,6 +894,24 @@ describe('batchExportConfigFormLogic', () => {
 
             expect(lemonToast.error).toHaveBeenCalledWith(SAVE_FAILS_DETAIL)
             expect(logic.values.configurationChanged).toBe(true)
+        })
+    })
+
+    describe('resume a paused export', () => {
+        it('unpauses through the API and leaves the form clean', async () => {
+            await initLogic({ service: null, id: PAUSED_ID })
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeBatchExport()
+            })
+                .toDispatchActions(['resumeBatchExport', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    batchExportConfig: partial({ paused: false }),
+                    configuration: partial({ paused: false }),
+                    configurationChanged: false,
+                    resumingBatchExport: false,
+                })
         })
     })
 
