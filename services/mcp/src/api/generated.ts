@@ -36713,7 +36713,9 @@ export namespace Schemas {
 
     export interface Edge {
       readonly id: string;
+      /** ID of the upstream node. */
       readonly source_id: string;
+      /** ID of the downstream node. */
       readonly target_id: string;
       dag: string;
       readonly dag_name: string;
@@ -75642,7 +75644,9 @@ export namespace Schemas {
 
     export interface PatchedEdge {
       readonly id?: string;
+      /** ID of the upstream node. */
       readonly source_id?: string;
+      /** ID of the downstream node. */
       readonly target_id?: string;
       dag?: string;
       readonly dag_name?: string;
