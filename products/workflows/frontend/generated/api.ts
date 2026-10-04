@@ -21,7 +21,7 @@ import type {
     HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
-    HogFlowRevisionApi,
+    HogFlowRevisionDetailApi,
     HogFlowRevisionRestoreRequestApi,
     HogFlowRunRequestApi,
     HogFlowRunResponseApi,
@@ -1069,8 +1069,8 @@ export const hogFlowsRevisionsRetrieve = async (
     id: string,
     version: number,
     options?: RequestInit
-): Promise<HogFlowRevisionApi> => {
-    return apiMutator<HogFlowRevisionApi>(getHogFlowsRevisionsRetrieveUrl(projectId, id, version), {
+): Promise<HogFlowRevisionDetailApi> => {
+    return apiMutator<HogFlowRevisionDetailApi>(getHogFlowsRevisionsRetrieveUrl(projectId, id, version), {
         ...options,
         method: 'GET',
     })

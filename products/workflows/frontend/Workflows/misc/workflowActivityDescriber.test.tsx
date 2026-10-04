@@ -51,4 +51,42 @@ describe('workflowActivityDescriber', () => {
         expect(text).toContain('added action Send push')
         expect(text).toContain('deleted action Send email')
     })
+
+    it.each([
+        [
+            'lists what the restore replaced',
+            [
+                change('draft', 'masked', 'masked'),
+                change('restored_version', null, {
+                    version: 2,
+                    removed_steps: ['Check plan'],
+                    added_steps: [],
+                    updated_steps: ['Send email'],
+                    updated_settings: ['exit_condition'],
+                }),
+            ],
+            [
+                'replaced the staged draft of the workflow Welcome email with version 2',
+                'Removes steps: Check plan',
+                'Changes steps: Send email',
+                'Changes: exit condition',
+            ],
+        ],
+        [
+            'still reads for entries logged before restores recorded changes',
+            [change('draft', 'masked', 'masked')],
+            ['replaced the staged draft of the workflow Welcome email with an earlier version'],
+        ],
+    ])('describes a restored revision: %s', (_label, changes, expected) => {
+        const text = getTextContent(
+            workflowActivityDescriber({
+                ...workflowLogItem(changes as ActivityChange[]),
+                activity: 'revision_restored',
+            })
+        )
+
+        for (const line of expected) {
+            expect(text).toContain(line)
+        }
+    })
 })
