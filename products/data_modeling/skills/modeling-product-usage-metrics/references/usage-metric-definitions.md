@@ -34,7 +34,8 @@ Classify each unit's activity in each interval relative to the previous interval
 | **Resurrecting** | Active this interval, inactive the previous interval, and not new.             |
 | **Dormant**      | Not active this interval, but active the previous interval (plotted negative). |
 
-- A unit created before its first chosen event counts as resurrecting in that interval, not new.
+- A unit created in an earlier interval than its first chosen event counts as resurrecting in that interval,
+  not new.
 - Do not use "first event inside the analysis window" as new. It labels every existing user who is active at
   the window's start as new. The dbt mart has no profile creation date, so it uses the first-ever chosen
   event over the full event history.

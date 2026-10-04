@@ -12,6 +12,7 @@ WITH activity AS (
     WHERE event = 'core_action'
       AND properties.$process_person_profile != 'false'
       AND timestamp >= toStartOfWeek(now()) - INTERVAL 12 WEEK
+      AND timestamp < toStartOfWeek(now()) + INTERVAL 1 WEEK
 ),
 enriched AS (
     SELECT
@@ -31,7 +32,7 @@ FROM enriched
 WHERE week >= toStartOfWeek(now()) - INTERVAL 11 WEEK
 GROUP BY week
 ORDER BY week
--- A person whose profile was created before their first qualifying event shows as resurrecting in that
--- week, as in the native insight.
+-- A person whose profile was created in an earlier week than their first qualifying event shows as
+-- resurrecting in that week, as in the native insight.
 -- Dormant (users active the prior week but not this week) is derived from the gaps; compute it as a
 -- negative series in the consuming view/insight, or with a symmetric self-anti-join if you need it inline.
