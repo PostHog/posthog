@@ -5186,10 +5186,15 @@ class TasksTaskDefaultsSerializer(serializers.Serializer):
     """The requesting user's per-project task defaults, shared by PostHog Desktop and the web app."""
 
     start_in_plan_mode = serializers.BooleanField(
-        help_text="When true, new tasks start in plan mode: the agent makes a plan and waits for approval.",
+        allow_null=True,
+        help_text=(
+            "When true, new tasks start in plan mode: the agent makes a plan and waits for approval. "
+            "Null when you never set it."
+        ),
     )
     auto_publish_cloud_runs = serializers.BooleanField(
-        help_text="When true, a cloud run that changes code always opens a draft pull request.",
+        allow_null=True,
+        help_text="When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.",
     )
 
 
@@ -5200,6 +5205,7 @@ class TasksTaskDefaultsUpdateSerializer(TasksTaskDefaultsSerializer):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
             field.required = False
+            field.allow_null = False
 
 
 class TasksUserConfigResponseSerializer(serializers.Serializer):

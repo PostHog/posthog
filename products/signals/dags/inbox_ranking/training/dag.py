@@ -507,6 +507,7 @@ def _write_examples(
             birth_day_positives=birth_day_positives(head_examples.examples),
             example_window_start=head_examples.window_start,
             example_cap_bound=head_examples.cap_bound,
+            pairs_skipped_missing_label_columns=head_examples.pairs_skipped_missing_label_columns,
         )
         for name, head_examples in built.items()
     }
@@ -522,6 +523,12 @@ def _write_examples(
         },
         **{
             f"{feature_set.name}_{name}_birth_day_positives": dagster.MetadataValue.int(head_counts.birth_day_positives)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_pairs_skipped_missing_label_columns": dagster.MetadataValue.int(
+                head_counts.pairs_skipped_missing_label_columns
+            )
             for name, head_counts in counts.items()
         },
         f"{feature_set.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),

@@ -14,6 +14,9 @@ The other half is `../inference/`, which consumes what this package produces and
   The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.
   When the `autoresearch-report-notebook` flag is on for the launching user, the token also holds `REPORT_NOTEBOOK_MCP_SCOPES` and the brief adds a Finalize step: the agent builds one report notebook from the `system.autoresearch_*` tables and passes its `short_id` to complete. `report.md` stays required either way.
+  The brief's worked `features.sql` reads events through a pre-filtered subquery (the event names the features use, the anchor persons, and the anchors' widest window) before it joins, because ClickHouse builds the hash table from the right side of a join and a direct events join reads the whole team's events.
+  The brief also states the inference cutoff: the start of the prediction date in UTC (`ScoringWindow` in `../inference/scoring.py`), not `now()`.
+  The brief's cost guidance is advice only. Cost does not enter champion selection, so the brief does not tell the agent to trade AUC for a cheaper query.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.

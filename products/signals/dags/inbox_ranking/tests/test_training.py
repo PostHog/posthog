@@ -1505,6 +1505,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
                     birth_day_positives=1,
                     example_window_start=datetime.date(2026, 7, 1),
                     example_cap_bound=True,
+                    pairs_skipped_missing_label_columns=0,
                 )
             },
         ),
