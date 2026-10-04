@@ -13,7 +13,7 @@ export type LemonSegmentedButtonOption<T extends React.Key> = { value: T } & (
 ) & {
         label?: string | JSX.Element
         icon?: JSX.Element
-        disabledReason?: string
+        disabledReason?: string | JSX.Element
         tooltip?: string | JSX.Element
         'data-attr'?: string
     }
