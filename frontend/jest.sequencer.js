@@ -50,6 +50,7 @@ function partition(entries, shardCount) {
 }
 
 class TimingBalancedSequencer extends Sequencer {
+    /** @returns {ReturnType<Sequencer['shard']>} */
     shard(tests, options) {
         const timings = loadTimings()
         if (!timings) {
