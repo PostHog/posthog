@@ -1,6 +1,8 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils/async'
+import { delay, retryWithBackoff } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
@@ -67,6 +69,40 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
+
+const TRANSIENT_SUBMIT_ATTEMPTS = 3
+const TRANSIENT_SUBMIT_DELAY_MS = 600
+const CAPACITY_RETRY_MAX_WAIT_SECONDS = 10
+
+function shortCapacityWaitMs(error: unknown): number | undefined {
+    if (!(error instanceof ApiError) || error.status !== 503) {
+        return undefined
+    }
+    const retryAfter = error.headers?.get('Retry-After')
+    // The date form of Retry-After is read against the client clock, which can be off by more than a short wait.
+    if (!retryAfter || !/^\d+$/.test(retryAfter)) {
+        return undefined
+    }
+    const seconds = Number(retryAfter)
+    return seconds <= CAPACITY_RETRY_MAX_WAIT_SECONDS ? seconds * 1000 : undefined
+}
+
+/**
+ * A 502, or a 503 without `Retry-After`, means the query did not start, so a quick resubmit is safe.
+ * A 503 with `Retry-After` means the backend refused the query for lack of capacity. When the wait is
+ * at most CAPACITY_RETRY_MAX_WAIT_SECONDS, the client waits that long and resubmits, because room usually
+ * returns within seconds. With a longer wait the error goes to the caller at once, because an early
+ * resubmit only adds load. A 504 means the gateway stopped waiting while the backend can still be
+ * running the query, so a resubmit can compute it a second time.
+ */
+function isRetryableSubmitFailure(error: unknown): boolean {
+    return (
+        error instanceof ApiError &&
+        isTransientServerError(error) &&
+        error.status !== 504 &&
+        (!error.headers?.has('Retry-After') || shortCapacityWaitMs(error) !== undefined)
+    )
+}
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -190,15 +226,27 @@ async function executeQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
+        // Minted here rather than left to the server, so every attempt below names the same run.
+        const clientQueryId = queryId || uuid()
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+        const response = await retryWithBackoff(
+            () =>
+                api.query(queryNode, {
+                    requestOptions: methodOptions,
+                    clientQueryId,
+                    refresh: refreshParam,
+                    filtersOverride,
+                    variablesOverride,
+                    limitContext,
+                }),
+            {
+                maxAttempts: TRANSIENT_SUBMIT_ATTEMPTS,
+                initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
+                signal: methodOptions?.signal,
+                shouldRetry: isRetryableSubmitFailure,
+                getDelayMs: shortCapacityWaitMs,
+            }
+        )
 
         if (response.detail) {
             throw new Error(response.detail)

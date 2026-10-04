@@ -46,6 +46,12 @@ export interface RetryOptions {
      * }
      */
     shouldRetry?: (error: unknown) => boolean
+    /**
+     * Milliseconds to wait before the next attempt, read from the error that ended this one.
+     * Return undefined to wait the backoff that `initialDelayMs` and `backoffMultiplier` give.
+     * Use it when the server says how long to wait, for example in a `Retry-After` header.
+     */
+    getDelayMs?: (error: unknown) => number | undefined
 }
 
 /**
@@ -65,7 +71,7 @@ export interface RetryOptions {
  * // Delays: 1000ms after 1st failure, 1500ms after 2nd failure
  */
 export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
-    const { maxAttempts = 3, initialDelayMs = 1000, backoffMultiplier = 1.5, signal, shouldRetry } = options
+    const { maxAttempts = 3, initialDelayMs = 1000, backoffMultiplier = 1.5, signal, shouldRetry, getDelayMs } = options
 
     if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
@@ -87,7 +93,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
             if (isLastAttempt || !canRetry) {
                 throw e
             }
-            const delayMs = initialDelayMs * Math.pow(backoffMultiplier, attempt)
+            const delayMs = getDelayMs?.(e) ?? initialDelayMs * Math.pow(backoffMultiplier, attempt)
             await delay(delayMs, signal)
         }
     }
