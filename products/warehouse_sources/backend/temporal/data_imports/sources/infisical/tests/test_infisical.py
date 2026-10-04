@@ -21,8 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
     InfisicalResumeConfig,
     _format_incremental_value,
     _get_audit_log_rows,
+    _get_fan_out_rows,
     _get_offset_paginated_rows,
-    _get_project_fan_out_rows,
     _parse_retry_after,
     _retry_wait,
     get_rows,
@@ -292,10 +292,10 @@ class TestProjectMembershipsFanOut:
     def test_fan_out_is_capped(self):
         # base_url is customer-controlled: a host returning far more projects than any real org
         # (still under the byte cap) would fan one sync out into a request per project and hold
-        # the worker. The fan-out must stop at MAX_FAN_OUT_PROJECTS.
+        # the worker. The fan-out must stop at MAX_FAN_OUT_PARENTS.
         projects = _response(json_data={"projects": [{"id": f"p{i}", "orgId": "org-123"} for i in range(3)]})
         membership = _response(json_data={"memberships": [{"id": "m1", "projectId": "p0"}]})
-        with mock.patch.object(infisical_module, "MAX_FAN_OUT_PROJECTS", 2):
+        with mock.patch.object(infisical_module, "MAX_FAN_OUT_PARENTS", 2):
             _rows, session, _manager = _run_get_rows(
                 [_login_response(), projects, membership, membership], "project_memberships"
             )
@@ -322,11 +322,50 @@ class TestProjectMembershipsFanOut:
             mock.patch.object(infisical_module.time, "monotonic", lambda: next(clock)),
             pytest.raises(InfisicalFanOutBudgetExceededError),
         ):
-            list(_get_project_fan_out_rows(client, config, "org-123", mock.MagicMock()))
+            list(_get_fan_out_rows(client, config, "org-123", mock.MagicMock()))
 
         # Aborted mid-fan-out: not every project was fetched.
         membership_calls = [c for c in client.get.call_args_list if "memberships" in c.args[0]]
         assert 0 < len(membership_calls) < 5
+
+
+class TestGroupMembersFanOut:
+    def test_paginates_each_group_and_stamps_group_id(self):
+        groups = _response(json_data=[{"id": "g1", "orgId": "org-123"}, {"id": "g2", "orgId": "other-org"}])
+        page1 = _response(
+            json_data={"members": [{"id": "u1", "type": "user"}, {"id": "i1", "type": "machineIdentity"}]}
+        )
+        page2 = _response(json_data={"members": [{"id": "u2", "type": "user"}]})
+        with mock.patch.object(INFISICAL_ENDPOINTS["group_members"], "page_limit", 2):
+            rows, session, _manager = _run_get_rows([_login_response(), groups, page1, page2], "group_members")
+
+        # Member rows don't carry their group, so without the stamp the composite key collapses
+        # across groups.
+        assert [(r["groupId"], r["id"]) for r in rows] == [("g1", "u1"), ("g1", "i1"), ("g1", "u2")]
+        urls = _get_urls(session)
+        # The other org's group is never fetched.
+        assert [urlparse(u).path for u in urls] == ["/api/v1/groups", *["/api/v1/groups/g1/members"] * 2]
+        assert [_query(u)["offset"] for u in urls[1:]] == [["0"], ["2"]]
+
+
+class TestSecretScanningFindingsFanOut:
+    def test_only_secret_scanning_projects_are_queried_by_project_id(self):
+        # The findings endpoint rejects other project types with a 400, which would fail the sync.
+        projects = _response(
+            json_data={
+                "projects": [
+                    {"id": "p1", "orgId": "org-123", "type": "secret-manager"},
+                    {"id": "p2", "orgId": "org-123", "type": "secret-scanning"},
+                ]
+            }
+        )
+        findings = _response(json_data={"findings": [{"id": "f1", "projectId": "p2"}]})
+        rows, session, _manager = _run_get_rows([_login_response(), projects, findings], "secret_scanning_findings")
+
+        assert [r["id"] for r in rows] == ["f1"]
+        findings_url = _get_urls(session)[1]
+        assert urlparse(findings_url).path == "/api/v2/secret-scanning/findings"
+        assert _query(findings_url) == {"projectId": ["p2"]}
 
 
 class TestOrgScoping:
@@ -337,6 +376,17 @@ class TestOrgScoping:
         page = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}, {"id": "p2", "orgId": "other-org"}]})
         rows, _session, _manager = _run_get_rows([_login_response(), page], "projects")
         assert [r["id"] for r in rows] == ["p1"]
+
+    @pytest.mark.parametrize(
+        "endpoint, body",
+        [
+            ("organization_roles", {"roles": [{"id": "r1", "orgId": "org-123"}, {"id": "r2", "orgId": "other-org"}]}),
+            ("groups", [{"id": "r1", "orgId": "org-123"}, {"id": "r2", "orgId": "other-org"}]),
+        ],
+    )
+    def test_token_scoped_tables_exclude_other_orgs(self, endpoint, body):
+        rows, _session, _manager = _run_get_rows([_login_response(), _response(json_data=body)], endpoint)
+        assert [r["id"] for r in rows] == ["r1"]
 
     def test_project_memberships_fan_out_skips_other_orgs(self):
         projects = _response(
