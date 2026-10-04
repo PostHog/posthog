@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { initKeaTests } from '~/test/init'
@@ -46,6 +47,7 @@ describe('runCancellationLogic', () => {
         jest.mocked(tasksRunsCommandCreate).mockReset().mockResolvedValue({ jsonrpc: '2.0', result: {} })
         jest.spyOn(api.tasks.runs, 'openStream').mockImplementation(() => new Promise(() => {}))
         jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
         logic = runCancellationLogic({ streamKey: 'draft-1' })
         logic.mount()
         stream = runStreamLogic({ streamKey: 'draft-1' })
@@ -144,12 +146,23 @@ describe('runCancellationLogic', () => {
         expect(logic.values.cancellationState).toBeNull()
     })
 
-    it.each(['network', 'agent'])('allows retry after a %s cancellation error', async (failure) => {
+    it.each([
+        ['network', true],
+        ['agent', true],
+        // A torn-down sandbox means the run already stopped, so the person must not see a failure.
+        ['gone sandbox', false],
+    ])('allows retry after a %s cancellation error', async (failure, reported) => {
         attach()
         stream.actions.ingestAcpFrame(ready())
         stream.actions.ingestAcpFrame(prompt())
         if (failure === 'network') {
             jest.mocked(tasksRunsCommandCreate).mockRejectedValueOnce(new Error('Network unavailable'))
+        } else if (failure === 'gone sandbox') {
+            jest.mocked(tasksRunsCommandCreate).mockRejectedValueOnce(
+                new ApiError('No active sandbox for this task run', 400, undefined, {
+                    code: 'sandbox_not_ready',
+                })
+            )
         } else {
             jest.mocked(tasksRunsCommandCreate).mockResolvedValueOnce({
                 jsonrpc: '2.0',
@@ -158,7 +171,8 @@ describe('runCancellationLogic', () => {
         }
         await expectLogic(logic, () => logic.actions.requestCancellation()).toFinishAllListeners()
         expect(logic.values.cancellationState).toBeNull()
-        expect(lemonToast.error).toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledTimes(reported ? 1 : 0)
+        expect(posthog.captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
         await expectLogic(logic, () => logic.actions.requestCancellation()).toFinishAllListeners()
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(2)
         expect(logic.values.cancellationState).toBe('sending')
