@@ -31,6 +31,7 @@ import { urls } from 'scenes/urls'
 
 import { LoginMethod, Region, SSOProvider } from '~/types'
 
+import { InviteAccountExistsBanner } from './InviteAccountExistsBanner'
 import { loginLogic } from './loginLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
@@ -190,6 +191,7 @@ export function LoginForm(): JSX.Element {
                     }
                 />
                 <SessionRiskBanner className="mb-4" />
+                <InviteAccountExistsBanner className="mb-4" />
                 {isCodeSent && (
                     <div className="mb-5 flex flex-col items-center gap-1 text-sm">
                         <Link
