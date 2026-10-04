@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -203,6 +203,18 @@ class TestPrintString(BaseTest):
             'The HogQL identifier "with % percent" is not permitted as it contains the "%" character'
             in str(context.exception)
         )
+
+    @parameterized.expand(
+        [
+            ("max_date_ahead_of_utc", datetime(9999, 12, 31, 23, 0, tzinfo=UTC), "Europe/Berlin"),
+            ("min_date_behind_utc", datetime(1, 1, 1, 0, 0, tzinfo=UTC), "America/New_York"),
+        ]
+    )
+    def test_escape_out_of_range_datetime_raises_query_error(self, _name, value, timezone):
+        for escape in (escape_clickhouse_string, escape_hogql_string):
+            with self.assertRaises(QueryError) as context:
+                escape(value, timezone=timezone)
+            self.assertIn("is out of range", str(context.exception))
 
     def test_escape_clickhouse_string_errors(self):
         # This test is a stopgap. Think long and hard before adding support for printing dicts or objects.
