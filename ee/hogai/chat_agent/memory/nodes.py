@@ -36,7 +36,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.utils import human_list
 
-from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.posthog_ai.backend.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory, CoreMemoryFullError
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.core.agent_modes.const import SlashCommandName
@@ -534,14 +534,31 @@ class MemoryCollectorToolsNode(AssistantNode):
                     await core_memory.aappend_core_memory(schema.memory_content)
                     new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
                 except ValueError as e:
+                    await self._areport_write_failure("append", e, core_memory)
                     new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
             if isinstance(schema, core_memory_replace):
                 try:
                     await core_memory.areplace_core_memory(schema.original_fragment, schema.new_fragment)
                     new_messages.append(LangchainToolMessage(content="Memory replaced.", tool_call_id=tool_call["id"]))
                 except ValueError as e:
+                    await self._areport_write_failure("replace", e, core_memory)
                     new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
 
         return PartialAssistantState(
             memory_collection_messages=[*node_messages, *new_messages],
+        )
+
+    async def _areport_write_failure(self, tool: str, error: ValueError, core_memory: CoreMemory) -> None:
+        # The tool message this failure produces stays on `memory_collection_messages`, a channel the
+        # user never sees, so the event is the only place a silent memory stall becomes countable.
+        await database_sync_to_async(report_user_action)(
+            self._user,
+            "core memory write failed",
+            {
+                "tool": tool,
+                "reason": "memory_full" if isinstance(error, CoreMemoryFullError) else "other",
+                "memory_length": len(core_memory.text),
+                "memory_limit": CORE_MEMORY_MAX_CHARACTERS,
+            },
+            team=self._team,
         )

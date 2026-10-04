@@ -236,6 +236,10 @@ ONBOARDING_TIMEOUT_MINUTES = 10
 CORE_MEMORY_MAX_CHARACTERS = 10_000
 
 
+class CoreMemoryFullError(ValueError):
+    """The write does not fit in the cap. A `ValueError` so existing callers still catch it."""
+
+
 class CoreMemory(UUIDTModel):
     class ScrapingStatus(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -309,7 +313,7 @@ class CoreMemory(UUIDTModel):
     async def aappend_core_memory(self, text: str) -> None:
         new_text = text if self.text == "" else self.text + "\n" + text
         if len(new_text) > CORE_MEMORY_MAX_CHARACTERS:
-            raise ValueError(
+            raise CoreMemoryFullError(
                 f"Memory is full ({len(self.text)}/{CORE_MEMORY_MAX_CHARACTERS} characters used)."
                 " Please free up space in Settings → PostHog AI before adding new memories."
             )
@@ -321,7 +325,7 @@ class CoreMemory(UUIDTModel):
             raise ValueError(f"Original fragment {original_fragment} not found in core memory")
         new_text = self.text.replace(original_fragment, new_fragment)
         if len(new_text) > CORE_MEMORY_MAX_CHARACTERS:
-            raise ValueError(
+            raise CoreMemoryFullError(
                 f"Replacement would exceed memory limit ({CORE_MEMORY_MAX_CHARACTERS} characters)."
                 " Please free up space in Settings → PostHog AI first."
             )
@@ -330,10 +334,17 @@ class CoreMemory(UUIDTModel):
 
     @property
     def formatted_text(self) -> str:
-        if len(self.text) > 5000:
-            # If memory text exceeds 5000 characters, truncate it. For the user, the most important bits are at the start
-            # (i.e. foundational /init info) and at the end (i.e. freshest memories)
-            return self.text[:2500] + "…" + self.text[-2500:]
+        # A row stored before the write cap landed can still be over it. It keeps the head and the tail,
+        # because the foundational /init facts sit at the start and the freshest memories sit at the end.
+        if len(self.text) > CORE_MEMORY_MAX_CHARACTERS:
+            logger.warning(
+                "core_memory_read_truncated",
+                team_id=self.team_id,
+                length=len(self.text),
+                limit=CORE_MEMORY_MAX_CHARACTERS,
+            )
+            half = CORE_MEMORY_MAX_CHARACTERS // 2
+            return self.text[:half] + "…" + self.text[-half:]
         return self.text
 
     @property

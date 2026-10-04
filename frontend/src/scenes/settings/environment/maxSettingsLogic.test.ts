@@ -4,7 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { maxSettingsLogic } from './maxSettingsLogic'
+import { CORE_MEMORY_MAX_CHARACTERS, maxSettingsLogic } from './maxSettingsLogic'
 
 describe('maxSettingsLogic', () => {
     afterEach(resumeKeaLoadersErrors)
@@ -74,5 +74,28 @@ describe('maxSettingsLogic', () => {
         logic.actions.trimCoreMemoryToFit()
         expect(logic.values.coreMemoryForm.text).toHaveLength(10000)
         expect(logic.values.coreMemoryOverLimit).toBe(false)
+    })
+
+    // A saved memory at or near the cap makes the agent's own appends fail, and that failure never
+    // reaches the user in chat, so settings has to show it.
+    it.each([
+        ['at the cap', CORE_MEMORY_MAX_CHARACTERS, 0, true],
+        ['just under the cap', CORE_MEMORY_MAX_CHARACTERS - 100, 100, true],
+        ['with room to spare', 100, CORE_MEMORY_MAX_CHARACTERS - 100, false],
+    ])('reports the space left on a saved memory %s', async (_label, savedLength, spaceLeft, lowOnSpace) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/core_memory/': () => [
+                    200,
+                    { results: [{ id: 'mem-1', text: 'x'.repeat(savedLength as number) }] },
+                ],
+            },
+        })
+        logic = maxSettingsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCoreMemorySuccess'])
+        expect(logic.values.coreMemorySpaceLeft).toBe(spaceLeft)
+        expect(logic.values.coreMemoryLowOnSpace).toBe(lowOnSpace)
     })
 })

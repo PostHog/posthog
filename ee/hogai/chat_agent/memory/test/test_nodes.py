@@ -23,7 +23,7 @@ from langgraph.errors import NodeInterrupt
 
 from posthog.schema import AssistantMessage, ContextMessage, EventTaxonomyItem, HumanMessage
 
-from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.posthog_ai.backend.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 from ee.hogai.chat_agent.memory import prompts
 from ee.hogai.chat_agent.memory.nodes import (
@@ -904,6 +904,38 @@ class TestMemoryCollectorToolsNode(BaseTest):
         assert new_state.memory_collection_messages is not None
         self.assertEqual(len(new_state.memory_collection_messages), 2)
         self.assertNotIn("{{validation_error_message}}", new_state.memory_collection_messages[1].content)
+
+    @patch("ee.hogai.chat_agent.memory.nodes.report_user_action")
+    async def test_reports_an_append_that_does_not_fit(self, mock_report_user_action):
+        await CoreMemory.objects.filter(pk=self.core_memory.pk).aupdate(text="x" * CORE_MEMORY_MAX_CHARACTERS)
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Adding new memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "New memory fragment."},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = await self.node.arun(state, {})
+        assert new_state is not None
+        assert new_state.memory_collection_messages is not None
+        self.assertIn("full", new_state.memory_collection_messages[1].content)
+
+        mock_report_user_action.assert_called_once()
+        event_name = mock_report_user_action.call_args.args[1]
+        properties = mock_report_user_action.call_args.args[2]
+        self.assertEqual(event_name, "core memory write failed")
+        self.assertEqual(properties["tool"], "append")
+        self.assertEqual(properties["reason"], "memory_full")
+        self.assertEqual(properties["memory_length"], CORE_MEMORY_MAX_CHARACTERS)
 
     async def test_handles_multiple_tools(self):
         # Test handling multiple tool calls in a single message
