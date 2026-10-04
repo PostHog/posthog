@@ -66,6 +66,70 @@ def masked_secret_input_keys(stored_inputs: object) -> list[str]:
     )
 
 
+_URL_REGEX = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_URL_USERINFO_REGEX = re.compile(r"^(https?://)[^/?#@\s]+@", re.IGNORECASE)
+_URL_QUERY_PARAM_REGEX = re.compile(r"(?P<prefix>[?&;])(?P<name>[^=&#;\s]+)=(?P<value>[^&#;\s]*)")
+# Query parameter names that carry a credential in signed or token-authenticated URLs, for
+# example `sig` (Azure SAS), `X-Amz-Signature` (AWS), `code` (Azure Functions) or `api_key`.
+_URL_CREDENTIAL_PARAM_REGEX = re.compile(
+    r"sig|token|secret|passw|pwd|key|auth|credential|code|hmac|session", re.IGNORECASE
+)
+
+
+def _redact_url(url: str) -> str:
+    url = _URL_USERINFO_REGEX.sub(rf"\g<1>{MASKED_SECRET_VALUE}@", url)
+
+    def redact_param(match: re.Match[str]) -> str:
+        if not match.group("value") or not _URL_CREDENTIAL_PARAM_REGEX.search(match.group("name")):
+            return match.group(0)
+        return f"{match.group('prefix')}{match.group('name')}={MASKED_SECRET_VALUE}"
+
+    return _URL_QUERY_PARAM_REGEX.sub(redact_param, url)
+
+
+def redact_url_credentials(value: Any) -> Any:
+    """Replace credentials in every URL inside `value` with the secret mask.
+
+    Covers the userinfo part and query parameters with a credential-like name. A non-secret input
+    can still hold a signed URL, so the secret flag alone does not protect it. The walk includes
+    compiled bytecode, because a URL constant appears there unchanged.
+    """
+    if isinstance(value, str):
+        return _URL_REGEX.sub(lambda match: _redact_url(match.group(0)), value)
+    if isinstance(value, list):
+        return [redact_url_credentials(item) for item in value]
+    if isinstance(value, dict):
+        return {key: redact_url_credentials(item) for key, item in value.items()}
+    return value
+
+
+def redact_config_url_credentials(content: Optional[dict]) -> Optional[dict]:
+    """Return a copy of a function config with URL credentials redacted in its inputs and mapping inputs."""
+    if not isinstance(content, dict):
+        return content
+    result = dict(content)
+    if isinstance(result.get("inputs"), dict):
+        result["inputs"] = redact_url_credentials(result["inputs"])
+    if isinstance(result.get("mappings"), list):
+        result["mappings"] = [
+            {**mapping, "inputs": redact_url_credentials(mapping["inputs"])}
+            if isinstance(mapping, dict) and isinstance(mapping.get("inputs"), dict)
+            else mapping
+            for mapping in result["mappings"]
+        ]
+    return result
+
+
+def _contains_redacted_url(value: Any) -> bool:
+    if isinstance(value, str):
+        return any(MASKED_SECRET_VALUE in match.group(0) for match in _URL_REGEX.finditer(value))
+    if isinstance(value, list):
+        return any(_contains_redacted_url(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_redacted_url(item) for item in value.values())
+    return False
+
+
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
@@ -921,6 +985,25 @@ class InputsSerializer(serializers.DictField):
                         # webhook auth in production - fail so the caller re-enters the value.
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
+            elif isinstance(value, dict) and _contains_redacted_url(value.get("value")):
+                # Agent reads get URL credentials redacted. A resent redacted URL means "keep the
+                # stored URL". Mapping inputs have no stored value in context, so they must fail.
+                stored_values = (
+                    []
+                    if isinstance(self.parent, MappingsSerializer)
+                    else [
+                        stored[key]["value"]
+                        for stored in self.context.get("stored_inputs") or []
+                        if isinstance(stored, dict) and isinstance(stored.get(key), dict) and "value" in stored[key]
+                    ]
+                )
+                restored = next(
+                    (stored for stored in stored_values if redact_url_credentials(stored) == value["value"]), None
+                )
+                if restored is None:
+                    errors[key] = "This URL contains a redacted credential. Enter the full URL again."
+                    continue
+                value = {**value, "value": restored}
 
             if value == {} and schema.get("required") and schema.get("default") is not None:
                 # The destination editor pre-fills defaults from the template schema, but callers that
