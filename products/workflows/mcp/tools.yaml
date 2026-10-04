@@ -446,9 +446,9 @@ tools:
             workflows-publish. The response is a compact summary, not the full workflow: changed_action_ids,
             removed_action_ids, added_edges, removed_edges, status, version, and base_updated_at. Pass base_updated_at
             on the next patch so a concurrent edit gets a 409 instead of being overwritten. To inspect a changed step's
-            full config, call workflows-get (the staged draft is in draft). When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
-            {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
-            workflows-test-run after patching.
+            full config, call workflows-get (the staged draft is in draft). When adding or editing a conditional_branch,
+            each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the
+            condition. Re-test the changed path with workflows-test-run after patching.
     workflows-publish:
         operation: hog_flows_publish_create
         enabled: true
