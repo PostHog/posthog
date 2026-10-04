@@ -1303,7 +1303,9 @@ jobs:
                   path: story-selector
                   ref: ${{ github.event.pull_request.base.ref }}
                   repository: ${{ github.event.pull_request.base.repo.full_name }}
-                  sparse-checkout: bin/find-affected-stories
+                  sparse-checkout: |
+                      bin/find-affected-stories
+                      common/storybook/storybook-timings.json
                   sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
