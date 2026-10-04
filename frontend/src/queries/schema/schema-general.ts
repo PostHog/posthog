@@ -5434,7 +5434,6 @@ export type FileSystemIconType =
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
-    | 'link'
     | 'live_debugger'
     | 'logs'
     | 'tracing'
@@ -9068,7 +9067,6 @@ export enum ProductKey {
     HISTORY = 'history',
     INGESTION_WARNINGS = 'ingestion_warnings',
     INTEGRATIONS = 'integrations',
-    LINKS = 'links',
     LIVE_DEBUGGER = 'live_debugger',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',

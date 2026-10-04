@@ -516,10 +516,10 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+# Retired product. The app keeps its model and migration history so that Django keeps
+# cascading deletes into its table until a later migration drops it.
 path = "products.links"
-depends_on = [
-    "posthog",
-]
+depends_on = ["posthog"]
 layer = "modules"
 
 [[modules]]

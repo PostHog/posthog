@@ -800,7 +800,6 @@ ignore_imports = [
     "products.growth.backend.routes -> products.growth.backend.api.ai_enrichment",
     "products.growth.backend.routes -> products.growth.backend.api.identity_matching",
     "products.growth.backend.routes -> products.growth.backend.api.product_push",
-    "products.links.backend.routes -> products.links.backend.api",
     "products.live_debugger.backend.routes -> products.live_debugger.backend.api",
     "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.batch_imports",
     "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.support_batch_imports",
