@@ -41704,7 +41704,7 @@ export namespace Schemas {
       index: number | null;
     }
 
-    export interface ExcerptChoiceQuery {
+    export interface ExcerptChoiceRequest {
       /**
          * The finding the code excerpts should show.
          * @maxLength 6000
@@ -57655,7 +57655,8 @@ export namespace Schemas {
          */
       text: string;
       /**
-         * The roles to look for in this text: problem, cause or fix.
+         * The roles to look for in this text: problem, cause or fix. Repeated roles count once.
+         * @minItems 1
          * @maxItems 3
          */
       roles: KeyClauseRoleEnum[];
@@ -57673,7 +57674,7 @@ export namespace Schemas {
       texts: TextKeyClauses[];
     }
 
-    export interface KeyClausesQuery {
+    export interface KeyClausesRequest {
       /**
          * The texts to mark, at most 3.
          * @maxItems 3
@@ -90547,7 +90548,7 @@ export namespace Schemas {
     }
 
     /**
-     * The emitter's extra fields, used to link to the source object.
+     * The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON.
      */
     export type SignalViewExtra = { [key: string]: unknown };
 
@@ -90564,7 +90565,7 @@ export namespace Schemas {
       content: string;
       /** When the signal happened. */
       timestamp: string;
-      /** The emitter's extra fields, used to link to the source object. */
+      /** The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON. */
       extra: SignalViewExtra;
       /** The signal as one short line. */
       headline: string;
@@ -90593,15 +90594,15 @@ export namespace Schemas {
       /** The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise. */
       impact_sentence: string;
       /** The pull request the proposal names, or else the summary, when it names exactly one. */
-      in_flight_pull_request: PullRequestLink | null;
+      named_pull_request: PullRequestLink | null;
       /** Whether the proposal names any pull request. */
       solution_names_pull_request: boolean;
       /** The report's signals, newest first, ready to show. */
       signals: SignalView[];
       /** The ids of the signals to show as evidence, at most 3. */
-      evidence: string[];
+      evidence_signal_ids: string[];
       /** How many distinct source objects the signals come from. */
-      evidence_count: number;
+      source_count: number;
       /** Numbers the signals size the problem with, such as distinct support tickets. */
       impact_numbers: ImpactNumber[];
       /**
