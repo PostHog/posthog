@@ -808,6 +808,25 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
 
+    def test_publishing_a_staged_switch_to_a_pending_sender_is_rejected(self):
+        flow_url, integration = self._create_live_email_workflow()
+        actions = self._actions_sending_from(
+            self.client.get(flow_url).json()["actions"], self._create_unverified_sender().id
+        )
+        staged = self.client.patch(flow_url, {"actions": actions, "stage_draft": True})
+        assert staged.status_code == 200, staged.json()
+        preview = self.client.post(f"{flow_url}/publish", {"confirm": False})
+        assert preview.status_code == 200, preview.json()
+
+        published = self.client.post(
+            f"{flow_url}/publish", {"confirm": True, "confirm_token": preview.json()["confirm_token"]}
+        )
+
+        assert published.status_code == 400, published.json()
+        assert 'The email sender "hello@example.dev" is not verified yet' in published.json()["detail"]
+        live_from = HogFlow.objects.get(pk=flow_url.rsplit("/", 1)[1]).actions[1]["config"]["inputs"]["email"]
+        assert live_from["value"]["from"]["integrationId"] == integration.id
+
     def test_test_run_of_a_live_workflow_accepts_a_pending_sender(self):
         flow_url, _integration = self._create_live_email_workflow()
         configuration = self.client.get(flow_url).json()

@@ -206,6 +206,22 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.draft is not None
         assert all(a["config"].get("inputs") for a in flow.actions if a["type"] == "function")
 
+    def test_graph_edit_claiming_a_draft_save_validates_strictly_when_it_writes_live(self):
+        flow_id = self._create_active_flow()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {"op": "update_action", "id": "action_1", "patch": {"config": {"inputs": {"url": {"value": ""}}}}}
+                ],
+                "stage_draft": True,
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert HogFlow.objects.get(pk=flow_id).actions[1]["config"]["inputs"]["url"]["value"] == "https://example.com"
+
     def test_discard_bumps_live_stamp_so_stale_draft_saves_get_409(self):
         # Without the bump, a concurrent editor holding the discarded draft's stamp would pass the
         # staleness guard (which falls back to the live stamp once the draft is gone) and silently

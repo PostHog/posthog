@@ -208,7 +208,7 @@ function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
 }
 
 function getPublishErrorMessage(error: unknown): string {
-    if (error instanceof ApiError && error.status === 400 && error.detail) {
+    if (error instanceof ApiError && error.status === 400 && error.detail && error.attr !== 'confirm_token') {
         return error.detail
     }
     return 'Publishing failed. Review the staged changes and try again.'

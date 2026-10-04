@@ -283,7 +283,14 @@ describe('workflowLogic email step "from" validation', () => {
     const ROTATION = { integrationId: 42, integrationIds: [42, 43] }
 
     it.each([
-        ['the sender is unverified', ROTATION, 'draft', [emailSender(42, false)], false, UNVERIFIED_SENDER_ERROR],
+        [
+            'the sender is unverified',
+            { integrationId: 42 },
+            'draft',
+            [emailSender(42, false)],
+            false,
+            UNVERIFIED_SENDER_ERROR,
+        ],
         [
             'one rotation sender is unverified',
             ROTATION,
@@ -355,9 +362,17 @@ describe('workflowLogic email step "from" validation', () => {
         expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.emailErrors?.from).toBeUndefined()
     })
 
-    it('shows why publishing staged changes failed', async () => {
-        const senderError =
-            'step \'Send email\': The email sender "hello@example.dev" is not verified yet. Verify its domain under Channels, or choose a verified sender.'
+    const PUBLISH_STEP_ERROR =
+        'step \'Send email\': The email sender "hello@example.dev" is not verified yet. Verify its domain under Channels, or choose a verified sender.'
+
+    it.each([
+        ['a step is invalid', { detail: PUBLISH_STEP_ERROR, attr: null }, PUBLISH_STEP_ERROR],
+        [
+            'the confirmation expired',
+            { detail: 'Expired, preview the publish again to get a fresh token.', attr: 'confirm_token' },
+            'Publishing failed. Review the staged changes and try again.',
+        ],
+    ])('explains a failed publish when %s', async (_case, errorBody, expectedToast) => {
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }, 'active'),
@@ -366,7 +381,7 @@ describe('workflowLogic email step "from" validation', () => {
             post: {
                 '/api/environments/:team_id/hog_flows/:id/publish/': () => [
                     400,
-                    { type: 'validation_error', code: 'invalid_input', detail: senderError, attr: null },
+                    { type: 'validation_error', code: 'invalid_input', ...errorBody },
                 ],
             },
         })
@@ -378,7 +393,7 @@ describe('workflowLogic email step "from" validation', () => {
 
         await expectLogic(logic, () => logic.actions.confirmPublishDraft('token')).toDispatchActions(['loadWorkflow'])
 
-        expect(toastError).toHaveBeenCalledWith(senderError)
+        expect(toastError).toHaveBeenCalledWith(expectedToast)
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {

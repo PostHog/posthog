@@ -2959,7 +2959,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
         # base_updated_at (see perform_update, which does the actual draft routing off it).
-        if self.context.get("publishes_draft"):
+        # Endpoints that resolve their own routing (publish, graph, per-step email) set writes_live,
+        # so a stray stage_draft in their body cannot relax checks on a live write.
+        if self.context.get("writes_live"):
             return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
@@ -5544,7 +5546,12 @@ class HogFlowViewSet(
 
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
 
-            serializer = self.get_serializer(locked, data={"actions": new_actions, "edges": new_edges}, partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data={"actions": new_actions, "edges": new_edges},
+                partial=True,
+                context={**self.get_serializer_context(), "writes_live": not route_to_draft},
+            )
             # The surgical endpoint is the one path where structural corruption would be newly introduced,
             # so it enforces graph validation as a hard error (unlike the lenient full-save path).
             serializer.context["enforce_graph_structure"] = True
@@ -5639,7 +5646,12 @@ class HogFlowViewSet(
 
             new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
 
-            serializer = self.get_serializer(locked, data={"actions": new_actions}, partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data={"actions": new_actions},
+                partial=True,
+                context={**self.get_serializer_context(), "writes_live": not route_to_draft},
+            )
             serializer.context["enforce_graph_structure"] = True
             serializer.is_valid(raise_exception=True)
 
@@ -5877,7 +5889,7 @@ class HogFlowViewSet(
                 locked,
                 data=dict(locked.draft),
                 partial=True,
-                context={**self.get_serializer_context(), "publishes_draft": True},
+                context={**self.get_serializer_context(), "writes_live": True},
             )
             serializer.is_valid(raise_exception=True)
             self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))

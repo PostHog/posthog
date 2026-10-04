@@ -814,7 +814,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("sender_already_live", {"require_verified_sender": True, "already_live": True}),
         ]
     )
-    def test_unverified_sender_that_cannot_block_a_send_is_allowed(self, _name, case):
+    def test_unverified_sender_passes_where_the_check_does_not_apply(self, _name, case):
         unverified = self._create_unverified_email_integration()
         from_value: dict[str, int | list[int]] = {"integrationId": unverified.id}
         if case.get("rotation_is_verified"):
