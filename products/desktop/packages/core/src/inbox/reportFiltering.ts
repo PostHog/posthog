@@ -119,6 +119,11 @@ export function buildSignalReportListOrdering(
   direction: "asc" | "desc",
 ): string {
   const fieldKey = direction === "desc" ? `-${field}` : field;
+  // A model sort ranks across statuses, so the score leads, as on web. Status
+  // first would let a low score in an earlier status fill the first page.
+  if (isRankingSortField(field)) {
+    return [fieldKey, "status", "-updated_at"].join(",");
+  }
   const tiebreak = field === "priority" ? "-created_at" : "priority";
   return ["status", fieldKey, tiebreak].join(",");
 }

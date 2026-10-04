@@ -130,6 +130,12 @@ describe("buildSignalReportListOrdering", () => {
     },
   );
 
+  it("leads with the score for a model sort, as web does", () => {
+    expect(buildSignalReportListOrdering("ranking_pr_merged", "desc")).toBe(
+      "-ranking_pr_merged,status,-updated_at",
+    );
+  });
+
   it.each([
     ["priority", "asc", "status,priority,-created_at"],
     ["priority", "desc", "status,-priority,-created_at"],

@@ -5,6 +5,7 @@ import { InboxReportRow } from "@posthog/ui/features/inbox/components/InboxRepor
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import { useHasActiveReportsListFilters } from "@posthog/ui/features/inbox/hooks/useHasActiveReportsListFilters";
+import { useInboxActiveSort } from "@posthog/ui/features/inbox/hooks/useInboxActiveSort";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
 import { useInboxTriageHotkey } from "@posthog/ui/features/inbox/hooks/useInboxTriageHotkey";
 import { useSelfDrivingSetupStatus } from "@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus";
@@ -23,6 +24,7 @@ export function ReportsInboxView(): React.JSX.Element {
   const setupStatus = useSelfDrivingSetupStatus();
   const navigate = useNavigate();
   const hasActiveFilters = useHasActiveReportsListFilters();
+  const { sortField, sortDirection, createdWindow } = useInboxActiveSort();
   const resetFilters = useInboxSignalsFilterStore(
     (state) => state.resetFilters,
   );
@@ -42,6 +44,9 @@ export function ReportsInboxView(): React.JSX.Element {
     scope: inboxReviewerScopeValue(inbox.scope),
     reportStateFilter: inbox.reportStateFilter,
     defaultReportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
+    sortField,
+    sortDirection,
+    createdWindow,
   });
 
   const isAgentConfigurationLoading =
