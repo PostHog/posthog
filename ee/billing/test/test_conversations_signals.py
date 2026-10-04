@@ -6,12 +6,13 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Organization, Team, User
 from posthog.models.comment import Comment
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
@@ -27,7 +28,7 @@ from ee.billing.salesforce_enrichment.conversations_signals import (
 )
 
 
-class TestConversationsSlackSignals(ClickhouseFreeSimpleTestCase):
+class TestConversationsSlackSignals(SimpleTestCase):
     def test_builds_channel_url(self):
         assert build_slack_channel_url("C123", "T123") == "https://app.slack.com/client/T123/C123"
         assert build_slack_channel_url("C123") == "https://app.slack.com/archives/C123"

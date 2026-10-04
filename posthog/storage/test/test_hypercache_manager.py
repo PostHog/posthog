@@ -10,6 +10,8 @@ Covers:
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from prometheus_client import CollectorRegistry
 
@@ -22,7 +24,6 @@ from posthog.storage.hypercache_manager import (
     push_hypercache_teams_processed_metrics,
     warm_caches,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def create_test_hypercache(
@@ -79,7 +80,7 @@ def create_test_config(
     )
 
 
-class TestRefreshTtlMinFractionValidation(ClickhouseFreeSimpleTestCase):
+class TestRefreshTtlMinFractionValidation(SimpleTestCase):
     @parameterized.expand([("zero", 0.0), ("above_one", 1.5), ("days_mistaken_for_a_fraction", 7.0)])
     def test_a_fraction_outside_the_unit_range_is_refused(self, _name: str, fraction: float) -> None:
         with self.assertRaises(ValueError):

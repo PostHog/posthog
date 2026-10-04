@@ -4,12 +4,12 @@ from typing import Any
 from posthog.test.base import BaseTest
 
 from django.http import QueryDict
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .viewset import AdvancedActivityLogFiltersSerializer
@@ -210,7 +210,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         self.assertEqual(result_ids, expected_ids)
 
 
-class TestDetailFilterValidation(ClickhouseFreeSimpleTestCase):
+class TestDetailFilterValidation(SimpleTestCase):
     # Unsafe filters are rejected before any query is built, so no DB is needed here.
     @parameterized.expand(
         [
@@ -314,7 +314,7 @@ class TestIpAddressFilter(BaseTest):
         self.assertEqual(set(filtered.values_list("id", flat=True)), {exact_match.id, wildcard_match.id})
 
 
-class TestAdvancedActivityLogFiltersSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestAdvancedActivityLogFiltersSerializerValidation(SimpleTestCase):
     # Pure field-level validation (the serializer has no validate() and no context),
     # so no DB is needed. The viewset wiring is guarded by an endpoint test in
     # TestOrganizationAdvancedActivityLogsViewSet (test_activity_log.py).

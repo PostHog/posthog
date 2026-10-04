@@ -1,5 +1,7 @@
 import json
 
+from django.test import SimpleTestCase
+
 from hypothesis import (
     example,
     given,
@@ -18,8 +20,6 @@ from posthog.hogql.transforms.clickhouse_property_resolution import (
     clickhouse_property_resolution,
 )
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
-
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
 # Plain text alone almost never lands in the accepted set, so bias half the draws to printable ASCII.
@@ -29,7 +29,7 @@ _PROPERTY_VALUES = st.one_of(
 )
 
 
-class TestJSONVerbatimValues(ClickhouseFreeSimpleTestCase):
+class TestJSONVerbatimValues(SimpleTestCase):
     # Producers differ on `ensure_ascii`, and the pre-check runs against whichever one wrote the blob.
     @given(value=_PROPERTY_VALUES)
     @example('some"thing')
@@ -45,7 +45,7 @@ class TestJSONVerbatimValues(ClickhouseFreeSimpleTestCase):
         assert value in json.dumps({"key": value}, ensure_ascii=False)
 
 
-class TestMaterializedLikePatternLimit(ClickhouseFreeSimpleTestCase):
+class TestMaterializedLikePatternLimit(SimpleTestCase):
     @parameterized.expand(
         [(op, oversized) for op in ("Like", "NotLike", "ILike", "NotILike") for oversized in (False, True)]
     )

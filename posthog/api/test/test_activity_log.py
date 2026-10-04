@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,7 +22,6 @@ from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session.activity import session_public_id
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.insight_queries import default_pageview_query
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -587,7 +587,7 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert exported_asset.source_credential_id == str(token.id)
 
 
-class TestActivityLogSerializerFields(ClickhouseFreeSimpleTestCase):
+class TestActivityLogSerializerFields(SimpleTestCase):
     @parameterized.expand([("advanced", ActivityLogSerializer), ("my_notifications", MyNotificationsSerializer)])
     def test_credential_fields_are_not_serialized(self, _name: str, serializer_class: type) -> None:
         log = ActivityLog(

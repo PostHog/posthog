@@ -1,12 +1,10 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
 from products.web_analytics.backend.content_autopilot.lifecycle import ContentAutopilotLifecycleError
@@ -67,7 +65,7 @@ def _gap(
     )
 
 
-class TestOpportunityScoring(ClickhouseFreeSimpleTestCase):
+class TestOpportunityScoring(SimpleTestCase):
     def test_consistent_gaps_outrank_partial_and_thin_ones(self) -> None:
         consistent = score_gap(_gap("a"))
         partial = score_gap(

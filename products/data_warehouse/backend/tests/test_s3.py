@@ -2,12 +2,10 @@ import asyncio
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from botocore.exceptions import ClientError
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_warehouse.backend.s3 import (
     _LOOP_S3_CLIENTS,
@@ -22,7 +20,7 @@ def _client_error(code: str) -> ClientError:
     return ClientError({"Error": {"Code": code}}, "operation")
 
 
-class TestAgetS3Client(ClickhouseFreeSimpleTestCase):
+class TestAgetS3Client(SimpleTestCase):
     @override_settings(USE_LOCAL_SETUP=False)
     def test_fresh_instance_closes_the_full_s3creator_not_just_the_general_client(self) -> None:
         # With region caching on (the s3fs default), a fresh_instance client that touches a bucket
@@ -46,7 +44,7 @@ class TestAgetS3Client(ClickhouseFreeSimpleTestCase):
         fake_s3._s3.close.assert_not_awaited()
 
 
-class TestSharedAsyncS3ClientLoopEviction(ClickhouseFreeSimpleTestCase):
+class TestSharedAsyncS3ClientLoopEviction(SimpleTestCase):
     @override_settings(USE_LOCAL_SETUP=False)
     def test_evicts_a_closed_loops_entry_instead_of_leaking_it_forever(self) -> None:
         # _LOOP_S3_CLIENTS is a WeakKeyDictionary keyed on the event loop, but each cached client's
@@ -72,7 +70,7 @@ class TestSharedAsyncS3ClientLoopEviction(ClickhouseFreeSimpleTestCase):
         assert dead_loop not in _LOOP_S3_CLIENTS
 
 
-class TestGetSizeOfFolder(ClickhouseFreeSimpleTestCase):
+class TestGetSizeOfFolder(SimpleTestCase):
     def _mock_s3(self) -> MagicMock:
         s3 = MagicMock()
         s3.find.return_value = {
@@ -113,7 +111,7 @@ class TestGetSizeOfFolder(ClickhouseFreeSimpleTestCase):
         mock_close_session.assert_called_once_with(s3.loop, s3._s3creator)
 
 
-class TestEnsureBucketExists(ClickhouseFreeSimpleTestCase):
+class TestEnsureBucketExists(SimpleTestCase):
     @patch("products.data_warehouse.backend.s3.boto3.client")
     def test_does_nothing_when_bucket_already_reachable(self, mock_boto3_client) -> None:
         s3_client = MagicMock()

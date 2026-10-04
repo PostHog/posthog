@@ -1,13 +1,14 @@
 import json
 from urllib.parse import quote
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestPendingOAuthConnectionCookieValue(ClickhouseFreeSimpleTestCase):
+class TestPendingOAuthConnectionCookieValue(SimpleTestCase):
     def test_round_trip_keeps_every_field(self):
         connection = PendingOAuthConnection(
             client_name="Claude &amp; Co",

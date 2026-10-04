@@ -9,6 +9,8 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.schema import HogQLQueryResponse
 
 from posthog.models.person.point_in_time_properties import (
@@ -17,7 +19,6 @@ from posthog.models.person.point_in_time_properties import (
 )
 from posthog.models.team import Team
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import create_person
 
 
@@ -34,7 +35,7 @@ def _prop_row(
     )
 
 
-class TestPointInTimeProperties(ClickhouseFreeSimpleTestCase):
+class TestPointInTimeProperties(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(id=1)
 
@@ -121,7 +122,7 @@ class TestPointInTimeProperties(ClickhouseFreeSimpleTestCase):
         self.assertEqual(properties, {"name": "John"})
 
 
-class TestPointInTimePropertiesWithSetOnce(ClickhouseFreeSimpleTestCase):
+class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(id=1)
 
@@ -174,7 +175,7 @@ class TestPointInTimePropertiesWithSetOnce(ClickhouseFreeSimpleTestCase):
         )
 
 
-class TestGetPersonAndDistinctIdsForIdentifierValidation(ClickhouseFreeSimpleTestCase):
+class TestGetPersonAndDistinctIdsForIdentifierValidation(SimpleTestCase):
     def test_both_params_raises(self):
         with self.assertRaises(ValueError, msg="Cannot provide both"):
             get_person_and_distinct_ids_for_identifier(1, distinct_id="d1", person_id="uuid1")
@@ -192,7 +193,7 @@ class TestGetPersonAndDistinctIdsForIdentifierValidation(ClickhouseFreeSimpleTes
             get_person_and_distinct_ids_for_identifier(1, person_id="")
 
 
-class TestGetPersonAndDistinctIdsForIdentifierPersonhog(ClickhouseFreeSimpleTestCase):
+class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
     def test_lookup_by_distinct_id(self):
         with fake_personhog_client() as fake:
             fake.add_person(

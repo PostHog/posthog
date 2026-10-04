@@ -4,6 +4,8 @@ from uuid import UUID
 
 from unittest.mock import AsyncMock, Mock
 
+from django.test import SimpleTestCase
+
 from temporalio.client import (
     ScheduleAlreadyRunningError,
     ScheduleDescription,
@@ -12,13 +14,11 @@ from temporalio.client import (
     ScheduleUpdateInput,
 )
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
-
 from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.subject_schedules import SubjectScheduleKey, SubjectSchedules
 
 
-class TestTemporalSubjectSchedules(ClickhouseFreeSimpleTestCase):
+class TestTemporalSubjectSchedules(SimpleTestCase):
     def setUp(self) -> None:
         self.key = SubjectScheduleKey(
             team_id=123,

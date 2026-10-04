@@ -4,9 +4,9 @@ from typing import Any, Optional
 
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     _TOKEN_CONNECT_TIMEOUT,
@@ -34,7 +34,7 @@ def _apply_auth(auth: OAuth2Auth) -> Optional[str]:
     return request.headers.get("Authorization")
 
 
-class TestOAuth2Auth(ClickhouseFreeSimpleTestCase):
+class TestOAuth2Auth(SimpleTestCase):
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_client_credentials_sets_bearer_and_caches(self, mock_session):
         mock_session.return_value.post.return_value = _token_response(

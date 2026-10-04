@@ -3,7 +3,7 @@ from random import Random
 from unittest.mock import patch
 
 from django.http import HttpRequest
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import (
@@ -15,10 +15,9 @@ from rest_framework.exceptions import (
 )
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut, QueryRanConcurrently, exception_handler
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestQueryRetryAfter(ClickhouseFreeSimpleTestCase):
+class TestQueryRetryAfter(SimpleTestCase):
     @parameterized.expand(
         [
             ("capacity", ClickHouseAtCapacity, 0, 503, "57"),
@@ -58,7 +57,7 @@ class TestQueryRetryAfter(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
-class TestExceptionHandlerWWWAuthenticate(ClickhouseFreeSimpleTestCase):
+class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
     def _request(self, *, secure: bool = True, host: str = "us.posthog.com") -> HttpRequest:
         factory = RequestFactory()
         return factory.get("/api/users/@me/", secure=secure, HTTP_HOST=host)

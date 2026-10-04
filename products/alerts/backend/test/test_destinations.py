@@ -5,10 +5,11 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.alerts.backend.facade.destinations import serialize_deliveries
 from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
@@ -653,7 +654,7 @@ class TestAlertInternalEventDelivery(APIBaseTest):
         delivery_failures.labels.return_value.inc.assert_called_once_with()
 
 
-class TestProduceAlertInternalEvent(ClickhouseFreeSimpleTestCase):
+class TestProduceAlertInternalEvent(SimpleTestCase):
     @patch("products.alerts.backend.logic.destinations.capture_exception")
     @patch(
         "products.alerts.backend.logic.destinations.produce_internal_event",
@@ -670,7 +671,7 @@ class TestProduceAlertInternalEvent(ClickhouseFreeSimpleTestCase):
         capture_exception.assert_called_once()
 
 
-class TestFlushAlertInternalEvents(ClickhouseFreeSimpleTestCase):
+class TestFlushAlertInternalEvents(SimpleTestCase):
     @patch("products.alerts.backend.logic.destinations.capture_exception")
     @patch(
         "products.alerts.backend.logic.destinations.flush_internal_events_producer",

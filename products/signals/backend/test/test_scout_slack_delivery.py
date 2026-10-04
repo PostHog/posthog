@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.test import SimpleTestCase
 
 from celery.exceptions import Retry
 from parameterized import parameterized
@@ -15,7 +16,6 @@ from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.redis import get_client
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
@@ -45,7 +45,7 @@ class FakeSlackResponse(dict):
         self.headers = headers or {}
 
 
-class TestGetScoutSlackDestination(ClickhouseFreeSimpleTestCase):
+class TestGetScoutSlackDestination(SimpleTestCase):
     @parameterized.expand(
         [
             ("channel", {"integration_id": 5, "channel": "C123|#alerts"}, ("C123|#alerts",)),

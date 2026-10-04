@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, SimpleTestCase
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -17,7 +17,6 @@ from structlog.testing import capture_logs
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token_es256
@@ -810,7 +809,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         mock_capture.assert_not_called()
 
 
-class TestPushSubscriptionRejectionHelpers(ClickhouseFreeSimpleTestCase):
+class TestPushSubscriptionRejectionHelpers(SimpleTestCase):
     @parameterized.expand(
         [
             ("android", "posthog-android/3.59.0", _SdkIdentity(name="posthog-android", version="3.59.0")),

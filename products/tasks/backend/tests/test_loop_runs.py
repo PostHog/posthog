@@ -3,7 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.apps import apps
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -12,7 +12,6 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services.loop_runs import (
     DISABLED_REASON_REPEATED_FAILURES,
@@ -43,7 +42,7 @@ from products.tasks.backend.temporal.constants import LOOP_RUN_STALE_SECONDS
 LOOP_RUNS_MODULE = "products.tasks.backend.logic.services.loop_runs"
 
 
-class TestRenderTriggerContext(ClickhouseFreeSimpleTestCase):
+class TestRenderTriggerContext(SimpleTestCase):
     def test_schedule_trigger_with_no_previous_run_reports_none(self):
         loop = Loop(name="Daily digest", last_run_at=None, last_run_status=None)
 
@@ -87,7 +86,7 @@ class TestRenderTriggerContext(ClickhouseFreeSimpleTestCase):
         self.assertIn(f"[truncated: payload exceeded {TRIGGER_CONTEXT_MAX_BYTES} bytes]", context)
 
 
-class TestRenderContextTargetBlock(ClickhouseFreeSimpleTestCase):
+class TestRenderContextTargetBlock(SimpleTestCase):
     CHANNEL_ID = "0199c0de-0000-4000-8000-000000000001"
     CANVAS_ID = "0199c0de-0000-4000-8000-000000000002"
     LOOP_ID = "0199c0de-0000-4000-8000-000000000003"

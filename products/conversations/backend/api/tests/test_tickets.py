@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -34,7 +35,6 @@ from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -63,7 +63,7 @@ from products.conversations.backend.reply_dedupe import (
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
 
-class TestComposeTicketSerializer(ClickhouseFreeSimpleTestCase):
+class TestComposeTicketSerializer(SimpleTestCase):
     def _payload(self, **overrides):
         data = {
             "recipient_email": "someone@example.com",

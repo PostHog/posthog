@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection, transaction
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -20,7 +21,6 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.notebook_integration import (
@@ -125,7 +125,7 @@ def completion_stream(content: str, finish_reason: str | None = None) -> MagicMo
     return stream
 
 
-class TestWidgetGeneration(ClickhouseFreeSimpleTestCase):
+class TestWidgetGeneration(SimpleTestCase):
     @parameterized.expand(
         [
             ("normalizes", [" locations_df ", "users_df"], ["locations_df", "users_df"], None),

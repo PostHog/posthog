@@ -1,11 +1,11 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.conversations.backend.services.attachments import build_content_with_images, sanitize_attachment_filename
 
 
-class TestAttachmentsService(ClickhouseFreeSimpleTestCase):
+class TestAttachmentsService(SimpleTestCase):
     def test_build_content_renders_files_as_links(self) -> None:
         files = [{"url": "https://app.posthog.com/uploaded_media/a", "name": "invoice.pdf"}]
         content, rich_content = build_content_with_images("hello", None, [], files)

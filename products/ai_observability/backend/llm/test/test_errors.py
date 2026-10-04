@@ -1,8 +1,8 @@
+from django.test import SimpleTestCase
+
 import httpx
 import openai
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -24,7 +24,7 @@ from products.ai_observability.backend.llm.errors import (
 GENERIC_MESSAGE = "The request to the model provider failed. Try again."
 
 
-class TestLLMErrors(ClickhouseFreeSimpleTestCase):
+class TestLLMErrors(SimpleTestCase):
     def test_llm_error_is_exception(self):
         error = LLMError("test error")
         assert isinstance(error, Exception)
@@ -84,7 +84,7 @@ class TestLLMErrors(ClickhouseFreeSimpleTestCase):
         assert isinstance(error, LLMError)
 
 
-class TestErrorHierarchy(ClickhouseFreeSimpleTestCase):
+class TestErrorHierarchy(SimpleTestCase):
     @parameterized.expand(
         [
             (UnsupportedModelError("test"),),
@@ -122,7 +122,7 @@ class TestErrorHierarchy(ClickhouseFreeSimpleTestCase):
         assert caught
 
 
-class TestUserFacingErrorMessage(ClickhouseFreeSimpleTestCase):
+class TestUserFacingErrorMessage(SimpleTestCase):
     @parameterized.expand(
         [
             (ModelNotFoundError("gpt-4-turbo"),),

@@ -1,16 +1,17 @@
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from posthog.models.team.util import (
     _delete_group_type_mappings_for_teams,
     _delete_groups_for_teams,
     _delete_hash_key_overrides_for_teams,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 
 
-class TestDeleteGroupsForTeams(ClickhouseFreeSimpleTestCase):
+class TestDeleteGroupsForTeams(SimpleTestCase):
     @patch(_CLIENT_PATCH)
     def test_deletes_via_personhog_per_team(self, mock_get_client):
         mock_client = MagicMock()
@@ -48,7 +49,7 @@ class TestDeleteGroupsForTeams(ClickhouseFreeSimpleTestCase):
         mock_get_client.return_value.delete_groups_batch_for_team.assert_not_called()
 
 
-class TestDeleteGroupTypeMappingsForTeams(ClickhouseFreeSimpleTestCase):
+class TestDeleteGroupTypeMappingsForTeams(SimpleTestCase):
     @patch(_CLIENT_PATCH)
     def test_deletes_via_personhog_per_team(self, mock_get_client):
         mock_client = MagicMock()
@@ -84,7 +85,7 @@ class TestDeleteGroupTypeMappingsForTeams(ClickhouseFreeSimpleTestCase):
         mock_get_client.return_value.delete_group_type_mappings_batch_for_team.assert_not_called()
 
 
-class TestDeleteHashKeyOverridesForTeams(ClickhouseFreeSimpleTestCase):
+class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
     @patch(_CLIENT_PATCH)
     def test_deletes_via_personhog(self, mock_get_client):
         mock_client = MagicMock()

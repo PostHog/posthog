@@ -4,6 +4,8 @@ import threading
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import grpc.aio
 import requests
 import dns.resolver
@@ -20,7 +22,6 @@ from posthog.temporal.proxy_service.monitor import (
     check_dns,
     check_proxy_is_live,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 RECORD_ID = uuid.UUID("019d1de4-5a20-0000-9d77-91f1a96a9df0")
 
@@ -64,7 +65,7 @@ class _BlockingCall:
         self._released.set()
 
 
-class TestProxyChecksDoNotFailOnHandledConditions(ClickhouseFreeSimpleTestCase):
+class TestProxyChecksDoNotFailOnHandledConditions(SimpleTestCase):
     @parameterized.expand(DNS_FAILURES)
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_a_lookup_failure_is_reported_not_raised(self, _name, exc, mock_get_record):
@@ -114,7 +115,7 @@ class TestProxyChecksDoNotFailOnHandledConditions(ClickhouseFreeSimpleTestCase):
         assert out.errors == ["DNS records not found"]
 
 
-class TestProxyChecksKeepTheEventLoopFree(ClickhouseFreeSimpleTestCase):
+class TestProxyChecksKeepTheEventLoopFree(SimpleTestCase):
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_check_dns_does_not_block(self, mock_get_record):
         mock_get_record.return_value = _record()
@@ -141,7 +142,7 @@ class TestProxyChecksKeepTheEventLoopFree(ClickhouseFreeSimpleTestCase):
         assert probe.loop_ran_while_blocked, "loop blocked: no coroutine ran while the proxy probe blocked"
 
 
-class TestLegacyCertificateStatus(ClickhouseFreeSimpleTestCase):
+class TestLegacyCertificateStatus(SimpleTestCase):
     @patch("posthog.temporal.proxy_service.monitor.get_grpc_client")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
     async def test_a_missing_certificate_is_reported_not_raised(self, mock_get_record, mock_get_client):
@@ -163,7 +164,7 @@ class TestLegacyCertificateStatus(ClickhouseFreeSimpleTestCase):
         assert out.errors == ["No TLS certificate found for this domain"]
 
 
-class TestActivityBudgetsCoverTheirNetworkCalls(ClickhouseFreeSimpleTestCase):
+class TestActivityBudgetsCoverTheirNetworkCalls(SimpleTestCase):
     @parameterized.expand(
         [
             ("check_dns", 2 * DNS_LOOKUP_LIFETIME_S + CLOUDFLARE_IPS_TIMEOUT_S),

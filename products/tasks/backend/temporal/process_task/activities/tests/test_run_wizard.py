@@ -1,10 +1,8 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.run_wizard import (
@@ -16,7 +14,7 @@ from products.tasks.backend.temporal.process_task.activities.run_wizard import (
 )
 
 
-class TestBuildWizardCommand(ClickhouseFreeSimpleTestCase):
+class TestBuildWizardCommand(SimpleTestCase):
     def test_uses_headless_flag_and_does_not_pass_the_token_on_the_command_line(self) -> None:
         # --headless-DONOTUSE-EXPERIMENTAL is the published-build non-interactive mode (--ci is
         # dev/test-only and rejected by published builds), and the token must come from

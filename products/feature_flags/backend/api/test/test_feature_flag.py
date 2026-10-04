@@ -17,7 +17,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import grpc
@@ -44,7 +44,6 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import (
     create_group as create_test_group,
@@ -12810,7 +12809,7 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         self.assertEqual(len(entries), 1)
 
 
-class TestFeatureFlagStatusResponseSerializer(ClickhouseFreeSimpleTestCase):
+class TestFeatureFlagStatusResponseSerializer(SimpleTestCase):
     def test_fractional_rollout_percentage_is_not_truncated(self):
         # Release conditions accept decimals, so a rollout can be 0.5. IntegerField dropped that
         # to 0, which made the stale banner read "0% of all users" for a flag still gating users.

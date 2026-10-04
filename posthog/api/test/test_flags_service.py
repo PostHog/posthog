@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ImproperlyConfigured
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -12,10 +12,9 @@ from posthog.api.services.flags_service import (
     batch_evaluate_flag_for_team,
     get_flags_from_service,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestBatchEvaluateFlagForTeam(ClickhouseFreeSimpleTestCase):
+class TestBatchEvaluateFlagForTeam(SimpleTestCase):
     @parameterized.expand([("unset", None), ("empty", ""), ("whitespace", "   ")])
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
     def test_missing_internal_request_token_fails_fast(self, _name, token, mock_post):
@@ -130,7 +129,7 @@ class TestBatchEvaluateFlagForTeam(ClickhouseFreeSimpleTestCase):
             )
 
 
-class TestGetFlagsFromServiceRetries(ClickhouseFreeSimpleTestCase):
+class TestGetFlagsFromServiceRetries(SimpleTestCase):
     @patch("posthog.api.services.flags_service.time.sleep")
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
     def test_retries_transient_connection_error_then_succeeds(self, mock_post, mock_sleep):

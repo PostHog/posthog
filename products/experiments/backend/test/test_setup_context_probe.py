@@ -7,11 +7,10 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT
 from products.experiments.backend.models.experiment import Experiment
@@ -111,7 +110,7 @@ class TestSetupContextProbe(ClickhouseTestMixin, APIBaseTest):
         assert "probe-flag" not in printed
 
 
-class TestPercentile(ClickhouseFreeSimpleTestCase):
+class TestPercentile(SimpleTestCase):
     @parameterized.expand([(1, 0.0), (12, 11.0), (20, 18.0)])
     def test_p95_takes_the_nearest_rank(self, count: int, expected: float) -> None:
         assert SetupContextProbe.percentile([float(rank) for rank in range(count)], 0.95) == expected

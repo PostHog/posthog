@@ -3,13 +3,13 @@ from typing import Any
 import time_machine
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import posthoganalytics
 from celery.exceptions import Retry
 from posthoganalytics.contexts import get_capture_exception_code_variables_context
 from structlog.contextvars import bound_contextvars, clear_contextvars, get_contextvars, merge_contextvars
 from structlog.testing import capture_logs
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.customer_analytics.backend.tasks.tasks import (
     _capture_terminal_feature_request_github_failure,
@@ -17,7 +17,7 @@ from products.customer_analytics.backend.tasks.tasks import (
 )
 
 
-class TestFeatureRequestGitHubTaskObservability(ClickhouseFreeSimpleTestCase):
+class TestFeatureRequestGitHubTaskObservability(SimpleTestCase):
     def setUp(self) -> None:
         clear_contextvars()
         self.addCleanup(clear_contextvars)

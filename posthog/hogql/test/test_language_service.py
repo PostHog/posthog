@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import redis
 import requests
@@ -44,14 +44,13 @@ from posthog.hogql.language_service import (
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 @override_settings(
     HOGQL_LANGUAGE_SERVICE_URL="http://language-service:8091",
     HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=["test-language-service-signing-key"],
 )
-class TestLanguageServiceClient(ClickhouseFreeSimpleTestCase):
+class TestLanguageServiceClient(SimpleTestCase):
     @patch("posthog.hogql.language_service.internal_requests.request")
     def test_routes_request_and_scopes_token_to_principal_and_operation(self, request: MagicMock) -> None:
         response = MagicMock()
@@ -129,7 +128,7 @@ class TestLanguageServiceClient(ClickhouseFreeSimpleTestCase):
         duration.labels.return_value.observe.assert_called_once()
 
 
-class TestLanguageServiceFeatureFlag(ClickhouseFreeSimpleTestCase):
+class TestLanguageServiceFeatureFlag(SimpleTestCase):
     @override_settings(DEBUG=True, HOGQL_LANGUAGE_SERVICE_URL="", HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=[])
     def test_disabled_without_service_configuration(self) -> None:
         assert not is_language_service_enabled(MagicMock(), MagicMock())
@@ -164,7 +163,7 @@ class TestLanguageServiceFeatureFlag(ClickhouseFreeSimpleTestCase):
         )
 
 
-class TestCatalogPublicationCoordination(ClickhouseFreeSimpleTestCase):
+class TestCatalogPublicationCoordination(SimpleTestCase):
     result = LanguageServiceResult(
         body={"valid": True, "catalogRevision": "v2:ready"},
         duration_seconds=0,
@@ -354,7 +353,7 @@ class TestCatalogPublicationCoordination(ClickhouseFreeSimpleTestCase):
         assert len(lock_keys) == 4
 
 
-class TestLanguageServiceCatalog(ClickhouseFreeSimpleTestCase):
+class TestLanguageServiceCatalog(SimpleTestCase):
     def _database(self, paths: dict[str, S3Table], *, hidden: set[str] | None = None) -> Database:
         database = Database(include_posthog_tables=False)
         for path, table in paths.items():

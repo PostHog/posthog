@@ -1,11 +1,11 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.error_tracking.backend.logic.rules import get_client_safe_filters
 
 
-class TestGetClientSafeFilters(ClickhouseFreeSimpleTestCase):
+class TestGetClientSafeFilters(SimpleTestCase):
     @parameterized.expand(
         [
             # All client-safe: returned as-is

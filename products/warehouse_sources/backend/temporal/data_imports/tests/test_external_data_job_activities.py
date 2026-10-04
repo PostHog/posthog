@@ -4,13 +4,14 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError, TimeoutError, TimeoutType
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -37,7 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-class TestCustomerFacingError(ClickhouseFreeSimpleTestCase):
+class TestCustomerFacingError(SimpleTestCase):
     def test_strips_leaked_internal_exception_class_name(self) -> None:
         # Temporal wraps a driver connection drop as an ApplicationError whose str() is
         # "<ClassName>: <message>". The customer-facing latest_error must be the message alone,
@@ -86,7 +87,7 @@ class TestCustomerFacingError(ClickhouseFreeSimpleTestCase):
         assert "timeout" not in result
 
 
-class TestIsAppDbFailure(ClickhouseFreeSimpleTestCase):
+class TestIsAppDbFailure(SimpleTestCase):
     @parameterized.expand(
         [
             # A pooled connection left on a demoted standby by a failover. Ours, and it clears.

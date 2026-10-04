@@ -4,19 +4,20 @@ from datetime import UTC, datetime
 
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.query_cache import single_flight, storage
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE
 from posthog.query_cache.single_flight import FlightWait, QuerySingleFlight, SharedFailure
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _cache_key() -> str:
     return f"test_{uuid.uuid4().hex}"
 
 
-class TestQuerySingleFlight(ClickhouseFreeSimpleTestCase):
+class TestQuerySingleFlight(SimpleTestCase):
     def test_only_one_leader_until_release(self):
         key = _cache_key()
         leader = QuerySingleFlight(key, BUDGET_INTERACTIVE)

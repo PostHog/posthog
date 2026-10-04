@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.growth.backend.sdk_health import (
     LEGACY_JAVA_MIGRATION_REASON,
@@ -40,7 +40,7 @@ def _entry(version: str, count: int, days_ago: int | None = None, is_latest: boo
     )
 
 
-class TestParseVersion(ClickhouseFreeSimpleTestCase):
+class TestParseVersion(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "1.2.3", 1, 2, 3, None),
@@ -67,7 +67,7 @@ class TestParseVersion(ClickhouseFreeSimpleTestCase):
             parse_version(raw)
 
 
-class TestDiffVersions(ClickhouseFreeSimpleTestCase):
+class TestDiffVersions(SimpleTestCase):
     def test_equal(self):
         assert diff_versions(parse_version("1.2.3"), parse_version("1.2.3")) is None
 
@@ -96,7 +96,7 @@ class TestDiffVersions(ClickhouseFreeSimpleTestCase):
         assert d.diff == -1
 
 
-class TestAssessReleaseGracePeriod(ClickhouseFreeSimpleTestCase):
+class TestAssessReleaseGracePeriod(SimpleTestCase):
     def test_fresh_web_release_not_outdated_even_if_behind(self):
         # Within 14-day web grace period — should NOT be flagged
         entry = _entry("1.0.0", 100, days_ago=5)
@@ -135,7 +135,7 @@ class TestAssessReleaseGracePeriod(ClickhouseFreeSimpleTestCase):
         assert result.is_outdated is True
 
 
-class TestAssessReleaseSingleVersion(ClickhouseFreeSimpleTestCase):
+class TestAssessReleaseSingleVersion(SimpleTestCase):
     def test_single_version_young_not_outdated(self):
         entry = _entry("1.230.1", 500, days_ago=5)
         result = assess_release(
@@ -172,7 +172,7 @@ class TestAssessReleaseSingleVersion(ClickhouseFreeSimpleTestCase):
         assert result.is_outdated is True
 
 
-class TestAssessReleaseMinorRules(ClickhouseFreeSimpleTestCase):
+class TestAssessReleaseMinorRules(SimpleTestCase):
     def test_one_minor_behind_recent_not_outdated(self):
         entry = _entry("1.4.0", 100, days_ago=30)
         result = assess_release(
@@ -207,7 +207,7 @@ class TestAssessReleaseMinorRules(ClickhouseFreeSimpleTestCase):
         assert result.is_outdated is True
 
 
-class TestAssessReleasePatchRules(ClickhouseFreeSimpleTestCase):
+class TestAssessReleasePatchRules(SimpleTestCase):
     def test_patch_behind_is_never_outdated(self):
         entry = _entry("1.2.0", 100, days_ago=400)
         result = assess_release(
@@ -220,7 +220,7 @@ class TestAssessReleasePatchRules(ClickhouseFreeSimpleTestCase):
         assert result.is_outdated is False
 
 
-class TestAssessReleaseMajorRules(ClickhouseFreeSimpleTestCase):
+class TestAssessReleaseMajorRules(SimpleTestCase):
     def test_major_behind_is_outdated(self):
         entry = _entry("1.0.0", 100, days_ago=30)
         result = assess_release(
@@ -233,7 +233,7 @@ class TestAssessReleaseMajorRules(ClickhouseFreeSimpleTestCase):
         assert result.is_outdated is True
 
 
-class TestAssessReleaseCurrentOrNewer(ClickhouseFreeSimpleTestCase):
+class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
     def test_current_version_not_outdated(self):
         entry = _entry("1.5.0", 100, is_latest=True)
         result = assess_release(
@@ -261,7 +261,7 @@ class TestAssessReleaseCurrentOrNewer(ClickhouseFreeSimpleTestCase):
         assert result.is_current_or_newer is True
 
 
-class TestAssessSdkReason(ClickhouseFreeSimpleTestCase):
+class TestAssessSdkReason(SimpleTestCase):
     # `reason` is the whole alert body forwarded to Slack/email/MCP, so these rows guard
     # against it asserting a match while the in-use version is behind latest, or ahead of a
     # stale cached latest. Patch-level and grace-period differences are never flagged, which
@@ -314,7 +314,7 @@ class TestAssessSdkReason(ClickhouseFreeSimpleTestCase):
         assert sdk.reason == expected
 
 
-class TestAssessReleaseIsOld(ClickhouseFreeSimpleTestCase):
+class TestAssessReleaseIsOld(SimpleTestCase):
     @parameterized.expand(
         [
             ("posthog-node",),
@@ -364,7 +364,7 @@ class TestAssessReleaseIsOld(ClickhouseFreeSimpleTestCase):
         assert result.is_old is False
 
 
-class TestAssessSdkTrafficAlerts(ClickhouseFreeSimpleTestCase):
+class TestAssessSdkTrafficAlerts(SimpleTestCase):
     @parameterized.expand(
         [
             ("legacy_only", "posthog-python-mcp", None, None),
@@ -434,7 +434,7 @@ class TestAssessSdkTrafficAlerts(ClickhouseFreeSimpleTestCase):
         assert result.outdated_traffic_alerts == []
 
 
-class TestComputeSdkHealth(ClickhouseFreeSimpleTestCase):
+class TestComputeSdkHealth(SimpleTestCase):
     @parameterized.expand(
         [
             ("web", "Web"),
@@ -602,7 +602,7 @@ class TestComputeSdkHealth(ClickhouseFreeSimpleTestCase):
         assert report.team_sdk_count == 0
 
 
-class TestUiParityStrings(ClickhouseFreeSimpleTestCase):
+class TestUiParityStrings(SimpleTestCase):
     @parameterized.expand(
         [
             ("outdated_with_age", True, False, "5 months ago", "Released 5 months ago. Upgrade recommended."),
@@ -733,7 +733,7 @@ class TestUiParityStrings(ClickhouseFreeSimpleTestCase):
         assert "'1.2.3+build.1'" in sql
 
 
-class TestAssessReleaseParseFailureFallback(ClickhouseFreeSimpleTestCase):
+class TestAssessReleaseParseFailureFallback(SimpleTestCase):
     """Parser failure and injection-safety are orthogonal concerns — document both paths."""
 
     def test_unparseable_safe_version_still_gets_sql_and_url(self):
@@ -787,7 +787,7 @@ class TestAssessReleaseParseFailureFallback(ClickhouseFreeSimpleTestCase):
         assert "1.2.3.4" in result.sql_query  # Safe to interpolate
 
 
-class TestMobileGracePeriod(ClickhouseFreeSimpleTestCase):
+class TestMobileGracePeriod(SimpleTestCase):
     """Grace period (7d non-web) must apply to mobile SDKs too."""
 
     @parameterized.expand(
@@ -816,7 +816,7 @@ class TestMobileGracePeriod(ClickhouseFreeSimpleTestCase):
         assert "20%" in banner
 
 
-class TestAssessReleasePopulatesUiFields(ClickhouseFreeSimpleTestCase):
+class TestAssessReleasePopulatesUiFields(SimpleTestCase):
     def test_outdated_release_has_tooltip_sql_and_url(self):
         entry = _entry("1.0.0", 100, days_ago=200)
         result = assess_release(
@@ -845,7 +845,7 @@ class TestAssessReleasePopulatesUiFields(ClickhouseFreeSimpleTestCase):
         assert "You have the latest available" in result.status_reason
 
 
-class TestAssessSdkBanners(ClickhouseFreeSimpleTestCase):
+class TestAssessSdkBanners(SimpleTestCase):
     def test_banners_one_per_traffic_alert(self):
         entries = [
             _entry("2.0.0", 30, days_ago=5, is_latest=True),
@@ -871,7 +871,7 @@ class TestAssessSdkBanners(ClickhouseFreeSimpleTestCase):
         assert result.readable_name == "Node.js"
 
 
-class TestPromptInjectionDefense(ClickhouseFreeSimpleTestCase):
+class TestPromptInjectionDefense(SimpleTestCase):
     """
     `$lib_version` is an attacker-controlled event property. A crafted value must never
     reach any agent-facing string field — not `version`, not `reason`, not `banners`,

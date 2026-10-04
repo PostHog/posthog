@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import serializers, status
@@ -9,7 +10,6 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import SignalUserAutonomyConfig
 from products.signals.backend.slack_notification_targets import (
@@ -19,7 +19,7 @@ from products.signals.backend.slack_notification_targets import (
 )
 
 
-class TestSlackNotificationTargets(ClickhouseFreeSimpleTestCase):
+class TestSlackNotificationTargets(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 

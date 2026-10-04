@@ -5,7 +5,7 @@ from html import escape
 import time_machine
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -18,7 +18,6 @@ from posthog.api.csp import (
     sanitize_report_url,
 )
 from posthog.sampling import sample_on_property
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestCSPModule(TestCase):
@@ -695,7 +694,7 @@ class TestCSPModule(TestCase):
             assert result1 == result2, "Same URL+time should produce consistent sampling results within the same minute"
 
 
-class TestSanitizeReportUrl(ClickhouseFreeSimpleTestCase):
+class TestSanitizeReportUrl(SimpleTestCase):
     @parameterized.expand(
         [
             (

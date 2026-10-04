@@ -8,13 +8,12 @@ from typing import Any
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -162,7 +161,7 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         assert self._due(limit=2) == [unscored, long_ago_scored]
 
 
-class TestScoreInboxReports(ClickhouseFreeSimpleTestCase):
+class TestScoreInboxReports(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.serving = SimpleNamespace(manifest=SimpleNamespace(manifest_version=MANIFEST))

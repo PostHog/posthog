@@ -2,16 +2,14 @@ import threading
 
 import pytest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.logic.queries._curated import ConcurrentReads
 
 
-class TestConcurrentReads(ClickhouseFreeSimpleTestCase):
+class TestConcurrentReads(SimpleTestCase):
     @override_settings(TEST=False)
     def test_reads_run_together_and_return_their_results(self) -> None:
         both_started = threading.Barrier(2, timeout=5)

@@ -1,12 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic.account_views import (
@@ -28,7 +29,7 @@ def account_view_content(*components: str) -> dict:
     }
 
 
-class TestAccountViewContentValidation(ClickhouseFreeSimpleTestCase):
+class TestAccountViewContentValidation(SimpleTestCase):
     def test_rejects_span_outside_twelve_columns(self) -> None:
         with self.assertRaises(InvalidAccountViewContent) as context:
             validate_account_view_content(account_view_content('<Usage nodeId="usage-one" span={13} />'))

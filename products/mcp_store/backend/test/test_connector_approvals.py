@@ -4,11 +4,9 @@ from typing import Any, cast
 
 import time_machine
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_store.backend.connector_approvals import (
     CONNECTOR_APPROVAL_TTL_SECONDS,
@@ -19,7 +17,7 @@ from products.mcp_store.backend.connector_approvals import (
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
-class TestConnectorApprovals(ClickhouseFreeSimpleTestCase):
+class TestConnectorApprovals(SimpleTestCase):
     def setUp(self) -> None:
         self.binding = ConnectorApprovalBinding(
             team_id=1,

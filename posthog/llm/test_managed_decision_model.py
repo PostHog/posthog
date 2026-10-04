@@ -3,6 +3,8 @@ from concurrent.futures import Future
 
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from posthoganalytics.ai.prompts import PromptResult
 
@@ -13,7 +15,6 @@ from posthog.llm.managed_decision_model import (
     ManagedDecisionModel,
     model_from_config,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 NEW_MODEL = "posthog/hogference/jeeves-0.1"
 
@@ -24,7 +25,7 @@ def managed_result(model: str = NEW_MODEL) -> PromptResult:
     )
 
 
-class TestBackgroundRefresher(ClickhouseFreeSimpleTestCase):
+class TestBackgroundRefresher(SimpleTestCase):
     def test_a_request_never_waits_for_the_fetch(self) -> None:
         release = threading.Event()
         fetches: list[Future] = []
@@ -66,7 +67,7 @@ class TestBackgroundRefresher(ClickhouseFreeSimpleTestCase):
         assert refresher.current() == expected
 
 
-class TestManagedDecisionModel(ClickhouseFreeSimpleTestCase):
+class TestManagedDecisionModel(SimpleTestCase):
     def setUp(self) -> None:
         managed_decision_model.app_prompts.cache_clear()
         self.addCleanup(managed_decision_model.app_prompts.cache_clear)

@@ -8,7 +8,7 @@ from uuid import NAMESPACE_URL, uuid5
 from unittest.mock import call, patch
 
 from django.db import OperationalError
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -16,7 +16,6 @@ from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 from posthog.redis import TEST_clear_clients
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_EVENT_INGEST_TOKEN_TTL,
@@ -49,7 +48,7 @@ SKIP_COUNTER_SAMPLE = "posthog_tasks_task_run_stream_write_skipped_total"
 PROCESS_KILLED_COUNTER_SAMPLE = "posthog_tasks_sandbox_process_killed_notifications_total"
 
 
-class TestSessionUpdateContract(ClickhouseFreeSimpleTestCase):
+class TestSessionUpdateContract(SimpleTestCase):
     @parameterized.expand(
         [
             (case["name"], case["event"], case["expect"]["session_update"])

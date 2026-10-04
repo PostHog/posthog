@@ -2,12 +2,13 @@ from collections import Counter
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.schema_enums import ProductKey
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.product_push.role_affinity import (
     BASE_WEIGHT,
@@ -21,7 +22,7 @@ from products.growth.backend.product_push.role_affinity import (
 CANDIDATES = [ProductKey.ENDPOINTS, ProductKey.MARKETING_ANALYTICS, ProductKey.LOGS]
 
 
-class TestWeightsForRoles(ClickhouseFreeSimpleTestCase):
+class TestWeightsForRoles(SimpleTestCase):
     @parameterized.expand(
         [
             ("no stated roles", Counter(), [BASE_WEIGHT, BASE_WEIGHT, BASE_WEIGHT]),

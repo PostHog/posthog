@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import DatabaseError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import pytest_asyncio
@@ -23,7 +24,6 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
@@ -74,7 +74,7 @@ def _custom(**overrides) -> ScoutSuggestionItem:
     return _item(**{**base, **overrides})
 
 
-class TestSuggestionSettings(ClickhouseFreeSimpleTestCase):
+class TestSuggestionSettings(SimpleTestCase):
     @parameterized.expand(
         [
             ("absent", None, False, 1, 10),
@@ -112,7 +112,7 @@ class TestSuggestionSettings(ClickhouseFreeSimpleTestCase):
         self.assertEqual(settings.team_allowlist, frozenset({2, 4}))
 
 
-class TestValidateSuggestionItems(ClickhouseFreeSimpleTestCase):
+class TestValidateSuggestionItems(SimpleTestCase):
     @parameterized.expand(
         [
             ("unknown_canonical", _item(skill_name="signals-scout-nope")),
@@ -538,7 +538,7 @@ class TestPlanSuggestionRuns(BaseTest):
         self.assertEqual([run.team_id for run in planned], [project.id])
 
 
-class TestTeamIsActiveEnough(ClickhouseFreeSimpleTestCase):
+class TestTeamIsActiveEnough(SimpleTestCase):
     @parameterized.expand(
         [
             ("over_both_lines", 500, 7, False, 100, 3, True),

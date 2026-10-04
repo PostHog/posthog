@@ -1,10 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.tasks.backend.constants import (
@@ -42,7 +40,7 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 
-class TestRuntimeModelCapabilities(ClickhouseFreeSimpleTestCase):
+class TestRuntimeModelCapabilities(SimpleTestCase):
     def test_glm_5_3_supports_claude_reasoning_efforts(self) -> None:
         for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash"):
             assert model in get_models_for_runtime_adapter("claude")
@@ -68,7 +66,7 @@ class TestRuntimeModelCapabilities(ClickhouseFreeSimpleTestCase):
             )
 
 
-class TestRunStateModelAccess(ClickhouseFreeSimpleTestCase):
+class TestRunStateModelAccess(SimpleTestCase):
     @parameterized.expand(
         [
             ({}, "posthog-gateway", None),
@@ -106,7 +104,7 @@ class TestRunStateModelAccess(ClickhouseFreeSimpleTestCase):
             _ = RunState.model_validate(state).model_access
 
 
-class TestRunStateResumeCompatibility(ClickhouseFreeSimpleTestCase):
+class TestRunStateResumeCompatibility(SimpleTestCase):
     @parameterized.expand(
         [
             ("resume", {"handoff_resumed": True}, True, False),
@@ -215,7 +213,7 @@ class TestRunStateSnapshotPaths(TestCase):
         assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
-class TestGetSandboxMcpConfigs(ClickhouseFreeSimpleTestCase):
+class TestGetSandboxMcpConfigs(SimpleTestCase):
     TOKEN = "phx_test_token"
     PROJECT_ID = 42
 
@@ -421,7 +419,7 @@ class TestGetSandboxMcpConfigs(ClickhouseFreeSimpleTestCase):
             assert all(header["name"] != "x-posthog-exclude-tools" for header in omitted[0].headers)
 
 
-class TestMcpExcludeTools(ClickhouseFreeSimpleTestCase):
+class TestMcpExcludeTools(SimpleTestCase):
     @parameterized.expand(
         [
             (["docs-search", "DOCS-SEARCH", "not a tool"], ["docs-search"]),
@@ -474,7 +472,7 @@ class TestMcpServerConfigToDict(TestCase):
         }
 
 
-class TestFetchUserMcpServerConfigs(ClickhouseFreeSimpleTestCase):
+class TestFetchUserMcpServerConfigs(SimpleTestCase):
     TOKEN = "phx_test_token"
     TEAM_ID = 42
     USER_ID = 7
@@ -1369,7 +1367,7 @@ class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
         self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
 
 
-class TestBuildSandboxEnvironmentVariables(ClickhouseFreeSimpleTestCase):
+class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
@@ -1577,7 +1575,7 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
         assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is False
 
 
-class TestMcpExecSkillsEnvVars(ClickhouseFreeSimpleTestCase):
+class TestMcpExecSkillsEnvVars(SimpleTestCase):
     @parameterized.expand(
         [
             ("web_phai_flag_on", "posthog_ai", None, True, True),

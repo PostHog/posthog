@@ -1,15 +1,15 @@
 from typing import Any
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
-
 from .. import NULL_MARKER, TRUNCATED_MARKER, SQLResultsFormatter
 
 
-class TestSQLResultsFormatter(ClickhouseFreeSimpleTestCase):
+class TestSQLResultsFormatter(SimpleTestCase):
     @parameterized.expand([511, 512, 513])
     def test_preview_at_total_budget_boundary(self, total_chars: int) -> None:
         rows = [{"a": "x" * 250, "b": "y" * (total_chars - 255)}]

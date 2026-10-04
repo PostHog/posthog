@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.business_knowledge.backend.logic import KnowledgeSearchResult
 from products.conversations.backend.playbook import (
@@ -26,7 +26,7 @@ from products.conversations.backend.temporal.ai_reply.activities.draft import (
 )
 
 
-class TestComposeSupportPlaybook(ClickhouseFreeSimpleTestCase):
+class TestComposeSupportPlaybook(SimpleTestCase):
     def test_inherited_generic_default(self):
         playbook = compose_support_playbook()
         assert playbook.layers == (LAYER_DEFAULT,)
@@ -97,7 +97,7 @@ class TestComposeSupportPlaybook(ClickhouseFreeSimpleTestCase):
         assert playbook.warnings == (WARNING_CUSTOM_INVALID,)
 
 
-class TestDraftPlaybookHelpers(ClickhouseFreeSimpleTestCase):
+class TestDraftPlaybookHelpers(SimpleTestCase):
     def test_chunk_labels(self):
         text = format_knowledge_chunks(
             [

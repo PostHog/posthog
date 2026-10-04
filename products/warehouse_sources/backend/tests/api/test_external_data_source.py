@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
 
 from django.conf import settings
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -28,7 +28,6 @@ from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, 
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
@@ -14337,7 +14336,7 @@ _PREVIEW_MANIFEST = {
 }
 
 
-class TestGetCredentialAccountFieldNames(ClickhouseFreeSimpleTestCase):
+class TestGetCredentialAccountFieldNames(SimpleTestCase):
     """This set is the allowlist the credential accounts endpoint enforces, so a field it fails to
     find is one the picker can never send, and a field it wrongly includes is one a caller can push
     into `parse_config`."""
@@ -14641,7 +14640,7 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert source.created_via == ExternalDataSource.CreatedVia.MCP
 
 
-class TestGetDirectConnectionMetadata(ClickhouseFreeSimpleTestCase):
+class TestGetDirectConnectionMetadata(SimpleTestCase):
     def _source_impl(self, error: Exception, non_retryable: dict | None = None) -> Mock:
         impl = Mock()
         impl.get_connection_metadata.side_effect = error
@@ -14673,7 +14672,7 @@ class TestGetDirectConnectionMetadata(ClickhouseFreeSimpleTestCase):
         mock_capture.assert_called_once_with(error)
 
 
-class TestHasPreservedCredentials(ClickhouseFreeSimpleTestCase):
+class TestHasPreservedCredentials(SimpleTestCase):
     # A group declared with a hyphen is persisted under its underscore variant, so a gate that
     # only looked up the declared spelling would miss the stored secret and let a host change
     # through without forcing re-entry.
@@ -15016,7 +15015,7 @@ class TestFanoutParentCreation(APIBaseTest):
         assert ExternalDataSchema.objects.get(team_id=self.team.pk, name="issue_events").should_sync is True
 
 
-class TestRefreshSchemasErrorClassification(ClickhouseFreeSimpleTestCase):
+class TestRefreshSchemasErrorClassification(SimpleTestCase):
     def test_a_rejected_host_returns_the_guidance_without_a_source_registry(self) -> None:
         message, is_expected = _classify_refresh_schemas_error(
             None, HostNotAllowedError("Database host not allowed: resolves to a private address")

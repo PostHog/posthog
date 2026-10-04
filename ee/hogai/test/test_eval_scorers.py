@@ -1,5 +1,7 @@
 import json
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from pydantic import BaseModel
 
@@ -12,12 +14,10 @@ from posthog.schema import (
     NodeKind,
 )
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
-
 from ee.hogai.eval.scorers import MAX_JUDGE_JSON_SCHEMA_CHARS, ToolRelevance, build_judge_json_schema
 
 
-class TestBuildJudgeJsonSchema(ClickhouseFreeSimpleTestCase):
+class TestBuildJudgeJsonSchema(SimpleTestCase):
     @parameterized.expand(
         [
             (NodeKind.TRENDS_QUERY, AssistantTrendsQuery),
@@ -34,7 +34,7 @@ class TestBuildJudgeJsonSchema(ClickhouseFreeSimpleTestCase):
         self.assertEqual(json.loads(json_schema_str)["title"], query_model.__name__)
 
 
-class TestToolRelevance(ClickhouseFreeSimpleTestCase):
+class TestToolRelevance(SimpleTestCase):
     def test_returns_zero_when_the_assistant_makes_no_tool_calls(self) -> None:
         expected = AssistantToolCall(id="expected", name="create_insight", args={"query": "pageviews"})
 

@@ -3,11 +3,12 @@ from urllib.parse import urlparse
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import requests
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
@@ -30,7 +31,7 @@ from products.mcp_store.backend.oauth import (
 )
 
 
-class TestRefreshOauthToken(ClickhouseFreeSimpleTestCase):
+class TestRefreshOauthToken(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -150,7 +151,7 @@ class TestRefreshOauthToken(ClickhouseFreeSimpleTestCase):
         self.assertIn("SSRF protection", str(ctx.exception))
 
 
-class TestIssuerValidation(ClickhouseFreeSimpleTestCase):
+class TestIssuerValidation(SimpleTestCase):
     def _make_response(self, *, ok=True, status_code=200, json_data=None):
         resp = MagicMock()
         resp.ok = ok
@@ -504,7 +505,7 @@ class TestIssuerValidation(ClickhouseFreeSimpleTestCase):
             discover_oauth_metadata("https://mcp.legit.com/mcp")
 
 
-class TestRegisterDCRClient(ClickhouseFreeSimpleTestCase):
+class TestRegisterDCRClient(SimpleTestCase):
     @parameterized.expand(
         [
             ("public_client", False),

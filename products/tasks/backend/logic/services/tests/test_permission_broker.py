@@ -4,8 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
@@ -16,7 +15,7 @@ from products.tasks.backend.models import Task, TaskRun
 BROKER = "products.tasks.backend.logic.services.permission_broker"
 
 
-class TestParsePermissionRequest(ClickhouseFreeSimpleTestCase):
+class TestParsePermissionRequest(SimpleTestCase):
     def test_parses_bare_and_notification_shapes(self) -> None:
         bare = {
             "type": "permission_request",

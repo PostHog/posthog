@@ -4,13 +4,14 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend import flag_evaluations_mode
@@ -514,7 +515,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(get_organization_flag_evaluations_mode(self.organization.id), FlagEvaluationsMode.EVENTS)
 
 
-class TestStaffFlagEvaluationsModeMutationSerializer(ClickhouseFreeSimpleTestCase):
+class TestStaffFlagEvaluationsModeMutationSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing", {}),
@@ -529,7 +530,7 @@ class TestStaffFlagEvaluationsModeMutationSerializer(ClickhouseFreeSimpleTestCas
         self.assertIn("team_ids", serializer.errors)
 
 
-class TestStaffTeamConfigMutationSerializerBounds(ClickhouseFreeSimpleTestCase):
+class TestStaffTeamConfigMutationSerializerBounds(SimpleTestCase):
     # Field-level validation only, no DB, because validating a body never reaches the object-level
     # validate() or the viewset. A regression that drops min_value/max_value from the
     # serializer field (or the neither-field validate() check) would still pass every

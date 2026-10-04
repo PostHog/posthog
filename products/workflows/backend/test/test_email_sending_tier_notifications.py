@@ -1,10 +1,8 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.workflows.backend.services.email_sending_tier import TierDecision
 from products.workflows.backend.services.email_sending_tier_notifications import notify_email_sending_tier_changes
@@ -20,7 +18,7 @@ def _promotion() -> TierDecision:
     return TierDecision(team_id=1, previous_tier=2, new_tier=3, reason="clean_and_used")
 
 
-class TestNotifyEmailSendingTierChanges(ClickhouseFreeSimpleTestCase):
+class TestNotifyEmailSendingTierChanges(SimpleTestCase):
     def setUp(self) -> None:
         create_patch = patch(f"{NOTIFICATIONS_MODULE}.create_notification")
         email_patch = patch(f"{NOTIFICATIONS_MODULE}.send_email_sending_tier_demoted")

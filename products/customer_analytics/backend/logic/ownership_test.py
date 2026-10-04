@@ -1,8 +1,8 @@
 from typing import get_args
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import (
@@ -12,7 +12,7 @@ from products.customer_analytics.backend.facade.enums import (
 )
 
 
-class TestOwnershipVocabulary(ClickhouseFreeSimpleTestCase):
+class TestOwnershipVocabulary(SimpleTestCase):
     @parameterized.expand(
         [
             (OwnershipRoleState, contracts.OwnershipRoleStateValue),

@@ -4,7 +4,7 @@ from typing import Literal, NoReturn
 import pytest
 from unittest.mock import Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer
 from parameterized import parameterized
@@ -14,7 +14,6 @@ from rest_framework import serializers, status
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class EventCaptureRequestSerializer(serializers.Serializer):
@@ -69,7 +68,7 @@ class RequiresFlavorSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
 
 
-class TestValidatedRequestDecorator(ClickhouseFreeSimpleTestCase):
+class TestValidatedRequestDecorator(SimpleTestCase):
     def test_request_validation_with_valid_event_data(self):
         """All valid data, should return 200 OK"""
 

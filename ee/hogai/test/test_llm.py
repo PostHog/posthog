@@ -7,6 +7,8 @@ from pathlib import Path
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import httpx
 import anthropic
 from langchain_anthropic import ChatAnthropic
@@ -17,7 +19,6 @@ from parameterized import parameterized
 from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.settings import BASE_DIR
 from posthog.temporal.ai.chat_agent import CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.hogai.llm import (
     AI_GATEWAY_FALLBACK_COUNTER,
@@ -574,7 +575,7 @@ class TestMaxChatOpenAI(BaseTest):
         self.assertTrue(callable(ChatAnthropic.__dict__["_async_client"].func))
 
 
-class TestProjectOrgUserContextPrompt(ClickhouseFreeSimpleTestCase):
+class TestProjectOrgUserContextPrompt(SimpleTestCase):
     """`PROJECT_ORG_USER_CONTEXT_PROMPT` is the only place the assistant learns app URL patterns
     from, and nothing else validates the settings section IDs it names against the real ones. A
     plausible-but-fake ID such as `/settings/project-members` (members live at

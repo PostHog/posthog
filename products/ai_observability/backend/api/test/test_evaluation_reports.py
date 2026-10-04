@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -17,7 +18,6 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluation_reports import EvaluationReportRunSerializer
@@ -25,7 +25,7 @@ from products.ai_observability.backend.models.evaluation_reports import Evaluati
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
 
-class TestEvaluationReportRunSerializer(ClickhouseFreeSimpleTestCase):
+class TestEvaluationReportRunSerializer(SimpleTestCase):
     def test_normalizes_legacy_metrics_without_backfilling_stored_json(self) -> None:
         legacy_metrics = {
             "total_runs": 10,

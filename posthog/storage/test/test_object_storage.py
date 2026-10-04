@@ -5,6 +5,8 @@ from urllib.parse import unquote
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import requests
 from boto3 import resource
 from botocore.client import Config
@@ -33,7 +35,6 @@ from posthog.storage.object_storage import (
     read,
     write,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 TEST_BUCKET = "test_storage_bucket"
 
@@ -275,7 +276,7 @@ class TestStorage(APIBaseTest):
         assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
 
 
-class TestObjectStorageStrictHead(ClickhouseFreeSimpleTestCase):
+class TestObjectStorageStrictHead(SimpleTestCase):
     def test_returns_none_only_for_missing_objects(self) -> None:
         mock_client = MagicMock()
         error_response = {
@@ -296,7 +297,7 @@ class TestObjectStorageStrictHead(ClickhouseFreeSimpleTestCase):
             storage.head_object_strict("test-bucket", "test-key")
 
 
-class TestObjectStorageClientFactory(ClickhouseFreeSimpleTestCase):
+class TestObjectStorageClientFactory(SimpleTestCase):
     def setUp(self) -> None:
         object_storage_module._client = UnavailableStorage()
         self.addCleanup(setattr, object_storage_module, "_client", UnavailableStorage())

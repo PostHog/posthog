@@ -5,18 +5,17 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.contrib import admin as django_admin
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.context_layer.backend.admin import ContextLayerConfigAdmin
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.temporal import dreaming
 
 
-class TestDreamPrompt(ClickhouseFreeSimpleTestCase):
+class TestDreamPrompt(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -57,7 +56,7 @@ class TestDreamPrompt(ClickhouseFreeSimpleTestCase):
         assert "name: context-layer-dreaming" not in prompt
 
 
-class TestDreamCandidates(ClickhouseFreeSimpleTestCase):
+class TestDreamCandidates(SimpleTestCase):
     def test_fetch_candidates_caps_each_tick_at_one_thousand(self) -> None:
         configs = [MagicMock(last_dream_started_at=None, organization_id=index) for index in range(1001)]
         queryset = MagicMock()

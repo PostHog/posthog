@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import pytest_asyncio
@@ -31,7 +32,6 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
@@ -369,7 +369,7 @@ class TestSkillLoader(BaseTest):
         assert is_signals_scout_skill(non_match) is False
 
 
-class TestReportChartsSection(ClickhouseFreeSimpleTestCase):
+class TestReportChartsSection(SimpleTestCase):
     def test_worked_example_is_the_json_it_claims_to_be(self) -> None:
         # The section is an f-string, so every brace in the example is doubled. A single brace is
         # not a syntax error: `{"kind"}` is a valid set expression, so a mistyped example renders as
@@ -408,7 +408,7 @@ class TestReportChartsSection(ClickhouseFreeSimpleTestCase):
         assert breakdown_column != sql_chart["chartSettings"]["xAxis"]["column"]
 
 
-class TestPromptCacheablePrefix(ClickhouseFreeSimpleTestCase):
+class TestPromptCacheablePrefix(SimpleTestCase):
     @parameterized.expand(
         [
             ("signal_canonical", [], "canonical", False, False),
@@ -486,7 +486,7 @@ class TestPromptCacheablePrefix(ClickhouseFreeSimpleTestCase):
             assert value not in head, f"{value} interpolated above the per-run block"
 
 
-class TestCheckoutSection(ClickhouseFreeSimpleTestCase):
+class TestCheckoutSection(SimpleTestCase):
     def test_it_states_that_the_tree_carries_full_history(self) -> None:
         # Provisioning clones a pinned repository with its history, but a skill body that cannot
         # read that from the prompt probes the tree and pays an unshallow fetch of minutes and
@@ -497,7 +497,7 @@ class TestCheckoutSection(ClickhouseFreeSimpleTestCase):
         assert "git blame" in section
 
 
-class TestCloseOutTaskSummary(ClickhouseFreeSimpleTestCase):
+class TestCloseOutTaskSummary(SimpleTestCase):
     @parameterized.expand(
         [
             ("signal", []),
@@ -543,7 +543,7 @@ class TestCloseOutTaskSummary(ClickhouseFreeSimpleTestCase):
         assert scout_prompt._TASK_SUMMARY_TOOL_ID in how_to_call_tools
 
 
-class TestCloseOutSummaryToolContract(ClickhouseFreeSimpleTestCase):
+class TestCloseOutSummaryToolContract(SimpleTestCase):
     _HARNESS_ROOT = Path(__file__).parents[4] / "packages/agent/packages/harness/src/extensions"
 
     def test_prompt_names_the_tool_the_harness_registers(self) -> None:
@@ -560,7 +560,7 @@ class TestCloseOutSummaryToolContract(ClickhouseFreeSimpleTestCase):
         assert scout_prompt._TASK_SUMMARY_TOOL_ID == f"mcp__{server_name.group(1)}__{tool_name.group(1)}"
 
 
-class TestPromptCrossReferences(ClickhouseFreeSimpleTestCase):
+class TestPromptCrossReferences(SimpleTestCase):
     @parameterized.expand(
         [
             ("signal_canonical", [], "canonical", False),
@@ -611,7 +611,7 @@ class TestPromptCrossReferences(ClickhouseFreeSimpleTestCase):
         assert referenced <= headings, f"dangling cross-references: {sorted(referenced - headings)}"
 
 
-class TestHarnessPromptVersionInputs(ClickhouseFreeSimpleTestCase):
+class TestHarnessPromptVersionInputs(SimpleTestCase):
     def test_every_imported_value_the_templates_render_is_hashed_into_the_version(self) -> None:
         # The version hashes this module's source plus `_RENDERED_IMPORTS`. A constant a template
         # interpolates but the map omits changes what every scout is told while the digest stays
@@ -629,7 +629,7 @@ class TestHarnessPromptVersionInputs(ClickhouseFreeSimpleTestCase):
         assert not missing, f"interpolated imports missing from _RENDERED_IMPORTS: {missing}"
 
 
-class TestStructuredOutputPromptSection(ClickhouseFreeSimpleTestCase):
+class TestStructuredOutputPromptSection(SimpleTestCase):
     _SCHEMA = {
         "type": "object",
         "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}},
@@ -678,7 +678,7 @@ class TestStructuredOutputPromptSection(ClickhouseFreeSimpleTestCase):
         assert "scout-record-output" not in without_schema
 
 
-class TestRunNotePromptSection(ClickhouseFreeSimpleTestCase):
+class TestRunNotePromptSection(SimpleTestCase):
     def _prompt(self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE) -> str:
         return build_run_prompt(
             LoadedSkill(
@@ -733,7 +733,7 @@ class TestRunNotePromptSection(ClickhouseFreeSimpleTestCase):
         assert "# A note for this run" not in prompt
 
 
-class TestExternalMcpServersPromptSection(ClickhouseFreeSimpleTestCase):
+class TestExternalMcpServersPromptSection(SimpleTestCase):
     def _prompt(self, mcp_server_names: list[str] | None) -> str:
         return build_run_prompt(
             LoadedSkill(
@@ -789,7 +789,7 @@ class TestExternalMcpServersPromptSection(ClickhouseFreeSimpleTestCase):
         assert "5 more this listing omits" in capped
 
 
-class TestBusinessKnowledgePromptSection(ClickhouseFreeSimpleTestCase):
+class TestBusinessKnowledgePromptSection(SimpleTestCase):
     # Each channel assembles its own tail list, so the gate can be lost or inverted on one
     # channel alone.
     @parameterized.expand(
@@ -836,7 +836,7 @@ class TestBusinessKnowledgePromptSection(ClickhouseFreeSimpleTestCase):
         assert "business-knowledge-document-window-retrieve" not in unmaintained
 
 
-class TestWriteAccessPromptSection(ClickhouseFreeSimpleTestCase):
+class TestWriteAccessPromptSection(SimpleTestCase):
     # Each channel assembles its own tail list, so the gate can be lost on one channel alone.
     @parameterized.expand(
         [

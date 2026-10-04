@@ -1,13 +1,13 @@
 """Unit tests for the pure helpers in fetch_rows (no ClickHouse needed)."""
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.surveys.backend.responses.fetch_rows import build_choice_translation_map
 
 
-class TestBuildChoiceTranslationMap(ClickhouseFreeSimpleTestCase):
+class TestBuildChoiceTranslationMap(SimpleTestCase):
     @parameterized.expand(
         [
             (

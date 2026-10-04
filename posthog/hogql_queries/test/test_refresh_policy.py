@@ -3,13 +3,13 @@ from typing import cast
 from unittest import mock
 
 from django.http import HttpRequest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _request(refresh: str | None = None) -> Request:
@@ -18,7 +18,7 @@ def _request(refresh: str | None = None) -> Request:
     return drf_request
 
 
-class TestResolveExecutionMode(ClickhouseFreeSimpleTestCase):
+class TestResolveExecutionMode(SimpleTestCase):
     @parameterized.expand([(surface,) for surface in ComputeSurface])
     def test_default_is_cache_only_for_every_surface(self, surface: ComputeSurface) -> None:
         # Parity snapshot: with no client refresh param, every surface is cache-only today.

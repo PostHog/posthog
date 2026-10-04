@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.db import OperationalError
 from django.http import HttpResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import jwt
@@ -51,7 +51,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -5491,7 +5490,7 @@ class TestOAuthFunnelInstrumentation(APIBaseTest):
         self.assertIs(issued[0].kwargs["properties"]["$process_person_profile"], False)
 
 
-class TestTokenErrorCode(ClickhouseFreeSimpleTestCase):
+class TestTokenErrorCode(SimpleTestCase):
     @parameterized.expand(
         [
             ("json_error", 400, b'{"error": "invalid_grant"}', "invalid_grant"),
@@ -5752,7 +5751,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertNotIn("events_endpoint", metadata["agent_auth"])
 
 
-class TestOpenIDProviderMetadata(ClickhouseFreeSimpleTestCase):
+class TestOpenIDProviderMetadata(SimpleTestCase):
     """Tests for the OpenID Provider Metadata document (OIDC Discovery 1.0)."""
 
     def test_advertises_the_claims_the_userinfo_endpoint_returns(self):
@@ -5877,7 +5876,7 @@ class TestOAuthProtectedResourceMetadata(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
-class TestOIDCInactiveKeysSetting(ClickhouseFreeSimpleTestCase):
+class TestOIDCInactiveKeysSetting(SimpleTestCase):
     """OIDC_RSA_PRIVATE_KEYS_INACTIVE is assembled from two env vars so multi-line PEMs
     don't need delimiter parsing. Only keys that are actually set may be included — an
     empty entry would break the JWKS endpoint (see test_jwks_endpoint_errors_when_an_inactive_key_is_empty).

@@ -1,8 +1,8 @@
 from typing import Any
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact, find_variable_references
 
@@ -21,7 +21,7 @@ def _continue_edge(source: str, target: str) -> dict:
     return {"from": source, "to": target, "type": "continue"}
 
 
-class TestFindVariableReferences(ClickhouseFreeSimpleTestCase):
+class TestFindVariableReferences(SimpleTestCase):
     @parameterized.expand(
         [
             ("hog_dot", {"inputs": {"url": {"value": "{variables.foo}"}}}, {"foo"}),
@@ -44,7 +44,7 @@ class TestFindVariableReferences(ClickhouseFreeSimpleTestCase):
         assert find_variable_references({"inputs": {"shallow": "{variables.ok}", "deep": deep}}) == {"ok"}
 
 
-class TestBuildPublishImpact(ClickhouseFreeSimpleTestCase):
+class TestBuildPublishImpact(SimpleTestCase):
     def _base(self, **overrides: Any) -> dict:
         kwargs: dict[str, Any] = {
             "live_actions": [_action("trigger"), _action("a"), _action("b"), _action("c")],

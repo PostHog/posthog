@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import (
@@ -16,7 +18,6 @@ from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import 
     enrich_conversations_slack_page_activity,
     prepare_conversations_slack_update_record,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.billing.salesforce_enrichment.conversations_signals import ConversationsSlackSignals
 from ee.billing.salesforce_enrichment.enrichment import BulkUpdateResult
@@ -67,7 +68,7 @@ def _signals(
     )
 
 
-class TestPrepareConversationsSlackUpdateRecord(ClickhouseFreeSimpleTestCase):
+class TestPrepareConversationsSlackUpdateRecord(SimpleTestCase):
     def test_formats_datetime_fields_per_salesforce_field_type(self):
         record = prepare_conversations_slack_update_record("001ABC", _signals())
 
@@ -100,7 +101,7 @@ class TestPrepareConversationsSlackUpdateRecord(ClickhouseFreeSimpleTestCase):
         assert record == {"Id": "001ABC", "slack_issue_count__c": 0}
 
 
-class TestWorkflowParseInputs(ClickhouseFreeSimpleTestCase):
+class TestWorkflowParseInputs(SimpleTestCase):
     def test_defaults(self):
         inputs = SalesforceConversationsSlackEnrichmentWorkflow.parse_inputs(["{}"])
 
@@ -135,7 +136,7 @@ class TestWorkflowParseInputs(ClickhouseFreeSimpleTestCase):
             SalesforceConversationsSlackEnrichmentWorkflow.parse_inputs(["invalid"])
 
 
-class TestEnrichConversationsSlackPageActivity(ClickhouseFreeSimpleTestCase):
+class TestEnrichConversationsSlackPageActivity(SimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=2, failed=0))
@@ -264,7 +265,7 @@ class TestEnrichConversationsSlackPageActivity(ClickhouseFreeSimpleTestCase):
         assert result == EnrichConversationsSlackPageResult(page_size=0, processed=0, updated=0, errors=[])
 
 
-class TestProductionModeContinueAsNew(ClickhouseFreeSimpleTestCase):
+class TestProductionModeContinueAsNew(SimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_continues_as_new_when_page_is_full(self, mock_workflow):

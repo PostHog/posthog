@@ -1,10 +1,10 @@
 from django.db import models
 from django.db.migrations.writer import MigrationWriter
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.enums import LabeledIntEnum, LabeledStrEnum
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class QuestionType(LabeledStrEnum):
@@ -29,7 +29,7 @@ class LevelChoices(models.IntegerChoices):
     CAN_EDIT = 37
 
 
-class TestLabeledEnums(ClickhouseFreeSimpleTestCase):
+class TestLabeledEnums(SimpleTestCase):
     @parameterized.expand([("str", QuestionType, QuestionTypeChoices), ("int", Level, LevelChoices)])
     def test_matches_the_django_choices_class_with_the_same_body(
         self,

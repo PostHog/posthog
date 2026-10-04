@@ -1,14 +1,14 @@
 from uuid import UUID
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.autoresearch.backend.signals import on_task_run_saved
 from products.tasks.backend.facade.api import TaskRunStatus
 
 
-class TestOnTaskRunSaved(ClickhouseFreeSimpleTestCase):
+class TestOnTaskRunSaved(SimpleTestCase):
     @parameterized.expand([(["autoresearch_training_run_id"],), ("running",), (7,)])
     def test_non_object_task_run_state_does_not_raise(self, state) -> None:
         # Raising here would roll back the caller's terminal-status transaction.

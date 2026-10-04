@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.web_analytics.backend.recap import _build_highlights, compute_persona
 
@@ -25,7 +25,7 @@ def _digest(**overrides):
     return base
 
 
-class TestComputePersona(ClickhouseFreeSimpleTestCase):
+class TestComputePersona(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -146,7 +146,7 @@ class TestComputePersona(ClickhouseFreeSimpleTestCase):
         assert "  " not in persona["blurb"]
 
 
-class TestBuildHighlights(ClickhouseFreeSimpleTestCase):
+class TestBuildHighlights(SimpleTestCase):
     def test_empty_digest_has_no_highlights(self):
         assert _build_highlights(_digest(visitors=_metric(0))) == []
 

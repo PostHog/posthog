@@ -1,11 +1,11 @@
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import structlog
 from parameterized import parameterized
 from requests import Response
 from requests.exceptions import HTTPError
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buy_me_a_coffee.source import BuyMeACoffeeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 
-class TestBuyMeACoffeeSource(ClickhouseFreeSimpleTestCase):
+class TestBuyMeACoffeeSource(SimpleTestCase):
     def test_unknown_credential_schema_is_rejected_without_http(self) -> None:
         with patch("requests.sessions.Session.send") as send:
             valid, error = BuyMeACoffeeSource().validate_credentials(

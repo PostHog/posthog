@@ -3,7 +3,7 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -21,7 +21,6 @@ from posthog.llm.system_one import (
     Question,
     SystemOneNotConfigured,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _FAKE_API_KEY = "fake-key-for-tests"
 
@@ -65,7 +64,7 @@ def _with_answer(question_id: str, answer: dict[str, Any]) -> str:
 
 
 @override_settings(TYPESAFE_API_KEY=_FAKE_API_KEY, CLOUD_DEPLOYMENT="LOCAL")
-class TestTypeSafeEgress(ClickhouseFreeSimpleTestCase):
+class TestTypeSafeEgress(SimpleTestCase):
     @parameterized.expand(["US", "EU", "DEV", "E2E", "us", "eu", "dev", "e2e"])
     def test_cloud_never_calls_typesafe_even_with_a_key(self, deployment: str) -> None:
         with (

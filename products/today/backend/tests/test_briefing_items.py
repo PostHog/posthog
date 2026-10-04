@@ -3,8 +3,9 @@ from datetime import UTC, date, datetime
 
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from posthog.models import Team, User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import BriefingStatus, ItemGroup, ItemReason, ItemSource, ItemState
@@ -59,7 +60,7 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
     )
 
 
-class TestBriefingItemStates(ClickhouseFreeSimpleTestCase):
+class TestBriefingItemStates(SimpleTestCase):
     def test_items_show_what_was_resolved_or_dismissed_since_the_briefing_was_written(self) -> None:
         items = [
             _item(RESOLVED_REPORT),

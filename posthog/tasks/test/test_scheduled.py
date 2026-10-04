@@ -1,13 +1,12 @@
 from unittest.mock import MagicMock
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
 from posthog.celery import app
 from posthog.tasks.scheduled import instance_spread_minute, setup_periodic_tasks
 from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestScheduledTasks(TestCase):
@@ -21,7 +20,7 @@ class TestScheduledTasks(TestCase):
             assert exc is None, exc
 
 
-class TestPrivacyTaskScheduling(ClickhouseFreeSimpleTestCase):
+class TestPrivacyTaskScheduling(SimpleTestCase):
     @parameterized.expand([("disabled", "", 0), ("enabled", "test-table", 1)])
     def test_privacy_schedule_requires_configured_worker(self, _name: str, table: str, expected_count: int) -> None:
         sender = MagicMock()
@@ -37,7 +36,7 @@ class TestPrivacyTaskScheduling(ClickhouseFreeSimpleTestCase):
             self.assertEqual(calls[0].args[1].type.queue, "ai_research_privacy")
 
 
-class TestLLMGatewayQuotaReconcileScheduling(ClickhouseFreeSimpleTestCase):
+class TestLLMGatewayQuotaReconcileScheduling(SimpleTestCase):
     def test_the_reconcile_runs_every_15_minutes(self) -> None:
         sender = MagicMock()
         setup_periodic_tasks(sender)
@@ -52,7 +51,7 @@ class TestLLMGatewayQuotaReconcileScheduling(ClickhouseFreeSimpleTestCase):
         self.assertEqual(signature.task, reconcile_llm_gateway_quota_projection.name)
 
 
-class TestInstanceSpreadMinute(ClickhouseFreeSimpleTestCase):
+class TestInstanceSpreadMinute(SimpleTestCase):
     def test_one_installation_keeps_its_minute_in_every_process(self) -> None:
         # A literal, because the minute has to survive a beat restart. A hash that
         # is only stable inside one process, such as the built-in hash(), passes an

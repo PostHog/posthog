@@ -1,11 +1,10 @@
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.canvas.backend import teaching
 from products.canvas.backend.models import Canvas
@@ -14,7 +13,7 @@ from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.tasks.backend.models import Channel
 
 
-class TestTeachingTourProject(ClickhouseFreeSimpleTestCase):
+class TestTeachingTourProject(SimpleTestCase):
     def test_seed_project_passes_source_validation(self):
         diagnostics = validate_source_project(teaching.teaching_tour_project(), kind="freeform")
         assert not has_errors(diagnostics), diagnostics

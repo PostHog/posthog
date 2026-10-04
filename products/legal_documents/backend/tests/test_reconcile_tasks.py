@@ -1,11 +1,12 @@
+from django.test import SimpleTestCase
+
 from posthog.celery import app
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.legal_documents.backend.facade import api as legal_api
 from products.legal_documents.backend.tasks.tasks import archive_signed_legal_document_pdf
 
 
-class TestArchiveSignedLegalDocumentPdfRetryConfig(ClickhouseFreeSimpleTestCase):
+class TestArchiveSignedLegalDocumentPdfRetryConfig(SimpleTestCase):
     def test_registered_under_pinned_name(self) -> None:
         # facade/tasks.py re-exports this task by name rather than import path, so a
         # rename that drops registration under the pinned name would silently break

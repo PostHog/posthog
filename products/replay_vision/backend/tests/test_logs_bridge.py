@@ -2,7 +2,7 @@ import io
 
 from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import structlog
 from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsServiceRequest
@@ -10,7 +10,6 @@ from opentelemetry.proto.collector.logs.v1.logs_service_pb2 import ExportLogsSer
 from posthog import otel_logs
 from posthog.otel_logs import reset_otel_logs_for_tests
 from posthog.temporal.common.logger import configure_logger
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.replay_vision.backend.temporal.logs import (
     VISION_LOG_ATTRIBUTE_ALLOWLIST,
@@ -20,7 +19,7 @@ from products.replay_vision.backend.temporal.logs import (
 )
 
 
-class TestVisionLogMirror(ClickhouseFreeSimpleTestCase):
+class TestVisionLogMirror(SimpleTestCase):
     def setUp(self) -> None:
         reset_otel_logs_for_tests()
         self._structlog_config = structlog.get_config()

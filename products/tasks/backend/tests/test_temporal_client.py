@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, Mock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -9,7 +9,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.client import (
@@ -27,7 +26,7 @@ from products.tasks.backend.temporal.constants import (
 
 
 @override_settings(DEBUG=False)
-class TestSignalTaskFollowupMessage(ClickhouseFreeSimpleTestCase):
+class TestSignalTaskFollowupMessage(SimpleTestCase):
     @parameterized.expand(
         [
             (

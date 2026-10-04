@@ -5,7 +5,7 @@ import pytest
 from unittest import mock
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import jwt
 import requests
@@ -25,7 +25,6 @@ from posthog.integration_secrets.errors import (
     SecretMissingError,
 )
 from posthog.jwt import PosthogJwtAudience
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SERVICE_SETTINGS: dict[str, Any] = {
     "INTEGRATION_SERVICE_URL": "http://integration-service.posthog.svc.cluster.local",
@@ -59,7 +58,7 @@ def steady(value: str) -> dict[str, Any]:
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestIntegrationSecretsClient(ClickhouseFreeSimpleTestCase):
+class TestIntegrationSecretsClient(SimpleTestCase):
     def setUp(self) -> None:
         self.secrets = IntegrationSecretsClient()
         flag = patch(FLAG, return_value=True)
@@ -213,7 +212,7 @@ class TestIntegrationSecretsClient(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestRolloutFlag(ClickhouseFreeSimpleTestCase):
+class TestRolloutFlag(SimpleTestCase):
     def setUp(self) -> None:
         self.secrets = IntegrationSecretsClient()
 
@@ -256,7 +255,7 @@ class TestRolloutFlag(ClickhouseFreeSimpleTestCase):
             assert integration_service_enabled() is expected
 
 
-class TestUnconfigured(ClickhouseFreeSimpleTestCase):
+class TestUnconfigured(SimpleTestCase):
     """Self-hosted and local dev: no service, read the environment exactly as before."""
 
     @override_settings(INTEGRATION_SERVICE_URL="", INTEGRATION_SERVICE_JWT_SECRET="")
@@ -274,7 +273,7 @@ class TestUnconfigured(ClickhouseFreeSimpleTestCase):
         assert "unconfigured" in str(excinfo.value)
 
 
-class TestHalfConfigured(ClickhouseFreeSimpleTestCase):
+class TestHalfConfigured(SimpleTestCase):
     """One variable without the other: refuse, rather than silently reading the environment."""
 
     @parameterized.expand(
@@ -313,7 +312,7 @@ class TestHalfConfigured(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestMintedToken(ClickhouseFreeSimpleTestCase):
+class TestMintedToken(SimpleTestCase):
     """The token IS the request — there is no body, so these claims are the whole scope."""
 
     def setUp(self) -> None:
@@ -357,7 +356,7 @@ class TestMintedToken(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestResolveLogging(ClickhouseFreeSimpleTestCase):
+class TestResolveLogging(SimpleTestCase):
     """The credential read is otherwise the one invisible hop in a job's HTTP traffic."""
 
     def setUp(self) -> None:
@@ -471,7 +470,7 @@ class TestResolveLogging(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestInjectedSession(ClickhouseFreeSimpleTestCase):
+class TestInjectedSession(SimpleTestCase):
     def setUp(self) -> None:
         flag = patch(FLAG, return_value=True)
         flag.start()

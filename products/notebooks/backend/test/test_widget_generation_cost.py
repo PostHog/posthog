@@ -2,18 +2,16 @@ from decimal import Decimal
 
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import httpx
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend.widget_generation_cost import get_widget_generation_cost
 
 
 @override_settings(AI_GATEWAY_URL="http://gateway.test/v1", AI_GATEWAY_API_KEY="test-gateway-key")
-class TestWidgetGenerationCost(ClickhouseFreeSimpleTestCase):
+class TestWidgetGenerationCost(SimpleTestCase):
     def test_sums_generation_retries_and_review_with_billing_markup(self) -> None:
         responses = [
             httpx.Response(200, json={"cost_usd": cost}, request=httpx.Request("GET", "http://gateway.test"))

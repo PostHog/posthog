@@ -5,6 +5,8 @@ from collections.abc import Generator
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import psycopg
 from parameterized import parameterized
 from psycopg import pq
@@ -19,7 +21,6 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
@@ -30,7 +31,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
-class TestDuckgresRawAdapterSelection(ClickhouseFreeSimpleTestCase):
+class TestDuckgresRawAdapterSelection(SimpleTestCase):
     def _source(self, **overrides: object) -> ExternalDataSource:
         source = ExternalDataSource(
             team_id=123,
@@ -147,7 +148,7 @@ class TestDuckgresRawAdapterSelection(ClickhouseFreeSimpleTestCase):
             self.assertIsNone(adapter)
 
 
-class TestDuckgresStreamingClientCursor(ClickhouseFreeSimpleTestCase):
+class TestDuckgresStreamingClientCursor(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty_query", pq.ExecStatus.EMPTY_QUERY),

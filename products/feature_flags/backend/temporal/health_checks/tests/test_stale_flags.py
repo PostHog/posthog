@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -18,7 +19,6 @@ from posthog.models.team import Team
 from posthog.tasks.health_checks import evaluate_health_check_for_team
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -762,7 +762,7 @@ class TestStaleFlagsDetect(BaseTest):
         assert active_issues().get(payload__flag_id=flag_a.id).id != issue_a.id
 
 
-class TestStaleFlagsContract(ClickhouseFreeSimpleTestCase):
+class TestStaleFlagsContract(SimpleTestCase):
     def _issue(self, payload: dict[str, Any]) -> HealthIssue:
         return HealthIssue(
             team_id=1,

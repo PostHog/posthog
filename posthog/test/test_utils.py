@@ -15,7 +15,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
@@ -29,7 +29,6 @@ from posthog.settings.utils import get_from_env
 if TYPE_CHECKING:
     from posthog.models.group_type_mapping import GroupTypeMapping
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import (
     HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS,
     HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS,
@@ -1489,7 +1488,7 @@ VALID_PRELOAD_MANIFEST = {
 }
 
 
-class TestReadPreloadManifest(ClickhouseFreeSimpleTestCase):
+class TestReadPreloadManifest(SimpleTestCase):
     def setUp(self):
         super().setUp()
         tmp = tempfile.TemporaryDirectory()
@@ -1537,7 +1536,7 @@ class TestReadPreloadManifest(ClickhouseFreeSimpleTestCase):
         assert _read_preload_manifest(path, include_authenticated_shell=True) == ("", (), "")
 
 
-class TestDayRange(ClickhouseFreeSimpleTestCase):
+class TestDayRange(SimpleTestCase):
     START = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
 
     @parameterized.expand([("same_instant", timedelta(0)), ("full_day", timedelta(days=1))])

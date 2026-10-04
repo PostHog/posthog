@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -37,8 +38,6 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from .schedule_helpers import schedule_client
 
@@ -529,7 +528,7 @@ class TestMetricCheckAPI(APIBaseTest):
         assert response.status_code == (403 if denied else 200), response.content
 
 
-class TestCheckViewSetScopes(ClickhouseFreeSimpleTestCase):
+class TestCheckViewSetScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("read", "list", "GET", ["query:read"]),

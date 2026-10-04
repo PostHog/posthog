@@ -1,17 +1,15 @@
 import time
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import jwt as pyjwt
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.security.backend.logic.hub_auth import claims_allow, mint_rules_token
 
 
 @override_settings(SECURITY_HUB_REGION="us", SECURITY_HUB_OUTBOUND_JWT_SECRETS=["new", "old"])
-class TestHubAuth(ClickhouseFreeSimpleTestCase):
+class TestHubAuth(SimpleTestCase):
     def test_rules_token_claims(self) -> None:
         claims = pyjwt.decode(mint_rules_token(), "new", algorithms=["HS256"], audience="posthog:security_hub:rules")
         assert claims["region"] == "us"

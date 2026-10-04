@@ -12,6 +12,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -34,7 +35,6 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_US,
     create_oauth_access_token_for_user,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
@@ -115,7 +115,7 @@ def authenticate_as_sandbox_token(test: APIBaseTest, *, scopes: list[str] | None
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
-class TestReportListClientClassification(ClickhouseFreeSimpleTestCase):
+class TestReportListClientClassification(SimpleTestCase):
     @parameterized.expand(
         [
             ("desktop", "posthog/desktop.hog.dev; version: 0.61.84", "desktop"),
@@ -127,7 +127,7 @@ class TestReportListClientClassification(ClickhouseFreeSimpleTestCase):
         assert classify_report_list_client(user_agent) == expected
 
 
-class TestReportMetricRefreshThrottle(ClickhouseFreeSimpleTestCase):
+class TestReportMetricRefreshThrottle(SimpleTestCase):
     def test_uses_one_team_bucket_for_every_auth_method(self) -> None:
         throttle = ReportMetricRefreshThrottle()
         view = SimpleNamespace(team_id=42)
@@ -4268,7 +4268,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         assert response.json() == {"comments": comments}
 
 
-class TestPrCiStatusReportIdsParsing(ClickhouseFreeSimpleTestCase):
+class TestPrCiStatusReportIdsParsing(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing", None),

@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from ee.hogai.tools.replay.empty_result_diagnosis import (
     SESSION_ID_DOCS_URL,
@@ -17,7 +17,7 @@ def _linkages(*counts: tuple[int, int]) -> tuple[EventSessionLinkage, ...]:
     )
 
 
-class TestEmptyResultDiagnosis(ClickhouseFreeSimpleTestCase):
+class TestEmptyResultDiagnosis(SimpleTestCase):
     @parameterized.expand(
         [
             ("event never sent", ((0, 0),), False, True, EmptyResultCause.NO_EVENTS, ["event_0"]),

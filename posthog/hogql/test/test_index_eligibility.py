@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -45,7 +46,6 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.property_types import build_property_swapper
 
 from posthog.schema_enums import PredicateFixAction, QueryIndexUsage
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.event_definitions.backend.property_type import PropertyType
@@ -111,7 +111,7 @@ def _plan(
     )
 
 
-class TestIndexEnumsMatchTheSchema(ClickhouseFreeSimpleTestCase):
+class TestIndexEnumsMatchTheSchema(SimpleTestCase):
     def test_verdict_wire_values_match_the_generated_enum(self) -> None:
         # The verdict enum is deliberately declared twice: the local one carries the ClickHouse
         # reasoning in its docstrings. `metadata.py` converts by value, so a new member added on one
@@ -121,7 +121,7 @@ class TestIndexEnumsMatchTheSchema(ClickhouseFreeSimpleTestCase):
         }
 
 
-class TestIndexEligibilityVerdicts(ClickhouseFreeSimpleTestCase):
+class TestIndexEligibilityVerdicts(SimpleTestCase):
     @parameterized.expand(
         [
             (

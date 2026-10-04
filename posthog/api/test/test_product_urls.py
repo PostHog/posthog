@@ -2,12 +2,12 @@ from types import ModuleType
 
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest, HttpResponse
+from django.test import SimpleTestCase
 from django.urls import path, resolve, reverse
 
 from parameterized import parameterized
 
 from posthog.product_urls import ProductRootRoutes
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import opt_slash_path
 
 
@@ -19,7 +19,7 @@ def _routes_module() -> ModuleType:
     return ModuleType("products.stamphog.backend.routes")
 
 
-class TestProductRootRoutes(ClickhouseFreeSimpleTestCase):
+class TestProductRootRoutes(SimpleTestCase):
     def test_mounts_each_declared_list_under_the_prefix_reserved_for_the_product(self) -> None:
         module = _routes_module()
         module.api_urlpatterns = [path("thing", _view)]  # type: ignore[attr-defined]
@@ -44,7 +44,7 @@ class TestProductRootRoutes(ClickhouseFreeSimpleTestCase):
         assert "'api_urlpatterns'" in str(caught.exception)
 
 
-class TestProductRootRoutesInTheUrlConf(ClickhouseFreeSimpleTestCase):
+class TestProductRootRoutesInTheUrlConf(SimpleTestCase):
     @parameterized.expand(
         [
             ("a path a product declares", "/api/user_interviews/vapi_webhook/", "user_interviews_vapi_webhook"),

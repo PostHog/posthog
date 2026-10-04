@@ -1,7 +1,7 @@
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -10,7 +10,6 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models import OrganizationMembership
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.models.heatmap_capture_config_version import HeatmapCaptureConfigVersion
 from products.web_analytics.backend.models.heatmap_saved import SavedHeatmap
@@ -23,7 +22,7 @@ SELECT %(session_id)s, %(team_id)s, 'u', %(timestamp)s, 10, 20, 16, 100, 100, 1,
 """
 
 
-class TestCaptureUrlValidation(ClickhouseFreeSimpleTestCase):
+class TestCaptureUrlValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("example.com/pricing",),

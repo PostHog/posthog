@@ -6,9 +6,9 @@ import pytest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from posthog.llm.system_one import ChoiceAnswer, SystemOneRequestFailed, SystemOneResult
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from .match import _ranked_probabilities, build_emoji_questions, build_subgroup_questions, load_catalog, suggest_emojis
 
@@ -28,7 +28,7 @@ def answer_questions(questions, selected):
     return SystemOneResult(model="jevk5-0.2", answers=answers, input_tokens=100)
 
 
-class TestSuggestEmojis(ClickhouseFreeSimpleTestCase):
+class TestSuggestEmojis(SimpleTestCase):
     @patch("posthog.emoji_search.match.build_system_one_client")
     def test_model_change_recomputes_cached_suggestions(self, build_client) -> None:
         cache.clear()

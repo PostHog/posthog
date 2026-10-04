@@ -1,3 +1,5 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import ActionsNode, EventsNode, FunnelsDataWarehouseNode
@@ -5,8 +7,6 @@ from posthog.schema import ActionsNode, EventsNode, FunnelsDataWarehouseNode
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clone_expr
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.product_analytics.backend.hogql_queries.funnels.utils import (
     alias_columns_in_select,
@@ -26,7 +26,7 @@ def _funnels_data_warehouse_node(**overrides) -> FunnelsDataWarehouseNode:
     return FunnelsDataWarehouseNode(**node_data)
 
 
-class TestUtils(ClickhouseFreeSimpleTestCase):
+class TestUtils(SimpleTestCase):
     def test_alias_columns_in_select(self):
         sql = """
         SELECT

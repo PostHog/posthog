@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import numpy as np
 from parameterized import parameterized
 
@@ -16,7 +18,6 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.apm.backend.facade.api import (
     BUCKET_MINUTES,
@@ -69,7 +70,7 @@ class _FakeTeam:
         self.timezone = "UTC"
 
 
-class TestAnomalyScanPure(ClickhouseFreeSimpleTestCase):
+class TestAnomalyScanPure(SimpleTestCase):
     def test_floor_to_bucket_aligns_to_five_minutes(self) -> None:
         raw = dt.datetime(2026, 6, 1, 12, 7, 33, 123456, tzinfo=UTC)
         assert floor_to_bucket(raw) == dt.datetime(2026, 6, 1, 12, 5, tzinfo=UTC)
@@ -169,7 +170,7 @@ class TestAnomalyScanPure(ClickhouseFreeSimpleTestCase):
         assert all(not a.eval_clipped for a in ladder)
 
 
-class TestRunScan(ClickhouseFreeSimpleTestCase):
+class TestRunScan(SimpleTestCase):
     def _now(self) -> dt.datetime:
         return T0 + BUCKETS_PER_DAY * BUCKET
 

@@ -2,9 +2,9 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.cohorts.backend.models.leaf_shape import BehavioralLeafKey
 from products.cohorts.backend.parity.fold import MembershipRecord
@@ -118,7 +118,7 @@ def _screen(*leaves: dict, op: str = "AND", max_window_days: int = 400):
     )
 
 
-class TestSupportScreen(ClickhouseFreeSimpleTestCase):
+class TestSupportScreen(SimpleTestCase):
     def test_canary_single_performed_event_is_supported(self) -> None:
         result = _screen(_behavioral())
         assert isinstance(result, RecomputeSpec)
@@ -232,7 +232,7 @@ class TestSupportScreen(ClickhouseFreeSimpleTestCase):
         self.assertEqual(members, {"stale"})
 
 
-class TestMembershipFloor(ClickhouseFreeSimpleTestCase):
+class TestMembershipFloor(SimpleTestCase):
     @parameterized.expand(
         [
             # count 0 is never a member, even under lte/lt/eq 0 (the count >= 1 floor).
@@ -250,7 +250,7 @@ class TestMembershipFloor(ClickhouseFreeSimpleTestCase):
         self.assertEqual(_member(count, op, op_value), expected)
 
 
-class TestTreeEvaluation(ClickhouseFreeSimpleTestCase):
+class TestTreeEvaluation(SimpleTestCase):
     def test_and_neg_b_truth_table(self) -> None:
         tree = _TreeGroup(op="AND", children=(_TreeLeaf(KEY, False), _TreeLeaf(KEY2, True)))
         cases = [((True, True), False), ((True, False), True), ((False, True), False), ((False, False), False)]
@@ -338,7 +338,7 @@ def _classify(**overrides: Any):
     return classify_recompute(**defaults)
 
 
-class TestMissingSegmentation(ClickhouseFreeSimpleTestCase):
+class TestMissingSegmentation(SimpleTestCase):
     @parameterized.expand(
         [
             # 2026-07-24 is at_day; grace bucket there depends only on last grace-minutes.
@@ -386,7 +386,7 @@ class TestMissingSegmentation(ClickhouseFreeSimpleTestCase):
         self.assertEqual(row.verdict, "FAIL")
 
 
-class TestEvictionAndUnsegmented(ClickhouseFreeSimpleTestCase):
+class TestEvictionAndUnsegmented(SimpleTestCase):
     def test_eviction_pending_splits_false_members(self) -> None:
         # "evict" still satisfies the predicate once the window slides back a day (the tz-midnight
         # sweep has not caught up); "hard" does not, so it is real over-inclusion.
@@ -459,7 +459,7 @@ class TestEvictionAndUnsegmented(ClickhouseFreeSimpleTestCase):
         self.assertEqual(row.verdict, "FAIL")
 
 
-class TestExpiryCurve(ClickhouseFreeSimpleTestCase):
+class TestExpiryCurve(SimpleTestCase):
     def test_expiry_is_driven_by_the_oldest_still_needed_match(self) -> None:
         # threshold 2 across a confirmed seed day and the boundary day: dropping the newer match alone
         # still leaves the person short, so the *older* match's age-out date is when they fall out.
@@ -495,7 +495,7 @@ class TestExpiryCurve(ClickhouseFreeSimpleTestCase):
         self.assertEqual(row.expires_by_day, expected)
 
 
-class TestOpWhitelistParity(ClickhouseFreeSimpleTestCase):
+class TestOpWhitelistParity(SimpleTestCase):
     def test_eval_and_sql_whitelists_agree(self) -> None:
         # A drift where an op gains a Python comparator but no SQL rendering (or vice versa) would let a
         # supported leaf reach a KeyError at query time; keep the two op tables in lockstep.

@@ -2,20 +2,21 @@ from uuid import uuid4
 
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.tasks.delete_persons import PersonDeletionIncomplete, delete_persons_async, queue_person_deletion
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _person() -> Person:
     return Person(uuid=uuid4(), team_id=1)
 
 
-class TestQueuePersonDeletion(ClickhouseFreeSimpleTestCase):
+class TestQueuePersonDeletion(SimpleTestCase):
     def test_splits_persons_across_tasks(self) -> None:
         persons = [_person() for _ in range(3)]
         with (
@@ -80,7 +81,7 @@ class TestQueuePersonDeletion(ClickhouseFreeSimpleTestCase):
         delay.assert_not_called()
 
 
-class TestDeletePersonsAsync(ClickhouseFreeSimpleTestCase):
+class TestDeletePersonsAsync(SimpleTestCase):
     def _run(self, result: PersonProfileDeletionResult | Exception) -> None:
         with patch(
             "posthog.tasks.delete_persons.process_queued_person_deletion",

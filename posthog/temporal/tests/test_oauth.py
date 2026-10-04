@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
@@ -39,14 +39,13 @@ from posthog.temporal.oauth import (
     scout_mcp_scopes,
     scout_scope_posture,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
 _WIZARD_CLIENT_ID = "wizard-test-client-id"
 
 
-class TestResolveScopes(ClickhouseFreeSimpleTestCase):
+class TestResolveScopes(SimpleTestCase):
     def test_read_only_preset(self) -> None:
         result = resolve_scopes("read_only")
         assert set(result) == set(MCP_READ_SCOPES + INTERNAL_SCOPES)
@@ -347,7 +346,7 @@ class TestResolveScopes(ClickhouseFreeSimpleTestCase):
         )
 
 
-class TestHasWriteScopes(ClickhouseFreeSimpleTestCase):
+class TestHasWriteScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("read_only_preset", "read_only", False),
@@ -530,7 +529,7 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
             create_wizard_oauth_access_token_for_user(user, team.id)
 
 
-class TestSignalsResearchToolset(ClickhouseFreeSimpleTestCase):
+class TestSignalsResearchToolset(SimpleTestCase):
     """What the MCP server actually serves a `signals_research` token.
 
     The scope list alone doesn't answer this. Read-only mode is a tool-annotation filter, and the

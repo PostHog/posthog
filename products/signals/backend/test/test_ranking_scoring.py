@@ -7,7 +7,7 @@ from typing import Any, cast
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,6 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -166,7 +165,7 @@ class _StoreTestMixin:
         return self.store.publish_model(model_name, feature_set, roles=[CROSS_FAMILY_ROLE], **kwargs)
 
 
-class TestModelStore(_StoreTestMixin, ClickhouseFreeSimpleTestCase):
+class TestModelStore(_StoreTestMixin, SimpleTestCase):
     def test_no_manifest_is_no_serving_set(self) -> None:
         assert load_serving_set() is None
 
@@ -265,7 +264,7 @@ class _ScorerTestMixin(_StoreTestMixin):
     team_id = 1
 
 
-class TestScorer(_ScorerTestMixin, ClickhouseFreeSimpleTestCase):
+class TestScorer(_ScorerTestMixin, SimpleTestCase):
     def test_a_served_score_equals_the_dags_unseen_score_for_the_same_model_and_vector(self) -> None:
         served = self._served()
         self.store.publish_manifest([served])
@@ -358,7 +357,7 @@ class TestScorer(_ScorerTestMixin, ClickhouseFreeSimpleTestCase):
         assert captured.events == []
 
 
-class TestClassificationProperties(ClickhouseFreeSimpleTestCase):
+class TestClassificationProperties(SimpleTestCase):
     @parameterized.expand(
         [
             ("tie_is_a_positive", 0.3, True),

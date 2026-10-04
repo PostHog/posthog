@@ -12,6 +12,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 import jwt
@@ -31,7 +32,6 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -1311,7 +1311,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         assert response.json()["billing_managed_by_partner"] == expected
 
 
-class TestPartnerBillingLockCoverage(ClickhouseFreeSimpleTestCase):
+class TestPartnerBillingLockCoverage(SimpleTestCase):
     READ_ONLY_ACTIONS = {
         "list",
         "period",
@@ -1348,7 +1348,7 @@ class TestPartnerBillingLockCoverage(ClickhouseFreeSimpleTestCase):
         assert unlocked == self.READ_ONLY_ACTIONS | self.UNLOCKED_WRITE_ACTIONS
 
 
-class TestBillingUsageRequestSerializer(ClickhouseFreeSimpleTestCase):
+class TestBillingUsageRequestSerializer(SimpleTestCase):
     def test_valid_dates(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01", "end_date": "2025-01-31"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -1449,7 +1449,7 @@ class TestBillingUsageRequestSerializer(ClickhouseFreeSimpleTestCase):
         self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
 
 
-class TestBillingUpstreamValidationErrors(ClickhouseFreeSimpleTestCase):
+class TestBillingUpstreamValidationErrors(SimpleTestCase):
     @parameterized.expand(
         [
             ("start_date", "required", "This field is required."),

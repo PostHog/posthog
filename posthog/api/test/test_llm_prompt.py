@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError, connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -35,7 +35,6 @@ from posthog.rate_limit import (
     SustainedRateThrottle,
 )
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
 from products.ai_observability.backend.prompt_references import (
@@ -1257,7 +1256,7 @@ class TestLLMPromptConfigAPI(APIBaseTest):
         assert response.json()["config"] is None
 
 
-class TestLLMPromptConfigValidationNoDB(ClickhouseFreeSimpleTestCase):
+class TestLLMPromptConfigValidationNoDB(SimpleTestCase):
     @parameterized.expand(
         [
             ("string", "gpt-4o"),
@@ -1291,7 +1290,7 @@ class TestLLMPromptConfigValidationNoDB(ClickhouseFreeSimpleTestCase):
         assert not serializer.is_valid()
 
 
-class TestLLMPromptDuplicateSerializerValidationNoDB(ClickhouseFreeSimpleTestCase):
+class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     # validate_new_name is a pure regex + reserved-name check (no context, no DB). The duplicate
     # endpoint's use of this serializer is guarded by test_duplicate_prompt_rejects_invalid_new_name.
     @parameterized.expand(
@@ -1313,7 +1312,7 @@ class TestLLMPromptDuplicateSerializerValidationNoDB(ClickhouseFreeSimpleTestCas
         assert serializer.is_valid(), serializer.errors
 
 
-class TestLLMPromptListQuerySerializerValidationNoDB(ClickhouseFreeSimpleTestCase):
+class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
     def test_rejects_unknown_order_by(self) -> None:
         # order_by used to be read from raw query params with a silent fallback; the serializer
         # now owns the contract, so an unknown value must fail validation (and 400 at the endpoint).
@@ -1742,7 +1741,7 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
 
-class TestLLMPromptLabelNameValidationNoDB(ClickhouseFreeSimpleTestCase):
+class TestLLMPromptLabelNameValidationNoDB(SimpleTestCase):
     # validate_prompt_label_name_value is a pure string check (no context, no DB). The endpoint's
     # use of it is guarded by test_set_label_rejects_invalid_name.
     @parameterized.expand(

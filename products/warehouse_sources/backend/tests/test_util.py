@@ -4,11 +4,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -26,7 +24,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
 
-class TestReconstructOrderedColumns(ClickhouseFreeSimpleTestCase):
+class TestReconstructOrderedColumns(SimpleTestCase):
     @parameterized.expand(
         [
             # (name, columns, column_order, expected_order)
@@ -50,7 +48,7 @@ class TestReconstructOrderedColumns(ClickhouseFreeSimpleTestCase):
         assert dict(result) == columns
 
 
-class TestHogqlTypeNameForClickhouseType(ClickhouseFreeSimpleTestCase):
+class TestHogqlTypeNameForClickhouseType(SimpleTestCase):
     @parameterized.expand(
         [
             # A mapped type resolves to its HogQL field class.
@@ -83,7 +81,7 @@ class TestHogqlTypeNameForClickhouseType(ClickhouseFreeSimpleTestCase):
     QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET="ph-query-log-archive",
     BATCH_EXPORT_INTERNAL_STAGING_BUCKET="ph-batch-export-staging",
 )
-class TestValidateWarehouseTableUrlPattern(ClickhouseFreeSimpleTestCase):
+class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
     @parameterized.expand(
         [
             # One bucket answers to several names. Each of these reaches PostHog's own storage, so a
@@ -264,7 +262,7 @@ class TestValidateWarehouseTableUrlPattern(ClickhouseFreeSimpleTestCase):
         assert not is_valid, error_message
 
 
-class TestBucketSettingsAreAllTriaged(ClickhouseFreeSimpleTestCase):
+class TestBucketSettingsAreAllTriaged(SimpleTestCase):
     def test_every_bucket_setting_is_either_owned_or_excluded_with_a_reason(self) -> None:
         # A setting a future PR adds without following the "*_BUCKET" suffix (like BUCKET_PATH
         # today) won't be caught here - it has to be added to _POSTHOG_OWNED_BUCKET_SETTING_NAMES

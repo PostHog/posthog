@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, connection, transaction
 from django.db.models import Model
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -20,7 +20,6 @@ from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
 from posthog.models.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -1532,7 +1531,7 @@ class TestStagedIncrementalCursorStaleWriters(BaseTest):
         assert "incremental_staged_pending" not in schema.sync_type_config
 
 
-class TestSSHTunnelPortValidation(ClickhouseFreeSimpleTestCase):
+class TestSSHTunnelPortValidation(SimpleTestCase):
     @parameterized.expand(
         [
             # Out-of-range ports previously slipped through to sshtunnel, which asserted `port >= 0`
@@ -1614,7 +1613,7 @@ class TestRepartitionHoldsImport:
         assert schema.repartition_holds_import is True
 
 
-class TestIncrementalSyncBlocked(ClickhouseFreeSimpleTestCase):
+class TestIncrementalSyncBlocked(SimpleTestCase):
     @parameterized.expand(
         [
             ("friendly_missing", MISSING_PRIMARY_KEY_DISABLED_MESSAGE, "missing_primary_key"),

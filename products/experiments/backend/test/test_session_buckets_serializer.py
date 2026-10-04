@@ -1,13 +1,13 @@
 from typing import Any
 
-from parameterized import parameterized
+from posthog.test.base import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.experiments.backend.presentation.serializers import ExperimentSessionBucketRequestSerializer
 
 
-class TestExperimentSessionBucketRequestValidation(ClickhouseFreeSimpleTestCase):
+class TestExperimentSessionBucketRequestValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("unknown_bucket", {"bucket": "helped"}, "bucket"),

@@ -5,14 +5,12 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer, resolve_created_via
@@ -21,7 +19,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
 
-class TestResolveCreatedVia(ClickhouseFreeSimpleTestCase):
+class TestResolveCreatedVia(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_transport_markers", {}, "api"),

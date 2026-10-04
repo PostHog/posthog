@@ -3,6 +3,8 @@ from typing import Any, Optional, cast, get_args
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import Throttled, ValidationError
@@ -14,7 +16,6 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_catalog.backend.logic import relationships
 from products.data_catalog.backend.logic.exceptions import MetricHasNoDefinition
@@ -83,7 +84,7 @@ def _delta(before: dict, after: dict) -> dict:
     return {key: after[key] - value for key, value in before.items() if after[key] != value}
 
 
-class TestPreCreatedSeries(ClickhouseFreeSimpleTestCase):
+class TestPreCreatedSeries(SimpleTestCase):
     def test_every_alert_relevant_label_combination_exists_at_import(self) -> None:
         for kind in _KINDS:
             assert REGISTRY.get_sample_value(_DURATION_COUNT_METRIC, {"kind": kind}) is not None, kind

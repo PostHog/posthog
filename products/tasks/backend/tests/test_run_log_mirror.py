@@ -2,12 +2,11 @@ import json
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
 from products.tasks.backend.logic.services.run_log_mirror import (
@@ -39,7 +38,7 @@ def _session_update_entry(session_update: str, **update_fields) -> dict:
     }
 
 
-class TestMirrorEntries(ClickhouseFreeSimpleTestCase):
+class TestMirrorEntries(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -175,7 +174,7 @@ class TestMirrorEntries(ClickhouseFreeSimpleTestCase):
         mock_logger.error.assert_not_called()
 
 
-class TestMirrorOtlpDelivery(ClickhouseFreeSimpleTestCase):
+class TestMirrorOtlpDelivery(SimpleTestCase):
     @override_settings(
         TASK_RUN_LOGS_MIRROR_OTLP_URL="https://us.i.posthog.com/i/v1/logs",
         TASK_RUN_LOGS_MIRROR_OTLP_TOKEN="phc_internal",
@@ -245,7 +244,7 @@ class TestMirrorOtlpDelivery(ClickhouseFreeSimpleTestCase):
         mock_requests.post.assert_not_called()
 
 
-class TestAgentOtelTelemetryStateGate(ClickhouseFreeSimpleTestCase):
+class TestAgentOtelTelemetryStateGate(SimpleTestCase):
     @parameterized.expand(
         [
             ("stamped_true", {"agent_otel_telemetry_enabled": True}, True),

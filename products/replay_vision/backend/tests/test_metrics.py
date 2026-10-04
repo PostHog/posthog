@@ -1,9 +1,9 @@
 from collections.abc import Callable
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from prometheus_client import REGISTRY
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.replay_vision.backend.temporal.metrics import (
     record_activity_duration,
@@ -25,7 +25,7 @@ def _sample(name: str, labels: dict[str, str]) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
-class TestRecordHelpers(ClickhouseFreeSimpleTestCase):
+class TestRecordHelpers(SimpleTestCase):
     # Each helper runs inside activity bodies and error handlers, where a prom label
     # mismatch would raise at runtime; one call per helper locks the label sets in.
     @parameterized.expand(

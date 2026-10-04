@@ -1,15 +1,13 @@
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.api.agentic_provisioning.regions import current_region_host, region_to_host
 
 SITE_URL = "https://app.example.test"
 
 
-class TestRegions(ClickhouseFreeSimpleTestCase):
+class TestRegions(SimpleTestCase):
     @parameterized.expand(
         [
             ("US", "https://us.posthog.com"),

@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -12,7 +13,6 @@ from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, NativeMa
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
@@ -562,7 +562,7 @@ class TestNativeCampaignTableResolution(FactoryTestMixin, BaseTest):
         assert config.stats_table is table
 
 
-class TestNativeSourceKillSwitch(ClickhouseFreeSimpleTestCase):
+class TestNativeSourceKillSwitch(SimpleTestCase):
     @parameterized.expand([(False,), (True,)])
     def test_factory_excludes_disabled_sources_from_discovery_and_validation(self, enabled: bool) -> None:
         team = Team(id=1)

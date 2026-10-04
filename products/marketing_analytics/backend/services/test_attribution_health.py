@@ -5,12 +5,12 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.marketing_analytics.backend.services.attribution_health import (
     HOGQL_GROUP_LIMIT,
@@ -45,7 +45,7 @@ class TestSuggestIntegrationByAliasToken:
         assert _suggest_integration_by_alias_token(f"{alias}_paid", _ALIAS_MAP, allowed_without) is None
 
 
-class TestGetAttributionHealth(ClickhouseFreeSimpleTestCase):
+class TestGetAttributionHealth(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.team = Team(id=1)

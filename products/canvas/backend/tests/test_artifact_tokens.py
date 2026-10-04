@@ -5,11 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from django.core import signing
 from django.http import Http404
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.canvas.backend.artifacts import (
     ARTIFACT_TOKEN_SALT,
@@ -37,7 +35,7 @@ def _claims(**overrides):
     }
 
 
-class TestCanvasArtifactTokens(ClickhouseFreeSimpleTestCase):
+class TestCanvasArtifactTokens(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.write = patch("products.canvas.backend.artifacts.object_storage.write").start()
@@ -240,7 +238,7 @@ class TestCanvasArtifactTokens(ClickhouseFreeSimpleTestCase):
     CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
     SITE_URL="https://app.example",
 )
-class TestCanvasSandboxDocument(ClickhouseFreeSimpleTestCase):
+class TestCanvasSandboxDocument(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.objects: dict[str, bytes] = {}

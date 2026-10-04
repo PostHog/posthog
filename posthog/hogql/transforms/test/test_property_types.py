@@ -63,7 +63,6 @@ from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
 from posthog.property_columns import TableColumn
 from posthog.schema_enums import PropertyGroupsMode
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -131,7 +130,7 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, ClickhouseFreeSimpleTestCase):
+class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
     def test_property_comparison_planner_does_not_depend_on_json_storage_type(self, property_name: str) -> None:
         plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = 'TypeError'")

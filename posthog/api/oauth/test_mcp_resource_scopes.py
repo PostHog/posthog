@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from posthog.api.oauth.mcp_resource_scopes import (
     build_oauth_mcp_consent_context,
@@ -8,10 +8,9 @@ from posthog.api.oauth.mcp_resource_scopes import (
     mcp_advertised_scopes,
 )
 from posthog.mcp_tool_definitions import mcp_tool_required_scopes
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestMcpResourceScopes(ClickhouseFreeSimpleTestCase):
+class TestMcpResourceScopes(SimpleTestCase):
     def test_is_trusted_posthog_mcp_resource_production(self):
         for host in (
             "mcp.posthog.com",

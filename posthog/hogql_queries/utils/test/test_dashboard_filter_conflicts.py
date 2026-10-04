@@ -1,10 +1,11 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contradict
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestFiltersContradict(ClickhouseFreeSimpleTestCase):
+class TestFiltersContradict(SimpleTestCase):
     @parameterized.expand(
         [
             # (name, filter_a, filter_b, expected)

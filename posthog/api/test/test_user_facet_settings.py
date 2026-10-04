@@ -1,15 +1,16 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.user_facet_settings import UserFacetSettingsEntrySerializer
 from posthog.models import UserFacetSettings
 from posthog.models.scoping import team_scope
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestUserFacetSettingsEntrySerializer(ClickhouseFreeSimpleTestCase):
+class TestUserFacetSettingsEntrySerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_key", {"source_type": "attribute"}, "key"),

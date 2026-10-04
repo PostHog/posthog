@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import bson
 from bson import Binary, DatetimeMS, Decimal128, Int64, ObjectId, Timestamp
@@ -21,8 +21,6 @@ from parameterized import parameterized
 from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -58,7 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
-class TestSafeServerSelector(ClickhouseFreeSimpleTestCase):
+class TestSafeServerSelector(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_filters_out_servers_with_internal_ips(self):
         selector = _make_safe_server_selector(team_id=999)
@@ -136,7 +134,7 @@ class TestSafeServerSelector(ClickhouseFreeSimpleTestCase):
         assert len(result) == 1
 
 
-class TestProcessNestedValue(ClickhouseFreeSimpleTestCase):
+class TestProcessNestedValue(SimpleTestCase):
     CANONICAL_UUID_STR = "00000015-af12-f829-04fe-1f5e8f1a5230"
     CANONICAL_UUID = uuid.UUID(CANONICAL_UUID_STR)
     YEAR_ZERO_MS = -62167219200000  # 0000-01-01T00:00:00Z
@@ -254,7 +252,7 @@ class TestProcessNestedValue(ClickhouseFreeSimpleTestCase):
         }
 
 
-class TestProcessDocWithFieldLogging(ClickhouseFreeSimpleTestCase):
+class TestProcessDocWithFieldLogging(SimpleTestCase):
     def _logger(self) -> MagicMock:
         return MagicMock()
 
@@ -329,7 +327,7 @@ class TestProcessDocWithFieldLogging(ClickhouseFreeSimpleTestCase):
         assert "_id=<unavailable>" in log_msg
 
 
-class TestGetIndexKeys(ClickhouseFreeSimpleTestCase):
+class TestGetIndexKeys(SimpleTestCase):
     """A field is offered as an incremental cursor when any index covers it, and the MongoDB
     warning hinges on whether it is the *leading* key of one — non-leading positions in compound
     indexes don't speed up `WHERE field >= last_max` queries.
@@ -388,7 +386,7 @@ class TestGetIndexKeys(ClickhouseFreeSimpleTestCase):
         db.__getitem__.assert_not_called()
 
 
-class TestBuildQuery(ClickhouseFreeSimpleTestCase):
+class TestBuildQuery(SimpleTestCase):
     """`_id` is offered as an ObjectID incremental cursor, but MongoDB `_id` values aren't
     always ObjectIds — a non-ObjectId cursor must not crash query construction."""
 
@@ -409,7 +407,7 @@ class TestBuildQuery(ClickhouseFreeSimpleTestCase):
         assert query == {"_id": {"$gt": expected_gt, "$exists": True}}
 
 
-class TestMongoDBNonRetryableErrors(ClickhouseFreeSimpleTestCase):
+class TestMongoDBNonRetryableErrors(SimpleTestCase):
     """The non-retryable match is case-sensitive substring matching, so the patterns
     must match the exact casing pymongo produces."""
 
@@ -571,7 +569,7 @@ class TestMongoDBNonRetryableErrors(ClickhouseFreeSimpleTestCase):
         assert expected_substring in message.lower()
 
 
-class TestGetRetryableErrors(ClickhouseFreeSimpleTestCase):
+class TestGetRetryableErrors(SimpleTestCase):
     """DNS SRV resolution for `mongodb+srv://` happens inside the MongoClient constructor, before
     any of our own connectivity handling runs. dnspython already retries across nameservers for
     the whole resolution lifetime before giving up, so once Temporal retries the whole activity
@@ -703,7 +701,7 @@ class TestGetRetryableErrors(ClickhouseFreeSimpleTestCase):
         )
 
 
-class TestGetRowsToSync(ClickhouseFreeSimpleTestCase):
+class TestGetRowsToSync(SimpleTestCase):
     """rows_to_sync is a best-effort progress estimate; a failed count must degrade to
     0 without failing the sync, and expected pymongo errors must not be reported to
     error tracking (they are transient/operational and classified by the real data read)."""
@@ -732,7 +730,7 @@ class TestGetRowsToSync(ClickhouseFreeSimpleTestCase):
             capture.assert_called_once()
 
 
-class TestProbesFailFastOnUnreachableCluster(ClickhouseFreeSimpleTestCase):
+class TestProbesFailFastOnUnreachableCluster(SimpleTestCase):
     """The metadata probes are best-effort and swallow their errors. Each one runs its own server
     selection, so swallowing an unreachable cluster spends another full selection window before
     the extraction read fails the attempt anyway."""
@@ -766,7 +764,7 @@ class TestProbesFailFastOnUnreachableCluster(ClickhouseFreeSimpleTestCase):
             _get_avg_document_size(coll, MagicMock())
 
 
-class TestListImportableCollectionNames(ClickhouseFreeSimpleTestCase):
+class TestListImportableCollectionNames(SimpleTestCase):
     def test_excludes_reserved_system_collections(self):
         db = MagicMock()
         db.list_collection_names.return_value = ["users", "system.keys", "orders", "system.views"]
@@ -780,7 +778,7 @@ class TestListImportableCollectionNames(ClickhouseFreeSimpleTestCase):
         assert _list_importable_collection_names(db) == ["system_events", "billing.system", "systematic"]
 
 
-class TestAdaptiveChunkSize(ClickhouseFreeSimpleTestCase):
+class TestAdaptiveChunkSize(SimpleTestCase):
     @parameterized.expand(
         [
             ("unknown_size", None, DEFAULT_CHUNK_SIZE),
@@ -922,7 +920,7 @@ def _read_rows(
         return response, rows
 
 
-class TestMongoSourceCursorLifecycle(ClickhouseFreeSimpleTestCase):
+class TestMongoSourceCursorLifecycle(SimpleTestCase):
     """CursorNotFound (MongoDB error tracking issue) fires when the server expires an idle
     cursor between chunk writes; no_cursor_timeout prevents that expiry, and closing the
     cursor explicitly stops it leaking server-side once no_cursor_timeout is set."""
@@ -1159,7 +1157,7 @@ def _bson_bytes(value: Any) -> bytes:
     return bson.encode({"_id": value}, codec_options=_STANDARD_UUID_CODEC)
 
 
-class TestMongoSourceResume(ClickhouseFreeSimpleTestCase):
+class TestMongoSourceResume(SimpleTestCase):
     @parameterized.expand(
         [
             ("object_id", ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")),
@@ -1326,7 +1324,7 @@ class TestMongoSourceResume(ClickhouseFreeSimpleTestCase):
         assert source_mock.call_args.kwargs["resumable_source_manager"] is manager
 
 
-class TestGetServerMetadata(ClickhouseFreeSimpleTestCase):
+class TestGetServerMetadata(SimpleTestCase):
     @staticmethod
     def _server(host: str, max_wire_version: int | None) -> ServerDescription:
         # A ServerDescription built without a hello response is the state pymongo holds for a node

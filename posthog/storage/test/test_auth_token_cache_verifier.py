@@ -3,7 +3,7 @@ import pickle
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 import redis as redis_lib
 import zstandard as zstd
@@ -16,7 +16,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.storage.auth_token_cache_verifier import _deserialize_cache_value, verify_and_fix_auth_token_cache
 from posthog.storage.team_access_cache import TOKEN_CACHE_PREFIX
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # Module-level so the malicious payload can be pickled by qualified name (local objects aren't picklable).
 _pickle_execution_marker: list[bool] = []
@@ -909,7 +908,7 @@ class TestAuthTokenCacheVerifier(TestCase):
         assert result.parse_errors == 0
 
 
-class TestAuthTokenCacheDeserializationHardening(ClickhouseFreeSimpleTestCase):
+class TestAuthTokenCacheDeserializationHardening(SimpleTestCase):
     def test_malicious_pickle_is_rejected_without_executing_code(self):
         payload = pickle.dumps(_MaliciousPayload())
 

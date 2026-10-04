@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -26,7 +27,6 @@ from posthog.schema import (
 )
 
 from posthog.models import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.posthog_ai.backend.conversation_mirror import (
     LAST_MESSAGE_ID_KEY,
@@ -91,7 +91,7 @@ VIZ_TURN: list[dict[str, Any]] = [
 ]
 
 
-class TestProjectLegacyMessages(ClickhouseFreeSimpleTestCase):
+class TestProjectLegacyMessages(SimpleTestCase):
     @parameterized.expand(
         [
             (

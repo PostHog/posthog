@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
@@ -8,7 +10,6 @@ from rest_framework.test import APIRequestFactory
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.business_knowledge.backend.api.playground import BusinessKnowledgePlaygroundChatViewSet
 from products.business_knowledge.backend.models import PlaygroundChat, PlaygroundTurn
@@ -18,7 +19,7 @@ from products.tasks.backend.models import Task, TaskRun
 WORKFLOW = "products.tasks.backend.temporal.client.execute_task_processing_workflow"
 
 
-class TestPlaygroundChatScopes(ClickhouseFreeSimpleTestCase):
+class TestPlaygroundChatScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("list", "GET", "business_knowledge:read"),

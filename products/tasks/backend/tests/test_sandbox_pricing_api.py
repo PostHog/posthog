@@ -3,14 +3,14 @@ from decimal import Decimal
 
 from unittest.mock import patch
 
-from rest_framework.test import APIClient
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from rest_framework.test import APIClient
 
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 
 
-class TestSandboxComputePricingAPI(ClickhouseFreeSimpleTestCase):
+class TestSandboxComputePricingAPI(SimpleTestCase):
     def setUp(self) -> None:
         self.client = APIClient()
 

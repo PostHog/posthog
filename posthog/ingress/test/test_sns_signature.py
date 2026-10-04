@@ -6,7 +6,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from cryptography import x509
@@ -24,7 +24,6 @@ from posthog.ingress.verify.sns_signature import (
     remember_verified_cert_url,
     verify_sns_message,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _CERT_URL = "https://sns.us-east-1.amazonaws.com/SimpleNotificationService-01d088a6f77103d0fe307c0069e40ed6.pem"
 
@@ -117,7 +116,7 @@ class TestSnsVerification(TestCase):
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
-class TestSigningCertFetch(ClickhouseFreeSimpleTestCase):
+class TestSigningCertFetch(SimpleTestCase):
     """An unauthenticated caller who learns the topic ARN reaches the fetch, so it stays cheap."""
 
     def setUp(self) -> None:

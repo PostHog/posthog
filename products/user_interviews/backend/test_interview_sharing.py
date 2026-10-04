@@ -16,7 +16,7 @@ from django.core.cache import cache
 from django.db import InterfaceError, OperationalError, connection
 from django.db.models import QuerySet
 from django.template.loader import get_template
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -29,7 +29,6 @@ from posthog.api.sharing import check_can_access_sharing_configuration
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.rate_limit import VapiWebhookIPThrottle
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
 from products.user_interviews.backend.presentation.webhooks import (
@@ -47,7 +46,7 @@ def _mock_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]:
     return {"webCallUrl": "https://daily.example/call", "id": "call_test"}
 
 
-class TestCreateVapiWebCall(ClickhouseFreeSimpleTestCase):
+class TestCreateVapiWebCall(SimpleTestCase):
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     @patch("products.user_interviews.backend.presentation.webhooks.vapi_request")
     def test_creates_call_server_side_and_returns_only_join_fields(self, mock_request: Mock) -> None:

@@ -1,8 +1,8 @@
 from typing import cast
 
-from posthog.hogql import ast
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from posthog.hogql import ast
 
 from products.product_analytics.backend.hogql_queries.retention.utils import breakdown_extract_expr
 
@@ -13,7 +13,7 @@ def _chain(expr: ast.Expr) -> list:
     return cast(ast.Field, to_string.args[0]).chain
 
 
-class TestBreakdownExtractExpr(ClickhouseFreeSimpleTestCase):
+class TestBreakdownExtractExpr(SimpleTestCase):
     def test_group_breakdown_uses_events_lazy_join_chain(self) -> None:
         # Group properties are read via the events table lazy join `group_{index}`,
         # not a standalone `groups_{index}` table.

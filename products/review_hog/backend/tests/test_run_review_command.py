@@ -3,15 +3,14 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 
 
-class TestRunReviewCommand(ClickhouseFreeSimpleTestCase):
+class TestRunReviewCommand(SimpleTestCase):
     @parameterized.expand(
         [
             ("default", [], REVIEW_MODE_FULL, False),

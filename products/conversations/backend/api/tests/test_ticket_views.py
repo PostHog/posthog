@@ -3,13 +3,14 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.api.ticket_filters import TicketViewFiltersSerializer
 from products.conversations.backend.api.ticket_views import TicketViewFiltersField
@@ -323,7 +324,7 @@ class TestTicketViewAPI(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
-class TestTicketViewFiltersValidation(ClickhouseFreeSimpleTestCase):
+class TestTicketViewFiltersValidation(SimpleTestCase):
     # No DB: TicketViewFiltersSerializer validation runs entirely in memory. The wiring
     # guard in TestTicketViewAPI proves the endpoint invokes it.
 

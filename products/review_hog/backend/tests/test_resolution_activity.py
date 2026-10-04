@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -13,7 +15,6 @@ from posthog.github.merge_queue import MergeQueueState
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
@@ -106,7 +107,7 @@ def _mock_installation() -> Mock:
     return github
 
 
-class TestReplyBodyRendering(ClickhouseFreeSimpleTestCase):
+class TestReplyBodyRendering(SimpleTestCase):
     @parameterized.expand(
         [
             ("blank_line_inserted", "Fixed. Done.\n---\n- a", "Fixed. Done.\n\n---\n- a"),

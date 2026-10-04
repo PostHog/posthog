@@ -9,6 +9,7 @@ from unittest.mock import ANY, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -23,7 +24,6 @@ from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 from posthog.taxonomy import definition_search
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.actions.backend.models.action import Action
 
@@ -931,7 +931,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
 
 
-class TestCreateEventDefinitionsSql(ClickhouseFreeSimpleTestCase):
+class TestCreateEventDefinitionsSql(SimpleTestCase):
     @parameterized.expand([("enterprise", True), ("open source", False)])
     def test_selects_columns_in_a_stable_order(self, _name: str, is_enterprise: bool):
         sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=is_enterprise)

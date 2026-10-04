@@ -2,13 +2,12 @@ from io import BytesIO
 
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
 
 from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.heatmap_preflight import (
     PREFLIGHT_MAX_REDIRECTS,
@@ -21,7 +20,7 @@ APP_ORIGIN = "https://us.posthog.com"
 
 
 @override_settings(SITE_URL=APP_ORIGIN)
-class TestFramingHeaderAnalysis(ClickhouseFreeSimpleTestCase):
+class TestFramingHeaderAnalysis(SimpleTestCase):
     @parameterized.expand(
         [
             # Some sites send frame-ancestors 'none' alongside X-Frame-Options: DENY. The CSP is the
@@ -119,7 +118,7 @@ class TestFramingHeaderAnalysis(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(SITE_URL=APP_ORIGIN)
-class TestPreflightPage(ClickhouseFreeSimpleTestCase):
+class TestPreflightPage(SimpleTestCase):
     def setUp(self):
         super().setUp()
         cache_patch = patch("products.web_analytics.backend.heatmap_preflight.cache")

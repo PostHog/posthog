@@ -4,13 +4,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.http import QueryDict
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.score_definitions import (
@@ -720,7 +720,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         return definition
 
 
-class TestScoreDefinitionVersionQueries(ClickhouseFreeSimpleTestCase):
+class TestScoreDefinitionVersionQueries(SimpleTestCase):
     @parameterized.expand(
         [
             ("zero_limit", {"limit": 0}, "limit"),

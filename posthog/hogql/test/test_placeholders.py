@@ -5,6 +5,8 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -14,12 +16,10 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.visitor import clear_locations
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
-
 from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
 
 
-class TestParser(ClickhouseFreeSimpleTestCase):
+class TestParser(SimpleTestCase):
     def test_find_placeholders(self):
         expr = parse_expr("{foo} and {bar.bah}")
         self.assertEqual(sorted(find_placeholders(expr).placeholder_fields), sorted([["foo"], ["bar", "bah"]]))

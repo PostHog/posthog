@@ -4,10 +4,11 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.logs.backend import series_bands
 from products.logs.backend.series_bands import (
@@ -460,7 +461,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
 
 
-class TestBandReadiness(ClickhouseFreeSimpleTestCase):
+class TestBandReadiness(SimpleTestCase):
     @parameterized.expand([(5,), (15,), (60,)])
     def test_short_windows_use_full_calibration_weeks_without_observed_data(self, grain: int) -> None:
         step = dt.timedelta(minutes=grain)
@@ -520,7 +521,7 @@ class TestBandReadiness(ClickhouseFreeSimpleTestCase):
         assert readiness.ready_at == ready_at
 
 
-class TestResolveWindow(ClickhouseFreeSimpleTestCase):
+class TestResolveWindow(SimpleTestCase):
     def _resolve(
         self, date_from: str | None, date_to: str | None, interval_minutes: int | None = 60
     ) -> SeriesBandsWindow:

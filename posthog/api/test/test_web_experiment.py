@@ -5,12 +5,13 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.web_experiment import WebExperimentsAPISerializer, WebExperimentViewSet
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.experiments.backend.models.web_experiment import WebExperiment
 
@@ -503,7 +504,7 @@ def _variants_with_test_transform(transform: dict) -> dict:
     }
 
 
-class TestWebExperimentValidationNoDB(ClickhouseFreeSimpleTestCase):
+class TestWebExperimentValidationNoDB(SimpleTestCase):
     # validate() / validate_no_xss are pure (no context, no DB), so the matrix runs without
     # a database. test_validation_serializer_is_wired_to_viewset guards that the endpoint
     # actually validates through this serializer.

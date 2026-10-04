@@ -1,11 +1,11 @@
 import re
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.scripts.hog_corpus_diagnostic import _REDACTION_PASSES as HOG_PASSES
 from posthog.hogql.scripts.log_corpus_diagnostic import _REDACTION_PASSES as LOG_PASSES
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 STATELESS_INSTALLATION_TOKEN = "ghs_1234567_header-with-hyphen.payload_with_underscore.signature-with-hyphen"
 
@@ -21,7 +21,7 @@ def _redact(passes: list[tuple[str, str]], text: str) -> str:
     return text
 
 
-class TestCorpusRedaction(ClickhouseFreeSimpleTestCase):
+class TestCorpusRedaction(SimpleTestCase):
     @parameterized.expand([("log", LOG_PASSES), ("hog", HOG_PASSES)])
     def test_stateless_github_token_is_redacted(self, _name: str, passes: list[tuple[str, str]]) -> None:
         redacted = _redact(passes, f"select '{STATELESS_INSTALLATION_TOKEN}'")

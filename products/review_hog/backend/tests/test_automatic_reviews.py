@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import caches
 from django.http import HttpResponse
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -23,7 +23,6 @@ from posthog.ingress.views import build_webhook_view
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.review_hog.backend.automatic_reviews import enqueue_authored_pr_review
 from products.review_hog.backend.models import ReviewUserSettings
@@ -59,7 +58,7 @@ def _payload(*, action: str = "opened", draft: bool = False) -> dict[str, object
 
 
 @override_settings(CACHES=LOCMEM_CACHES)
-class TestAuthoredPRWebhook(ClickhouseFreeSimpleTestCase):
+class TestAuthoredPRWebhook(SimpleTestCase):
     def setUp(self) -> None:
         reset_consumer_registry()
         caches[INGRESS_DEDUP_CACHE_ALIAS].clear()

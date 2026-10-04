@@ -12,12 +12,12 @@ independently of schema validation.
 
 from unittest.mock import MagicMock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EventsNode, ExperimentDataWarehouseNode
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 
@@ -34,7 +34,7 @@ def mock_funnel_metric(series):
     return metric
 
 
-class TestFunnelDWValidator(ClickhouseFreeSimpleTestCase):
+class TestFunnelDWValidator(SimpleTestCase):
     """Test FunnelDWValidator for DW funnel configuration validation."""
 
     def test_validate_required_fields_all_present(self):

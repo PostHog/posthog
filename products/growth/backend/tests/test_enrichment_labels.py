@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import SimpleTestCase
 
 import openai
 from openai import OpenAI
@@ -17,7 +18,6 @@ from parameterized import parameterized
 from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted
 from posthog.egress.firecrawl.client import FirecrawlScrape, FirecrawlSearch, FirecrawlSearchResult
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.enrichment.labels import (
     MAX_INPUT_LIST_ITEMS,
@@ -66,7 +66,7 @@ _OUTPUT_FIELDS = [
 ]
 
 
-class TestClassifyPayloadMissingInput(ClickhouseFreeSimpleTestCase):
+class TestClassifyPayloadMissingInput(SimpleTestCase):
     @parameterized.expand(
         [
             ("none_payload", None),
@@ -117,7 +117,7 @@ class TestClassifyPayloadMissingInput(ClickhouseFreeSimpleTestCase):
         client.chat.completions.create.assert_not_called()
 
 
-class TestClassifyPayloadEmailReduction(ClickhouseFreeSimpleTestCase):
+class TestClassifyPayloadEmailReduction(SimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -151,7 +151,7 @@ class TestClassifyPayloadEmailReduction(ClickhouseFreeSimpleTestCase):
         assert "rowco.com" in rendered
 
 
-class TestHasUsablePayload(ClickhouseFreeSimpleTestCase):
+class TestHasUsablePayload(SimpleTestCase):
     @parameterized.expand(
         [
             ("none_payload", None, False),
@@ -211,7 +211,7 @@ def _fetch_tool_call(call_id: str = "call_1", url: str = "https://example.com/pr
     return _FakeToolCall(call_id, "fetch_page", {"url": url})
 
 
-class TestClassifyPayloadToolLoop(ClickhouseFreeSimpleTestCase):
+class TestClassifyPayloadToolLoop(SimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -404,7 +404,7 @@ class TestClassifyPayloadToolLoop(ClickhouseFreeSimpleTestCase):
         assert len(client.calls) == 3
 
 
-class TestClassifyPayloadToolEvidenceUrl(ClickhouseFreeSimpleTestCase):
+class TestClassifyPayloadToolEvidenceUrl(SimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -463,7 +463,7 @@ class TestClassifyPayloadToolEvidenceUrl(ClickhouseFreeSimpleTestCase):
         assert ("evidence_url_rejected" in result.get("meta", {})) is expect_rejected
 
 
-class TestClassifyPayloadFetchUrlAllowlist(ClickhouseFreeSimpleTestCase):
+class TestClassifyPayloadFetchUrlAllowlist(SimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -551,7 +551,7 @@ class TestClassifyPayloadFetchUrlAllowlist(ClickhouseFreeSimpleTestCase):
         ]
 
 
-class TestConfigurableOutputFields(ClickhouseFreeSimpleTestCase):
+class TestConfigurableOutputFields(SimpleTestCase):
     def _config(self, output_fields: list[dict]) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -672,7 +672,7 @@ class TestConfigurableOutputFields(ClickhouseFreeSimpleTestCase):
         assert classify_payload(config, {"company": "Acme"}, None, client)["flag"] is True
 
 
-class TestCallAndParseRetryAllowlist(ClickhouseFreeSimpleTestCase):
+class TestCallAndParseRetryAllowlist(SimpleTestCase):
     """The retry predicate is an allowlist, not a blacklist: a transient failure (connection
     error, timeout, 429, 5xx) earns tenacity's 3 attempts; anything else — most importantly
     AuthenticationError, which used to retry 3x under the old not-OutputParseError blacklist and

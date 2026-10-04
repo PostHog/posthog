@@ -1,11 +1,11 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.workflows.backend.utils.durations import duration_minutes, is_duration, is_signed_duration, parse_duration
 
 
-class TestDurations(ClickhouseFreeSimpleTestCase):
+class TestDurations(SimpleTestCase):
     @parameterized.expand(
         [
             ("whole", "10d", 10.0, "d", False),

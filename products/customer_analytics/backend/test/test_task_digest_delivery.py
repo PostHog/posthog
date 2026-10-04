@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 
 from django.core import mail
 from django.db import DatabaseError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.customer_analytics.backend.facade.contracts import TaskDigestPreferences
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
@@ -28,7 +28,7 @@ from products.customer_analytics.backend.logic.task_digest_delivery import (
 from products.customer_analytics.backend.models import CustomerTask, UserCustomerAnalyticsConfig
 
 
-class TestTaskDigestSchedule(ClickhouseFreeSimpleTestCase):
+class TestTaskDigestSchedule(SimpleTestCase):
     @parameterized.expand(
         [
             ("before", "2026-03-06T13:59:00+00:00", "09:00", "weekdays", None),

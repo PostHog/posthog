@@ -7,12 +7,11 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 from products.streamlit_apps.backend.presentation.serializers import CreateVersionFromSourceInputSerializer
@@ -759,7 +758,7 @@ class TestCreateVersionFromSource(_StreamlitAppsFlagMixin, APIBaseTest):
         mock_storage_write.assert_not_called()
 
 
-class TestCreateVersionFromSourceInputSerializer(ClickhouseFreeSimpleTestCase):
+class TestCreateVersionFromSourceInputSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("traversal", {"files": {"../x.py": ""}}, "files"),

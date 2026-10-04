@@ -6,6 +6,7 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,7 +16,6 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend import session_event_deltas
@@ -1345,7 +1345,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-class TestComparedEnrollmentWalk(ClickhouseFreeSimpleTestCase):
+class TestComparedEnrollmentWalk(SimpleTestCase):
     # The walk is the scan's cost bound, so it is pinned on its own without ClickHouse. Every
     # instant is an offset from the window end; buckets are listed newest first, as the query
     # returns them.

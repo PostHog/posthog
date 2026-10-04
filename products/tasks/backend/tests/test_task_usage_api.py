@@ -7,15 +7,13 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services.task_usage import (
     TASK_USAGE_INTERNAL_PATH,
@@ -28,7 +26,7 @@ from products.tasks.backend.presentation.views.task_usage_api import InternalTas
 CROSS_REGION_SECRET = "test-cross-region-secret"
 
 
-class TestInternalTaskUsageViewSet(ClickhouseFreeSimpleTestCase):
+class TestInternalTaskUsageViewSet(SimpleTestCase):
     @patch(
         "products.tasks.backend.presentation.views.task_usage_api.get_local_task_token_cost",
         return_value=Decimal("1.25"),

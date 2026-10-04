@@ -4,6 +4,8 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -13,7 +15,6 @@ from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionViewSet,
     QueryContext,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def exclude_virtual_properties(results: list) -> list:
@@ -1101,7 +1102,7 @@ class TestPropertyDefinitionListStatementTimeout(APIBaseTest):
         assert response.json()["code"] == "property_definitions_timeout"
 
 
-class TestPropertyDefinitionQuerySerializer(ClickhouseFreeSimpleTestCase):
+class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ["defaults", {}],

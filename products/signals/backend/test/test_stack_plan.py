@@ -2,10 +2,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.db import transaction
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
@@ -40,7 +39,7 @@ from products.tasks.backend.models import Task, TaskRun
 AUTOSTART = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 
 
-class TestReportLayersValidation(ClickhouseFreeSimpleTestCase):
+class TestReportLayersValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("single_layer_is_no_plan", [None], []),

@@ -3,20 +3,19 @@ from uuid import uuid4
 import time_machine
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import fakeredis
 from parameterized import parameterized
 
 from posthog.ph_client import get_client
 from posthog.redis import TEST_clear_clients
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture, BudgetSteerProperties
 from products.tasks.backend.tasks.tasks import capture_budget_steer
 
 
-class TestBudgetSteerCapture(ClickhouseFreeSimpleTestCase):
+class TestBudgetSteerCapture(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         TEST_clear_clients()

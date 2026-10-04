@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
 from django.db import transaction
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
 from asgiref.sync import async_to_sync
@@ -18,7 +18,6 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.facade.api import (
     create_and_run_task,
@@ -57,7 +56,7 @@ from products.tasks.backend.temporal.client import execute_task_processing_workf
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 
-class TestWorkflowDispatchPayload(ClickhouseFreeSimpleTestCase):
+class TestWorkflowDispatchPayload(SimpleTestCase):
     @patch("products.tasks.backend.logic.services.workflow_dispatch.transaction.get_connection")
     @patch("products.tasks.backend.logic.services.workflow_dispatch.TaskWorkflowDispatch.objects")
     def test_duplicate_create_dispatch_reuses_durable_intent(self, objects: Mock, get_connection: Mock) -> None:
@@ -944,7 +943,7 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual(remaining, {fresh_dead.id})
 
 
-class TestWorkflowDispatchPermissions(ClickhouseFreeSimpleTestCase):
+class TestWorkflowDispatchPermissions(SimpleTestCase):
     @parameterized.expand([("allowed", None), ("blocked", "Usage limit reached"), ("error", "error")])
     @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
     @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.usage_limit_response")
@@ -1022,7 +1021,7 @@ class TestWorkflowDispatchPermissions(ClickhouseFreeSimpleTestCase):
         users.filter.assert_not_called()
 
 
-class TestDispatcherCompletionCallback(ClickhouseFreeSimpleTestCase):
+class TestDispatcherCompletionCallback(SimpleTestCase):
     @parameterized.expand(
         [
             ("failure", RuntimeError("connection reset"), 1),

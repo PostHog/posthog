@@ -1,12 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.logs.backend.models import LogsView
 from products.logs.backend.presentation.views.views_api import LogsViewColumnSerializer
@@ -287,7 +288,7 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.json()["pinned"] is True
 
 
-class TestLogsViewColumnSerializer(ClickhouseFreeSimpleTestCase):
+class TestLogsViewColumnSerializer(SimpleTestCase):
     # Field-level validation runs without a DB; the endpoint test above is the wiring guard.
 
     @parameterized.expand(

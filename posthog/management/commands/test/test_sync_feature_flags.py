@@ -1,14 +1,14 @@
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.test import SimpleTestCase
 
 from posthog.management.commands.sync_feature_flags import parse_frontend_feature_flags
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-class TestParseFrontendFeatureFlags(ClickhouseFreeSimpleTestCase):
+class TestParseFrontendFeatureFlags(SimpleTestCase):
     def test_parses_boolean_and_multivariate_flags(self) -> None:
         flags = parse_frontend_feature_flags(
             [

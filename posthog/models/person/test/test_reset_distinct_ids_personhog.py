@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.person import Person, deletion
@@ -18,10 +20,9 @@ from posthog.models.person.deletion import (
     _updated_distinct_ids,
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestUpdateDistinctIdInPostgresRPC(ClickhouseFreeSimpleTestCase):
+class TestUpdateDistinctIdInPostgresRPC(SimpleTestCase):
     def test_personhog_path_returns_converted_person(self):
         person_uuid = str(uuid4())
         with fake_personhog_client() as fake:
@@ -52,7 +53,7 @@ class TestUpdateDistinctIdInPostgresRPC(ClickhouseFreeSimpleTestCase):
         assert result is None
 
 
-class TestSetPersonVersionFloorRPC(ClickhouseFreeSimpleTestCase):
+class TestSetPersonVersionFloorRPC(SimpleTestCase):
     def test_personhog_path_calls_rpc_with_floor(self):
         with fake_personhog_client() as fake:
             _set_person_version_floor(1, 42, 500)
@@ -63,7 +64,7 @@ class TestSetPersonVersionFloorRPC(ClickhouseFreeSimpleTestCase):
             assert calls[0].request.min_version == 500
 
 
-class TestUpdatedDistinctIdsSkipsDeleted(ClickhouseFreeSimpleTestCase):
+class TestUpdatedDistinctIdsSkipsDeleted(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_live_person", "none", False),

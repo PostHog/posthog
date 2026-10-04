@@ -2,14 +2,15 @@ import struct
 
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.caching.zstd_compressor import ZSTD_FRAME_MAGIC, ZstdCompressor
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestZstdCompressor(ClickhouseFreeSimpleTestCase):
+class TestZstdCompressor(SimpleTestCase):
     # compressors take an options in init but don't use it 🤷
     compressor = ZstdCompressor({})
 

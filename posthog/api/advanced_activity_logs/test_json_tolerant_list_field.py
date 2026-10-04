@@ -1,9 +1,9 @@
 from django.http import QueryDict
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.api.advanced_activity_logs.viewset import AdvancedActivityLogFiltersSerializer
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _querydict(pairs: list[tuple[str, str]]) -> QueryDict:
@@ -13,7 +13,7 @@ def _querydict(pairs: list[tuple[str, str]]) -> QueryDict:
     return qd
 
 
-class TestJSONTolerantListField(ClickhouseFreeSimpleTestCase):
+class TestJSONTolerantListField(SimpleTestCase):
     @parameterized.expand(
         [
             ("json_encoded_array", [("scopes", '["FeatureFlag","Insight"]')], ["FeatureFlag", "Insight"]),

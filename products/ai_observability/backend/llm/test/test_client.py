@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import MagicMock
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.config import ProviderConfig
@@ -11,7 +11,7 @@ from products.ai_observability.backend.llm.errors import ProviderMismatchError, 
 from products.ai_observability.backend.llm.types import CompletionRequest
 
 
-class TestClientInitialization(ClickhouseFreeSimpleTestCase):
+class TestClientInitialization(SimpleTestCase):
     def test_default_initialization(self):
         client = Client()
         assert client.provider_key is None
@@ -35,7 +35,7 @@ class TestClientInitialization(ClickhouseFreeSimpleTestCase):
         assert len(client.analytics.trace_id) == 36
 
 
-class TestProviderRouting(ClickhouseFreeSimpleTestCase):
+class TestProviderRouting(SimpleTestCase):
     @parameterized.expand(
         [
             ("openai",),
@@ -113,7 +113,7 @@ class TestProviderRouting(ClickhouseFreeSimpleTestCase):
         assert provider.base_url == ""
 
 
-class TestProviderMismatchValidation(ClickhouseFreeSimpleTestCase):
+class TestProviderMismatchValidation(SimpleTestCase):
     def test_provider_mismatch_raises_error(self):
         mock_key = MagicMock()
         mock_key.provider = "openai"
@@ -153,7 +153,7 @@ class TestProviderMismatchValidation(ClickhouseFreeSimpleTestCase):
         client._validate_provider("zeabur")
 
 
-class TestApiKeyExtraction(ClickhouseFreeSimpleTestCase):
+class TestApiKeyExtraction(SimpleTestCase):
     def test_get_api_key_with_provider_key(self):
         mock_key = MagicMock()
         mock_key.encrypted_config = {"api_key": "secret-key"}
@@ -167,7 +167,7 @@ class TestApiKeyExtraction(ClickhouseFreeSimpleTestCase):
         assert client._get_api_key() is None
 
 
-class TestEffectiveCredentials(ClickhouseFreeSimpleTestCase):
+class TestEffectiveCredentials(SimpleTestCase):
     def test_credentials_from_config_take_precedence(self):
         config = ProviderConfig(api_key="config-key", base_url="https://config.example.com")
         client = Client(config=config)

@@ -8,18 +8,18 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services import task_usage
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 
-class TestTaskUsageQueryTagging(ClickhouseFreeSimpleTestCase):
+class TestTaskUsageQueryTagging(SimpleTestCase):
     def test_token_cost_query_is_attributed_to_posthog_code(self) -> None:
         captured_tags: dict[str, object] = {}
 

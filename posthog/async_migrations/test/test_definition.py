@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
@@ -10,7 +12,6 @@ from posthog.async_migrations.setup import (
     setup_async_migrations,
 )
 from posthog.models.async_migration import AsyncMigration
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.version_requirement import ServiceVersionRequirement
 
 pytestmark = [
@@ -21,7 +22,7 @@ pytestmark = [
 ]
 
 
-class TestAsyncMigrationDefinition(ClickhouseFreeSimpleTestCase):
+class TestAsyncMigrationDefinition(SimpleTestCase):
     def test_get_async_migration_definition(self):
         from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
 

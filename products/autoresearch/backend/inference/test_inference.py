@@ -5,10 +5,11 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.api.capture import CaptureInternalResult
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME
 from products.autoresearch.backend.inference import (
@@ -67,7 +68,7 @@ def _capture_accepting_everything() -> MagicMock:
     return MagicMock(side_effect=lambda **kwargs: _accepted(kwargs["events"]))
 
 
-class TestScoreRows(ClickhouseFreeSimpleTestCase):
+class TestScoreRows(SimpleTestCase):
     def test_score_rows_produces_values_between_0_and_1(self):
         rows = [
             {"distinct_id": "user-1", "events_total_30d": 100, "days_since_last_seen": 0},
@@ -849,7 +850,7 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
                 )
 
 
-class TestRecipeFit(ClickhouseFreeSimpleTestCase):
+class TestRecipeFit(SimpleTestCase):
     @parameterized.expand(
         [
             ("seeded_from_the_pipeline", {}, 1234),

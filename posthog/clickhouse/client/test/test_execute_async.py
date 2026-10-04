@@ -7,7 +7,7 @@ from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import MagicMock, patch
 
 from django.db import transaction
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -36,7 +36,6 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.shared_link_user import SharedLinkUser
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def build_query(sql):
@@ -55,7 +54,7 @@ ZERO_PROGRESS = {
 }
 
 
-class TestQueryStatusManager(ClickhouseFreeSimpleTestCase):
+class TestQueryStatusManager(SimpleTestCase):
     def setUp(self):
         super().setUp()
         get_client().flushall()
@@ -150,7 +149,7 @@ class TestQueryStatusManager(ClickhouseFreeSimpleTestCase):
         self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
 
 
-class TestAsyncTaskChain(ClickhouseFreeSimpleTestCase):
+class TestAsyncTaskChain(SimpleTestCase):
     @patch("posthog.clickhouse.client.async_task_chain.uuid.uuid4")
     @patch("posthog.clickhouse.client.async_task_chain.chain")
     def test_persists_each_task_identity_before_dispatch(self, chain_mock: MagicMock, uuid4_mock: MagicMock) -> None:

@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -32,7 +33,6 @@ from posthog.hogql_queries.access_controlled_resources import (
     _references_data_warehouse,
     queried_access_controlled_resources,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -393,7 +393,7 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert result == set()
 
 
-class TestHiddenSystemTableCachePartitioning(ClickhouseFreeSimpleTestCase):
+class TestHiddenSystemTableCachePartitioning(SimpleTestCase):
     def test_every_hidden_system_table_partitions_the_cache(self) -> None:
         unpartitioned = sorted(
             name

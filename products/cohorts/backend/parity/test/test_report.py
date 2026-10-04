@@ -1,4 +1,4 @@
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.cohorts.backend.parity.classifier import (
     VERDICT_FAIL,
@@ -48,7 +48,7 @@ def _population_row(cohort_id: int, *, match_pct: float, fold_count: int = 0) ->
     )
 
 
-class TestReport(ClickhouseFreeSimpleTestCase):
+class TestReport(SimpleTestCase):
     def test_json_rows_order_failures_first(self) -> None:
         rows = [
             _row(1, VERDICT_SKIP),
@@ -82,7 +82,7 @@ class TestReport(ClickhouseFreeSimpleTestCase):
         self.assertEqual(document["cohorts"][0]["notes"], notes)
 
 
-class TestRecomputeReport(ClickhouseFreeSimpleTestCase):
+class TestRecomputeReport(SimpleTestCase):
     def test_recompute_json_carries_every_decay_watch_field(self) -> None:
         row = RecomputeComparison(
             cohort_id=433564,

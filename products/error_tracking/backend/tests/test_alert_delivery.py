@@ -8,6 +8,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,7 +21,6 @@ from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS, update_alert
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
@@ -234,7 +234,7 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert reply[0].thread.id == thread.id
 
 
-class TestAlertMessages(ClickhouseFreeSimpleTestCase):
+class TestAlertMessages(SimpleTestCase):
     def _inputs(self, **extra: str) -> AlertDeliveryWorkflowInputs:
         return AlertDeliveryWorkflowInputs(
             notification_id="notif-1",

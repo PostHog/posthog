@@ -1,15 +1,15 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.visitor import clear_locations
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
-
 from products.logs.backend.column_expressions import canonical_key, column_to_expr, path_to_expr
 
 
-class TestPathToExpr(ClickhouseFreeSimpleTestCase):
+class TestPathToExpr(SimpleTestCase):
     @parameterized.expand(
         [
             ("flat_attribute_key", "attributes", "http.url"),
@@ -65,7 +65,7 @@ class TestPathToExpr(ClickhouseFreeSimpleTestCase):
         assert expr.args[1] == ast.Constant(value=malicious)
 
 
-class TestColumnToExpr(ClickhouseFreeSimpleTestCase):
+class TestColumnToExpr(SimpleTestCase):
     @parameterized.expand(
         [
             ("attributes_flat_key", "attributes.http.url", ast.Field(chain=["attributes", "http.url"])),
@@ -136,7 +136,7 @@ class TestColumnToExpr(ClickhouseFreeSimpleTestCase):
             column_to_expr("level; DROP TABLE logs")
 
 
-class TestCanonicalKey(ClickhouseFreeSimpleTestCase):
+class TestCanonicalKey(SimpleTestCase):
     @parameterized.expand(
         [
             ("attributes_http_url", "attributes.http.url", "col_7284f0d699a5"),

@@ -2,13 +2,14 @@ from typing import Any, cast
 
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.canvas.backend import welcome
 from products.canvas.backend.layout import (
@@ -561,7 +562,7 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
         assert read.json()["layout"]["placements"] == []
 
 
-class TestWelcomeChecklistProject(ClickhouseFreeSimpleTestCase):
+class TestWelcomeChecklistProject(SimpleTestCase):
     def test_seed_project_passes_source_validation(self):
         diagnostics = validate_source_project(welcome.welcome_checklist_project(), kind="component")
         assert not has_errors(diagnostics), diagnostics

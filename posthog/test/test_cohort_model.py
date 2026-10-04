@@ -5,7 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -15,7 +15,6 @@ from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import add_cohort_members, create_person
 
 from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType, ImportResolution
@@ -949,7 +948,7 @@ class TestCohortIsFlagCompatible(BaseTest):
         self.assertEqual(cohort.is_flag_compatible, expected)
 
 
-class TestCohortComputeConditionType(ClickhouseFreeSimpleTestCase):
+class TestCohortComputeConditionType(SimpleTestCase):
     @parameterized.expand(
         [
             ("person_only", _PERSON_FILTERS, _condition_flags(person_properties=True)),
@@ -975,7 +974,7 @@ class TestCohortComputeConditionType(ClickhouseFreeSimpleTestCase):
         self.assertEqual(Cohort.compute_condition_type(filters), expected)
 
 
-class TestImportResolution(ClickhouseFreeSimpleTestCase):
+class TestImportResolution(SimpleTestCase):
     def test_deduplicates_inputs_across_batches(self) -> None:
         resolution = ImportResolution()
         resolution.record(["matched", "duplicate"], {"matched"})

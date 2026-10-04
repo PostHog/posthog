@@ -6,7 +6,7 @@ import asyncio
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import httpx
 from parameterized import parameterized
@@ -20,7 +20,6 @@ from posthog.hogql.transforms.prompt_jev import PromptJevBudget, PromptJevRunner
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
@@ -41,7 +40,7 @@ def gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
 
 
 @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
-class TestPromptJev(ClickhouseFreeSimpleTestCase):
+class TestPromptJev(SimpleTestCase):
     @parameterized.expand(
         [
             ("SELECT jev('a', 'q') AS p", 1000),

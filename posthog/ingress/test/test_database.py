@@ -2,13 +2,12 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError, connections
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout, read_aliases
 from posthog.models import Team, User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _current_statement_timeout(alias: str) -> str:
@@ -18,7 +17,7 @@ def _current_statement_timeout(alias: str) -> str:
     return row[0]
 
 
-class TestReadAliases(ClickhouseFreeSimpleTestCase):
+class TestReadAliases(SimpleTestCase):
     def test_models_that_route_to_one_alias_are_capped_once(self) -> None:
         self.assertEqual(read_aliases([Team, User]), read_aliases([Team]))
 
@@ -42,7 +41,7 @@ class TestReadAliases(ClickhouseFreeSimpleTestCase):
                 self.assertEqual(sorted(read_aliases([Team, User])), expected)
 
 
-class TestIsStatementTimeout(ClickhouseFreeSimpleTestCase):
+class TestIsStatementTimeout(SimpleTestCase):
     def test_an_unrelated_database_failure_is_not_the_cap_firing(self) -> None:
         self.assertFalse(is_statement_timeout(OperationalError("server closed the connection unexpectedly")))
         self.assertFalse(is_statement_timeout(ValueError("not a database error")))

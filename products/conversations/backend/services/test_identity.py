@@ -1,4 +1,4 @@
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.conversations.backend.services.identity import (
     IDENTITY_CLAIM_MAX_AGE_SECONDS,
@@ -10,7 +10,7 @@ from products.conversations.backend.services.identity import (
 )
 
 
-class TestIdentityService(ClickhouseFreeSimpleTestCase):
+class TestIdentityService(SimpleTestCase):
     def test_compute_identity_hash_deterministic(self):
         h1 = compute_identity_hash("user_123", "secret")
         h2 = compute_identity_hash("user_123", "secret")
@@ -49,7 +49,7 @@ class TestIdentityService(ClickhouseFreeSimpleTestCase):
         int(h, 16)  # should not raise
 
 
-class TestIdentityClaimHash(ClickhouseFreeSimpleTestCase):
+class TestIdentityClaimHash(SimpleTestCase):
     def test_claim_hash_verifies(self):
         h = compute_identity_claim_hash("user_123", "email", "a@example.com", "secret", expires_at=2000)
         self.assertTrue(

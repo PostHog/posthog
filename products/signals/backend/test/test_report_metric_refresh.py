@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -11,7 +12,6 @@ from rest_framework import status
 from posthog.schema import ChartDisplayType
 
 from posthog.constants import AvailableFeature
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -63,7 +63,7 @@ def _measurement(value: float = 21, *, measured_at: datetime | None = None) -> M
     return MetricMeasurement(value=value, measured_at=measured_at or timezone.now(), series=[1.0, 2.0, 3.0])
 
 
-class TestReportMetricRefreshRequestValidation(ClickhouseFreeSimpleTestCase):
+class TestReportMetricRefreshRequestValidation(SimpleTestCase):
     def test_rejects_more_than_one_page_of_ids(self) -> None:
         serializer = SignalReportMetricRefreshRequestSerializer(
             data={"report_ids": [f"00000000-0000-4000-8000-{i:012d}" for i in range(21)]}

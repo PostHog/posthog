@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
@@ -14,7 +16,6 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.business_knowledge.backend.api.serializers import BusinessKnowledgeSettingsUpdateSerializer
@@ -24,7 +25,7 @@ from products.business_knowledge.backend.models import KnowledgeSource, TeamBusi
 SUPPORT_OFF_ERROR = "Turn on Support to learn from resolved tickets."
 
 
-class TestBusinessKnowledgeSettingsUpdateSerializer(ClickhouseFreeSimpleTestCase):
+class TestBusinessKnowledgeSettingsUpdateSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("enable_without_support", True, False, False),
@@ -45,7 +46,7 @@ class TestBusinessKnowledgeSettingsUpdateSerializer(ClickhouseFreeSimpleTestCase
             assert serializer.errors["learn_from_support_enabled"][0] == SUPPORT_OFF_ERROR
 
 
-class TestBusinessKnowledgeSettingsScopes(ClickhouseFreeSimpleTestCase):
+class TestBusinessKnowledgeSettingsScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("get", "GET", ["business_knowledge:read"]),

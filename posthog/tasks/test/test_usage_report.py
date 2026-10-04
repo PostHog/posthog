@@ -25,7 +25,7 @@ from unittest.mock import MagicMock, Mock, patch
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils.timezone import now
 
 import structlog
@@ -76,7 +76,6 @@ from posthog.tasks.usage_report import (
     has_non_zero_usage,
     send_all_org_usage_reports,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
@@ -2364,7 +2363,7 @@ class TestTrimOversizeUsageReportPayload(TestCase):
         assert len(json.dumps(result, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
 
 
-class TestHasNonZeroUsage(ClickhouseFreeSimpleTestCase):
+class TestHasNonZeroUsage(SimpleTestCase):
     def _zeroed_counters(self) -> UsageReportCounters:
         zero_values: dict[str, Any] = {}
         for field in dataclasses.fields(UsageReportCounters):
@@ -3871,7 +3870,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         assert org_2_report["teams"][str(self.org_2_team_3.pk)]["exceptions_captured_in_period"] == 7
 
 
-class TestAICreditsRegionHandling(ClickhouseFreeSimpleTestCase):
+class TestAICreditsRegionHandling(SimpleTestCase):
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_on_dev_region_returns_empty(self, mock_region: MagicMock) -> None:
         mock_region.return_value = "DEV"
@@ -5230,7 +5229,7 @@ class TestTaskSandboxUsageReport(APIBaseTest):
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
 
 
-class TestPostHogCodeComputeUsageReport(ClickhouseFreeSimpleTestCase):
+class TestPostHogCodeComputeUsageReport(SimpleTestCase):
     def test_component_contract_uses_integer_historical_metric_types(self) -> None:
         from posthog.tasks.usage_report import UsageReportCounters
 
@@ -5788,7 +5787,7 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         assert properties["total_orgs"] == 3
 
 
-class TestCalendarAlignedQuerySplitting(ClickhouseFreeSimpleTestCase):
+class TestCalendarAlignedQuerySplitting(SimpleTestCase):
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_uses_midnight_boundaries(self, mock_sync_execute: MagicMock) -> None:
         mock_sync_execute.side_effect = [[(1, 1)], [(1, 2)], [(1, 3)]]

@@ -4,10 +4,10 @@ from typing import get_args
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.apm.backend.facade.api import BaselineStage, Direction, IssueState, TrafficTier, VerdictType
 from products.logs.backend.anomaly_scan import ScanBucket, ScanBudgetExceeded, ScanIssue, ScanResult, ScanSeries
@@ -100,7 +100,7 @@ def _bands_result(**overrides) -> SeriesBandsResult:
     return SeriesBandsResult(**defaults)
 
 
-class TestScanRequestValidation(ClickhouseFreeSimpleTestCase):
+class TestScanRequestValidation(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -207,7 +207,7 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-class TestSeriesBandsRequestValidation(ClickhouseFreeSimpleTestCase):
+class TestSeriesBandsRequestValidation(SimpleTestCase):
     @parameterized.expand([(5, True), (15, True), (30, True), (60, True), (None, True), (7, False), (120, False)])
     def test_interval_must_sit_on_the_ladder_or_be_null(self, interval_minutes: int | None, valid: bool) -> None:
         serializer = LogsSeriesBandsRequestSerializer(data={"serviceName": "svc", "intervalMinutes": interval_minutes})

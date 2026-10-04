@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -9,7 +11,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS, reset_revoked_logs_retention
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tracing.backend.facade.retention import TracesRetentionRule
 from products.tracing.backend.facade.team_extension import (
@@ -187,7 +188,7 @@ INVALID_KEY_LISTS = [
 ]
 
 
-class TestTeamTracingConfigSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestTeamTracingConfigSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [(f"{field}_{name}", field, keys) for field in KEY_LIST_FIELDS for name, keys in INVALID_KEY_LISTS]
     )

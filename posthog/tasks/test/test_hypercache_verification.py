@@ -9,7 +9,7 @@ Tests cover:
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -24,7 +24,6 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 from posthog.tasks.utils import CeleryQueue
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _incomplete_runs(cache_type: str, reason: str) -> float:
@@ -38,7 +37,7 @@ def _incomplete_runs(cache_type: str, reason: str) -> float:
     )
 
 
-class TestFixCounterSeries(ClickhouseFreeSimpleTestCase):
+class TestFixCounterSeries(SimpleTestCase):
     def test_every_label_triple_is_pre_created_at_import(self) -> None:
         # Expectations are literals, not _FIX_WRITERS_BY_CACHE_TYPE: deriving them
         # from the dict would let a dropped writer (the rust series the ramp gates
@@ -59,7 +58,7 @@ class TestFixCounterSeries(ClickhouseFreeSimpleTestCase):
                     ), f"series not pre-created: cache_type={cache_type}, issue_type={issue_type}, writer={writer}"
 
 
-class TestSweepFailureCounterSeries(ClickhouseFreeSimpleTestCase):
+class TestSweepFailureCounterSeries(SimpleTestCase):
     def test_every_label_combination_is_pre_created_at_import(self) -> None:
         for cache_type in ("flags", "team_metadata", "flag_definitions"):
             for reason in ("dependency_unavailable", "data_error", "unknown"):
@@ -82,7 +81,7 @@ class TestSweepFailureCounterSeries(ClickhouseFreeSimpleTestCase):
                     ), f"series not pre-created: cache_type={cache_type}, issue_type={issue_type}, reason={reason}"
 
 
-class TestIncompleteRunsCounterSeries(ClickhouseFreeSimpleTestCase):
+class TestIncompleteRunsCounterSeries(SimpleTestCase):
     def test_every_label_pair_is_pre_created_at_import(self) -> None:
         for cache_type in ("flags", "team_metadata", "flag_definitions"):
             for reason in ("db_unreachable", "error", "soft_time_limit", "deadline"):

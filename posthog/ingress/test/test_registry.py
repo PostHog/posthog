@@ -1,12 +1,13 @@
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.loading import get_consumer_registry, non_product_consumers, reset_consumer_registry
 from posthog.ingress.dispatch.registry import ConsumerRegistry, RegistryError
 from posthog.ingress.github.provider import SPECS as GITHUB_SPECS
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 GITHUB = ProviderSpec(provider="github", app="posthog", event_types=frozenset({"pull_request", "push"}))
 STAMPHOG = ProviderSpec(provider="github", app="stamphog", event_types=frozenset({"pull_request"}))
@@ -26,7 +27,7 @@ def _consumer(
     return WebhookConsumer(name=name, provider=provider, app=app, event_types=event_types, handler=_noop)
 
 
-class TestConsumerRegistry(ClickhouseFreeSimpleTestCase):
+class TestConsumerRegistry(SimpleTestCase):
     def test_groups_consumers_by_event_type_in_name_order(self) -> None:
         registry = ConsumerRegistry(
             providers=[GITHUB],

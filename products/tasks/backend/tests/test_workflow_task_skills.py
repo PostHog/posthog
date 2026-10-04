@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.tasks.backend.logic.services.workflow_task_skills import (
     MANIFEST_DESCRIPTION_MAX_CHARS,
@@ -15,7 +15,7 @@ def _skill(name: str, version: int = 1, description: str = "Does a thing.") -> A
     return AttachedSkill(name=name, version=version, description=description)
 
 
-class TestSelectSkillNames(ClickhouseFreeSimpleTestCase):
+class TestSelectSkillNames(SimpleTestCase):
     @parameterized.expand(
         [
             ("none", None, []),
@@ -36,7 +36,7 @@ class TestSelectSkillNames(ClickhouseFreeSimpleTestCase):
         self.assertEqual(selected, names[:MAX_ATTACHED_SKILLS])
 
 
-class TestRenderSkillsManifest(ClickhouseFreeSimpleTestCase):
+class TestRenderSkillsManifest(SimpleTestCase):
     def test_no_skills_renders_nothing(self) -> None:
         self.assertEqual(render_skills_manifest([]), "")
 

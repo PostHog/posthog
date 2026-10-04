@@ -3,11 +3,11 @@ import io
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from PIL import Image, UnidentifiedImageError
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.heatmap_screenshot_grounding import (
     _annotate,
@@ -33,7 +33,7 @@ def _heatmap_data(*, clicks: int = 1, rage: int = 1) -> dict:
     }
 
 
-class TestMarkersAndAnnotation(ClickhouseFreeSimpleTestCase):
+class TestMarkersAndAnnotation(SimpleTestCase):
     def test_build_markers_puts_rage_first_and_skips_zero_count(self):
         data = {
             "clicks": [{"pointer_relative_x": 0.5, "pointer_y": 100, "count": 16}],

@@ -4,11 +4,12 @@ from typing import Any, Optional
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.hog_invocation_results.sql import INSERT_HOG_INVOCATION_RESULT_SQL
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cdp.backend.services.stuck_invocations import (
     STUCK_INVOCATION_ERROR_KIND,
@@ -196,7 +197,7 @@ class TestStuckInvocations(ClickhouseTestMixin, BaseTest):
         assert kwargs["data"]["error_kind"] == STUCK_INVOCATION_ERROR_KIND
 
 
-class TestBuildTerminalRow(ClickhouseFreeSimpleTestCase):
+class TestBuildTerminalRow(SimpleTestCase):
     def _invocation(self, *, version: int, invocation_globals: str = "H4sIAAAA") -> StuckInvocation:
         return StuckInvocation(
             invocation_id=INVOCATION_ID,

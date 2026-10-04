@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.feature_flags.backend.persisted_flags import (
     get_dynamic_persisted_feature_flags,
@@ -12,7 +12,7 @@ def _flag(filters: dict, active: bool = True, deleted: bool = False) -> dict:
     return {"key": "flag", "active": active, "deleted": deleted, "filters": filters}
 
 
-class TestIsUnconditionallyFullyRolledOut(ClickhouseFreeSimpleTestCase):
+class TestIsUnconditionallyFullyRolledOut(SimpleTestCase):
     @parameterized.expand(
         [
             ("explicit_100", _flag({"groups": [{"properties": [], "rollout_percentage": 100}]}), True),
@@ -101,7 +101,7 @@ class TestIsUnconditionallyFullyRolledOut(ClickhouseFreeSimpleTestCase):
         self.assertEqual(is_unconditionally_fully_rolled_out(flag), expected)
 
 
-class TestGetDynamicPersistedFeatureFlags(ClickhouseFreeSimpleTestCase):
+class TestGetDynamicPersistedFeatureFlags(SimpleTestCase):
     def test_merges_dynamic_with_static_deduped_and_sorted(self) -> None:
         definitions = [
             {

@@ -3,9 +3,10 @@ from uuid import uuid4
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CodeBasedVerifier
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.security.backend.tests.helpers import exempt_rule, seed_rules
 
@@ -19,7 +20,7 @@ from products.security.backend.tests.helpers import exempt_rule, seed_rules
     "posthog.helpers.two_factor_session.check_esp_suppression",
     return_value=ESPSuppressionResult(is_suppressed=False, from_cache=False, reason=None),
 )
-class TestEmailCodeCallSite(ClickhouseFreeSimpleTestCase):
+class TestEmailCodeCallSite(SimpleTestCase):
     def _user(self, email: str) -> MagicMock:
         user = MagicMock()
         user.pk = 123

@@ -6,6 +6,8 @@ from typing import NoReturn
 
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -19,10 +21,9 @@ from posthog.otel_instrumentation import (
     _otel_redis_request_hook,
     initialize_otel,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestOtelInstrumentation(ClickhouseFreeSimpleTestCase):
+class TestOtelInstrumentation(SimpleTestCase):
     def setUp(self):
         super().setUp()
         # Store original levels to restore them after tests
@@ -386,7 +387,7 @@ class TestOtelInstrumentation(ClickhouseFreeSimpleTestCase):
         mock_aio_kafka_instrumentor_instance.instrument.assert_called_once_with(tracer_provider=mock_provider_instance)
 
 
-class TestOtelRedisRequestHook(ClickhouseFreeSimpleTestCase):
+class TestOtelRedisRequestHook(SimpleTestCase):
     def _span_attributes_after_hook(self, instance: object) -> dict[str, AttributeValue]:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()

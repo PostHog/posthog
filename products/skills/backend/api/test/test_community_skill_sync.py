@@ -2,10 +2,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.community_skills import CommunitySkill
@@ -34,7 +33,7 @@ def _create_community_skill(
     )
 
 
-class TestCommunitySkillSyncValidation(ClickhouseFreeSimpleTestCase):
+class TestCommunitySkillSyncValidation(SimpleTestCase):
     def test_description_uses_spec_limit_instead_of_storage_limit(self) -> None:
         entry = {
             "slug": "boundary-skill",
@@ -50,7 +49,7 @@ class TestCommunitySkillSyncValidation(ClickhouseFreeSimpleTestCase):
             _validate_entry_within_caps(entry)
 
 
-class TestCommunitySkillScoutEntryValidation(ClickhouseFreeSimpleTestCase):
+class TestCommunitySkillScoutEntryValidation(SimpleTestCase):
     def _entry(self, **overrides) -> dict:
         return {
             "slug": "signals-scout-feed",

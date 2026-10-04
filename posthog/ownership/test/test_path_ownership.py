@@ -7,6 +7,7 @@ from typing import cast
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from requests import Response
@@ -14,7 +15,6 @@ from requests import Response
 from posthog.dataclasses import frozen
 from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
 from posthog.ownership.repo_files import _MAX_FILE_BYTES, GitHubRepoFiles, OwnershipUnavailable, capped_text
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _ROOT_OWNERS = """version: 1
 owners: [team-root]
@@ -40,7 +40,7 @@ class _FakeRepoFiles:
         pass
 
 
-class TestPathOwnership(ClickhouseFreeSimpleTestCase):
+class TestPathOwnership(SimpleTestCase):
     def test_places_each_path_exactly_and_returns_the_registry(self) -> None:
         # Exact resolution, not the suite-root search: 'src/...' is a real repo-relative path here
         # and must not be repositioned under nodejs/ the way a reported test path is.
@@ -61,7 +61,7 @@ class TestPathOwnership(ClickhouseFreeSimpleTestCase):
         assert owned.registry == {}
 
 
-class TestGitHubRepoFiles(ClickhouseFreeSimpleTestCase):
+class TestGitHubRepoFiles(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 

@@ -5,7 +5,7 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -27,7 +27,6 @@ from posthog.api_queries_budget import (
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.redis import get_client
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
 
@@ -39,7 +38,7 @@ SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
     API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR=1_000,
     API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR=5_000e9,
 )
-class TestBudgetSpecFor(ClickhouseFreeSimpleTestCase):
+class TestBudgetSpecFor(SimpleTestCase):
     @parameterized.expand(
         [
             ("free", False, 70e9, 1680e9),
@@ -118,7 +117,7 @@ class TestTokenBucket(BaseTest):
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get() == debit_before + 1
 
 
-class TestLimitedEventClaim(ClickhouseFreeSimpleTestCase):
+class TestLimitedEventClaim(SimpleTestCase):
     def test_first_claim_per_team_wins_for_an_hour(self):
         team_a, team_b = f"team-{uuid4()}", f"team-{uuid4()}"
         assert claim_limited_event(team_a) is True
@@ -133,7 +132,7 @@ class TestLimitedEventClaim(ClickhouseFreeSimpleTestCase):
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get() == before + 1
 
 
-class TestRequestQueryCost(ClickhouseFreeSimpleTestCase):
+class TestRequestQueryCost(SimpleTestCase):
     def test_costs_accumulate_within_a_request_and_reset_between(self):
         reset_request_query_cost()
         assert get_request_query_cost() is None

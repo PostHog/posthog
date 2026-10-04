@@ -1,14 +1,12 @@
 from typing import Any
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
 from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, _reject_serde_unsafe_filters
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_PROPERTY_TYPES, FeatureFlagFiltersSerializer
@@ -33,7 +31,7 @@ def _person_prop(**overrides: Any) -> dict[str, Any]:
     return {"key": "email", "type": "person", "operator": "icontains", "value": "@posthog.com", **overrides}
 
 
-class TestFiltersValidation(ClickhouseFreeSimpleTestCase):
+class TestFiltersValidation(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -374,7 +372,7 @@ class TestFiltersValidation(ClickhouseFreeSimpleTestCase):
         )
 
 
-class TestRejectSerdeUnsafeFilters(ClickhouseFreeSimpleTestCase):
+class TestRejectSerdeUnsafeFilters(SimpleTestCase):
     # The only cache-poisoning guard that runs while the enforcement switch is off, and the
     # structural tier shadows it once the switch is on, so it needs its own coverage: nothing
     # else in the suite exercises these rules.
@@ -475,7 +473,7 @@ class TestRejectSerdeUnsafeFilters(ClickhouseFreeSimpleTestCase):
         _reject_serde_unsafe_filters(filters)
 
 
-class TestReservedVariantKey(ClickhouseFreeSimpleTestCase):
+class TestReservedVariantKey(SimpleTestCase):
     @parameterized.expand(
         [
             (f"{sentinel}_{name}", sentinel, enforced_rules)

@@ -1,14 +1,13 @@
 from unittest.mock import patch
 
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from posthog.rate_limit import SupportSlackOAuthCallbackThrottle
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.api.slack_oauth import support_slack_oauth_callback
 
 
-class TestSupportSlackOAuthCallbackThrottle(ClickhouseFreeSimpleTestCase):
+class TestSupportSlackOAuthCallbackThrottle(SimpleTestCase):
     @patch("products.conversations.backend.api.slack_oauth.slack_request")
     @patch.object(SupportSlackOAuthCallbackThrottle, "allow_request", return_value=False)
     def test_throttled_request_returns_429_before_token_exchange(self, _mock_allow, mock_post):

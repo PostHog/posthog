@@ -9,6 +9,7 @@ from uuid import uuid4
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,7 +24,6 @@ from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.models import OrganizationMembership, TaggedItem, User
 from posthog.models.organization import AvailableFeature
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import EmailThread, EmailThreadAccountLink
@@ -63,7 +63,7 @@ from products.customer_analytics.backend.models.meeting import Meeting
 from products.notebooks.backend.models import ResourceNotebook
 
 
-class TestFacadeHogqlSystemTables(ClickhouseFreeSimpleTestCase):
+class TestFacadeHogqlSystemTables(SimpleTestCase):
     @parameterized.expand(
         [
             ("accounts", accounts, Account),
@@ -101,7 +101,7 @@ class TestFacadeHogqlSystemTables(ClickhouseFreeSimpleTestCase):
         )
 
 
-class TestAccountCommunicationHogqlAccess(ClickhouseFreeSimpleTestCase):
+class TestAccountCommunicationHogqlAccess(SimpleTestCase):
     @parameterized.expand(
         [
             ("email_threads", account_email_threads_join, "system._account_email_threads"),

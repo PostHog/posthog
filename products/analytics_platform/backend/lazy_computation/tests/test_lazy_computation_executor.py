@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import IntegrityError
+from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
@@ -21,7 +22,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -261,7 +261,7 @@ class TestFindMissingContiguousWindows(BaseTest):
         assert missing == expected_missing
 
 
-class TestClampRangesToDataHorizon(ClickhouseFreeSimpleTestCase):
+class TestClampRangesToDataHorizon(SimpleTestCase):
     @parameterized.expand(
         [
             (

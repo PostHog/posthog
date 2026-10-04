@@ -1,8 +1,8 @@
 from typing import Any
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.source import (
@@ -34,7 +34,7 @@ def project(**overrides):
     return base
 
 
-class TestCanvasSourceAdapter(ClickhouseFreeSimpleTestCase):
+class TestCanvasSourceAdapter(SimpleTestCase):
     def test_synthetic_project_of_legacy_canvas_validates_and_round_trips(self):
         # The read → edit → publish loop must accept its own output: a project
         # synthesized from a legacy canvas has to pass validation and reduce back
@@ -486,7 +486,7 @@ def deeply_nested_config_schema(levels):
     return schema
 
 
-class TestComponentMetaValidation(ClickhouseFreeSimpleTestCase):
+class TestComponentMetaValidation(SimpleTestCase):
     def test_valid_component_project_has_no_errors(self):
         candidate = project(component=component_meta())
         self.assertFalse(has_errors(validate_source_project(candidate, kind="component")))

@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import IntegrityError, close_old_connections, transaction
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -17,7 +18,6 @@ from posthog.hogql.errors import QueryError
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import HogQLQueryThrottle
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_catalog.backend.facade.enums import RelationshipStatus
 from products.data_catalog.backend.logic import relationships
@@ -236,7 +236,7 @@ class TestRelationshipConcurrency(NonAtomicBaseTest):
         assert DataWarehouseJoin.objects.filter(team_id=self.team.id, field_name=_JOIN["field_name"]).count() == 1
 
 
-class TestRelationshipProposalSerializer(ClickhouseFreeSimpleTestCase):
+class TestRelationshipProposalSerializer(SimpleTestCase):
     @parameterized.expand([(0.0,), (1.0,)])
     def test_confidence_boundaries_are_valid(self, confidence: float) -> None:
         serializer = RelationshipProposalSerializer(data={**_JOIN, "confidence": confidence})

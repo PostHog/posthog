@@ -1,9 +1,9 @@
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.cohorts.backend.parity.tzdates import (
     EPOCH_DAY,
@@ -16,7 +16,7 @@ from products.cohorts.backend.parity.tzdates import (
 PACIFIC = ZoneInfo("US/Pacific")
 
 
-class TestTzDates(ClickhouseFreeSimpleTestCase):
+class TestTzDates(SimpleTestCase):
     @parameterized.expand(
         [
             # An evening UTC instant is still the previous calendar day in US/Pacific.

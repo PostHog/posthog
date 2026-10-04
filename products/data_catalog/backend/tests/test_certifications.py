@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError, transaction
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,7 +16,6 @@ from posthog.hogql.database.database import Database
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_catalog.backend.logic.certifications import (
@@ -507,7 +507,7 @@ class TestCertificationAPI(APIBaseTest):
         assert response.json()["attr"] == "table_id"
 
 
-class TestCertificationInputValidation(ClickhouseFreeSimpleTestCase):
+class TestCertificationInputValidation(SimpleTestCase):
     @parameterized.expand([("table_id",), ("saved_query_id",)])
     def test_rejects_malformed_uuid(self, field: str) -> None:
         serializer = CertificationCreateSerializer(data={field: "not-a-uuid"})

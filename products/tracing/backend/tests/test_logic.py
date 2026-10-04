@@ -1,8 +1,8 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tracing.backend.logic import translate_span_filter
 
@@ -16,7 +16,7 @@ def _span_filter(key: str, value: object) -> SpanPropertyFilter:
     )
 
 
-class TestTranslateSpanFilter(ClickhouseFreeSimpleTestCase):
+class TestTranslateSpanFilter(SimpleTestCase):
     @parameterized.expand(
         [
             # status_code normalises to string-digit codes. Integers and digit strings

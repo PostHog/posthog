@@ -3,6 +3,8 @@ from collections.abc import Iterator
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionTableVersion
@@ -21,12 +23,10 @@ from posthog.hogql.database.warehouse_join_resolvers import (
 )
 from posthog.hogql.errors import QueryError, ResolutionError
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
-
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
 
-class TestLazyJoinResolvers(ClickhouseFreeSimpleTestCase):
+class TestLazyJoinResolvers(SimpleTestCase):
     def test_resolver_params_applies_overrides(self):
         params = data_warehouse_resolver_params(
             source_table_key="id",
@@ -207,7 +207,7 @@ class TestBuiltDatabaseSerializable(BaseTest):
             json.dumps(lazy_join.resolver_params)  # params must round-trip through JSON
 
 
-class TestLazyJoinManifest(ClickhouseFreeSimpleTestCase):
+class TestLazyJoinManifest(SimpleTestCase):
     def test_manifest_is_the_explicit_contract(self):
         """The manifest is the closed contract a serialized Database depends on. Changing this
         list changes what consumers of a serialized schema must implement — update deliberately."""

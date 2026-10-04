@@ -5,7 +5,7 @@ from itertools import count
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -15,7 +15,6 @@ from rest_framework.exceptions import APIException, NotFound
 
 from posthog.cdp.services.icons import CDPIconsService, LogoDevBadGateway, LogoDevUnavailable
 from posthog.egress.limiter.outbound import get_outbound_rate_limiter
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # Fresh team id per test (and per run) so consuming the real per-team budget never accumulates
 # into a denial across tests or repeated local runs against a persistent Redis.
@@ -51,7 +50,7 @@ def _search_response(payload: object) -> requests.Response:
 
 
 @override_settings(LOGO_DEV_PUBLISHABLE_KEY="pk_test", LOGO_DEV_SECRET_KEY="sk_test")
-class TestCDPIconsService(ClickhouseFreeSimpleTestCase):
+class TestCDPIconsService(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()

@@ -1,13 +1,14 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     SUPPORTED_EVAL_REPORT_OUTPUT_TYPES,
     get_outcome_definition,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestOutcomeDefinitions(ClickhouseFreeSimpleTestCase):
+class TestOutcomeDefinitions(SimpleTestCase):
     @parameterized.expand(
         [
             (["resolved"], ["resolved"], "pass"),
@@ -111,7 +112,7 @@ class TestOutcomeDefinitions(ClickhouseFreeSimpleTestCase):
             get_outcome_definition("unsupported")
 
 
-class TestReportPromptPolarity(ClickhouseFreeSimpleTestCase):
+class TestReportPromptPolarity(SimpleTestCase):
     def _prompt(self, *, true_is_failure: bool) -> str:
         from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 

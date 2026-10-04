@@ -23,7 +23,7 @@ from django.conf import settings
 from django.core.management.base import OutputWrapper
 from django.db import connection
 from django.db.models import JSONField, Value
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -32,7 +32,6 @@ from structlog.testing import capture_logs
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
@@ -1216,7 +1215,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
 
 
 @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
-class TestRefreshRoutingHook(ClickhouseFreeSimpleTestCase):
+class TestRefreshRoutingHook(SimpleTestCase):
     TEAM_ID = 11
 
     @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=False)
@@ -1285,7 +1284,7 @@ class TestRefreshRoutingHook(ClickhouseFreeSimpleTestCase):
             route_refresh_to_kafka(self.TEAM_ID)
 
 
-class TestShadowInvalidationPublishing(ClickhouseFreeSimpleTestCase):
+class TestShadowInvalidationPublishing(SimpleTestCase):
     """Shadow parity publishing. It runs at the tail of the Celery build rather
     than at invalidation time, so the Rust builder diffs against a cache entry
     Python has already written."""

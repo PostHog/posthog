@@ -3,18 +3,16 @@ import concurrent.futures
 
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend import redis as tasks_redis
 from products.tasks.backend.logic.stream import redis_stream
 
 
-class TestStreamRouting(ClickhouseFreeSimpleTestCase):
+class TestStreamRouting(SimpleTestCase):
     @parameterized.expand(
         [
             ("dedicated_set_pinned", "redis://dedicated", True, "redis://dedicated"),
@@ -39,7 +37,7 @@ class TestStreamRouting(ClickhouseFreeSimpleTestCase):
         self.assertEqual(tasks_redis.run_uses_dedicated_stream(state), expected)
 
 
-class TestEvaluateDedicatedStreamFlag(ClickhouseFreeSimpleTestCase):
+class TestEvaluateDedicatedStreamFlag(SimpleTestCase):
     @override_settings(TASKS_REDIS_URL=None)
     def test_returns_false_without_dedicated_url(self):
         with patch.object(tasks_redis.posthoganalytics, "feature_enabled") as mock_flag:
@@ -78,7 +76,7 @@ class _ThreadHungryAsyncClient:
         return await self._needs_thread(True)
 
 
-class TestSyncPublishDoesNotStarveExecutor(ClickhouseFreeSimpleTestCase):
+class TestSyncPublishDoesNotStarveExecutor(SimpleTestCase):
     def test_publish_event_does_not_deadlock_bounded_executor(self):
         # Asyncified activities run their body on the event loop's bounded default
         # ThreadPoolExecutor (sync_to_async(thread_sensitive=False)). A regression to

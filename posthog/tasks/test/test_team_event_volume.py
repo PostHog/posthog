@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -9,10 +10,9 @@ from parameterized import parameterized
 from posthog.models import Team
 from posthog.models.team.team_event_volume import TeamEventVolume
 from posthog.tasks.team_event_volume import _month_starts, update_team_event_volumes
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestMonthStarts(ClickhouseFreeSimpleTestCase):
+class TestMonthStarts(SimpleTestCase):
     @parameterized.expand(
         [
             ("full_year", datetime(2025, 9, 30), datetime(2026, 9, 30), 13, "202509", "202609"),

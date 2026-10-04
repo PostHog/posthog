@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,7 +16,6 @@ from posthog.models.health_issue import HealthIssue
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.redis import get_client
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.growth.backend.constants import github_sdk_versions_key
@@ -573,7 +573,7 @@ class TestHealthIssueAccessControl(APIBaseTest):
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
 
 
-class TestSnoozeDurationField(ClickhouseFreeSimpleTestCase):
+class TestSnoozeDurationField(SimpleTestCase):
     @parameterized.expand(
         [
             ("unparseable", "garbage"),

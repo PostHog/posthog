@@ -1,13 +1,13 @@
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.ai_observability.backend.api.metrics import LLMA_REQUEST_LATENCY_BUCKETS, llma_track_latency
 
 
-class TestAIObservabilityMetrics(ClickhouseFreeSimpleTestCase):
+class TestAIObservabilityMetrics(SimpleTestCase):
     @parameterized.expand([("single", LLMA_REQUEST_LATENCY_BUCKETS, 30)])
     def test_request_latency_buckets_are_monotonic(self, _: str, buckets: list[float], expected_count: int):
         assert len(buckets) == expected_count

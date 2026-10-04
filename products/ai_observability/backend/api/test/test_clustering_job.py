@@ -3,10 +3,10 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.api.clustering_job import ClusteringJobSerializer
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
@@ -336,7 +336,7 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(job.event_filters, [])
 
 
-class TestClusteringJobSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestClusteringJobSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("mapping", {"key": "$ai_model"}),

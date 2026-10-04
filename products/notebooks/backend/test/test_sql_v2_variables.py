@@ -1,11 +1,11 @@
 import time
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend.sql_v2_references import SQLV2Ref, resolve_sql_node_run
 from products.notebooks.backend.sql_v2_serializers import MAX_VARIABLE_VALUE_CHARS, NotebookVariableSerializer
@@ -23,7 +23,7 @@ COUNTRY = NotebookVariable(name="country", value="US")
 DAYS = NotebookVariable(name="lookback_days", value=30)
 
 
-class TestSubstituteHogqlVariables(ClickhouseFreeSimpleTestCase):
+class TestSubstituteHogqlVariables(SimpleTestCase):
     def test_binds_a_value_as_a_constant(self):
         printed = substitute_hogql_variables("select 1 where 'x' = {country}", [COUNTRY])
         self.assertIn("'US'", printed)
@@ -73,7 +73,7 @@ class TestSubstituteHogqlVariables(ClickhouseFreeSimpleTestCase):
         self.assertIn(expected, str(error.exception))
 
 
-class TestSubstituteDuckdbVariables(ClickhouseFreeSimpleTestCase):
+class TestSubstituteDuckdbVariables(SimpleTestCase):
     def test_a_placeholder_becomes_a_bound_parameter(self):
         # The value never enters the SQL, so nothing about it can be parsed as SQL.
         code, params = substitute_duckdb_variables("select * from t where c = {country}", [COUNTRY])
@@ -156,7 +156,7 @@ class TestSubstituteDuckdbVariables(ClickhouseFreeSimpleTestCase):
             substitute_duckdb_variables("select {nope}", [COUNTRY])
 
 
-class TestBuildNotebookVariables(ClickhouseFreeSimpleTestCase):
+class TestBuildNotebookVariables(SimpleTestCase):
     @parameterized.expand(
         [
             ("string", "string", "US", "US"),
@@ -198,7 +198,7 @@ class TestBuildNotebookVariables(ClickhouseFreeSimpleTestCase):
         self.assertEqual([variable.name for variable in built], ["ok"])
 
 
-class TestPythonVariableBindings(ClickhouseFreeSimpleTestCase):
+class TestPythonVariableBindings(SimpleTestCase):
     def test_scalars_and_dates_pass_through(self):
         built = build_notebook_variables(
             [
@@ -213,7 +213,7 @@ class TestPythonVariableBindings(ClickhouseFreeSimpleTestCase):
         self.assertIsInstance(bindings["since"], str)
 
 
-class TestResolveSqlNodeRunWithVariables(ClickhouseFreeSimpleTestCase):
+class TestResolveSqlNodeRunWithVariables(SimpleTestCase):
     def test_the_clickhouse_lane_binds_through_the_ast(self):
         plan = resolve_sql_node_run("select 1 where 'x' = {country}", {}, [COUNTRY])
         self.assertEqual(plan.node_type, "hogql")
@@ -243,7 +243,7 @@ class TestResolveSqlNodeRunWithVariables(ClickhouseFreeSimpleTestCase):
         self.assertIn("df1 AS (", plan.code)
 
 
-class TestRejectVariablesInRawQuery(ClickhouseFreeSimpleTestCase):
+class TestRejectVariablesInRawQuery(SimpleTestCase):
     def test_a_raw_query_reading_a_variable_is_refused(self):
         # Escaping differs by engine and by server setting — MySQL treats a backslash as an
         # escape, so quote doubling alone would let `\' OR 1=1 -- ` close the literal and run
@@ -266,7 +266,7 @@ class TestRejectVariablesInRawQuery(ClickhouseFreeSimpleTestCase):
         reject_variables_in_raw_query(code, [COUNTRY])
 
 
-class TestNotebookVariableSerializerValue(ClickhouseFreeSimpleTestCase):
+class TestNotebookVariableSerializerValue(SimpleTestCase):
     @parameterized.expand(
         [
             ("dict", {"a": "b"}),

@@ -4,9 +4,9 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.notebooks.backend.compute_pricing import get_compute_rates
 from products.notebooks.backend.kernel_sandbox_usage import (
@@ -18,7 +18,7 @@ from products.notebooks.backend.kernel_sandbox_usage import (
 from products.notebooks.backend.models import KernelRuntime
 
 
-class TestEstimatedRuntimeSeconds(ClickhouseFreeSimpleTestCase):
+class TestEstimatedRuntimeSeconds(SimpleTestCase):
     @parameterized.expand(
         [
             ("destroyed_before_its_ttl", 600, False, 600),

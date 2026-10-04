@@ -3,6 +3,7 @@ import requests
 from typing import Any, cast
 
 from django.http import HttpRequest
+from django.test import SimpleTestCase
 from django.test.client import RequestFactory
 from parameterized import parameterized
 from rest_framework import status
@@ -28,14 +29,13 @@ from posthog.api.utils import (
 )
 from posthog.models.filters.filter import Filter
 from posthog.test.base import BaseTest
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def return_true():
     return True
 
 
-class TestAppUrlCanonicalization(ClickhouseFreeSimpleTestCase):
+class TestAppUrlCanonicalization(SimpleTestCase):
     @parameterized.expand(
         [
             ("fully encoded url is decoded", "https%3A%2F%2Fexample.com%2Fpage", "https://example.com/page"),

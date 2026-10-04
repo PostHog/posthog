@@ -11,12 +11,12 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db.models import QuerySet
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend import setup_context as setup_context_module
@@ -131,7 +131,7 @@ def _stored_result(
     }
 
 
-class TestSetupContextInputs(ClickhouseFreeSimpleTestCase):
+class TestSetupContextInputs(SimpleTestCase):
     @parameterized.expand(
         [
             ("url_filter_without_pageview", {"target_event": "$screen", "target_url_contains": "pricing"}),
@@ -153,7 +153,7 @@ class TestSetupContextInputs(ClickhouseFreeSimpleTestCase):
             SetupContextInputs(**kwargs)
 
 
-class TestClassifyLib(ClickhouseFreeSimpleTestCase):
+class TestClassifyLib(SimpleTestCase):
     @parameterized.expand(
         [
             ("web", "web"),
@@ -186,7 +186,7 @@ class TestClassifyLib(ClickhouseFreeSimpleTestCase):
         } <= SERVER_LIBS
 
 
-class TestResponseCoversEveryFact(ClickhouseFreeSimpleTestCase):
+class TestResponseCoversEveryFact(SimpleTestCase):
     """The response serializer is built by hand beside the dataclasses it renders.
 
     A dataclass field the serializer forgets is dropped silently. A serializer field the dataclass
@@ -238,7 +238,7 @@ class TestResponseCoversEveryFact(ClickhouseFreeSimpleTestCase):
         assert declared - self.UNRENDERED == {dataclass_name for dataclass_name, _ in self.PAIRS}
 
 
-class TestCreationSkillNamesRealFields(ClickhouseFreeSimpleTestCase):
+class TestCreationSkillNamesRealFields(SimpleTestCase):
     """The creation skill tells an agent which fields to read, in prose beside the dataclasses.
 
     A renamed or removed field leaves the skill naming a path that is never in the response, and

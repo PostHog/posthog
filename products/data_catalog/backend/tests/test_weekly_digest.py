@@ -6,7 +6,7 @@ from unittest import mock
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -15,7 +15,6 @@ from temporalio.client import Schedule, ScheduleActionStartWorkflow
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.logic.pending_review import PendingGroup, PendingKind, TeamPendingReview
@@ -70,7 +69,7 @@ def _pending_metrics(team_id: int, count: int, sample_names: list[str], team_nam
     )
 
 
-class TestEmailContext(ClickhouseFreeSimpleTestCase):
+class TestEmailContext(SimpleTestCase):
     @parameterized.expand(
         [(1, "1 item awaiting review in your data catalog"), (4, "4 items awaiting review in your data catalog")]
     )

@@ -4,11 +4,11 @@ from typing import Any
 
 import pytest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.facade.contracts import FrictionGroup
 from products.engineering_analytics.backend.logic.friction import (
@@ -116,7 +116,7 @@ class _Curated:
         return SimpleNamespace(results=[(number, f"PR {number}") for number in placeholders["numbers"].value])
 
 
-class TestFrictionScore(ClickhouseFreeSimpleTestCase):
+class TestFrictionScore(SimpleTestCase):
     def test_scores_order_experiences_around_the_typical_author(self) -> None:
         items = FrictionScorer(_population()).score()
 

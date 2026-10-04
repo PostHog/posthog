@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError as RequestsConnectionError
@@ -36,7 +38,6 @@ from posthog.settings.ingestion import (
     CAPTURE_V1_AI_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_ENDPOINT,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 EXPECTED_URL = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
 EXPECTED_AI_URL = f"{CAPTURE_AI_INTERNAL_URL}{CAPTURE_V1_AI_INTERNAL_ENDPOINT}"
@@ -103,7 +104,7 @@ def _make_event(
     return out
 
 
-class TestBuildV1Headers(ClickhouseFreeSimpleTestCase):
+class TestBuildV1Headers(SimpleTestCase):
     def test_all_required_headers_present(self) -> None:
         headers = _build_v1_headers("phc_test123", attempt=1)
         assert headers["Authorization"] == "Bearer phc_test123"
@@ -126,7 +127,7 @@ class TestBuildV1Headers(ClickhouseFreeSimpleTestCase):
         assert h1["PostHog-Request-Id"] != h2["PostHog-Request-Id"]
 
 
-class TestNormalizeOptionsAndProperties(ClickhouseFreeSimpleTestCase):
+class TestNormalizeOptionsAndProperties(SimpleTestCase):
     def test_typed_options_propagated(self) -> None:
         ev: dict[str, Any] = {
             "options": {"cookieless_mode": True, "disable_skew_correction": True, "product_tour_id": "tour-1"},
@@ -270,7 +271,7 @@ class TestNormalizeOptionsAndProperties(ClickhouseFreeSimpleTestCase):
         assert logs == []
 
 
-class TestResolveScalar(ClickhouseFreeSimpleTestCase):
+class TestResolveScalar(SimpleTestCase):
     def test_explicit_wins(self) -> None:
         assert _resolve_scalar("a", "b", field="f", event_source="t") == "a"
 
@@ -287,7 +288,7 @@ class TestResolveScalar(ClickhouseFreeSimpleTestCase):
         assert after == before
 
 
-class TestPrepareCaptureInternalBatch(ClickhouseFreeSimpleTestCase):
+class TestPrepareCaptureInternalBatch(SimpleTestCase):
     def test_envelope_shape(self) -> None:
         events = [_make_event()]
         payload, uuids = prepare_capture_internal_batch(events, token="tok", event_source="test")
@@ -433,7 +434,7 @@ class TestPrepareCaptureInternalBatch(ClickhouseFreeSimpleTestCase):
         assert entry["options"]["cookieless_mode"] is True
 
 
-class TestCaptureBatchInternal(ClickhouseFreeSimpleTestCase):
+class TestCaptureBatchInternal(SimpleTestCase):
     @patch("posthog.api.capture.internal_requests_session")
     def test_happy_path_batch(self, mock_session_fn: MagicMock) -> None:
         uid1, uid2 = str(uuid4()), str(uuid4())
@@ -992,7 +993,7 @@ class TestCaptureBatchInternal(ClickhouseFreeSimpleTestCase):
         ]
 
 
-class TestParseRetryAfter(ClickhouseFreeSimpleTestCase):
+class TestParseRetryAfter(SimpleTestCase):
     @parameterized.expand(
         [
             ("none", None, 0.0),
@@ -1009,7 +1010,7 @@ class TestParseRetryAfter(ClickhouseFreeSimpleTestCase):
         assert _parse_retry_after(header) == expected
 
 
-class TestCaptureInternal(ClickhouseFreeSimpleTestCase):
+class TestCaptureInternal(SimpleTestCase):
     @patch("posthog.api.capture.internal_requests_session")
     def test_single_event_wrapper(self, mock_session_fn: MagicMock) -> None:
         uid = str(uuid4())
@@ -1052,7 +1053,7 @@ class TestCaptureInternal(ClickhouseFreeSimpleTestCase):
         assert result.status_code == 200
 
 
-class TestCaptureInternalResult(ClickhouseFreeSimpleTestCase):
+class TestCaptureInternalResult(SimpleTestCase):
     def test_succeeded_true(self) -> None:
         r = CaptureInternalResult(status_code=200, ok=["a", "b"])
         assert r.succeeded()
@@ -1209,7 +1210,7 @@ def _make_batch(size: int) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
-class TestBatchChunking(ClickhouseFreeSimpleTestCase):
+class TestBatchChunking(SimpleTestCase):
     @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
     @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
@@ -1403,7 +1404,7 @@ class TestBatchChunking(ClickhouseFreeSimpleTestCase):
         assert by_url[odd_url] == uuids[200:]
 
 
-class TestMergeResults(ClickhouseFreeSimpleTestCase):
+class TestMergeResults(SimpleTestCase):
     def test_merge_all_success(self) -> None:
         r1 = CaptureInternalResult(status_code=200, results={"a": {"result": "ok"}}, ok=["a"])
         r2 = CaptureInternalResult(status_code=200, results={"b": {"result": "ok"}}, ok=["b"])
@@ -1469,7 +1470,7 @@ class TestMergeResults(ClickhouseFreeSimpleTestCase):
         assert set(merged.results.keys()) == {"a", "b", "c", "d"}
 
 
-class TestAiLaneRouting(ClickhouseFreeSimpleTestCase):
+class TestAiLaneRouting(SimpleTestCase):
     """The wire lane follows the `$ai_` prefix, whichever entry point the caller used.
 
     capture-ai drops a non-AI event per event as ``misrouted_event`` and the analytics
@@ -1692,7 +1693,7 @@ class TestAiLaneRouting(ClickhouseFreeSimpleTestCase):
         assert spy.calls == []
 
 
-class TestCaptureAiInternal(ClickhouseFreeSimpleTestCase):
+class TestCaptureAiInternal(SimpleTestCase):
     @patch("posthog.api.capture.internal_requests_session")
     def test_posts_to_the_ai_endpoint(self, mock_session_fn: MagicMock) -> None:
         uid = str(uuid4())
@@ -1789,7 +1790,7 @@ class TestCaptureAiInternal(ClickhouseFreeSimpleTestCase):
             result.raise_for_status()
 
 
-class TestLaneErrorMessages(ClickhouseFreeSimpleTestCase):
+class TestLaneErrorMessages(SimpleTestCase):
     """An error must name the entry point the caller actually used, or it sends them
     looking at the wrong function."""
 
@@ -1815,7 +1816,7 @@ class TestLaneErrorMessages(ClickhouseFreeSimpleTestCase):
         assert "replay event" in str(ctx.exception)
 
 
-class TestLaneIsNotAPublicArgument(ClickhouseFreeSimpleTestCase):
+class TestLaneIsNotAPublicArgument(SimpleTestCase):
     """Callers pick an entry point, never a lane flag.
 
     The entry point names itself in error messages and decides which options the

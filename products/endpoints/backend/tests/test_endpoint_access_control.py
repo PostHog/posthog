@@ -1,13 +1,14 @@
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
@@ -17,7 +18,7 @@ from products.endpoints.backend.tests.conftest import create_endpoint_with_versi
 SAMPLE_QUERY = {"kind": "HogQLQuery", "query": "SELECT 1"}
 
 
-class TestEndpointResourceRegistration(ClickhouseFreeSimpleTestCase):
+class TestEndpointResourceRegistration(SimpleTestCase):
     def test_endpoint_is_a_controllable_resource(self):
         self.assertIn("endpoint", ACCESS_CONTROL_RESOURCES)
 

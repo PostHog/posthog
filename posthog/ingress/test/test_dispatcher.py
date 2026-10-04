@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 from django.core.cache import caches
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -26,7 +26,6 @@ from posthog.ingress.dispatch.dedup import (
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.test import LOCMEM, LOCMEM_CACHES
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SPEC = ProviderSpec(provider="github", app="posthog", event_types=frozenset({"pull_request"}))
 
@@ -72,7 +71,7 @@ def _dispatcher(consumers: list[WebhookConsumer], *, budget_seconds: float | Non
 
 
 @override_settings(CACHES=LOCMEM_CACHES)
-class TestWebhookDispatcher(ClickhouseFreeSimpleTestCase):
+class TestWebhookDispatcher(SimpleTestCase):
     def setUp(self) -> None:
         self.cache = caches[INGRESS_DEDUP_CACHE_ALIAS]
         self.cache.clear()
@@ -214,7 +213,7 @@ class TestWebhookDispatcher(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(CACHES=LOCMEM_CACHES)
-class TestDeliveryDedup(ClickhouseFreeSimpleTestCase):
+class TestDeliveryDedup(SimpleTestCase):
     def setUp(self) -> None:
         self.cache = caches[INGRESS_DEDUP_CACHE_ALIAS]
         self.cache.clear()
@@ -361,7 +360,7 @@ class TestDeliveryDedup(ClickhouseFreeSimpleTestCase):
             self.assertEqual(DeliveryDedup().claim(**self.mark).state, expected)
 
 
-class TestDeliveryOwnership(ClickhouseFreeSimpleTestCase):
+class TestDeliveryOwnership(SimpleTestCase):
     @parameterized.expand(
         [
             ("nobody_declares_one", [], DeliveryOwnershipAnswers()),
@@ -402,7 +401,7 @@ class TestDeliveryOwnership(ClickhouseFreeSimpleTestCase):
         asked.assert_called_once()
 
 
-class TestDeliveryBudgetSeconds(ClickhouseFreeSimpleTestCase):
+class TestDeliveryBudgetSeconds(SimpleTestCase):
     @parameterized.expand(
         [
             ("zero_would_skip_every_consumer", 0, DEFAULT_DELIVERY_BUDGET_SECONDS),

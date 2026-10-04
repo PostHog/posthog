@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.cohorts.backend.parity.population import compare_populations, skip_population, summarize_population
 
@@ -21,7 +21,7 @@ def _compare(fold: set[str], legacy: set[str], *, cohort_id: int = 10, with_ids:
     )
 
 
-class TestPopulation(ClickhouseFreeSimpleTestCase):
+class TestPopulation(SimpleTestCase):
     @parameterized.expand(
         [
             ("identical", {"a", "b"}, {"a", "b"}, 2, 0, 0, 100.0),

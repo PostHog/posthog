@@ -2,12 +2,13 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import SignalReport, SignalTeamConfig
@@ -322,7 +323,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert len(self._activity()) == 1
 
 
-class TestSignalTeamConfigSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
     # No DB needed: these are field-level rejections that short-circuit in to_internal_value.
     # The endpoint wiring guard lives in TestSignalTeamConfigAPI.
     @parameterized.expand(

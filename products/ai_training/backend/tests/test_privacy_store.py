@@ -3,15 +3,15 @@ from datetime import datetime
 
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.ai_training.backend.privacy.store import AITrainingPrivacyStore, DynamoResponse, item_key, session_key
 from products.ai_training.backend.tasks.tasks import process_ai_training_privacy_requests
 
 
-class TestAITrainingPrivacyStore(ClickhouseFreeSimpleTestCase):
+class TestAITrainingPrivacyStore(SimpleTestCase):
     @parameterized.expand([("disabled", "", False), ("enabled", "test-table", True)])
     def test_privacy_task_uses_dedicated_queue_and_only_drains_when_enabled(
         self, _name: str, table: str, enabled: bool

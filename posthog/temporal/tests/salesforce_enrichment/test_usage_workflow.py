@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -20,7 +20,6 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import (
     enrich_org_page_activity,
     prepare_salesforce_update_record,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.billing.salesforce_enrichment.constants import ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE
 from ee.billing.salesforce_enrichment.redis_cache import OrgMappingsCacheMissingError
@@ -127,7 +126,7 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
         assert record[sf_field] == expected
 
 
-class TestDecideOrgRegion(ClickhouseFreeSimpleTestCase):
+class TestDecideOrgRegion(SimpleTestCase):
     @parameterized.expand(
         [
             (

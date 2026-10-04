@@ -1,10 +1,10 @@
 from datetime import date
 from types import SimpleNamespace
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import exceptions
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.dashboards.backend.constants import (
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
@@ -29,7 +29,7 @@ def _table(rows: int) -> str:
     return "\n".join(["Date|Count", *(f"2026-01-01 {row:02d}:00|{row}" for row in range(rows))])
 
 
-class TestBoundFormattedResult(ClickhouseFreeSimpleTestCase):
+class TestBoundFormattedResult(SimpleTestCase):
     @parameterized.expand([("table_fits_the_budget", 10_000), ("zero_means_no_limit", 0)])
     def test_returns_the_table_unchanged(self, _name: str, max_chars: int) -> None:
         table = _table(3)
@@ -84,7 +84,7 @@ class TestBoundFormattedResult(ClickhouseFreeSimpleTestCase):
         self.assertLess(widest, RUN_INSIGHTS_MIN_TILE_CHARS)
 
 
-class TestParseQueryParams(ClickhouseFreeSimpleTestCase):
+class TestParseQueryParams(SimpleTestCase):
     @parameterized.expand([("missing", None), ("blank", "  ")])
     def test_tile_ids_selects_nothing(self, _name: str, raw: str | None) -> None:
         self.assertEqual(parse_tile_ids(raw), [])
@@ -106,12 +106,12 @@ class TestParseQueryParams(ClickhouseFreeSimpleTestCase):
         self.assertEqual(parse_max_result_chars(raw), int(raw))
 
 
-class TestRenderUnsupportedResult(ClickhouseFreeSimpleTestCase):
+class TestRenderUnsupportedResult(SimpleTestCase):
     def test_renders_a_value_json_cannot_serialize(self) -> None:
         self.assertIn("2026-01-01", render_unsupported_result([{"day": date(2026, 1, 1)}]))
 
 
-class TestTileBudget(ClickhouseFreeSimpleTestCase):
+class TestTileBudget(SimpleTestCase):
     def test_holds_a_tile_down_to_what_the_response_has_left(self) -> None:
         # Without this a single generous max_result_chars would overshoot the whole-response budget.
         self.assertEqual(tile_budget(1_000_000, RUN_INSIGHTS_MAX_TOTAL_CHARS - 100), 100)
@@ -133,7 +133,7 @@ class TestTileBudget(ClickhouseFreeSimpleTestCase):
         self.assertEqual(tile_fits_response_budget(used_chars), expected)
 
 
-class TestUnrunTileResults(ClickhouseFreeSimpleTestCase):
+class TestUnrunTileResults(SimpleTestCase):
     @staticmethod
     def _remaining(count: int) -> list:
         return [

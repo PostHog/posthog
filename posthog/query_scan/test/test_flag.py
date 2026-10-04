@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, cast
 
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.query_scan import flag
@@ -16,7 +18,6 @@ from posthog.query_scan.flag import (
     QueryScanMode,
     get_query_scan_flag,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -32,7 +33,7 @@ TEAM = cast(
 )
 
 
-class TestQueryScanFlag(ClickhouseFreeSimpleTestCase):
+class TestQueryScanFlag(SimpleTestCase):
     def test_evaluates_on_the_organization_and_the_project(self) -> None:
         payload = '{"floor_ms": 2000, "event_ratio": 0.2, "persons_ratio": 0.7, "start_date_ratio": 0.05}'
         with patch.object(flag.posthoganalytics, "get_feature_flag_result") as get_result:

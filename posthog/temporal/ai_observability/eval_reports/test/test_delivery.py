@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.delivery import (
@@ -22,14 +24,13 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportMetrics,
     ReportSection,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _generation_citation_map(generation_id: str, trace_id: str) -> CitationMap:
     return _build_citation_map([Citation(generation_id=generation_id, trace_id=trace_id, reason="example")])
 
 
-class TestLinkifyCitations(ClickhouseFreeSimpleTestCase):
+class TestLinkifyCitations(SimpleTestCase):
     def test_links_cited_generation_id_in_backticks(self):
         text = "See `12345678-1234-1234-1234-123456789abc` here."
         citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
@@ -159,7 +160,7 @@ class TestLinkifyCitations(ClickhouseFreeSimpleTestCase):
         self.assertIn("/traces/trace%255D%2528id", result)
 
 
-class TestRenderSectionHtml(ClickhouseFreeSimpleTestCase):
+class TestRenderSectionHtml(SimpleTestCase):
     """v2: renderer takes a title directly, no more SECTION_TITLES lookup."""
 
     def test_renders_title_as_h2(self):
@@ -203,7 +204,7 @@ class TestRenderSectionHtml(ClickhouseFreeSimpleTestCase):
         self.assertIn("<em>emphasis</em>", html)
 
 
-class TestRenderSectionMrkdwn(ClickhouseFreeSimpleTestCase):
+class TestRenderSectionMrkdwn(SimpleTestCase):
     def test_renders_title_bold(self):
         result = _render_section_mrkdwn("Summary", "Some content", project_id=1, citation_map={})
         self.assertIn("*Summary*", result)
@@ -222,7 +223,7 @@ class TestRenderSectionMrkdwn(ClickhouseFreeSimpleTestCase):
         self.assertIn("item 2", result)
 
 
-class TestStripRedundantLeadingHeading(ClickhouseFreeSimpleTestCase):
+class TestStripRedundantLeadingHeading(SimpleTestCase):
     def test_strips_exact_match(self):
         content = "## Executive Summary\n\nPass rate is 94%."
         result = _strip_redundant_leading_heading(content, "Executive Summary")
@@ -274,7 +275,7 @@ class TestStripRedundantLeadingHeading(ClickhouseFreeSimpleTestCase):
         self.assertTrue(result.startswith("*Summary*"))
 
 
-class TestFormatPeriodForDisplay(ClickhouseFreeSimpleTestCase):
+class TestFormatPeriodForDisplay(SimpleTestCase):
     def test_formats_utc_iso_timestamp(self):
         result = _format_period_for_display("2026-04-08T14:01:42.951661+00:00")
         self.assertEqual(result, "Apr 08, 2026 14:01 UTC")
@@ -293,7 +294,7 @@ class TestFormatPeriodForDisplay(ClickhouseFreeSimpleTestCase):
         self.assertIsNone(result)
 
 
-class TestInlineEmailStyles(ClickhouseFreeSimpleTestCase):
+class TestInlineEmailStyles(SimpleTestCase):
     def test_adds_table_styles(self):
         html = "<table><tr><th>A</th></tr><tr><td>1</td></tr></table>"
         styled = _inline_email_styles(html)
@@ -305,7 +306,7 @@ class TestInlineEmailStyles(ClickhouseFreeSimpleTestCase):
         self.assertEqual(html, _inline_email_styles(html))
 
 
-class TestMetricsBlockHtml(ClickhouseFreeSimpleTestCase):
+class TestMetricsBlockHtml(SimpleTestCase):
     @parameterized.expand(["boolean", "numeric"])
     def test_renders_all_counts(self, output_type: str) -> None:
         metrics = EvalReportMetrics(
@@ -385,7 +386,7 @@ class TestMetricsBlockHtml(ClickhouseFreeSimpleTestCase):
         self.assertNotIn("Fail", html)
 
 
-class TestDeliverReport(ClickhouseFreeSimpleTestCase):
+class TestDeliverReport(SimpleTestCase):
     """End-to-end tests for deliver_report — mocks the email+slack sub-functions."""
 
     def _make_v2_content_dict(self, title: str = "A nice punchline") -> dict:
@@ -531,7 +532,7 @@ class TestDeliverReport(ClickhouseFreeSimpleTestCase):
         self.assertEqual(run.delivery_status, "partial_failure")
 
 
-class TestDeliverSlackReport(ClickhouseFreeSimpleTestCase):
+class TestDeliverSlackReport(SimpleTestCase):
     """Tests for the Slack delivery path, with the Slack client mocked."""
 
     def _make_report_run(self, sections=None):

@@ -5,11 +5,12 @@ import hashlib
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.notebook_integration import (
@@ -25,7 +26,7 @@ from products.canvas.backend.tasks import cleanup_canvas_builds
 from products.tasks.backend.models import Channel
 
 
-class TestNotebookCanvasCleanupTasks(ClickhouseFreeSimpleTestCase):
+class TestNotebookCanvasCleanupTasks(SimpleTestCase):
     def test_retention_runs_when_draft_requeue_fails(self) -> None:
         with (
             patch(
@@ -40,7 +41,7 @@ class TestNotebookCanvasCleanupTasks(ClickhouseFreeSimpleTestCase):
         capture.assert_called_once()
 
 
-class TestNotebookCanvasSourceValidation(ClickhouseFreeSimpleTestCase):
+class TestNotebookCanvasSourceValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("location_variable", "const location = row.city"),

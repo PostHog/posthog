@@ -1,9 +1,10 @@
+from django.test.testcases import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import FilterLogicalOperator, RecordingPropertyFilter
 
 from posthog.session_recordings.playlist_filters import convert_filters_to_recordings_query
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _visited_page(value: str) -> dict:
@@ -18,7 +19,7 @@ def _filters(outer_type: str, inner_type: str, values: list[dict]) -> dict:
     }
 
 
-class TestConvertFiltersToRecordingsQuery(ClickhouseFreeSimpleTestCase):
+class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
     @parameterized.expand(
         [
             # "match any" set on the inner group while the outer stays AND must still produce OR

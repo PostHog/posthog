@@ -2,18 +2,16 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models import FeatureFlag
 
 
-class TestFeatureFlagConfigVersionValidation(ClickhouseFreeSimpleTestCase):
+class TestFeatureFlagConfigVersionValidation(SimpleTestCase):
     @parameterized.expand(
         [
             (f"{mode}_{index}_{shape}", enforced_rules, version, data)

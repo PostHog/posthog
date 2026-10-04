@@ -5,12 +5,11 @@ import hashlib
 import pytest
 
 from django.core.handlers.wsgi import WSGIRequest
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.integration import SlackIntegrationError, validate_slack_request
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _make_signed_request(body: str, secret: str, timestamp: str | None = None) -> WSGIRequest:
@@ -29,7 +28,7 @@ def _make_signed_request(body: str, secret: str, timestamp: str | None = None) -
     return request
 
 
-class TestValidateSlackRequest(ClickhouseFreeSimpleTestCase):
+class TestValidateSlackRequest(SimpleTestCase):
     @parameterized.expand(
         [
             ("valid_signature", "test-secret", "test-secret", None, None),

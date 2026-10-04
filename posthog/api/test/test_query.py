@@ -14,6 +14,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from parameterized import parameterized
@@ -56,7 +57,6 @@ from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
@@ -65,7 +65,7 @@ from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_S
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
-class TestQueryTraceCorrelation(ClickhouseFreeSimpleTestCase):
+class TestQueryTraceCorrelation(SimpleTestCase):
     @parameterized.expand(
         [
             ("01234567-89ab-4def-8123-456789abcdef", True),

@@ -4,7 +4,7 @@ import uuid
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -16,7 +16,6 @@ from posthog.egress.limiter.backends import LimitsBackend
 from posthog.egress.limiter.outbound import OutboundRateLimiter
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import RateLimitSnapshot
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _unique_harmonic_key() -> str:
@@ -35,7 +34,7 @@ def _fake_session(status: int = 200, headers: dict | None = None) -> AsyncMock:
     return session
 
 
-class TestHarmonicLimiterRegistration(ClickhouseFreeSimpleTestCase):
+class TestHarmonicLimiterRegistration(SimpleTestCase):
     def test_policy_is_registered_for_the_global_key(self) -> None:
         # consume raises for a domain with no registered policy — this catches the registration
         # side effect being lost (e.g. an import shuffle dropping the register_policy call).
@@ -63,7 +62,7 @@ async def test_batch_pressure_does_not_starve_the_interactive_lane() -> None:
     assert await limiter.acquire(key, priority=Priority.CRITICAL) is True
 
 
-class TestHarmonicRateLimitHeaderParser(ClickhouseFreeSimpleTestCase):
+class TestHarmonicRateLimitHeaderParser(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_headers", None, RateLimitSnapshot(resource="account")),

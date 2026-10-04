@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -14,7 +14,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -691,7 +690,7 @@ class TestLivingArtifacts(TestCase):
 
 
 @override_settings(SITE_URL="http://localhost:8010")
-class TestChartCardBlockBuilders(ClickhouseFreeSimpleTestCase):
+class TestChartCardBlockBuilders(SimpleTestCase):
     @parameterized.expand(
         [
             ("url_within_limit", "http://localhost:8010/project/1/insights/abc", ["section", "image", "actions"]),

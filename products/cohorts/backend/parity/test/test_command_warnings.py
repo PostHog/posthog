@@ -2,10 +2,9 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from django.core.management.base import CommandError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.management.commands.compare_cohort_membership import (
     _ALL_MODE_FLAGS,
@@ -33,7 +32,7 @@ def _complete_drain(**overrides) -> DrainStats:
     return stats
 
 
-class TestCollectWarnings(ClickhouseFreeSimpleTestCase):
+class TestCollectWarnings(SimpleTestCase):
     def test_clean_complete_drain_yields_no_warnings(self) -> None:
         warnings, infos = _collect_warnings(_complete_drain(earliest_retained=SINCE), set(), SINCE, NOW)
         self.assertEqual(warnings, [])
@@ -79,7 +78,7 @@ _UNSET_FLAGS: dict[str, Any] = {
 }
 
 
-class TestRejectFlags(ClickhouseFreeSimpleTestCase):
+class TestRejectFlags(SimpleTestCase):
     @parameterized.expand(
         [
             # Every mode-specific flag defaults to None (False for a store_true) precisely so a value
@@ -150,7 +149,7 @@ def _ctx(**overrides: Any) -> RunContext:
     return RunContext(**defaults)
 
 
-class TestCollectRecomputeWarnings(ClickhouseFreeSimpleTestCase):
+class TestCollectRecomputeWarnings(SimpleTestCase):
     def test_clean_state_yields_no_warnings(self) -> None:
         state = RecomputeCohortState(cohort_id=1, ctx=_ctx(run_timezone="US/Pacific"), has_complete_reconcile=True)
         warnings = _collect_recompute_warnings(at=NOW, now=NOW, team_timezone="US/Pacific", states=[state])
@@ -180,7 +179,7 @@ class TestCollectRecomputeWarnings(ClickhouseFreeSimpleTestCase):
         self.assertTrue(any("no complete 64/64 reconcile" in w for w in warnings))
 
 
-class TestCollectPopulationWarnings(ClickhouseFreeSimpleTestCase):
+class TestCollectPopulationWarnings(SimpleTestCase):
     def test_clean_state_yields_no_warnings(self) -> None:
         state = PopulationCohortState(
             cohort_id=1, last_calculation=NOW, is_calculating=False, has_complete_reconcile=True

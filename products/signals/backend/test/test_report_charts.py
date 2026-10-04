@@ -1,7 +1,7 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from pydantic import ValidationError
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.report_charts import (
     _MAX_CHART_QUERY_CHARS,
@@ -13,7 +13,7 @@ from products.signals.backend.report_charts import (
 )
 
 
-class TestReportCharts(ClickhouseFreeSimpleTestCase):
+class TestReportCharts(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -235,7 +235,7 @@ class TestReportCharts(ClickhouseFreeSimpleTestCase):
             ReportChart.model_validate({"chart_id": "ok", "title": "t", "query": {"kind": "InsightVizNode", **nested}})
 
 
-class TestChartBatchError(ClickhouseFreeSimpleTestCase):
+class TestChartBatchError(SimpleTestCase):
     def _chart(self, chart_id: str) -> ReportChart:
         return ReportChart(
             chart_id=chart_id, title="t", query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}

@@ -1,13 +1,13 @@
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from .customerio_import_service import CustomerIOImportService
 
 
-class TestCustomerIOImportServiceUnit(ClickhouseFreeSimpleTestCase):
+class TestCustomerIOImportServiceUnit(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.team = MagicMock()

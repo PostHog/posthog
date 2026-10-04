@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -8,7 +10,6 @@ from posthog.api.event_filter_config import EventFilterConfigSerializer, EventFi
 from posthog.models.event_filter_config import EventFilterConfig, EventFilterMode
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _cond(field: str = "event_name", operator: str = "exact", value: str = "$pageview") -> dict:
@@ -353,7 +354,7 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-class TestEventFilterConfigValidationNoDB(ClickhouseFreeSimpleTestCase):
+class TestEventFilterConfigValidationNoDB(SimpleTestCase):
     # validate_filter_tree / validate_test_cases / validate (run_test_cases) are pure
     # (no context, no DB), so the matrix runs without a database. The endpoint wiring is
     # guarded by the meta test below and by test_rejected_request_does_not_persist.

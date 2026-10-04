@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
@@ -19,7 +21,6 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
     get_holdout_id_from_flag_filters,
 )
 from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -1063,7 +1064,7 @@ class TestCohortRewriteActionIdInFilters(BaseTest):
         assert CohortVisitor._rewrite_action_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestFeatureFlagFilterDynamicEdgeExtraction(ClickhouseFreeSimpleTestCase):
+class TestFeatureFlagFilterDynamicEdgeExtraction(SimpleTestCase):
     """Unit tests for cohort / action / holdout IDs embedded in feature flag ``filters`` JSON."""
 
     @parameterized.expand(
@@ -1171,7 +1172,7 @@ class TestFeatureFlagFilterDynamicEdgeExtraction(ClickhouseFreeSimpleTestCase):
         assert get_holdout_id_from_flag_filters(filters) == expected
 
 
-class TestFeatureFlagVisitorDynamicEdges(ClickhouseFreeSimpleTestCase):
+class TestFeatureFlagVisitorDynamicEdges(SimpleTestCase):
     def test_dynamic_edges_include_cohort_action_and_holdout(self) -> None:
         flag = SimpleNamespace(
             filters={
@@ -1204,7 +1205,7 @@ class TestFeatureFlagVisitorDynamicEdges(ClickhouseFreeSimpleTestCase):
         assert "holdout:3" in names
 
 
-class TestExperimentPayloadDynamicEdgeExtraction(ClickhouseFreeSimpleTestCase):
+class TestExperimentPayloadDynamicEdgeExtraction(SimpleTestCase):
     def test_collect_ids_from_nested_metrics_with_query(self) -> None:
         resource = _experiment_like_resource(
             metrics=[
@@ -1245,7 +1246,7 @@ class TestExperimentPayloadDynamicEdgeExtraction(ClickhouseFreeSimpleTestCase):
         assert 222 in collected.action_ids
 
 
-class TestExperimentVisitorDynamicEdges(ClickhouseFreeSimpleTestCase):
+class TestExperimentVisitorDynamicEdges(SimpleTestCase):
     def test_dynamic_edges_match_experiment_json_extraction(self) -> None:
         exp = _experiment_like_resource(
             metrics=[
@@ -1264,7 +1265,7 @@ class TestExperimentVisitorDynamicEdges(ClickhouseFreeSimpleTestCase):
         assert any(e.name == "json_action:777" for e in edges)
 
 
-class TestExperimentHoldoutVisitorDynamicEdges(ClickhouseFreeSimpleTestCase):
+class TestExperimentHoldoutVisitorDynamicEdges(SimpleTestCase):
     def test_dynamic_edges_from_filters_list_properties(self) -> None:
         holdout = SimpleNamespace(
             filters=[
@@ -1282,7 +1283,7 @@ class TestExperimentHoldoutVisitorDynamicEdges(ClickhouseFreeSimpleTestCase):
         assert edges[0].name == "cohort:55"
 
 
-class TestExperimentSavedMetricVisitorDynamicEdges(ClickhouseFreeSimpleTestCase):
+class TestExperimentSavedMetricVisitorDynamicEdges(SimpleTestCase):
     def test_dynamic_edges_from_query_uses_insight_extraction(self) -> None:
         metric = SimpleNamespace(
             query={

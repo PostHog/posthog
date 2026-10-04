@@ -1,13 +1,13 @@
 from typing import Any
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.mcp_store.backend.policy import is_destructive_tool, member_preset_team_state
 
 
-class TestDestructiveToolDetection(ClickhouseFreeSimpleTestCase):
+class TestDestructiveToolDetection(SimpleTestCase):
     @parameterized.expand(
         [
             ("camel_case", "deleteUser", None, True),

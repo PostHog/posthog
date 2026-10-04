@@ -1,11 +1,11 @@
 import json
 from typing import cast
 
+from django.test import SimpleTestCase
+
 import requests
 from openai import OpenAI
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import (
     _docs_fetch_error_message,
@@ -52,7 +52,7 @@ def _client(responses: list[str]) -> OpenAI:
     return cast(OpenAI, _FakeClient(responses))
 
 
-class TestExtractManifestJson(ClickhouseFreeSimpleTestCase):
+class TestExtractManifestJson(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", '{"client": {}}', {"client": {}}),
@@ -75,7 +75,7 @@ class TestExtractManifestJson(ClickhouseFreeSimpleTestCase):
         self.assertIsNone(extract_manifest_json(content))
 
 
-class TestPrompts(ClickhouseFreeSimpleTestCase):
+class TestPrompts(SimpleTestCase):
     def test_system_prompt_embeds_reference_and_rules(self) -> None:
         prompt = build_system_prompt("THE-GRAMMAR-REFERENCE")
         self.assertIn("THE-GRAMMAR-REFERENCE", prompt)
@@ -110,7 +110,7 @@ class TestPrompts(ClickhouseFreeSimpleTestCase):
         self.assertIn("response was not valid JSON", prompt)
 
 
-class TestDraftManifestSync(ClickhouseFreeSimpleTestCase):
+class TestDraftManifestSync(SimpleTestCase):
     def test_happy_path_returns_ok_first_attempt(self) -> None:
         client = _client([json.dumps(_valid_manifest())])
         result = draft_manifest_sync(
@@ -164,7 +164,7 @@ class TestDraftManifestSync(ClickhouseFreeSimpleTestCase):
         self.assertIsNotNone(result.manifest_json)
 
 
-class TestDocsFetchErrorMessage(ClickhouseFreeSimpleTestCase):
+class TestDocsFetchErrorMessage(SimpleTestCase):
     @parameterized.expand(
         [
             ("unauthorized", 401, "needs a login"),

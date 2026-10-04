@@ -5,6 +5,8 @@ from uuid import UUID
 import time_machine
 from unittest.mock import PropertyMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -25,7 +27,6 @@ from posthog.hogql.parser import parse_select
 
 from posthog.models import Organization, Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationQuery,
@@ -41,7 +42,7 @@ from products.marketing_analytics.backend.hogql_queries.attribution_table_query_
 )
 
 
-class TestAttributionSessionsRead(ClickhouseFreeSimpleTestCase):
+class TestAttributionSessionsRead(SimpleTestCase):
     def setUp(self) -> None:
         self.enterContext(
             patch.object(

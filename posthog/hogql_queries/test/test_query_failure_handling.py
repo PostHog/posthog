@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 import time_machine
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -36,7 +38,6 @@ from posthog.hogql_queries.query_failure_handling import (
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, QueryFailureRecord
 from posthog.query_cache.single_flight import SharedFailure
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _memory_error(message: str):
@@ -67,7 +68,7 @@ def _wrapped_by_the_app() -> Exception:
     return error
 
 
-class TestSharedFailures(ClickhouseFreeSimpleTestCase):
+class TestSharedFailures(SimpleTestCase):
     @parameterized.expand(
         [
             ("clickhouse_server_error", lambda: _clickhouse_error("Cannot compare", 386)),
@@ -122,7 +123,7 @@ class TestSharedFailures(ClickhouseFreeSimpleTestCase):
         assert rebuild_shared_failure(failure) is None
 
 
-class TestQueryFailureHandling(ClickhouseFreeSimpleTestCase):
+class TestQueryFailureHandling(SimpleTestCase):
     @parameterized.expand(
         [
             ("memory_per_query_26x", _memory_error("Query memory limit exceeded: would use 42.03 GiB"), "memory_limit"),

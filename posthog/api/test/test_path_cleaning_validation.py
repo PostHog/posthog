@@ -1,11 +1,12 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import exceptions
 
 from posthog.api.team import TeamSerializer, validate_path_cleaning_filters
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestPathCleaningFilterValidation(ClickhouseFreeSimpleTestCase):
+class TestPathCleaningFilterValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("uncompilable_regex", [{"regex": "/users/((", "alias": "/users/x"}]),

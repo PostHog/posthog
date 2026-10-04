@@ -10,7 +10,7 @@ from django.core.cache import cache
 from django.core.signing import SignatureExpired
 from django.db import connection
 from django.http import HttpResponse
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -23,7 +23,6 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.security.url_validation import PinnedUrlVerdict
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
 from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG
@@ -131,7 +130,7 @@ class TestMCPServerTemplateIconKeyNormalization(TestCase):
         assert template.icon_domain == expected
 
 
-class TestMCPGatewayRequestSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestMCPGatewayRequestSerializerValidation(SimpleTestCase):
     @parameterized.expand(POLICY_REQUEST_SERIALIZER_CASES)
     def test_rejects_tool_names_longer_than_database_field(
         self,
@@ -3883,7 +3882,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert second_callback.status_code == status.HTTP_400_BAD_REQUEST
 
 
-class TestBuildAuthorizeUrlFromMetadata(ClickhouseFreeSimpleTestCase):
+class TestBuildAuthorizeUrlFromMetadata(SimpleTestCase):
     def test_merges_query_params_when_authorization_endpoint_already_has_query(self) -> None:
         """Railway (and similar AS) advertise authorization_endpoint with ?resource=...
 

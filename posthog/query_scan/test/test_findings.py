@@ -1,3 +1,5 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import QueryScanFindingKind, QueryScanFixLocation
@@ -11,10 +13,9 @@ from posthog.query_scan.findings import (
     explain_evidence,
     format_rows,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestFindings(ClickhouseFreeSimpleTestCase):
+class TestFindings(SimpleTestCase):
     @parameterized.expand([("8.4 billion", 8_400_000_000), ("12,345", 12_345)])
     def test_row_counts_read_as_words_above_a_million(self, expected: str, rows: int) -> None:
         self.assertEqual(format_rows(rows), expected)
@@ -265,7 +266,7 @@ class TestFindings(ClickhouseFreeSimpleTestCase):
         self.assertEqual(explain_evidence(keys, before=before, after=after, subquery_index=subquery_index), expected)
 
 
-class TestAssistantPrompt(ClickhouseFreeSimpleTestCase):
+class TestAssistantPrompt(SimpleTestCase):
     def test_goal_first_then_the_run_each_finding_and_the_rules(self) -> None:
         finding = build_warning(
             kind=QueryScanFindingKind.NO_EVENT_FILTER,

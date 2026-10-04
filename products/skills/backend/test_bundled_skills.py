@@ -1,14 +1,14 @@
 from pathlib import Path
 from tempfile import mkdtemp
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.skills.backend.bundled_skills import _declared_name, bundled_skill_names
 
 
-class TestBundledSkills(ClickhouseFreeSimpleTestCase):
+class TestBundledSkills(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "name: a-skill\ndescription: d", "a-skill"),

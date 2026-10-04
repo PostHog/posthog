@@ -3,17 +3,18 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from rest_framework import serializers, status
 
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.ai.ticket_context import MAX_AI_CONTEXT_ACCOUNT_PROPERTY_IDS
 from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
 from products.customer_analytics.backend.facade.testing import create_custom_property_definition
 
 
-class TestValidateAiContextConversationsSettings(ClickhouseFreeSimpleTestCase):
+class TestValidateAiContextConversationsSettings(SimpleTestCase):
     def test_null_becomes_empty_list(self) -> None:
         value = validate_ai_context_conversations_settings({"ai_context_account_property_ids": None}, team_id=1)
         assert value["ai_context_account_property_ids"] == []

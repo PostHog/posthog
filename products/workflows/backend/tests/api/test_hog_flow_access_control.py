@@ -2,13 +2,14 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
@@ -32,7 +33,7 @@ MISSING_SCHEDULE_ID = "00000000-0000-0000-0000-000000000000"
 CANCEL_PROXY = "products.workflows.backend.presentation.views.hog_flow.cancel_hog_flow_invocations"
 
 
-class TestHogFlowResourceRegistration(ClickhouseFreeSimpleTestCase):
+class TestHogFlowResourceRegistration(SimpleTestCase):
     def test_hog_flow_is_a_controllable_resource(self):
         self.assertIn("hog_flow", ACCESS_CONTROL_RESOURCES)
 

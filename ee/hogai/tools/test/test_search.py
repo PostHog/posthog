@@ -8,13 +8,11 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from langchain_core import messages
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -147,7 +145,7 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
 
 
-class TestFormatInkeepDocsResponse(ClickhouseFreeSimpleTestCase):
+class TestFormatInkeepDocsResponse(SimpleTestCase):
     @staticmethod
     def _payload(*urls: str) -> dict:
         return {
@@ -200,7 +198,7 @@ def _docs_payload(*docs: tuple[str, str]) -> dict:
     }
 
 
-class TestDocsShadowOverlap(ClickhouseFreeSimpleTestCase):
+class TestDocsShadowOverlap(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -300,7 +298,7 @@ def _search_results(*urls: str) -> list[MagicMock]:
     return [MagicMock(url=url) for url in urls]
 
 
-class TestDocsShadowFailure(ClickhouseFreeSimpleTestCase):
+class TestDocsShadowFailure(SimpleTestCase):
     @parameterized.expand(
         [
             ("timeout", True),

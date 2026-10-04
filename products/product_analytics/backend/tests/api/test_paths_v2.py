@@ -2,6 +2,8 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -14,8 +16,6 @@ from posthog.schema import (
     PathsV2Query,
     PathsV2StepSource,
 )
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.product_analytics.backend.facade.queries import (
     PATHS_V2_OTHER,
@@ -41,7 +41,7 @@ def _items(*events: str) -> list[dict]:
     return [{"event": event} for event in events]
 
 
-class TestSegmentToFunnelRequestValidation(ClickhouseFreeSimpleTestCase):
+class TestSegmentToFunnelRequestValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("single_item", _items("a")),

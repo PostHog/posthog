@@ -17,7 +17,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.http import StreamingHttpResponse
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
@@ -36,7 +36,6 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, POSTHOG_AI_APP_CLIENT_ID_DEV
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -12415,7 +12414,7 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         self.assertEqual((task.state or {}).get("other"), 1)
 
 
-class TestLivingArtifactChartRequestValidation(ClickhouseFreeSimpleTestCase):
+class TestLivingArtifactChartRequestValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("both", {"name": "c", "query": {"kind": "TrendsQuery"}, "insight_id": 1}),

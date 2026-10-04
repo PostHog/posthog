@@ -1,11 +1,10 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.training import artifacts
 from products.autoresearch.backend.training.artifacts import (
@@ -47,7 +46,7 @@ class _InMemoryStorage:
         return keys or None
 
 
-class TestNormalizeArtifactPath(ClickhouseFreeSimpleTestCase):
+class TestNormalizeArtifactPath(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "train.py", "train.py"),
@@ -75,7 +74,7 @@ class TestNormalizeArtifactPath(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(OBJECT_STORAGE_ENABLED=True)
-class TestArtifactStorage(ClickhouseFreeSimpleTestCase):
+class TestArtifactStorage(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.fake = _InMemoryStorage()

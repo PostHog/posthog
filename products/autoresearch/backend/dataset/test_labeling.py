@@ -10,6 +10,7 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,7 +18,6 @@ from parameterized import parameterized
 from posthog.schema import HogQLQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
@@ -107,7 +107,7 @@ class TestBuildInferenceFeaturesSql(BaseTest):
         self.assertNotIn("--", sql)
 
 
-class TestPopulationFilterCompilation(ClickhouseFreeSimpleTestCase):
+class TestPopulationFilterCompilation(SimpleTestCase):
     # A filter that cannot be compiled must raise: skipping it would silently widen the
     # population, and inference writes person properties for everyone it scores.
 
@@ -192,7 +192,7 @@ class TestPopulationFilterCompilation(ClickhouseFreeSimpleTestCase):
         self.assertEqual(compiled.person_parts, expected_parts)
 
 
-class TestPopulationKindCompilation(ClickhouseFreeSimpleTestCase):
+class TestPopulationKindCompilation(SimpleTestCase):
     # Guards against the regression where a semantic population spec ({"kind": ...})
     # fell through the compiler and silently widened to "all identified users".
 
@@ -327,7 +327,7 @@ class TestPopulationKindCompilation(ClickhouseFreeSimpleTestCase):
             _build_population_kind_conditions(population)
 
 
-class TestPopulationKindTrainingSemantics(ClickhouseFreeSimpleTestCase):
+class TestPopulationKindTrainingSemantics(SimpleTestCase):
     # Training decides membership per user at T0, never as of now(): deciding it as of
     # now() admits users on activity after T0 (including the outcome window), and a
     # row-level "has not performed the target" filter would delete exactly the users
@@ -454,7 +454,7 @@ class TestPopulationKindTrainingSemantics(ClickhouseFreeSimpleTestCase):
 _DAILY_PAGEVIEWS = [("$pageview", days_ago) for days_ago in range(100, 0, -1)]
 
 
-class TestTrainingSamplePlan(ClickhouseFreeSimpleTestCase):
+class TestTrainingSamplePlan(SimpleTestCase):
     @parameterized.expand(
         [
             ("fits_the_budget", 40, 4, 1.0, 40),

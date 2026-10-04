@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -10,7 +10,6 @@ from rest_framework import status
 import posthog.api.snuffle_proxy as snuffle_proxy
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SNUFFLE_APM_SETTINGS = {
     "SNUFFLE_APM_URL": "http://snuffle.test:9091/",
@@ -229,7 +228,7 @@ class TestLokiQueryApi(APIBaseTest):
         self.request_mock.assert_not_called()
 
 
-class TestSnuffleBudgetDebit(ClickhouseFreeSimpleTestCase):
+class TestSnuffleBudgetDebit(SimpleTestCase):
     @patch("posthog.api.snuffle_proxy.debit")
     @patch("posthog.api.snuffle_proxy._get_snuffle_budget_debit_executor")
     def test_debit_runs_after_scheduling(self, executor, debit_mock):

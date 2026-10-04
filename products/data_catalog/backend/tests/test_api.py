@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -15,7 +16,6 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import MetricStatus
@@ -568,7 +568,7 @@ class TestMetricRunThrottles(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
 
-class TestMetricRunInputValidation(ClickhouseFreeSimpleTestCase):
+class TestMetricRunInputValidation(SimpleTestCase):
     @parameterized.expand([("day", True), ("month", True), ("fortnight", False), ("5m", False)])
     def test_interval_choices(self, value: str, valid: bool) -> None:
         serializer = MetricRunRequestSerializer(data={"interval": value})
@@ -602,7 +602,7 @@ class TestMetricRunInputValidation(ClickhouseFreeSimpleTestCase):
             assert "confidence" in serializer.errors
 
 
-class TestMetricBulkNamesValidation(ClickhouseFreeSimpleTestCase):
+class TestMetricBulkNamesValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty", 0, False),

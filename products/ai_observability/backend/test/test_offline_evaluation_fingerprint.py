@@ -2,9 +2,9 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.ai_observability.backend.api.offline_experiment_serializers import ResultSubmissionSerializer
 from products.ai_observability.backend.offline_evaluation_fingerprint import submission_fingerprint
@@ -14,7 +14,7 @@ ITEM_ID = UUID("01922222-2222-7222-8222-222222222222")
 SCORER_VERSION_ID = UUID("01923333-3333-7333-8333-333333333333")
 
 
-class TestOfflineEvaluationFingerprint(ClickhouseFreeSimpleTestCase):
+class TestOfflineEvaluationFingerprint(SimpleTestCase):
     @parameterized.expand(
         [
             (

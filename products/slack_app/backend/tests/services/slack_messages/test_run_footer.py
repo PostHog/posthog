@@ -5,10 +5,11 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -20,7 +21,7 @@ from products.slack_app.backend.services.slack_messages import (
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
 
 
-class TestRunFooter(ClickhouseFreeSimpleTestCase):
+class TestRunFooter(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -82,7 +83,7 @@ class TestRunFooter(ClickhouseFreeSimpleTestCase):
         assert reply_footer_block(RunFooter()) is None
 
 
-class TestLoadRunFooter(ClickhouseFreeSimpleTestCase):
+class TestLoadRunFooter(SimpleTestCase):
     @patch("products.tasks.backend.facade.run_config.parse_run_state")
     @patch("products.tasks.backend.facade.api.get_task_run")
     def test_describes_the_run(self, mock_get_run, mock_parse) -> None:
@@ -102,7 +103,7 @@ class TestLoadRunFooter(ClickhouseFreeSimpleTestCase):
         assert load_run_footer("run-1", integration_id=None) == RunFooter()
 
 
-class TestViewerHasCodeAccess(ClickhouseFreeSimpleTestCase):
+class TestViewerHasCodeAccess(SimpleTestCase):
     def _integration(self) -> Integration:
         organization = SimpleNamespace(id="org-1")
         team = SimpleNamespace(organization=organization, organization_id=organization.id)

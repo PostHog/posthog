@@ -10,7 +10,7 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.core.signing import TimestampSigner
 from django.http import HttpRequest
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 from django.utils import timezone
 
 from loginas import settings as la_settings
@@ -23,7 +23,6 @@ from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY
 from posthog.models import OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.session.backend import SessionStore
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestImpersonationOAuthRevocation(BaseTest):
@@ -328,7 +327,7 @@ def _non_oauth_request() -> HttpRequest:
     return request
 
 
-class TestIsImpersonated(ClickhouseFreeSimpleTestCase):
+class TestIsImpersonated(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_request", lambda: None, False),

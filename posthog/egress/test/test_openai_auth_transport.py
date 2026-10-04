@@ -1,10 +1,11 @@
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import requests
 from prometheus_client import REGISTRY
 
 from posthog.egress.openai_auth.transport import OPENAI_OAUTH_TOKEN_URL, openai_auth_request
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _openai_auth_samples() -> list:
@@ -27,7 +28,7 @@ def _request_count(status_code: str = "200") -> float:
     return REGISTRY.get_sample_value("openai_auth_api_requests_total", labels) or 0
 
 
-class TestOpenAIAuthTransport(ClickhouseFreeSimpleTestCase):
+class TestOpenAIAuthTransport(SimpleTestCase):
     def test_request_is_recorded_under_the_constant_client_scope(self) -> None:
         response = requests.Response()
         response.status_code = 200

@@ -2,6 +2,8 @@ from typing import Any
 
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from posthog.schema import QueryScanAnalysis, QueryScanFindingKind, QueryScanWarning
 
 from posthog.query_scan.slot import (
@@ -9,10 +11,9 @@ from posthog.query_scan.slot import (
     set_done,
     set_pending,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestQueryScanSlotRoundTrip(ClickhouseFreeSimpleTestCase):
+class TestQueryScanSlotRoundTrip(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.stored: dict[str, Any] = {}

@@ -1,11 +1,11 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import QueryRequest
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-
-class TestErrorTrackingQuerySchemaCompat(ClickhouseFreeSimpleTestCase):
+class TestErrorTrackingQuerySchemaCompat(SimpleTestCase):
     # Older frontend bundles still send the deprecated query-path flags. The schema must
     # keep accepting them until no clients send them anymore — removing them breaks every
     # stale tab with a hard 400 during deploys (extra="forbid").

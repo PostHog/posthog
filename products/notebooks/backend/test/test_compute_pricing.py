@@ -3,12 +3,12 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend.compute_pricing import (
     COMPUTE_PRESETS,
@@ -22,7 +22,7 @@ from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
 
-class TestComputePricing(ClickhouseFreeSimpleTestCase):
+class TestComputePricing(SimpleTestCase):
     @parameterized.expand(
         [
             ("us_default_sandbox", "US", 1, 2, 0.25),

@@ -5,10 +5,9 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.skills.backend.management.commands.normalize_skill_file_paths import plan_skill_paths
 from products.skills.backend.marketplace.adapters import SkillBundle, build_skill_bundle, build_team_marketplace_tree
@@ -19,7 +18,7 @@ ROW_A = UUID("0198f000-0000-7000-8000-00000000000a")
 ROW_B = UUID("0198f000-0000-7000-8000-00000000000b")
 
 
-class TestPlanSkillPaths(ClickhouseFreeSimpleTestCase):
+class TestPlanSkillPaths(SimpleTestCase):
     @parameterized.expand(
         [
             ("separator", [(ROW_A, "refs\\guide.md")], [(ROW_A, "refs\\guide.md", "refs/guide.md")], [], [], False),

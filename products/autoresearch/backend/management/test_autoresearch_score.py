@@ -6,10 +6,9 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
 from products.autoresearch.backend.management.commands import autoresearch_score
@@ -19,7 +18,7 @@ from products.autoresearch.backend.testing import TeamScopedTestMixin
 
 
 @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
-class TestResolvePredictionDates(ClickhouseFreeSimpleTestCase):
+class TestResolvePredictionDates(SimpleTestCase):
     @parameterized.expand(
         [
             ("zero_backfill_days_ran_live", {"backfill_days": 0}),

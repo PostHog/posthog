@@ -1,9 +1,9 @@
 import json
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from pydantic import BaseModel, ValidationError
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
@@ -23,7 +23,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import SignalReportArtefact
 
 
-class TestArtefactSchemas(ClickhouseFreeSimpleTestCase):
+class TestArtefactSchemas(SimpleTestCase):
     def test_reviewer_reasons_are_bounded_on_write(self):
         with self.assertRaises(ValidationError):
             SuggestedReviewerEntry(github_login="reviewer", reason="x" * 501)
@@ -154,7 +154,7 @@ def _ranking_score(**overrides):
     return content
 
 
-class TestValidateArtefactContent(ClickhouseFreeSimpleTestCase):
+class TestValidateArtefactContent(SimpleTestCase):
     @parameterized.expand(
         [
             ("safety_judgment", {"choice": True, "explanation": None}),
@@ -257,7 +257,7 @@ class TestValidateArtefactContent(ClickhouseFreeSimpleTestCase):
             artefact_type_for(NotAnArtefact())
 
 
-class TestRankingScore(ClickhouseFreeSimpleTestCase):
+class TestRankingScore(SimpleTestCase):
     @parameterized.expand(
         [
             ("served_key_not_in_results", {"served_key": "tabular@2025-12-31"}),

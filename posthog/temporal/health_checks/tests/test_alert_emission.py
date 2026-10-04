@@ -1,11 +1,12 @@
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.alerts import EVENT_FIRING, EVENT_RESOLVED, emit_health_check_alert
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class _StubCheck(HealthCheck):
@@ -25,7 +26,7 @@ def _make_issue(kind: str = "stub_check", severity: str = "warning") -> HealthIs
     return HealthIssue(team_id=42, kind=kind, severity=severity, payload={"detail": "x"}, unique_hash="h")
 
 
-class TestEmitHealthCheckAlert(ClickhouseFreeSimpleTestCase):
+class TestEmitHealthCheckAlert(SimpleTestCase):
     @patch("posthog.temporal.health_checks.alerts._check_class_for_kind", return_value=_StubCheck)
     @patch("posthog.temporal.health_checks.alerts.produce_internal_event")
     def test_firing_emits_event_with_envelope(self, produce, _lookup):

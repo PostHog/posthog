@@ -8,9 +8,9 @@ from typing import Any
 
 from unittest.mock import patch
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
 from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
@@ -18,7 +18,7 @@ from products.canvas.backend.presentation.serializers import CanvasSourceProject
 from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_source_project, validate_source_project
 
 
-class TestCanvasCloudBuilder(ClickhouseFreeSimpleTestCase):
+class TestCanvasCloudBuilder(SimpleTestCase):
     @parameterized.expand(
         [
             ("double_quotes", 'src="/src/canvas.tsx"'),

@@ -6,12 +6,12 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.business_knowledge.backend.learning import providers as providers_mod
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef, evidence_key_for
@@ -46,7 +46,7 @@ class _FakeProvider:
         return None
 
 
-class TestLearningProviders(ClickhouseFreeSimpleTestCase):
+class TestLearningProviders(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self._saved = providers_mod._providers.copy()
@@ -88,7 +88,7 @@ class TestLearningProviders(ClickhouseFreeSimpleTestCase):
         assert get_learning_providers() == []
 
 
-class TestEvidenceRef(ClickhouseFreeSimpleTestCase):
+class TestEvidenceRef(SimpleTestCase):
     def _kwargs(self, **overrides: object) -> dict:
         kwargs: dict = {
             "evidence_key": evidence_key_for(_TICKET_ID, _COMMENT_ID),

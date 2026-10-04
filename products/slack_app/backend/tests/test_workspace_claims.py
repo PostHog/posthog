@@ -4,7 +4,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -13,7 +13,6 @@ from rest_framework.test import APIClient
 from posthog.models.integration import Integration, validate_slack_request
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
@@ -330,7 +329,7 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
 
 
 @override_settings(CLOUD_DEPLOYMENT="EU", DEBUG=False)
-class TestThreadRegionRouting(ClickhouseFreeSimpleTestCase):
+class TestThreadRegionRouting(SimpleTestCase):
     @parameterized.expand(
         [
             ("local_report", "eu.posthog.com", True, True, None),

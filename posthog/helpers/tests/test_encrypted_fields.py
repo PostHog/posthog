@@ -4,7 +4,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.backends import default_backend
@@ -14,7 +14,6 @@ from parameterized import parameterized
 
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin, check_encryption_salt_keys
 from posthog.settings.utils import get_list
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 KEY_A = "a" * 32
 KEY_B = "b" * 32
@@ -79,7 +78,7 @@ class TestEncryptedFields(BaseTest):
         assert decrypted == "test-case"
 
 
-class TestEncryptedFieldsMultiKey(ClickhouseFreeSimpleTestCase):
+class TestEncryptedFieldsMultiKey(SimpleTestCase):
     # SALT_KEY=[] disables the legacy PBKDF2-derived keys so each test only exercises ENCRYPTION_SALT_KEYS
 
     @override_settings(ENCRYPTION_SALT_KEYS=[KEY_A, KEY_B], SALT_KEY=[])
@@ -136,7 +135,7 @@ class TestEncryptedFieldsMultiKey(ClickhouseFreeSimpleTestCase):
                 assert ef.decrypt(tokens[key]) == f"secret-{key[0]}"
 
 
-class TestEncryptionKeyRotationTwoStep(ClickhouseFreeSimpleTestCase):
+class TestEncryptionKeyRotationTwoStep(SimpleTestCase):
     # Two-step rollout, used because apps are not guaranteed to redeploy simultaneously:
     #   step 1: [OLD] -> [OLD, NEW]      NEW added for decryption; OLD still encrypts
     #   step 2: [OLD, NEW] -> [NEW, OLD] NEW now encrypts; OLD kept for decryption
@@ -181,7 +180,7 @@ class TestEncryptionKeyRotationTwoStep(ClickhouseFreeSimpleTestCase):
             _decrypt_with([OLD], token)
 
 
-class TestSecretKeyRotation(ClickhouseFreeSimpleTestCase):
+class TestSecretKeyRotation(SimpleTestCase):
     # Legacy rows were encrypted under PBKDF2(SECRET_KEY, salt=SALT_KEY). Rotating SECRET_KEY must
     # keep them decryptable via SECRET_KEY_FALLBACKS, otherwise the rotation strands them forever.
 
@@ -210,7 +209,7 @@ class TestSecretKeyRotation(ClickhouseFreeSimpleTestCase):
             _legacy_fernet(NEW).decrypt(token.encode("utf-8"))
 
 
-class TestEncryptionSaltKeysCheck(ClickhouseFreeSimpleTestCase):
+class TestEncryptionSaltKeysCheck(SimpleTestCase):
     # System check that ENCRYPTION_SALT_KEYS entries are valid Fernet keys (exactly 32 bytes). Each is
     # used directly as a Fernet key, so a wrong-length one would otherwise crash opaquely on first use.
 

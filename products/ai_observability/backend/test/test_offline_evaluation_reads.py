@@ -4,14 +4,13 @@ from sys import float_info
 from uuid import uuid4
 
 from django.db import connection
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
@@ -32,7 +31,7 @@ from products.ai_observability.backend.offline_evaluation_types import JSONValue
 from products.ai_observability.backend.read_pagination import decode_cursor, encode_cursor
 
 
-class TestOfflineReadQuery(ClickhouseFreeSimpleTestCase):
+class TestOfflineReadQuery(SimpleTestCase):
     @parameterized.expand([("!",), ("a" * 2049,), (encode_cursor(["id", "extra"]),), ("bnVsbA",)])
     def test_rejects_malformed_or_wrong_shape_cursor(self, cursor: str) -> None:
         with self.assertRaises(ValueError):

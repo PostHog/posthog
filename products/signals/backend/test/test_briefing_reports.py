@@ -8,13 +8,12 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.request import Request
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
 from products.signals.backend.briefing_reports import (
@@ -223,7 +222,7 @@ def _candidates(specs: list[_Spec]) -> list[_BriefingCandidate]:
     ]
 
 
-class TestBriefingPick(ClickhouseFreeSimpleTestCase):
+class TestBriefingPick(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -296,7 +295,7 @@ class TestBriefingPick(ClickhouseFreeSimpleTestCase):
             assert [c.report_id for c in _briefing_pick(candidates, limit=limit)] == full[:limit]
 
 
-class TestSummaryLead(ClickhouseFreeSimpleTestCase):
+class TestSummaryLead(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain text", "Signups fail.\nPeople leave.", "Signups fail. People leave."),

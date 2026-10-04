@@ -5,7 +5,7 @@ from typing import Any
 
 from unittest.mock import Mock, patch
 
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -16,7 +16,6 @@ from posthog.ingress.teams.provider import build_teams_provider
 from posthog.ingress.verify.jwt import _JWKS_CLIENTS
 from posthog.ingress.verify.schemes import VerificationOutcome
 from posthog.ingress.views import build_webhook_view
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 URL = "/api/conversations/v1/teams/events"
 JWKS_URI = "https://login.botframework.com/v1/.well-known/keys"
@@ -37,7 +36,7 @@ ACTIVITY = {
 }
 
 
-class TestTeamsProvider(ClickhouseFreeSimpleTestCase):
+class TestTeamsProvider(SimpleTestCase):
     private_key: rsa.RSAPrivateKey
 
     @classmethod

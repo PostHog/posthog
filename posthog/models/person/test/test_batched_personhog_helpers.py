@@ -1,5 +1,7 @@
 from unittest.mock import ANY, MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from personhog.types.v1 import person_pb2
 
@@ -11,10 +13,9 @@ from posthog.models.person.util import (
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.proto import ReadOptions
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestBatchedGetPersonsByUuids(ClickhouseFreeSimpleTestCase):
+class TestBatchedGetPersonsByUuids(SimpleTestCase):
     @parameterized.expand(
         [
             ("single_batch", 500, 2, 1),
@@ -152,7 +153,7 @@ class TestBatchedGetPersonsByUuids(ClickhouseFreeSimpleTestCase):
             mock_executor.assert_not_called()
 
 
-class TestBatchedGetPersonsByDistinctIds(ClickhouseFreeSimpleTestCase):
+class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):
     @parameterized.expand(
         [
             ("single_batch", 500, 2, 1),
@@ -263,7 +264,7 @@ class TestBatchedGetPersonsByDistinctIds(ClickhouseFreeSimpleTestCase):
                 assert list(call.request.read_options.field_mask) == ["uuid"]
 
 
-class TestBatchedGetDistinctIdsForPersons(ClickhouseFreeSimpleTestCase):
+class TestBatchedGetDistinctIdsForPersons(SimpleTestCase):
     @parameterized.expand(
         [
             ("single_batch", 500, 2, 1),
@@ -325,7 +326,7 @@ class TestBatchedGetDistinctIdsForPersons(ClickhouseFreeSimpleTestCase):
             assert result[999] == []
 
 
-class TestGetPersonsMappedByDistinctIdDedup(ClickhouseFreeSimpleTestCase):
+class TestGetPersonsMappedByDistinctIdDedup(SimpleTestCase):
     def test_multiple_distinct_ids_same_person_all_present(self):
         with fake_personhog_client() as fake:
             fake.add_person(

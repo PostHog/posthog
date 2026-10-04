@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.mcp_registry.backend.connect import build_connect_instructions
 from products.mcp_registry.backend.models import MCPRegistryServer
@@ -18,7 +18,7 @@ def _server(**kwargs: object) -> MCPRegistryServer:
     return MCPRegistryServer(**defaults)
 
 
-class TestConnectInstructions(ClickhouseFreeSimpleTestCase):
+class TestConnectInstructions(SimpleTestCase):
     @parameterized.expand(
         [
             ("open_server", {"liveness": "alive_open", "auth_method": "none"}, "remote_open", "agent"),

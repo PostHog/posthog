@@ -1,11 +1,11 @@
+from django.test import SimpleTestCase
+
 from posthog.hogql.ast import BooleanType, FloatType, IntegerType, StringType
 from posthog.hogql.functions.core import AnyConstantType
 from posthog.hogql.functions.typegen import generate_json_path_signatures, generate_variadic_signatures
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-
-class TestTypegen(ClickhouseFreeSimpleTestCase):
+class TestTypegen(SimpleTestCase):
     def test_generate_variadic_signatures_basic(self):
         """Test basic variadic signature generation."""
         # Test with no variadic arguments

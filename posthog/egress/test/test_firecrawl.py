@@ -4,7 +4,7 @@ from contextlib import contextmanager
 
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -21,7 +21,6 @@ from posthog.egress.firecrawl.client import (
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
 from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority, resolve_policy
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _FAKE_API_KEY = "fake-key-for-tests"
 
@@ -73,7 +72,7 @@ def _firecrawl_answers(response: requests.Response) -> Iterator[tuple[MagicMock,
 
 
 @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
-class TestFirecrawlEgress(ClickhouseFreeSimpleTestCase):
+class TestFirecrawlEgress(SimpleTestCase):
     def test_scrape_sends_the_request_shape_firecrawl_documents(self) -> None:
         # Firecrawl reads camelCase body keys and ignores unknown ones, so a snake_case slip would
         # silently scrape whole-page boilerplate instead of the main content, with no error to notice.
@@ -141,7 +140,7 @@ class TestFirecrawlEgress(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
-class TestFirecrawlSearchEgress(ClickhouseFreeSimpleTestCase):
+class TestFirecrawlSearchEgress(SimpleTestCase):
     def test_search_sends_the_request_shape_firecrawl_documents(self) -> None:
         with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (request, _consume):
             search("widget makers", source="test", limit=3)

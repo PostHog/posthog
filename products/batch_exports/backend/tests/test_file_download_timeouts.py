@@ -3,14 +3,12 @@ from uuid import UUID
 
 from unittest.mock import AsyncMock, Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from temporalio import workflow
 from temporalio.client import Client
 from temporalio.common import MetricMeter
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.batch_exports.backend import service
 from products.batch_exports.backend.models.batch_export import BatchExportOnDemand
@@ -32,7 +30,7 @@ EXPORT_ID = UUID("00000000-0000-4000-8000-000000000001")
 RUN_ID = UUID("00000000-0000-4000-8000-000000000002")
 
 
-class TestFileDownloadTimeouts(ClickhouseFreeSimpleTestCase):
+class TestFileDownloadTimeouts(SimpleTestCase):
     @parameterized.expand(
         [
             ("neither_bound", None, None, 21600, 900),

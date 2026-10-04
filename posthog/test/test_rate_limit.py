@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -29,7 +30,6 @@ from posthog.rate_limit import (
     LLMPromptPublishBurstRateThrottle,
     get_route_from_path,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.api.feature_flag import (
     RemoteConfigProjectSecretApiKeyTeamThrottle,
@@ -932,7 +932,7 @@ class TestPersonalOrProjectSecretApiKeyRateThrottle(APIBaseTest):
         self.assertTrue(_PSAKThrottleForTest().get_cache_key(self._psak_request(key_id=42), Mock()).endswith("psak:42"))
 
 
-class TestUserVerifyEmailThrottle(ClickhouseFreeSimpleTestCase):
+class TestUserVerifyEmailThrottle(SimpleTestCase):
     CANONICAL_UUID = "12345678-1234-5678-1234-567812345678"
 
     def _request(self, uuid_value):
@@ -965,7 +965,7 @@ class TestUserVerifyEmailThrottle(ClickhouseFreeSimpleTestCase):
         self.assertIsNotNone(throttle.get_cache_key(self._request("not-a-uuid"), Mock()))
 
 
-class TestAIObservabilitySummarizationRateThrottle(ClickhouseFreeSimpleTestCase):
+class TestAIObservabilitySummarizationRateThrottle(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 
@@ -998,7 +998,7 @@ class TestAIObservabilitySummarizationRateThrottle(ClickhouseFreeSimpleTestCase)
             self.assertFalse(throttle_class().allow_request(request, view))
 
 
-class TestLeakedKeyReportThrottle(ClickhouseFreeSimpleTestCase):
+class TestLeakedKeyReportThrottle(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 
@@ -1048,7 +1048,7 @@ class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
 
 
-class TestWidgetTeamPollWriteThrottleSplit(ClickhouseFreeSimpleTestCase):
+class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 

@@ -1,12 +1,12 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from ee.hogai.chat_agent.sql.prompts import HOGQL_GENERATOR_SYSTEM_PROMPT
 from ee.hogai.tools.read_data.prompts import READ_DATA_WAREHOUSE_SCHEMA_PROMPT
 
 
-class TestUntrustedCatalogPrompts(ClickhouseFreeSimpleTestCase):
+class TestUntrustedCatalogPrompts(SimpleTestCase):
     @parameterized.expand(
         [
             ("sql_generator", HOGQL_GENERATOR_SYSTEM_PROMPT),

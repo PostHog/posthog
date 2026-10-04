@@ -3,7 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.db import OperationalError, ProgrammingError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
 import psycopg.errors
@@ -12,7 +12,6 @@ from parameterized import parameterized
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.loop_retention import sweep_loop_task_retention, sweep_loop_task_retention_task
 from products.tasks.backend.models import Loop, Task, TaskRun
@@ -62,7 +61,7 @@ class LoopRetentionTestCase(TestCase):
         return task
 
 
-class TestSweepLoopTaskRetentionTask(ClickhouseFreeSimpleTestCase):
+class TestSweepLoopTaskRetentionTask(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_table", programming_error_from(psycopg.errors.UndefinedTable("missing table"))),

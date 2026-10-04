@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
@@ -22,7 +24,6 @@ from posthog.schema import (
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.test_journeys import journeys_for
 
 from products.product_analytics.backend.hogql_queries.paths_v2.path_item import resolve_step_sources
@@ -64,7 +65,7 @@ def _edge(
     return (step_index, source, target, count)
 
 
-class TestPathsV2FilterConstraints(ClickhouseFreeSimpleTestCase):
+class TestPathsV2FilterConstraints(SimpleTestCase):
     @parameterized.expand(
         [
             ("max_steps_below_min", {"maxSteps": 1}),

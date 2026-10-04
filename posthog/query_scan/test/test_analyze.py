@@ -1,3 +1,5 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.query_scan.analyze import ExplainedPlan, PlanSet, QueryScanResult, RunFacts, analyze
@@ -7,7 +9,6 @@ from posthog.query_scan.findings import finding_label
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.test_explain import events_read_node, load_plan
 from posthog.query_scan.tree_facts import TreeFacts
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _USABLE_EVENT_FILTER = EventFilterOutcome(classification="usable")
 _END_DATE_ONLY = "(timestamp in (-Inf, 1800000000])"
@@ -85,7 +86,7 @@ def analyze_fixture(
     )
 
 
-class TestAnalyze(ClickhouseFreeSimpleTestCase):
+class TestAnalyze(SimpleTestCase):
     @parameterized.expand(
         [
             # event gate: the read is a large share of the range, so the missing event filter is flagged

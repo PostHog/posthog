@@ -1,9 +1,9 @@
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.conversations.backend.ai.evidence import hydrate_ai_sources, outbound_doc_url, parse_chunk_id
 
 
-class TestAiSourceRefs(ClickhouseFreeSimpleTestCase):
+class TestAiSourceRefs(SimpleTestCase):
     def test_http_citation_is_outbound(self) -> None:
         assert outbound_doc_url("https://example.com/docs/sdk") == "https://example.com/docs/sdk"
         assert outbound_doc_url("http://example.com/a") == "http://example.com/a"

@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -13,10 +13,9 @@ from posthog.query_cache.storage import (
     is_s3_pointer,
     s3_write_mode,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestS3PointerCodec(ClickhouseFreeSimpleTestCase):
+class TestS3PointerCodec(SimpleTestCase):
     def test_pointer_round_trips(self):
         pointer = S3BlobPointer(bucket="cache-bucket", key="query_cache/1/some_key")
         assert decode_pointer(encode_pointer(pointer)) == pointer
@@ -46,7 +45,7 @@ class TestS3PointerCodec(ClickhouseFreeSimpleTestCase):
 
 
 @override_settings(OBJECT_STORAGE_ENABLED=True)
-class TestS3WriteMode(ClickhouseFreeSimpleTestCase):
+class TestS3WriteMode(SimpleTestCase):
     def test_disabled_object_storage_fails_closed(self):
         # UnavailableStorage swallows writes silently, so routing while storage is off would
         # store pointers to blobs that were never written.

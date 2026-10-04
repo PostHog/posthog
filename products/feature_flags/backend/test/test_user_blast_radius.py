@@ -1,15 +1,16 @@
+from django.test import SimpleTestCase
+
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.errors import InternalCHQueryError, wrap_clickhouse_query_error
 from posthog.models.property import PropertyValidationError
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.user_blast_radius import unevaluable_filters_as_validation_errors
 
 
-class TestUnevaluableFiltersAsValidationErrors(ClickhouseFreeSimpleTestCase):
+class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
     def test_property_validation_error_surfaces_as_a_caller_error(self):
         # Raised by Property.__init__ during query build (e.g. a referenced cohort stored with a
         # value-less property); a plain ValueError subclass, so it used to escape as a 500.

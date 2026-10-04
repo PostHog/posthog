@@ -3,7 +3,7 @@ import json
 import random
 import hashlib
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.ai_observability.backend.sample_traces import SAMPLE_TRACES_DIR, SampleEvent, SampleTraces, remap_ids
 
@@ -16,7 +16,7 @@ def canonical_sha(obj: object) -> str:
     ).hexdigest()
 
 
-class TestSampleTraceFixtures(ClickhouseFreeSimpleTestCase):
+class TestSampleTraceFixtures(SimpleTestCase):
     def test_generated_files_match_checksums(self) -> None:
         checksums = json.loads((SAMPLE_TRACES_DIR / "checksums.json").read_text())
         units = {p.stem: canonical_sha(json.loads(p.read_text())) for p in (SAMPLE_TRACES_DIR / "units").glob("*.json")}
@@ -55,7 +55,7 @@ class TestSampleTraceFixtures(ClickhouseFreeSimpleTestCase):
             samples.unit_ids(only=["", " "])
 
 
-class TestRemapIds(ClickhouseFreeSimpleTestCase):
+class TestRemapIds(SimpleTestCase):
     def test_remap_keeps_trace_span_session_and_evaluation_links(self) -> None:
         trace_id, span_id, session_id, generation_uuid = (
             "0198a7c2-0000-7000-8000-000000000001",

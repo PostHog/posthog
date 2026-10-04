@@ -1,8 +1,8 @@
+from django.test import SimpleTestCase
+
 import responses
 from parameterized import parameterized
 from requests.exceptions import HTTPError
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pinecone import (
     PineconeSourceConfig,
@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinecone.source import PineconeSource
 
 
-class TestPineconeCredentials(ClickhouseFreeSimpleTestCase):
+class TestPineconeCredentials(SimpleTestCase):
     @parameterized.expand(
         [
             ("valid_empty_project", 200, None, True, None),

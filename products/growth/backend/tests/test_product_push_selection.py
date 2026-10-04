@@ -2,6 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -9,7 +11,6 @@ from posthog.models.project import Project
 from posthog.models.user import ROLE_CHOICES
 from posthog.products import Products
 from posthog.schema_enums import ProductItemCategory
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import SKIP_RETRY_DAYS
@@ -183,7 +184,7 @@ class TestSelectNextProduct(BaseTest):
         assert select_next_product(self.organization, NOW) is None
 
 
-class TestPushProductConfig(ClickhouseFreeSimpleTestCase):
+class TestPushProductConfig(SimpleTestCase):
     def test_every_pushable_product_resolves_to_a_released_catalog_item(self) -> None:
         # Guards against catalog drift: a key that doesn't resolve (or resolves to an
         # unreleased item) would render a broken or dead-end promo card.

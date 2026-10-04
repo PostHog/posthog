@@ -1,10 +1,11 @@
 import time
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.slack_formatting import (
     chunk_slack_text,
@@ -15,7 +16,7 @@ from products.signals.backend.slack_formatting import (
 )
 
 
-class TestStripChartReferences(ClickhouseFreeSimpleTestCase):
+class TestStripChartReferences(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -94,7 +95,7 @@ class TestStripChartReferences(ClickhouseFreeSimpleTestCase):
         assert time.perf_counter() - started < 0.5
 
 
-class TestDefuseSlackTokens(ClickhouseFreeSimpleTestCase):
+class TestDefuseSlackTokens(SimpleTestCase):
     @parameterized.expand(
         [
             ("user_mention", "ping <@U12345678> now"),
@@ -132,7 +133,7 @@ class TestDefuseSlackTokens(ClickhouseFreeSimpleTestCase):
         assert defuse_slack_tokens(text) == text
 
 
-class TestSplitMarkdownByHeadings(ClickhouseFreeSimpleTestCase):
+class TestSplitMarkdownByHeadings(SimpleTestCase):
     def test_lead_precedes_one_segment_per_heading(self) -> None:
         summary = "Intro line.\n\n## First\nbody one\n\n## Second\nbody two"
         segments = split_markdown_by_headings(summary)
@@ -274,7 +275,7 @@ class TestSplitMarkdownByHeadings(ClickhouseFreeSimpleTestCase):
         assert [segment[: len(start)] for segment, start in zip(segments[1:], expected_starts)] == expected_starts
 
 
-class TestChunkSlackText(ClickhouseFreeSimpleTestCase):
+class TestChunkSlackText(SimpleTestCase):
     def test_short_text_is_one_chunk(self) -> None:
         assert chunk_slack_text("short", SLACK_MARKDOWN_TEXT_MAX_LEN) == ["short"]
 
@@ -341,7 +342,7 @@ class TestChunkSlackText(ClickhouseFreeSimpleTestCase):
         assert any(link in chunk for chunk in chunks)
 
 
-class TestGroupSegmentsToLimit(ClickhouseFreeSimpleTestCase):
+class TestGroupSegmentsToLimit(SimpleTestCase):
     @parameterized.expand([("at_the_limit", 3), ("one_over_the_limit", 4), ("far_over_the_limit", 40)])
     def test_the_lead_and_every_section_survive_grouping(self, _name: str, section_count: int) -> None:
         # A threaded delivery posts one Slack message per segment in sequence, so a summary that

@@ -1,18 +1,17 @@
 from posthog.test.base import APIBaseTest
 
 from django.contrib.admin import AdminSite
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from rest_framework import status
 
 from posthog.models import OrganizationMembership
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.workflows.backend.admin.team_workflows_config_admin import TeamWorkflowsConfigAdmin
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
-class TestTeamWorkflowsConfigAdmin(ClickhouseFreeSimpleTestCase):
+class TestTeamWorkflowsConfigAdmin(SimpleTestCase):
     def setUp(self) -> None:
         self.admin = TeamWorkflowsConfigAdmin(TeamWorkflowsConfig, AdminSite())
         self.request = RequestFactory().get("/admin/workflows/teamworkflowsconfig/")

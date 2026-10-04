@@ -3,16 +3,16 @@ from io import BytesIO
 
 from posthog.test.base import BaseTest
 
-import fastavro
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+import fastavro
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 from ee.hogai.eval.schema import DataWarehouseTableSnapshot, EvalsDockerImageConfig
 
 
-class TestEvalsDockerImageConfig(ClickhouseFreeSimpleTestCase):
+class TestEvalsDockerImageConfig(SimpleTestCase):
     def test_dataset_revision_defaults_to_none_for_older_producers(self) -> None:
         config = EvalsDockerImageConfig.model_validate(
             {

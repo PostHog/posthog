@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.logs.backend.models import LogsMetricRule
 from products.logs.backend.presentation.filter_group_validation import MAX_FILTER_GROUP_LEAF_VALUES
@@ -8,7 +8,7 @@ from products.logs.backend.presentation.views.metric_rules_api import LogsMetric
 from products.logs.backend.test.metric_rule_fixtures import VALID_FILTER_GROUP
 
 
-class TestLogsMetricRuleSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestLogsMetricRuleSerializerValidation(SimpleTestCase):
     def _serializer(self, **overrides):
         data = {
             "name": "API errors",

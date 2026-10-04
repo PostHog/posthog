@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.conversations.backend.teams_formatting import (
     append_teams_attribution,
@@ -10,7 +10,7 @@ from products.conversations.backend.teams_formatting import (
 )
 
 
-class TestTeamsHtmlToContentAndRichContent(ClickhouseFreeSimpleTestCase):
+class TestTeamsHtmlToContentAndRichContent(SimpleTestCase):
     def test_empty_string_returns_empty(self):
         text, rich = teams_html_to_content_and_rich_content("")
         assert text == ""
@@ -101,7 +101,7 @@ class TestTeamsHtmlToContentAndRichContent(ClickhouseFreeSimpleTestCase):
         assert rich is None
 
 
-class TestRichContentToTeamsHtml(ClickhouseFreeSimpleTestCase):
+class TestRichContentToTeamsHtml(SimpleTestCase):
     def test_none_rich_content_returns_escaped_fallback(self):
         result = rich_content_to_teams_html(None, "plain <text>")
         assert result == "plain &lt;text&gt;"
@@ -268,7 +268,7 @@ class TestRichContentToTeamsHtml(ClickhouseFreeSimpleTestCase):
         assert result == "<p><i><b>wow</b></i></p>"
 
 
-class TestAppendTeamsAttribution(ClickhouseFreeSimpleTestCase):
+class TestAppendTeamsAttribution(SimpleTestCase):
     def test_appends_italic_footer(self):
         assert append_teams_attribution("<p>Hello</p>", "Max Hedgehog") == (
             "<p>Hello</p><p><i>Max Hedgehog via SupportHog</i></p>"
@@ -283,7 +283,7 @@ class TestAppendTeamsAttribution(ClickhouseFreeSimpleTestCase):
         assert "&lt;script&gt;" in result
 
 
-class TestBuildTeamsReplyHtml(ClickhouseFreeSimpleTestCase):
+class TestBuildTeamsReplyHtml(SimpleTestCase):
     def test_renders_rich_content_then_footer(self):
         rich = {
             "type": "doc",

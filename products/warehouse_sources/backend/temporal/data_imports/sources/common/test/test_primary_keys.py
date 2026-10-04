@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import (
     needs_full_probe,
@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.pri
 )
 
 
-class TestResolveMergeKeys(ClickhouseFreeSimpleTestCase):
+class TestResolveMergeKeys(SimpleTestCase):
     @parameterized.expand(
         [
             ("stored_wins_over_detection", ["order_id"], ["id"], ["id", "order_id"], ["order_id"]),
@@ -30,7 +30,7 @@ class TestResolveMergeKeys(ClickhouseFreeSimpleTestCase):
         assert resolve_merge_keys(persisted, detected, columns) == expected
 
 
-class TestShouldProbeForDuplicates(ClickhouseFreeSimpleTestCase):
+class TestShouldProbeForDuplicates(SimpleTestCase):
     @parameterized.expand(
         [
             ("enforced_declared_key_is_already_unique", ["id"], ["id"], True, False),
@@ -54,7 +54,7 @@ class TestShouldProbeForDuplicates(ClickhouseFreeSimpleTestCase):
         )
 
 
-class TestNeedsFullProbe(ClickhouseFreeSimpleTestCase):
+class TestNeedsFullProbe(SimpleTestCase):
     @parameterized.expand(
         [
             ("never_verified", ["id"], None, True),

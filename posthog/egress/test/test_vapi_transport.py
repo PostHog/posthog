@@ -1,11 +1,12 @@
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import requests
 from prometheus_client import REGISTRY
 
 from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.vapi.transport import vapi_request
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _request_count(scope: str, status_code: str = "201") -> float:
@@ -19,7 +20,7 @@ def _request_count(scope: str, status_code: str = "201") -> float:
     return REGISTRY.get_sample_value("vapi_api_requests_total", labels) or 0
 
 
-class TestVapiTransport(ClickhouseFreeSimpleTestCase):
+class TestVapiTransport(SimpleTestCase):
     def test_request_keeps_the_token_in_the_header_and_out_of_the_metric_scope(self) -> None:
         response = requests.Response()
         response.status_code = 201

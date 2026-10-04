@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from PIL import Image
@@ -16,7 +17,6 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
@@ -25,7 +25,7 @@ from products.web_analytics.backend.models import SavedHeatmap
 from products.web_analytics.backend.test.test_heatmaps_api import INSERT_SINGLE_HEATMAP_EVENT
 
 
-class TestHeatmapResourceRegistration(ClickhouseFreeSimpleTestCase):
+class TestHeatmapResourceRegistration(SimpleTestCase):
     def test_heatmap_is_a_controllable_resource(self):
         self.assertIn("heatmap", ACCESS_CONTROL_RESOURCES)
 

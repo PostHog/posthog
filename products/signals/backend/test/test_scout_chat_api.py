@@ -4,13 +4,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES, ScoutChatTaskCreateSerializer
 from products.signals.backend.scout_harness.suggestions import ScoutSuggestionItem, persist_suggestion_batch
@@ -93,7 +93,7 @@ class TestScoutChatTaskAPI(APIBaseTest):
         mock_workflow.assert_not_called()
 
 
-class TestScoutChatUserPromptValidation(ClickhouseFreeSimpleTestCase):
+class TestScoutChatUserPromptValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("not_an_authoring_chat", {"chat_type": "fleet_overview", "user_prompt": "Watch signups"}),

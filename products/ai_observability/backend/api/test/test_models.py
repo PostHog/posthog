@@ -3,10 +3,10 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.api.models import (
     SUPPORTED_PROVIDERS,
@@ -16,7 +16,7 @@ from products.ai_observability.backend.api.models import (
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
-class TestLLMModelInfoSerializer(ClickhouseFreeSimpleTestCase):
+class TestLLMModelInfoSerializer(SimpleTestCase):
     def test_serializes_expected_shape(self):
         serializer = LLMModelInfoSerializer(data={"id": "gpt-4o-mini", "provider": "openai"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -28,7 +28,7 @@ class TestLLMModelInfoSerializer(ClickhouseFreeSimpleTestCase):
         self.assertIn("id", serializer.errors)
 
 
-class TestLLMModelsListResponseSerializer(ClickhouseFreeSimpleTestCase):
+class TestLLMModelsListResponseSerializer(SimpleTestCase):
     def test_serializes_nested_models(self):
         serializer = LLMModelsListResponseSerializer(
             data={

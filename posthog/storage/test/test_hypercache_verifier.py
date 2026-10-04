@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import zstd
 import redis.exceptions
@@ -42,7 +42,6 @@ from posthog.storage.hypercache_verifier import (
     verify_and_fix_all_teams,
 )
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestVerificationResult(TestCase):
@@ -1294,7 +1293,7 @@ class _FlakyTeamQuerySet:
         return self.teams
 
 
-class TestFetchTeamBatch(ClickhouseFreeSimpleTestCase):
+class TestFetchTeamBatch(SimpleTestCase):
     @parameterized.expand(
         [
             ("connection_timeout", OperationalError("connection timeout expired")),
@@ -1369,7 +1368,7 @@ class TestFetchTeamBatch(ClickhouseFreeSimpleTestCase):
             )
 
 
-class TestClassifyFailure(ClickhouseFreeSimpleTestCase):
+class TestClassifyFailure(SimpleTestCase):
     def test_an_unreadable_cache_entry_is_a_data_error(self):
         frame = zstd.compress(json.dumps({"flags": []}).encode() * 100, 0, 1)
         # django-redis suppresses only CompressorError, and the compressor returns the stored

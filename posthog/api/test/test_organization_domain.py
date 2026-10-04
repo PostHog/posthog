@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import dns.rrset
@@ -15,7 +16,6 @@ from rest_framework import serializers, status
 
 from posthog.api.organization_domain import OrganizationDomainSerializer, OrganizationDomainViewset
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.api.test.base import APILicensedTest
 from ee.models.scim_request_log import SCIMRequestLog
@@ -685,7 +685,7 @@ class TestSCIMRequestLogsAPI(APILicensedTest):
         assert "created_at" in result
 
 
-class TestOrganizationDomainValidationNoDB(ClickhouseFreeSimpleTestCase):
+class TestOrganizationDomainValidationNoDB(SimpleTestCase):
     # OrganizationDomainSerializer.is_valid() hits the DB (the `domain` field carries a
     # UniqueValidator), but validate_domain is a pure regex check — call it directly, no DB.
     # The endpoint path is guarded by test_cannot_create_invalid_domain and the meta test below.

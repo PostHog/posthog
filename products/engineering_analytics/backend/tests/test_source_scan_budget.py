@@ -1,8 +1,8 @@
 from collections.abc import Callable
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.engineering_analytics.backend.logic.sources import JobSourceTables
 from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs, workflow_runs
@@ -28,7 +28,7 @@ def _jobs_source() -> str:
     return workflow_jobs.build_query(_SOURCE.jobs_source, created_floor=True)
 
 
-class TestSourceScanBudget(ClickhouseFreeSimpleTestCase):
+class TestSourceScanBudget(SimpleTestCase):
     @parameterized.expand(
         [
             ("runs_source", _runs_source, {_RUNS: 2, _JOBS: 3, _PULL_REQUESTS: 2, _DEPOT: 7}),

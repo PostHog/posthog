@@ -5,10 +5,10 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 from products.notebooks.backend.sql_v2_references import resolve_sql_v2_references
@@ -39,7 +39,7 @@ def markdown_content(markdown: str) -> dict[str, Any]:
     }
 
 
-class TestCellExtractionAndEdges(ClickhouseFreeSimpleTestCase):
+class TestCellExtractionAndEdges(SimpleTestCase):
     @parameterized.expand(
         [
             (case["name"], case["markdown"], case["owners"])
@@ -173,7 +173,7 @@ def cells_markdown(count: int) -> dict[str, Any]:
     )
 
 
-class TestMarkdownBlockSpans(ClickhouseFreeSimpleTestCase):
+class TestMarkdownBlockSpans(SimpleTestCase):
     MARKDOWN = (
         "# Title\n\n"
         "Some prose.\nA second line.\n\n"
@@ -266,7 +266,7 @@ class TestMarkdownBlockSpans(ClickhouseFreeSimpleTestCase):
         assert blocks[0].source == "```\n<!--ph:phb-example-->\n```"
 
 
-class TestCellCountLimit(ClickhouseFreeSimpleTestCase):
+class TestCellCountLimit(SimpleTestCase):
     @parameterized.expand(
         [
             ("under", MAX_NOTEBOOK_CELLS - 1, True),

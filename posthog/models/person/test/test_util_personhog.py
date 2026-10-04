@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from posthog.models.person.util import (
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
@@ -16,14 +18,13 @@ from posthog.models.person.util import (
 from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import create_person
 
 # ── Personhog internal logic tests ──────────────────────────────────
 # These use the fake personhog client to exercise the real proto/converter pipeline.
 
 
-class TestFetchPersonByUuidViaPersonhog(ClickhouseFreeSimpleTestCase):
+class TestFetchPersonByUuidViaPersonhog(SimpleTestCase):
     def test_returns_person_with_distinct_ids(self):
         with fake_personhog_client() as fake:
             fake.add_person(
@@ -68,7 +69,7 @@ class TestFetchPersonByUuidViaPersonhog(ClickhouseFreeSimpleTestCase):
             fake.assert_not_called("get_distinct_ids_for_person")
 
 
-class TestFetchPersonByDistinctIdViaPersonhog(ClickhouseFreeSimpleTestCase):
+class TestFetchPersonByDistinctIdViaPersonhog(SimpleTestCase):
     def test_returns_person_with_distinct_ids(self):
         with fake_personhog_client() as fake:
             fake.add_person(
@@ -110,7 +111,7 @@ class TestFetchPersonByDistinctIdViaPersonhog(ClickhouseFreeSimpleTestCase):
             fake.assert_not_called("get_distinct_ids_for_person")
 
 
-class TestFetchPersonByIdViaPersonhog(ClickhouseFreeSimpleTestCase):
+class TestFetchPersonByIdViaPersonhog(SimpleTestCase):
     def test_returns_person_with_distinct_ids(self):
         with fake_personhog_client() as fake:
             fake.add_person(
@@ -155,7 +156,7 @@ class TestFetchPersonByIdViaPersonhog(ClickhouseFreeSimpleTestCase):
             fake.assert_not_called("get_distinct_ids_for_person")
 
 
-class TestFetchPersonsByDistinctIdsViaPersonhog(ClickhouseFreeSimpleTestCase):
+class TestFetchPersonsByDistinctIdsViaPersonhog(SimpleTestCase):
     def test_returns_persons_with_distinct_ids(self):
         with fake_personhog_client() as fake:
             fake.add_person(
@@ -222,7 +223,7 @@ class TestFetchPersonsByDistinctIdsViaPersonhog(ClickhouseFreeSimpleTestCase):
             assert len(result[0].distinct_ids) == 1
 
 
-class TestFetchPersonsByUuidsViaPersonhog(ClickhouseFreeSimpleTestCase):
+class TestFetchPersonsByUuidsViaPersonhog(SimpleTestCase):
     def test_returns_persons_with_distinct_ids(self):
         with fake_personhog_client() as fake:
             fake.add_person(
@@ -308,7 +309,7 @@ class TestFetchPersonsByUuidsViaPersonhog(ClickhouseFreeSimpleTestCase):
             assert result[0].distinct_ids == ["d1", "d2"]
 
 
-class TestValidateUuidsViaPersonhog(ClickhouseFreeSimpleTestCase):
+class TestValidateUuidsViaPersonhog(SimpleTestCase):
     def test_returns_matching_uuids(self):
         with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["d1"])
@@ -351,7 +352,7 @@ class TestValidateUuidsViaPersonhog(ClickhouseFreeSimpleTestCase):
             assert "properties" not in mask
 
 
-class TestGetPersonIdsAndUuidsByUuids(ClickhouseFreeSimpleTestCase):
+class TestGetPersonIdsAndUuidsByUuids(SimpleTestCase):
     def test_returns_pairs_for_matching_uuids_and_skips_missing(self):
         with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["d1"])
@@ -384,7 +385,7 @@ class TestGetPersonIdsAndUuidsByUuids(ClickhouseFreeSimpleTestCase):
 # ── Delegation tests ────────────────────────────────────────────────
 
 
-class TestGetPersonByPkOrUuid(ClickhouseFreeSimpleTestCase):
+class TestGetPersonByPkOrUuid(SimpleTestCase):
     @patch("posthog.models.person.util.get_person_by_uuid")
     def test_routes_uuid_key_to_get_person_by_uuid(self, mock_get_by_uuid):
         mock_person = MagicMock()
@@ -430,7 +431,7 @@ class TestGetPersonByPkOrUuid(ClickhouseFreeSimpleTestCase):
 # ── personhog_call unit tests ────────────────────────────────────
 
 
-class TestPersonhogCall(ClickhouseFreeSimpleTestCase):
+class TestPersonhogCall(SimpleTestCase):
     @patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_TOTAL")
     def test_calls_fn_and_increments_counter(self, mock_routing):
         result = personhog_call("test_op", lambda: "personhog_result")

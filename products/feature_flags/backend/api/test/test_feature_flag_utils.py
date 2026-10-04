@@ -1,9 +1,10 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.property import Property
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import sort_cohorts_topologically
@@ -83,7 +84,7 @@ def _behavioral_prop(key: str) -> Property:
     )
 
 
-class TestDescribeBehavioralProperties(ClickhouseFreeSimpleTestCase):
+class TestDescribeBehavioralProperties(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_properties", [], None),

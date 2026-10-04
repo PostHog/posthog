@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -13,7 +13,6 @@ from posthog.temporal.proxy_service.cloudflare import (
     parse_cloudflare_error_code,
     update_cloudflare_proxy_root_redirect,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # Every status Cloudflare can send, which is a superset of what the enums name. Re-derive with:
 #   curl -sL https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json | jq -r \
@@ -89,7 +88,7 @@ def _hostname_payload(status="active", ssl_status="active", custom_metadata=None
     }
 
 
-class TestParseHostnameStatuses(ClickhouseFreeSimpleTestCase):
+class TestParseHostnameStatuses(SimpleTestCase):
     @parameterized.expand([(status,) for status in CLOUDFLARE_SSL_STATUSES])
     def test_parses_every_ssl_status_cloudflare_can_send(self, ssl_status):
         info = _parse_hostname(_hostname_payload(ssl_status=ssl_status))
@@ -126,7 +125,7 @@ class TestParseHostnameStatuses(ClickhouseFreeSimpleTestCase):
     CLOUDFLARE_ACCOUNT_ID="account",
     CLOUDFLARE_PROXY_KV_NAMESPACE_ID="namespace",
 )
-class TestCreateCustomHostname(ClickhouseFreeSimpleTestCase):
+class TestCreateCustomHostname(SimpleTestCase):
     @patch("posthog.temporal.proxy_service.cloudflare.requests.post")
     def test_sets_minimum_tls_version(self, post_request):
         response = Mock()
@@ -179,7 +178,7 @@ class TestCreateCustomHostname(ClickhouseFreeSimpleTestCase):
             assert put_request.call_count == 0
 
 
-class TestParseCloudflareErrorCode(ClickhouseFreeSimpleTestCase):
+class TestParseCloudflareErrorCode(SimpleTestCase):
     @parameterized.expand(
         [
             ("html_error_page", "<h1>Error 1014</h1> Ray ID: abc", 1014),

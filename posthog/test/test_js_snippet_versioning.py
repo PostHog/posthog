@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import posthog.models.js_snippet_versioning as sv
 from posthog.models.js_snippet_versioning import (
@@ -18,7 +18,6 @@ from posthog.models.js_snippet_versioning import (
     validate_version_artifacts,
 )
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _make_manifest(versions: list[str], pointers: dict[str, str]) -> dict:
@@ -30,7 +29,7 @@ def _reset_caches():
     sv._js_content_cache.clear()
 
 
-class TestComputeVersionManifest(ClickhouseFreeSimpleTestCase):
+class TestComputeVersionManifest(SimpleTestCase):
     def test_empty_entries(self):
         result = compute_version_manifest([])
         assert result == {"versions": [], "pointers": {}}
@@ -107,7 +106,7 @@ class TestComputeVersionManifest(ClickhouseFreeSimpleTestCase):
         assert "1.361" not in result["pointers"]
 
 
-class TestGetJsContent(ClickhouseFreeSimpleTestCase):
+class TestGetJsContent(SimpleTestCase):
     def setUp(self):
         _reset_caches()
         manifest = _make_manifest(
@@ -189,7 +188,7 @@ class TestGetJsContent(ClickhouseFreeSimpleTestCase):
         assert len(content) > 0  # falls back to disk
 
 
-class TestValidateArtifacts(ClickhouseFreeSimpleTestCase):
+class TestValidateArtifacts(SimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.models.js_snippet_versioning.s3_head")
     def test_returns_true_when_array_js_exists(self, mock_head):
@@ -208,7 +207,7 @@ class TestValidateArtifacts(ClickhouseFreeSimpleTestCase):
         assert validate_version_artifacts("1.358.0") is False
 
 
-class TestResolveVersion(ClickhouseFreeSimpleTestCase):
+class TestResolveVersion(SimpleTestCase):
     def setUp(self):
         _reset_caches()
         manifest = _make_manifest(
@@ -262,7 +261,7 @@ class TestResolveVersion(ClickhouseFreeSimpleTestCase):
         assert resolve_version("1.500") == "1.359.0"
 
 
-class TestGetManifestResilience(ClickhouseFreeSimpleTestCase):
+class TestGetManifestResilience(SimpleTestCase):
     def setUp(self):
         _reset_caches()
 
@@ -393,7 +392,7 @@ class TestGetManifestResilience(ClickhouseFreeSimpleTestCase):
         assert mock_s3_read.call_count == 1
 
 
-class TestSyncTask(ClickhouseFreeSimpleTestCase):
+class TestSyncTask(SimpleTestCase):
     def setUp(self):
         _reset_caches()
 
@@ -484,7 +483,7 @@ class TestSyncTask(ClickhouseFreeSimpleTestCase):
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
 
-class TestChangedPointers(ClickhouseFreeSimpleTestCase):
+class TestChangedPointers(SimpleTestCase):
     def test_detects_changed_value(self):
         assert changed_pointers({"1": "1.358.0"}, {"1": "1.359.0"}) == {"1"}
 
@@ -498,7 +497,7 @@ class TestChangedPointers(ClickhouseFreeSimpleTestCase):
         assert changed_pointers({"1": "1.359.0"}, {"1": "1.359.0"}) == set()
 
 
-class TestSyncManifestPurge(ClickhouseFreeSimpleTestCase):
+class TestSyncManifestPurge(SimpleTestCase):
     def setUp(self):
         _reset_caches()
 

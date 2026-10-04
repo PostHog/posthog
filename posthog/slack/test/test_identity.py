@@ -1,9 +1,9 @@
 from unittest.mock import MagicMock
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from posthog.slack.identity import resolve_slack_profile_by_email, resolve_slack_user
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _client_returning(name: str, email: str) -> MagicMock:
@@ -15,7 +15,7 @@ def _client_returning(name: str, email: str) -> MagicMock:
     return client
 
 
-class TestSlackIdentityWorkspaceNamespacing(ClickhouseFreeSimpleTestCase):
+class TestSlackIdentityWorkspaceNamespacing(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 
@@ -44,7 +44,7 @@ def _client_resolving_email(name: str, avatar: str) -> MagicMock:
     return client
 
 
-class TestSlackProfileByEmailWorkspaceNamespacing(ClickhouseFreeSimpleTestCase):
+class TestSlackProfileByEmailWorkspaceNamespacing(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 

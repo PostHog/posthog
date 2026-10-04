@@ -11,7 +11,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import connections
-from django.test import TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 
 import requests
 from parameterized import parameterized
@@ -28,7 +28,6 @@ from posthog.models.integration.codex import (
 )
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 FROZEN_NOW = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
@@ -83,7 +82,7 @@ def _refresh_ok(refresh_token: str = "rt_rotated", expires_in: timedelta = timed
     )
 
 
-class TestParseCodexAuthJson(ClickhouseFreeSimpleTestCase):
+class TestParseCodexAuthJson(SimpleTestCase):
     @time_machine.travel(FROZEN_NOW, tick=False)
     def test_reads_the_account_plan_email_and_expiry_from_the_tokens(self) -> None:
         tokens = parse_codex_auth_json(_auth_json(_access_token(expires_in=timedelta(minutes=30))))

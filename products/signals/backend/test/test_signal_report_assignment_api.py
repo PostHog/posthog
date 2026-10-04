@@ -4,13 +4,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
 from products.signals.backend.models import (
@@ -24,7 +24,7 @@ from products.signals.backend.report_assignments import update_assignments_for_p
 from products.signals.backend.report_claims import get_active_claim
 
 
-class TestPrimaryPullRequest(ClickhouseFreeSimpleTestCase):
+class TestPrimaryPullRequest(SimpleTestCase):
     @parameterized.expand(
         [
             ("open", ["closed", "merged", "open"], "open"),

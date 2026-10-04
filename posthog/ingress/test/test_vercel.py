@@ -4,7 +4,7 @@ import json
 from unittest.mock import patch
 
 from django.http import HttpRequest
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -15,7 +15,6 @@ from posthog.ingress.vercel.provider import (
     build_vercel_provider,
 )
 from posthog.ingress.verify.schemes import VerificationOutcome
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SECRET = "vercel-integration-client-secret"
 
@@ -28,7 +27,7 @@ def _request(body: bytes, *, signed: bool = True, host: str | None = None) -> Ht
 
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET=SECRET)
-class TestVercelProvider(ClickhouseFreeSimpleTestCase):
+class TestVercelProvider(SimpleTestCase):
     def setUp(self) -> None:
         self.provider = build_vercel_provider()
         self.body = json.dumps({"type": "marketplace.invoice.paid", "payload": {"installationId": "icfg_1"}}).encode()

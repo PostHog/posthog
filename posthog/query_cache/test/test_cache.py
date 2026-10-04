@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -17,7 +18,6 @@ from posthog.query_cache import (
     storage as qc_storage,
 )
 from posthog.query_cache.storage import entry_redis_key
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestQueryCacheFacade(BaseTest):
@@ -79,7 +79,7 @@ class TestQueryCacheFacade(BaseTest):
         assert "42:" not in get_stale_insights(team_id=self.team.pk)
 
 
-class TestRetentionTtl(ClickhouseFreeSimpleTestCase):
+class TestRetentionTtl(SimpleTestCase):
     @parameterized.expand(
         [
             ("api_key_unattached", None, None, "personal_api_key", "short"),

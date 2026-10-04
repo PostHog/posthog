@@ -2,17 +2,17 @@ import json
 from typing import Any, cast
 
 from django.db.models import JSONField
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.helpers.orjson_jsonfield import _orjson_from_db_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # from_db_value ignores expression/connection in our patch; typed None keeps mypy happy.
 _NULL = cast(Any, None)
 
 
-class TestOrjsonJSONFieldDecode(ClickhouseFreeSimpleTestCase):
+class TestOrjsonJSONFieldDecode(SimpleTestCase):
     @parameterized.expand(
         [
             ("dict", {"key": "value", "count": 1}),

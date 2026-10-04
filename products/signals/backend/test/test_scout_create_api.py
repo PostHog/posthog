@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -10,7 +12,6 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, _slug_candidates
@@ -423,7 +424,7 @@ class TestSignalScoutCreateDisplayNameAPI(APIBaseTest):
         assert response.json()["config"]["display_name"] == "Checkout failures"
 
 
-class TestSignalScoutCreateSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestSignalScoutCreateSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("neither name is given", {}, False),

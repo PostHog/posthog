@@ -2,9 +2,9 @@ from datetime import date
 
 import pytest
 
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.data_warehouse.backend.logic.backfill_status import describe_partition_key, historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
@@ -12,7 +12,7 @@ from products.data_warehouse.backend.models import ManagedWarehouseBackfillParti
 Granularity = ManagedWarehouseBackfillPartition.Granularity
 
 
-class TestDescribePartitionKey(ClickhouseFreeSimpleTestCase):
+class TestDescribePartitionKey(SimpleTestCase):
     @parameterized.expand(
         [
             ("historical_month", "1_2026-05", Granularity.MONTH, date(2026, 5, 1)),
@@ -42,7 +42,7 @@ class TestDescribePartitionKey(ClickhouseFreeSimpleTestCase):
             describe_partition_key(partition_key)
 
 
-class TestHistoricalBackfillMonths(ClickhouseFreeSimpleTestCase):
+class TestHistoricalBackfillMonths(SimpleTestCase):
     def test_stops_at_the_last_complete_month(self) -> None:
         # The current month belongs to the daily backfill, so history must exclude it — counting it
         # would leave the UI permanently one partition short of complete.

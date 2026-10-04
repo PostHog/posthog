@@ -3,15 +3,16 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.models.team.util import _delete_persons_for_teams
 from posthog.personhog_client.fake_client import fake_personhog_client
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import create_person
 
 # ── Routing tests for _delete_persons_for_teams ─────────────────────
 
 
-class TestDeletePersonsForTeamsRouting(ClickhouseFreeSimpleTestCase):
+class TestDeletePersonsForTeamsRouting(SimpleTestCase):
     @patch("posthog.models.team.util._raw_delete_batch")
     def test_routes_to_personhog(self, mock_raw_delete_batch):
         with fake_personhog_client():

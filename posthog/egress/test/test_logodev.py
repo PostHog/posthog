@@ -1,11 +1,12 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.egress.logodev.limiter import consume_logodev_sync, logodev_account_key
 from posthog.egress.logodev.observability import _normalize_logodev_endpoint
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestLogoDevEgress(ClickhouseFreeSimpleTestCase):
+class TestLogoDevEgress(SimpleTestCase):
     @parameterized.expand(
         [
             ("img_brand_path", "https://img.logo.dev/linear.app?token=x", "/img/{domain}"),

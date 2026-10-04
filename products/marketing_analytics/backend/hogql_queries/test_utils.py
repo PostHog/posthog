@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from pydantic import (
     TypeAdapter,
@@ -9,7 +11,6 @@ from pydantic import (
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
 
 from posthog.api.team import MarketingAnalyticsConversionGoalList
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
 
@@ -62,7 +63,7 @@ DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD: dict[str, Any] = {
 TEAM_PK = 0
 
 
-class TestConvertTeamConversionGoalsToObjects(ClickhouseFreeSimpleTestCase):
+class TestConvertTeamConversionGoalsToObjects(SimpleTestCase):
     @parameterized.expand(
         [
             ("events_node_with_dw_fields", EVENTS_NODE_GOAL_WITH_DW_FIELDS, ConversionGoalFilter1),

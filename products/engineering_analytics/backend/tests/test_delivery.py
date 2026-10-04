@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -13,7 +15,6 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql import ast
 
 from posthog.clickhouse.workload import Workload
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.facade.contracts import (
     ComparisonTeamBasis as Basis,
@@ -138,7 +139,7 @@ def _pr(
     )
 
 
-class TestPRTimelineBuilder(ClickhouseFreeSimpleTestCase):
+class TestPRTimelineBuilder(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -332,7 +333,7 @@ class TestPRTimelineBuilder(ClickhouseFreeSimpleTestCase):
         ]
 
 
-class TestDeliveryScope(ClickhouseFreeSimpleTestCase):
+class TestDeliveryScope(SimpleTestCase):
     @parameterized.expand(
         [
             ("nothing", DeliveryScope, {}),
@@ -375,7 +376,7 @@ def _facts(
     )
 
 
-class TestComparisonTeamChoice(ClickhouseFreeSimpleTestCase):
+class TestComparisonTeamChoice(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_team", set(), {}, set(), [], Basis.NO_TEAM),
@@ -464,7 +465,7 @@ class TestComparisonTeamChoice(ClickhouseFreeSimpleTestCase):
         assert (choice.teams, choice.basis) == (["approvers", "team-untested"], Basis.ALL_TEAMS)
 
 
-class TestScopeRepoFigure(ClickhouseFreeSimpleTestCase):
+class TestScopeRepoFigure(SimpleTestCase):
     def test_scope_figures_read_only_the_prs_in_scope(self) -> None:
         facts = [
             _facts(1, in_scope=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),

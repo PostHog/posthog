@@ -4,11 +4,12 @@ from typing import Any
 import time_machine
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.team import Team
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.alerts.backend.evaluation.delay import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
@@ -19,7 +20,7 @@ from products.alerts.backend.presentation.views.alert import AlertSerializer, Al
 from products.product_analytics.backend.facade.models import Insight
 
 
-class TestEvaluationDelay(ClickhouseFreeSimpleTestCase):
+class TestEvaluationDelay(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(timezone="UTC")
         self.query: dict[str, Any] = {

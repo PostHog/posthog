@@ -1,11 +1,11 @@
 from unittest.mock import call, patch
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.signals.backend.facade.github import refresh_pull_request_review_decisions
 
 
-class TestRefreshPullRequestReviewDecisions(ClickhouseFreeSimpleTestCase):
+class TestRefreshPullRequestReviewDecisions(SimpleTestCase):
     @patch("products.signals.backend.tasks.refresh_pull_request_review_decision.delay")
     @patch("products.signals.backend.facade.github.installation_team_ids", return_value=[1, 2])
     def test_enqueues_remaining_teams_after_one_failure(self, _team_ids, enqueue) -> None:

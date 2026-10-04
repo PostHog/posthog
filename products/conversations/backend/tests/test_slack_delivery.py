@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import transaction
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,7 +14,6 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.comment import Comment
 from posthog.models.team import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.models import (
     ConversationDelivery,
@@ -53,7 +53,7 @@ def _slack_api_error(error: str, *, retry_after: str | None = None, status_code:
     )
 
 
-class TestWakeDeliveryPart(ClickhouseFreeSimpleTestCase):
+class TestWakeDeliveryPart(SimpleTestCase):
     @patch.object(process_slack_delivery_part, "apply_async")
     def test_wake_does_not_retry_broker_publish(self, mock_apply: MagicMock) -> None:
         row = ConversationDeliveryPart(id=uuid4())

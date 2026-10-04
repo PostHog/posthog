@@ -1,6 +1,6 @@
-from parameterized import parameterized
+from django.test import SimpleTestCase
 
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from parameterized import parameterized
 
 from products.cohorts.backend.models.leaf_shape import (
     extract_behavioral_leaf_shape_hash,
@@ -37,7 +37,7 @@ _OTHER_PERSON = {"type": "person", "conditionHash": "bbbbbbbbbbbbbbbb"}
 _COHORT_REF = {"type": "cohort", "value": 42}
 
 
-class TestLeafShape(ClickhouseFreeSimpleTestCase):
+class TestLeafShape(SimpleTestCase):
     def _filters(self, *leaves: dict) -> dict:
         return {"properties": {"type": "AND", "values": list(leaves)}}
 

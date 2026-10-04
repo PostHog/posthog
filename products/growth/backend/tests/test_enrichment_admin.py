@@ -4,11 +4,9 @@ from posthog.test.base import BaseTest
 
 from django.contrib.admin import AdminSite
 from django.core.exceptions import ValidationError
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.admin import (
     EnrichmentLabelNameFilter,
@@ -26,7 +24,7 @@ _VALID_OUTPUT_FIELDS = [
 ]
 
 
-class TestEnrichmentPromptConfigFormCleanInputFields(ClickhouseFreeSimpleTestCase):
+class TestEnrichmentPromptConfigFormCleanInputFields(SimpleTestCase):
     @parameterized.expand(
         [
             ("not_a_list", "name"),
@@ -49,7 +47,7 @@ class TestEnrichmentPromptConfigFormCleanInputFields(ClickhouseFreeSimpleTestCas
         assert form.clean_input_fields() == ["name", "funding.fundingStage"]
 
 
-class TestEnrichmentPromptConfigFormCleanOutputFields(ClickhouseFreeSimpleTestCase):
+class TestEnrichmentPromptConfigFormCleanOutputFields(SimpleTestCase):
     @parameterized.expand(
         [
             ("not_a_list", "ai_pilled"),

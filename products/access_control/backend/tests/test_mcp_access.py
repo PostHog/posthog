@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 
 from django.http import HttpRequest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -16,7 +17,6 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestMCPAccessSetting(APIBaseTest):
@@ -187,7 +187,7 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         assert self._request("post", {"key": "flag-unentitled", "name": "e2e"}).status_code == 201
 
 
-class TestIsMCPRequest(ClickhouseFreeSimpleTestCase):
+class TestIsMCPRequest(SimpleTestCase):
     @staticmethod
     def _request(authenticator: object, user_agent: str) -> HttpRequest:
         request = HttpRequest()

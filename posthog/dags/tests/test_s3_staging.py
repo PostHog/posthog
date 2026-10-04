@@ -1,13 +1,12 @@
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.dags.common.s3_staging import S3StagingLocation
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 @override_settings(OBJECT_STORAGE_ACCESS_KEY_ID="test-key-id", OBJECT_STORAGE_SECRET_ACCESS_KEY="test-secret")
-class TestS3StagingLocation(ClickhouseFreeSimpleTestCase):
+class TestS3StagingLocation(SimpleTestCase):
     @parameterized.expand(
         [
             (

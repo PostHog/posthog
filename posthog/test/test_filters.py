@@ -1,10 +1,11 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.filters import term_search_filter_sql
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestTermSearchFilterSql(ClickhouseFreeSimpleTestCase):
+class TestTermSearchFilterSql(SimpleTestCase):
     @parameterized.expand(
         [
             ("trigram_index", False, "AND (((name ilike %(search_0)s OR alias ilike %(search_1)s)) )"),

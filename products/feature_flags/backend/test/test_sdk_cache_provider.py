@@ -1,17 +1,17 @@
 from unittest.mock import MagicMock, Mock, patch
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from posthoganalytics.client import Client
 
 from posthog.models import Team
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 
 
-class TestHyperCacheFlagProvider(ClickhouseFreeSimpleTestCase):
+class TestHyperCacheFlagProvider(SimpleTestCase):
     def setUp(self):
         self.provider = HyperCacheFlagProvider.for_static_team(2)
 
@@ -104,7 +104,7 @@ class TestHyperCacheFlagProvider(ClickhouseFreeSimpleTestCase):
         assert isinstance(self.provider, FlagDefinitionCacheProvider)
 
 
-class TestHyperCacheFlagProviderTeamResolution(ClickhouseFreeSimpleTestCase):
+class TestHyperCacheFlagProviderTeamResolution(SimpleTestCase):
     # Lazy, injected self-team resolution (the local/self-hosted dynamic path).
 
     @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
@@ -181,7 +181,7 @@ SAMPLE_FLAGS = {
 }
 
 
-class TestSDKClientIntegration(ClickhouseFreeSimpleTestCase):
+class TestSDKClientIntegration(SimpleTestCase):
     """Test HyperCacheFlagProvider with a real posthoganalytics.Client."""
 
     def _make_client(self, provider: HyperCacheFlagProvider) -> Client:
@@ -296,7 +296,7 @@ def _calls_for(mock_method, event: str):
     return [c for c in mock_method.call_args_list if c.args and c.args[0] == event]
 
 
-class TestHyperCacheFlagProviderLogging(ClickhouseFreeSimpleTestCase):
+class TestHyperCacheFlagProviderLogging(SimpleTestCase):
     # The two one-time (per-process) diagnostic logs.
 
     @patch("products.feature_flags.backend.sdk_cache_provider.logger")

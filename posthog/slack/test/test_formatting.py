@@ -1,10 +1,11 @@
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.slack.formatting import escape_slack_mrkdwn, markdown_links_to_labels
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestEscapeSlackMrkdwn(ClickhouseFreeSimpleTestCase):
+class TestEscapeSlackMrkdwn(SimpleTestCase):
     @parameterized.expand(
         [
             ("link_injection", "<https://evil|click>", "&lt;https://evil|click&gt;"),
@@ -16,7 +17,7 @@ class TestEscapeSlackMrkdwn(ClickhouseFreeSimpleTestCase):
         assert escape_slack_mrkdwn(raw) == expected
 
 
-class TestMarkdownLinksToLabels(ClickhouseFreeSimpleTestCase):
+class TestMarkdownLinksToLabels(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain_link", "See [the funnel](https://us.posthog.com/project/2/insights/a).", "See the funnel."),

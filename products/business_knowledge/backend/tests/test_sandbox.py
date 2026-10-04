@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import close_old_connections
-from django.test import TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,7 +15,6 @@ from rest_framework.test import APIClient, APIRequestFactory
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.business_knowledge.backend.api.sandbox import BusinessKnowledgeSandboxViewSet
 from products.business_knowledge.backend.api.serializers import SandboxQuestionSerializer, SandboxSearchSerializer
@@ -44,7 +43,7 @@ def _update_line(tool_call_id: str, raw_input: dict | None, *, session_update: s
     return json.dumps({"notification": {"method": "session/update", "params": {"update": update}}})
 
 
-class TestSandboxQuestionSerializer(ClickhouseFreeSimpleTestCase):
+class TestSandboxQuestionSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("blank", ""),
@@ -63,7 +62,7 @@ class TestSandboxQuestionSerializer(ClickhouseFreeSimpleTestCase):
         assert not SandboxQuestionSerializer(data={"question": "x" * 4001}).is_valid()
 
 
-class TestSandboxLogParser(ClickhouseFreeSimpleTestCase):
+class TestSandboxLogParser(SimpleTestCase):
     def test_waits_for_populated_input_and_dedupes(self) -> None:
         log = "\n".join(
             [
@@ -174,7 +173,7 @@ class TestSandboxLogParser(ClickhouseFreeSimpleTestCase):
         assert format_always_on_context([]) == ""
 
 
-class TestSandboxScopes(ClickhouseFreeSimpleTestCase):
+class TestSandboxScopes(SimpleTestCase):
     @parameterized.expand(
         [("create", "POST", "business_knowledge:write"), ("retrieve", "GET", "business_knowledge:read")]
     )

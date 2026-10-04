@@ -3,7 +3,7 @@ from typing import Any
 
 from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from opentelemetry import (
     context as otel_context,
@@ -18,13 +18,12 @@ from parameterized import parameterized
 
 from posthog import otel_logs
 from posthog.otel_logs import otel_log_mirror_processor, reset_otel_logs_for_tests
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _PREFIX = "products.replay_vision.backend.temporal"
 _ALLOWLIST = frozenset({"observation_id", "team_id"})
 
 
-class TestOtelLogMirror(ClickhouseFreeSimpleTestCase):
+class TestOtelLogMirror(SimpleTestCase):
     def setUp(self) -> None:
         reset_otel_logs_for_tests()
         self.addCleanup(reset_otel_logs_for_tests)

@@ -1,9 +1,9 @@
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.messaging.backend.api.message_suppression import MessageSuppressionViewSet
 
 
-class TestMessageSuppressionViewSetScope(ClickhouseFreeSimpleTestCase):
+class TestMessageSuppressionViewSetScope(SimpleTestCase):
     """
     Guards against the viewset silently reverting to scope_object='INTERNAL', which would bypass
     hog_flow RBAC and let any project member manage suppressions regardless of workflow permissions.

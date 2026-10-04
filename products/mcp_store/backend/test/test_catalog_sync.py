@@ -2,11 +2,9 @@ from collections.abc import Sequence
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG, CatalogEntry
 from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
@@ -61,7 +59,7 @@ def _dcr_pass_probe() -> ProbeResult:
     )
 
 
-class TestCatalogEntries(ClickhouseFreeSimpleTestCase):
+class TestCatalogEntries(SimpleTestCase):
     def test_catalog_entries_are_valid(self):
         # A typo'd category/auth_type or duplicate url in a future catalog PR would otherwise
         # only surface as a failed sync in production — this is the pre-merge guard. Format

@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
@@ -18,7 +19,6 @@ from rest_framework.response import Response
 
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
@@ -998,7 +998,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
 
-class TestValidationWarningSerializer(ClickhouseFreeSimpleTestCase):
+class TestValidationWarningSerializer(SimpleTestCase):
     def test_help_text_names_every_code_the_validator_emits(self) -> None:
         help_text = str(ValidationWarningSerializer().fields["code"].help_text)
         assert all(f"'{code}'" in help_text for code in VALIDATION_WARNING_CODES)
@@ -1492,7 +1492,7 @@ class TestAutoresearchArtifactAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
 
 
-class TestPipelineCreateSerializerValidation(ClickhouseFreeSimpleTestCase):
+class TestPipelineCreateSerializerValidation(SimpleTestCase):
     # Field- and target-shape validation runs in memory, so these cases never need a DB.
     # The endpoint wiring (bad body -> 400) is covered by the APIBaseTest create tests above.
 

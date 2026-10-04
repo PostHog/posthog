@@ -6,6 +6,8 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import posthoganalytics
 from parameterized import parameterized
 from posthoganalytics.client import Client
@@ -58,7 +60,6 @@ from posthog.api.services.query import (
 from posthog.constants import AvailableFeature
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.models import OrganizationMembership, Team, User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_tools.backend.models.expression import DataWarehouseExpression
@@ -71,7 +72,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
-class TestLanguageServiceRouting(ClickhouseFreeSimpleTestCase):
+class TestLanguageServiceRouting(SimpleTestCase):
     @parameterized.expand(
         [
             (

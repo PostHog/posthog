@@ -1,11 +1,11 @@
+from django.test.testcases import SimpleTestCase
+
 from posthog.schema import (
     AssistantDataVisualizationChartSettings,
     AssistantDataVisualizationTableSettings,
     ChartSettings,
     TableSettings,
 )
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # The assistant-facing DataVisualizationNode (produced by Max and the insight MCP tools) is
 # validated on save against the real DataVisualizationNode, whose ChartSettings/TableSettings
@@ -14,7 +14,7 @@ from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 # advertised assistant fields a strict subset of what the API actually accepts.
 
 
-class TestAssistantDataVizSchemaContract(ClickhouseFreeSimpleTestCase):
+class TestAssistantDataVizSchemaContract(SimpleTestCase):
     def test_assistant_chart_settings_are_accepted_by_real_chart_settings(self) -> None:
         extra = set(AssistantDataVisualizationChartSettings.model_fields) - set(ChartSettings.model_fields)
         self.assertEqual(

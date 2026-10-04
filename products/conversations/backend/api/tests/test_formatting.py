@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.comment.formatting import (
@@ -15,7 +17,6 @@ from posthog.comment.formatting import (
     slack_to_content_and_rich_content,
 )
 from posthog.models import Organization, User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _paragraph(text: str) -> dict:
@@ -26,7 +27,7 @@ def _list_item(*content: dict) -> dict:
     return {"type": "listItem", "content": list(content)}
 
 
-class TestSlackFormatting(ClickhouseFreeSimpleTestCase):
+class TestSlackFormatting(SimpleTestCase):
     @parameterized.expand(
         [
             ("single_newline", "line1\nline2", "line1  \nline2"),
@@ -595,7 +596,7 @@ class TestSlackFormatting(ClickhouseFreeSimpleTestCase):
         assert content_to_slack_mrkdwn("hi @member:00000000-0000-0000-0000-000000000001") == "hi @teammate"
 
 
-class TestRichContentBlockNodes(ClickhouseFreeSimpleTestCase):
+class TestRichContentBlockNodes(SimpleTestCase):
     @parameterized.expand(
         [
             (

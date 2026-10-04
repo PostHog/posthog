@@ -3,8 +3,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.db import InternalError, OperationalError
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+from django.test import SimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -27,7 +26,7 @@ def _read_only_transaction_error() -> InternalError:
     return error
 
 
-class TestRetryOnOperationalError(ClickhouseFreeSimpleTestCase):
+class TestRetryOnOperationalError(SimpleTestCase):
     def test_retries_transient_operational_error_then_succeeds(self):
         fn = mock.Mock(
             side_effect=[

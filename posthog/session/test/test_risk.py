@@ -4,7 +4,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 from django.test.utils import override_settings
 
 from parameterized import parameterized
@@ -22,10 +22,9 @@ from posthog.session.risk import (
     tier_for,
     ua_signature,
 )
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestCurrentRequestContextTrustedIP(ClickhouseFreeSimpleTestCase):
+class TestCurrentRequestContextTrustedIP(SimpleTestCase):
     def test_spoofed_forwarded_for_yields_no_geo(self):
         # An untrusted X-Forwarded-For chain must not become the geo source for risk scoring — a
         # cookie thief forging the header to the victim's location must not evade the geo signals.

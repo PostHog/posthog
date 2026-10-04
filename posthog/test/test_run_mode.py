@@ -1,13 +1,12 @@
 import unittest
 from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.run_mode import RunMode, derive_run_mode, run_mode
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestDeriveRunMode(unittest.TestCase):
@@ -60,7 +59,7 @@ class TestDeriveRunMode(unittest.TestCase):
             self.assertIs(run_mode(), RunMode.CLOUD_US)
 
 
-class TestCloudUtilsRunMode(ClickhouseFreeSimpleTestCase):
+class TestCloudUtilsRunMode(SimpleTestCase):
     @parameterized.expand(
         [
             ("US", False, True, False),

@@ -4,13 +4,13 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 import numpy as np
 from parameterized import parameterized
 
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.evaluation import online_validation
 from products.autoresearch.backend.evaluation.online_validation import (
@@ -31,7 +31,7 @@ from products.autoresearch.backend.testing import TeamScopedTestMixin
 FROZEN_NOW = "2026-09-11T12:00:00Z"
 
 
-class TestComputeValidationMetrics(ClickhouseFreeSimpleTestCase):
+class TestComputeValidationMetrics(SimpleTestCase):
     def _predictions(self) -> dict[str, float]:
         return {"user-1": 0.9, "user-2": 0.8, "user-3": 0.4, "user-4": 0.3, "user-5": 0.1}
 
@@ -70,7 +70,7 @@ class TestComputeValidationMetrics(ClickhouseFreeSimpleTestCase):
         assert "lift_at_10" in metrics
 
 
-class TestExpectedCalibrationError(ClickhouseFreeSimpleTestCase):
+class TestExpectedCalibrationError(SimpleTestCase):
     def test_perfect_calibration_zero_ece(self):
         ece = _expected_calibration_error(np.array([1, 0, 1, 0]), np.array([0.5, 0.5, 0.5, 0.5]))
         assert abs(ece) < 1e-6
@@ -80,7 +80,7 @@ class TestExpectedCalibrationError(ClickhouseFreeSimpleTestCase):
         assert ece > 0.5
 
 
-class TestLiftAtK(ClickhouseFreeSimpleTestCase):
+class TestLiftAtK(SimpleTestCase):
     def test_perfect_ranking_lift_at_50_is_2(self):
         lift = _lift_at_k(np.array([1, 1, 0, 0]), np.array([0.9, 0.8, 0.2, 0.1]), k=0.5)
         assert abs(lift - 2.0) < 1e-6

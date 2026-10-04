@@ -4,9 +4,8 @@ from typing import Any, cast
 import pytest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.message import AlertMessage
@@ -103,7 +102,7 @@ class RecordingThreadStore(NullThreadStore):
         return list(self.threads.values())
 
 
-class TestDeliveryDispatch(ClickhouseFreeSimpleTestCase):
+class TestDeliveryDispatch(SimpleTestCase):
     def _deliver(
         self, transport: FakeTransport, store: Any, announcement: Any = None, evaluation_key: str = "eval-1"
     ) -> Any:
@@ -214,7 +213,7 @@ class TestDeliveryDispatch(ClickhouseFreeSimpleTestCase):
         assert [handle for _, handle in transport.sends] == [None]
 
 
-class TestDeliveryTelemetry(ClickhouseFreeSimpleTestCase):
+class TestDeliveryTelemetry(SimpleTestCase):
     def test_an_outcome_is_keyed_to_alerts_rather_than_to_hog_functions(self) -> None:
         with patch("products.alerts_platform.backend.delivery.telemetry.get_producer") as producer:
             record_delivery(team_id=2, configuration_id="cfg-1", provider="slack", succeeded=True)

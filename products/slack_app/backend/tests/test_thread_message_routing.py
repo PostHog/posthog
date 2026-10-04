@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
 
@@ -14,7 +14,6 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.models import (
     SlackSettings,
@@ -672,7 +671,7 @@ class TestRouteThreadMessage(TestCase):
         assert drop_reasons == expected_drop_reasons
 
 
-class TestMirrorSlackMessageEventTask(ClickhouseFreeSimpleTestCase):
+class TestMirrorSlackMessageEventTask(SimpleTestCase):
     """The queued mirror task owns the claims probe, so the webhook-side tests above cannot
     cover it: only the task decides whether a mirror actually leaves the region."""
 

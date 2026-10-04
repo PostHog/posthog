@@ -1,12 +1,12 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
-
-from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
@@ -25,7 +25,7 @@ def hogql_ref(code: str | None, node_id: str = "node-df1", run_id: str = "run-1"
 LOCAL = SQLV2Ref(kind="local")
 
 
-class TestResolvePythonNodeInputs(ClickhouseFreeSimpleTestCase):
+class TestResolvePythonNodeInputs(SimpleTestCase):
     def test_only_referenced_frames_are_materialized(self):
         # A python node reads frames as variables; materialize only the ones its code uses.
         inputs = resolve_python_node_inputs(
@@ -68,7 +68,7 @@ class TestResolvePythonNodeInputs(ClickhouseFreeSimpleTestCase):
         self.assertEqual(inputs, [{"name": "new_events", "kind": "local"}])
 
 
-class TestResolveSQLNodeRun(ClickhouseFreeSimpleTestCase):
+class TestResolveSQLNodeRun(SimpleTestCase):
     def test_all_hogql_refs_push_to_clickhouse(self):
         plan = resolve_sql_node_run("select * from df1", {"df1": hogql_ref("select id from events")})
         self.assertEqual(plan.node_type, "hogql")
@@ -128,7 +128,7 @@ class TestResolveSQLNodeRun(ClickhouseFreeSimpleTestCase):
         self.assertEqual(plan.inputs, [])
 
 
-class TestResolveSQLV2References(ClickhouseFreeSimpleTestCase):
+class TestResolveSQLV2References(SimpleTestCase):
     def test_query_referencing_nothing_is_returned_verbatim(self):
         # Paging and the run row store this string as-is; rewriting a plain run would break both.
         self.assertEqual(resolve_sql_v2_references("select 1", {"df1": "select id from events"}), "select 1")
