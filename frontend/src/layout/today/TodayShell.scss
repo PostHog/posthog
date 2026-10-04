@@ -69,6 +69,10 @@
 
     padding-top: var(--today-phone-header-height);
     padding-bottom: var(--today-tab-bar-height);
+
+    &.TodayAppLayout--no-phone-header {
+        --today-phone-header-height: 0px;
+    }
 }
 
 .TodayPhoneHeader {
