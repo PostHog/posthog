@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconDatabase } from '@posthog/icons'
+import { IconCalendar, IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSearchableSelect, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -106,7 +106,7 @@ export function BIDataPane(): JSX.Element {
         filteredDataPaneFields,
         selectableDataSources,
     } = useValues(biEditorLogic)
-    const { hydrateTableFields, setDataPaneSearch, setDataSource } = useActions(biEditorLogic)
+    const { editCalculatedMeasure, hydrateTableFields, setDataPaneSearch, setDataSource } = useActions(biEditorLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
 
@@ -222,6 +222,19 @@ export function BIDataPane(): JSX.Element {
                         />
                     </>
                 )}
+            </div>
+            <div className="border-t p-2">
+                <LemonButton
+                    icon={<IconPlus />}
+                    size="small"
+                    fullWidth
+                    type="secondary"
+                    onClick={() => editCalculatedMeasure()}
+                    disabledReason={!config.source ? 'Select a data source first' : undefined}
+                    data-attr="bi-editor-add-calculated-measure"
+                >
+                    Add calculated measure
+                </LemonButton>
             </div>
         </div>
     )

@@ -15,6 +15,7 @@ import { StartupProgramLabel } from '~/types'
 
 import { userEvent, within } from 'storybook/test'
 
+import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -301,6 +302,11 @@ const monitorOverviewScanner: ReplayScannerApi = {
         filter_test_accounts: true,
     },
     experiment_targeting: { experiment_id: 11, variant: 'test' },
+}
+
+const rootCauseFormScanner: ReplayScannerApi = {
+    ...monitorOverviewScanner,
+    id: '00000000-0000-0000-0000-0000000000aa',
 }
 
 const monitorOverviewStats: ObservationStatsApi = {
@@ -865,10 +871,18 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/vision/quota/': quota,
                 '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
-                '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
+                '/api/projects/:team_id/vision/scanners/:id/': ({ params }) =>
+                    params.id === rootCauseFormScanner.id
+                        ? rootCauseFormScanner
+                        : params.id === monitorOverviewScanner.id
+                          ? monitorOverviewScanner
+                          : summarizerScanner,
                 '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
-                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': summarizerStats,
+                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': ({ params }) =>
+                    params.id === rootCauseFormScanner.id || params.id === monitorOverviewScanner.id
+                        ? monitorOverviewStats
+                        : summarizerStats,
                 '/api/projects/:team_id/vision/scanners/:scannerId/prompt_suggestions/': {
                     count: 1,
                     next: null,
@@ -1075,8 +1089,8 @@ export const SummarizerScouts: StoryObj = {
 
 // The root cause prompt under the findings opens the create form in place.
 export const MonitorRootCauseScoutForm: StoryObj = {
-    parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
-    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats)],
+    parameters: { pageUrl: urls.replayVision(rootCauseFormScanner.id) },
+    decorators: [overviewDecorator(rootCauseFormScanner, monitorOverviewStats)],
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Add scout'))
         await within(document.body).findByText('New scout: root cause')
@@ -1959,4 +1973,34 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
             return <StoryFn />
         },
     ],
+}
+
+// A summary that carries chapters, so the result card gains Summary and Timeline tabs.
+const timelineObservationDetail = (() => {
+    const withChapters = timelineSummary({ chapters: LONG, inactive: LONG_INACTIVE })
+    const output = withChapters.scanner_result!.model_output as Record<string, unknown>
+    return observation({
+        ...observationDetail,
+        id: '00000000-0000-0000-0000-0000000000d9',
+        scanner_result: {
+            ...observationDetail.scanner_result!,
+            model_output: {
+                ...(observationDetail.scanner_result!.model_output as Record<string, unknown>),
+                chapters: output.chapters,
+                inactive_periods: output.inactive_periods,
+            },
+        } as ReplayObservationApi['scanner_result'],
+        media: withChapters.media,
+    })
+})()
+
+export const ObservationDetailSummaryWithTimeline: StoryObj = observationDetailStory(timelineObservationDetail)
+
+// The timeline tab on an hour-long recording, the only story where the rail scrolls inside the card.
+export const ObservationDetailTimeline: StoryObj = {
+    ...observationDetailStory(timelineObservationDetail),
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Timeline'))
+        await within(canvasElement).findByText('Session start')
+    },
 }

@@ -4,7 +4,12 @@ import {
     DatabaseSerializedFieldType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import {
+    escapeDottedHogQLIdentifier,
+    escapeHogQLString,
+    escapePropertyAsHogQLIdentifier,
+    escapeRawPropertyAsHogQLIdentifier,
+} from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export enum BIEditorView {
@@ -77,6 +82,7 @@ export interface BIValue {
     field: BIField
     aggregation: BIAggregation
     customExpression?: string
+    label?: string
 }
 
 export interface BIFilter {
@@ -437,6 +443,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               if (
                   !field ||
                   !BI_AGGREGATIONS.has(valueCandidate.aggregation as BIAggregation) ||
+                  (valueCandidate.label !== undefined && typeof valueCandidate.label !== 'string') ||
                   (valueCandidate.customExpression !== undefined && typeof valueCandidate.customExpression !== 'string')
               ) {
                   return null
@@ -445,6 +452,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   field,
                   aggregation: valueCandidate.aggregation as BIAggregation,
                   customExpression: valueCandidate.customExpression,
+                  label: valueCandidate.label,
               }
           })
         : null
@@ -549,6 +557,9 @@ interface BIPivotAxis {
 }
 
 function aggregationAlias(value: BIValue, index: number): string {
+    if (value.aggregation === 'custom' && value.label?.trim()) {
+        return `${value.label.trim()}${index > 0 ? `_${index + 1}` : ''}`
+    }
     return `${value.aggregation}_${sanitizeAlias(value.field.name)}${index > 0 ? `_${index + 1}` : ''}`
 }
 
@@ -647,6 +658,7 @@ function filterExpression(filter: BIFilter): string | null {
 interface BIConfiguredValue {
     value: BIValue
     expression: string
+    alias: string
 }
 
 interface BIQueryParts {
@@ -663,8 +675,41 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         .map((field, index) => ({ alias: dimensionAlias('column', field, index), field }))
         .filter(({ field }) => field.expression.trim() || field.name.trim())
     const configuredValues = config.values
-        .map((value) => ({ value, expression: aggregationExpression(value) }))
+        .map((value) => ({ value, expression: aggregationExpression(value), alias: '' }))
         .filter((configuredValue): configuredValue is BIConfiguredValue => !!configuredValue.expression)
+
+    const expressions = [
+        ...rowDimensions.map(({ field }) => fieldExpression(field)),
+        ...columnDimensions.map(({ field }) => fieldExpression(field)),
+        ...configuredValues.map(({ expression }) => expression),
+        ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
+    ]
+    const usedAliases = new Set([
+        ...rowDimensions.map(({ alias }) => alias),
+        ...columnDimensions.map(({ alias }) => alias),
+        'bi_rows',
+        'bi_columns',
+    ])
+    const reservedAliases = new Set(configuredValues.map(({ value }, index) => aggregationAlias(value, index)))
+    configuredValues.forEach((configuredValue, index) => {
+        const preferred = aggregationAlias(configuredValue.value, index)
+        let alias = preferred
+        let suffix = 2
+        // Avoid shadowing identifiers even inside authored formulas and SQL filters.
+        while (
+            usedAliases.has(alias) ||
+            expressions.some(
+                (expression) =>
+                    expression.includes(alias) || expression.includes(escapeRawPropertyAsHogQLIdentifier(alias))
+            )
+        ) {
+            do {
+                alias = `${preferred}_${suffix++}`
+            } while (reservedAliases.has(alias))
+        }
+        configuredValue.alias = alias
+        usedAliases.add(alias)
+    })
 
     return { rowDimensions, columnDimensions, configuredValues }
 }
@@ -680,7 +725,7 @@ const SORT_AGGREGATION_LABELS: Record<Exclude<BIAggregation, 'custom'>, string> 
 
 function sortValueLabel(value: BIValue): string {
     if (value.aggregation === 'custom') {
-        return value.customExpression?.trim() || 'Custom value'
+        return value.label?.trim() || value.customExpression?.trim() || 'Custom value'
     }
 
     return `${SORT_AGGREGATION_LABELS[value.aggregation]} of ${value.field.name || value.field.expression}`
@@ -712,13 +757,13 @@ export function getBISortOptions(config: BIConfig): BISortOption[] {
             expression: fieldExpression(field),
         })),
         ...(configuredValues.length > 0
-            ? configuredValues.map(({ value }, index) => {
+            ? configuredValues.map(({ value, alias }) => {
                   const occurrence = valueOccurrences.get(value.field.id) ?? 0
                   valueOccurrences.set(value.field.id, occurrence + 1)
                   return {
                       key: occurrence === 0 ? `values:${value.field.id}` : `values:${value.field.id}:${occurrence + 1}`,
                       label: sortValueLabel(value),
-                      expression: escapePropertyAsHogQLIdentifier(aggregationAlias(value, index)),
+                      expression: escapeRawPropertyAsHogQLIdentifier(alias),
                   }
               })
             : [{ key: 'values:count', label: 'Count', expression: 'count' }]),
@@ -765,7 +810,7 @@ export function getBIFieldPillLabel(field: BIField): string {
 
 export function getBIValuePillLabel(value: BIValue): string {
     if (value.aggregation === 'custom') {
-        return value.customExpression?.trim() || 'New calculation'
+        return value.label?.trim() || value.customExpression?.trim() || 'New calculation'
     }
     return `${PILL_AGGREGATION_PREFIXES[value.aggregation]}(${getBIFieldPillLabel(value.field)})`
 }
@@ -793,9 +838,7 @@ function buildOrderByExpression(
     }
 
     const firstValueAlias =
-        configuredValues.length > 0
-            ? escapePropertyAsHogQLIdentifier(aggregationAlias(configuredValues[0].value, 0))
-            : 'count'
+        configuredValues.length > 0 ? escapeRawPropertyAsHogQLIdentifier(configuredValues[0].alias) : 'count'
     return `${firstValueAlias} DESC`
 }
 
@@ -818,8 +861,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
     const valueExpressions =
         configuredValues.length > 0
             ? configuredValues.map(
-                  ({ value, expression }, index) =>
-                      `${expression} AS ${escapePropertyAsHogQLIdentifier(aggregationAlias(value, index))}`
+                  ({ expression, alias }) => `${expression} AS ${escapeRawPropertyAsHogQLIdentifier(alias)}`
               )
             : ['count(*) AS count']
     const selectExpressions = [...dimensionSelectExpressions, ...valueExpressions]
@@ -858,7 +900,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
               heatmap: {
                   xAxisColumn: pivotColumnAxis?.alias,
                   yAxisColumn: pivotRowAxis?.alias,
-                  valueColumn: configuredValues[0] ? aggregationAlias(configuredValues[0].value, 0) : 'count',
+                  valueColumn: configuredValues[0]?.alias ?? 'count',
                   xAxisLabel: pivotColumnAxis?.label ?? 'Columns',
                   yAxisLabel: pivotRowAxis?.label ?? 'Rows',
               },
