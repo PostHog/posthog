@@ -38,8 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, ElectricityMapsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v3",)
-    default_version = "v3"
+    supported_versions = ("v3", "v4")
+    default_version = "v4"
     api_docs_url = "https://app.electricitymaps.com/docs/api"
 
     @property
@@ -69,6 +69,8 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # The table list and names are identical under every supported version (v4 renamed
+        # power_breakdown's wire endpoint, not the table), so discovery doesn't need the pin.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -78,6 +80,8 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        # The credential probe always hits /carbon-intensity/latest, whose v3 path and response are
+        # unaffected by the power_breakdown version split, so every pin probes the same endpoint.
         zones = parse_zones(config.zones)
         if not zones:
             return False, "Enter at least one zone identifier, like DE or DK-DK1."
@@ -109,6 +113,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
             api_token=config.api_token,
             zones=parse_zones(config.zones),
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,

@@ -36,15 +36,37 @@ def _page(zone: str) -> Response:
     )
 
 
+def _mix_page() -> Response:
+    # Shaped like the real electricity-mix (v4) response: "zone" sits only at the response root,
+    # never on a row, unlike every other wire this source reads.
+    return _make_http_response(
+        {
+            "zone": "root-zone-unused-by-rows",
+            "data": [
+                {
+                    "datetime": "2025-06-10T00:00:00.000Z",
+                    "updatedAt": "2025-06-10T00:05:00.000Z",
+                    "mix": {"nuclear": 100, "wind": 50},
+                    "isEstimated": False,
+                    "estimationMethod": None,
+                }
+            ],
+        }
+    )
+
+
 def _drive(
     *,
     manager: MagicMock,
     responses: list[Response],
     zones: list[str],
     endpoint: str = "carbon_intensity",
+    api_version: str = "v3",
     incremental: bool = False,
     last_value: Any = None,
     history_days: int | None = None,
+    urls_out: list[str] | None = None,
+    rows_out: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     # Capture shallow copies of request.params at send time: the paginator mutates the one
     # Request object in place between pages, so call_args_list would only show the final state.
@@ -53,6 +75,8 @@ def _drive(
 
     def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
         sent_params.append(dict(request.params or {}))
+        if urls_out is not None:
+            urls_out.append(request.url)
         return next(response_iter)
 
     with patch(
@@ -67,6 +91,7 @@ def _drive(
             api_token="test-token",
             zones=zones,
             endpoint=endpoint,
+            api_version=api_version,
             team_id=123,
             job_id="test_job",
             resumable_source_manager=manager,
@@ -74,7 +99,9 @@ def _drive(
             should_use_incremental_field=incremental,
             history_days=history_days,
         )
-        list(cast(Iterable[Any], response.items()))
+        for page in cast(Iterable[Any], response.items()):
+            if rows_out is not None:
+                rows_out.extend(page)
     return sent_params
 
 
@@ -230,6 +257,7 @@ class TestWindowWalk:
                 api_token="test-token",
                 zones=["DE"],
                 endpoint="forecast",
+                api_version="v3",
                 team_id=123,
                 job_id="test_job",
                 resumable_source_manager=_fresh_manager(),
@@ -242,11 +270,68 @@ class TestWindowWalk:
                 api_token="test-token",
                 zones=[],
                 endpoint="carbon_intensity",
+                api_version="v3",
                 team_id=123,
                 job_id="test_job",
                 resumable_source_manager=_fresh_manager(),
                 db_incremental_field_last_value=None,
             )
+
+
+class TestApiVersionDispatch:
+    @time_machine.travel(_NOW, tick=False)
+    @pytest.mark.parametrize(
+        ("endpoint", "api_version", "expected_url"),
+        [
+            # carbon_intensity's request path is unaffected by the source's version pin.
+            ("carbon_intensity", "v3", "https://api.electricitymaps.com/v3/carbon-intensity/past-range"),
+            ("carbon_intensity", "v4", "https://api.electricitymaps.com/v3/carbon-intensity/past-range"),
+            # power_breakdown moves from the v3 host's deprecated endpoint to the v4 host's
+            # electricity-mix endpoint; a v3 pin keeps working on the old path.
+            ("power_breakdown", "v3", "https://api.electricitymaps.com/v3/power-breakdown/past-range"),
+            ("power_breakdown", "v4", "https://api.electricitymaps.com/v4/electricity-mix/past-range"),
+        ],
+    )
+    def test_request_url_resolves_per_endpoint_and_version(
+        self, endpoint: str, api_version: str, expected_url: str
+    ) -> None:
+        # A watermark at `now` collapses the walk to exactly one window, so a single zone needs
+        # exactly one request, the same way test_watermark_at_or_past_now_still_requests_one_valid_window does.
+        urls: list[str] = []
+
+        _drive(
+            manager=_fresh_manager(),
+            responses=[_page("DE")],
+            zones=["DE"],
+            endpoint=endpoint,
+            api_version=api_version,
+            incremental=True,
+            last_value=_NOW,
+            urls_out=urls,
+        )
+
+        assert urls == [expected_url]
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_v4_power_breakdown_stamps_the_request_zone_onto_rows_missing_it(self) -> None:
+        # electricity-mix (v4) carries "zone" only at the response root; a row without this
+        # stamping has no "zone" at all, breaking the primary_keys=["zone", "datetime"] contract.
+        # A watermark at `now` collapses the walk to one window, so the two zones need exactly
+        # the two provided pages (DE, then SE) before pagination stops.
+        rows: list[dict[str, Any]] = []
+
+        _drive(
+            manager=_fresh_manager(),
+            responses=[_mix_page(), _mix_page()],
+            zones=["DE", "SE"],
+            endpoint="power_breakdown",
+            api_version="v4",
+            incremental=True,
+            last_value=_NOW,
+            rows_out=rows,
+        )
+
+        assert [row["zone"] for row in rows] == ["DE", "SE"]
 
 
 class TestValidateCredentials:
