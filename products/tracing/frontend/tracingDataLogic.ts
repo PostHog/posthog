@@ -1302,13 +1302,29 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 filters.chartType === 'heatmap' &&
                 !compareActive,
         ],
-        // The rows the list renders. 'traces' mode shows root spans only (one row per trace);
-        // 'spans' mode shows every matching span (root and child) flat. The fetch passes flatSpans
-        // to match, so in 'spans' mode the loaded spans are already the flat set.
+        // The rows the list renders. 'traces' mode shows one row per trace: its root span, or for a
+        // trace whose root never reached PostHog, its first loaded span (the backend orders the
+        // earliest matching span first). 'spans' mode shows every matching span (root and child)
+        // flat. The fetch passes flatSpans to match, so in 'spans' mode the loaded spans are already
+        // the flat set.
         listRows: [
             (s) => [s.spans, s.filters],
             (spans: Span[], filters: TracingFilters): Span[] => {
-                return filters.viewMode === 'spans' ? spans : spans.filter((s) => s.is_root_span)
+                if (filters.viewMode === 'spans') {
+                    return spans
+                }
+                const rootedTraceIds = new Set(spans.filter((s) => s.is_root_span).map((s) => s.trace_id))
+                const seenRootlessTraceIds = new Set<string>()
+                return spans.filter((s) => {
+                    if (s.is_root_span) {
+                        return true
+                    }
+                    if (rootedTraceIds.has(s.trace_id) || seenRootlessTraceIds.has(s.trace_id)) {
+                        return false
+                    }
+                    seenRootlessTraceIds.add(s.trace_id)
+                    return true
+                })
             },
         ],
         // Memoized separately so visibleRowDurationRange (recomputed on every scroll tick) doesn't

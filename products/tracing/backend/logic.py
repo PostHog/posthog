@@ -285,6 +285,20 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         assert self.query.traceId
         return _normalise_to_base64(self.query.traceId)
 
+    def entry_span_expr(self) -> ast.Expr:
+        """Select the spans that stand for their trace in the "Traces" view.
+
+        The root span stands for its trace. When the root never reaches PostHog (for example, an
+        upstream service does not export it), the trace has no root. Then every span of the trace
+        stands for it, so the trace still shows. The root lookup uses whole days, the same bound as
+        where(), so a root that starts just before the exact window still counts as present.
+        """
+        return parse_expr(
+            "is_root_span = 1 OR trace_id NOT IN "
+            f"(SELECT trace_id FROM posthog.trace_spans WHERE is_root_span = 1 AND {TIME_BUCKET_DATE_RANGE_WHERE})",
+            placeholders=self.query_date_range.to_placeholders(),
+        )
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
@@ -582,16 +596,17 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # order, so keyset would pay its cost for none of its benefit).
         sort_key_sql = "max(duration_nano)" if by_duration else "min(timestamp)"
 
-        # rootSpans is opt-in and gated on `is True` (not truthiness): the frontend never sends it
-        # (None), so its prefetch-driven waterfall is untouched. An explicit True narrows the
-        # trace-selection subquery to `is_root_span = 1`, so we only pick traces whose root matches
-        # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
-        # span of the selected traces so the waterfall gets its children.
-        root_only = self.query.rootSpans is True
+        # rootSpans is opt-in and gated on `is True` (not truthiness). An explicit True narrows the
+        # trace-selection subquery to entry spans (see entry_span_expr), so we only pick traces whose
+        # root matches the filter, or rootless traces with a matching span. The outer fetch is
+        # deliberately left unfiltered — it still prefetches every span of the selected traces so the
+        # waterfall gets its children. A single-trace lookup already names its trace, so it skips the
+        # scoping: a trace whose root is missing or outside the window still opens.
+        root_only = self.query.rootSpans is True and self.query.traceId is None
 
         subquery_where_exprs: list[ast.Expr] = [self.where()]
         if root_only:
-            subquery_where_exprs.append(parse_expr("is_root_span = 1"))
+            subquery_where_exprs.append(self.entry_span_expr())
 
         having_expr: ast.Expr | None = None
         if not by_duration:
@@ -650,13 +665,13 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # `trace_start` / `trace_duration` are the per-trace keys the view paginates and re-sorts on.
         # They MUST aggregate over the same rows the trace-selection subquery grouped, or the keys
         # diverge from the set the subquery picked — e.g. under root_only the subquery orders traces
-        # by `max(duration_nano)` over root spans, so a window over *all* spans would rank a trace by
+        # by `max(duration_nano)` over entry spans, so a window over *all* spans would rank a trace by
         # a long child the subquery never considered, corrupting the order and offset page boundaries.
         # Scope the key windows to match the subquery (cursor/time bounds are deliberately excluded —
         # the key is a property of the whole trace, not of the current page).
         key_predicate: ast.Expr = self.where()
         if root_only:
-            key_predicate = ast.And(exprs=[self.where(), parse_expr("is_root_span = 1")])
+            key_predicate = ast.And(exprs=[self.where(), self.entry_span_expr()])
 
         query = parse_select(
             """

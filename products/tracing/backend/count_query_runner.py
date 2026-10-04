@@ -43,11 +43,11 @@ class TraceSpansCountQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQuer
 
     def to_query(self) -> ast.SelectQuery:
         # count() is every matching span (the "Spans" view's row count). The trace count must match the
-        # "Traces" view, which selects traces by root-span match (rootSpans defaults True -> root_only in
-        # logic.py), so restrict the distinct-trace count to matching root spans, not any matching span.
+        # "Traces" view, which selects traces by entry-span match (rootSpans defaults True -> root_only in
+        # logic.py), so restrict the distinct-trace count to matching entry spans, not any matching span.
         query = parse_select(
-            "SELECT count(), uniqExactIf(trace_id, is_root_span = 1) FROM posthog.trace_spans WHERE {where}",
-            placeholders={"where": self.where_with_exact_timestamps()},
+            "SELECT count(), uniqExactIf(trace_id, {entry_span}) FROM posthog.trace_spans WHERE {where}",
+            placeholders={"where": self.where_with_exact_timestamps(), "entry_span": self.entry_span_expr()},
         )
         assert isinstance(query, ast.SelectQuery)
         return query
