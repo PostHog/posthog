@@ -26,8 +26,13 @@ def _append_lock(object_storage_key: str, attempts: int) -> Iterator[None]:
     Contention past the attempts is refused so a concurrent batch is never overwritten;
     callers without their own retry loop ask for more attempts. Redis being unavailable
     proceeds unserialized instead, since refusing every append for the whole outage would
-    lose far more than the rare overlapping pair.
+    lose far more than the rare overlapping pair. Zero attempts skips the lock, for a caller
+    that already serializes every writer of the object, so a lock orphaned by a dead writer
+    cannot block it for the whole TTL.
     """
+    if attempts == 0:
+        yield
+        return
     try:
         lock = get_client().lock(
             f"tasks:log_append:{object_storage_key}",
