@@ -1,6 +1,6 @@
 import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useEffect, useId, useMemo } from 'react'
+import { useId, useLayoutEffect, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
@@ -105,7 +105,7 @@ export function LineageGraphLoading({
         [fitViewOptions]
     )
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (viewportInitialized && nodesMeasured) {
             void fitView({
                 ...loadingFitViewOptions,
@@ -160,8 +160,6 @@ export function LineageGraphLoading({
                 zoomOnPinch={false}
                 zoomOnDoubleClick={false}
                 proOptions={{ hideAttribution: true }}
-                fitView
-                fitViewOptions={loadingFitViewOptions}
             >
                 <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             </ReactFlow>
