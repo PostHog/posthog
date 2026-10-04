@@ -71,7 +71,34 @@ export function ComposerModelEffortSheet({
                     <span className="text-muted">ChatGPT plan</span>
                 )}
             </Button>
-            <TodaySheetMenu open={open} onOpenChange={setOpen} title="Model">
+            <TodaySheetMenu open={open} onOpenChange={setOpen} title="Model and reasoning">
+                {effortOptions.length > 0 && (
+                    <div className="flex flex-col gap-2 px-3 pt-1 pb-3">
+                        <MenuLabel className="px-0">Reasoning</MenuLabel>
+                        <ToggleGroup
+                            variant="outline"
+                            value={[selectedEffort]}
+                            onValueChange={(value: string[]) =>
+                                value[0] && onEffortChange(value[0] as ReasoningEffortEnumApi)
+                            }
+                            aria-label="Reasoning"
+                            spacing={1}
+                            className="grid w-full grid-cols-3"
+                        >
+                            {effortOptions.map((option) => (
+                                <ToggleGroupItem
+                                    key={option.value}
+                                    value={option.value}
+                                    className="w-full"
+                                    data-attr="composer-model-sheet-effort"
+                                >
+                                    {option.label}
+                                </ToggleGroupItem>
+                            ))}
+                        </ToggleGroup>
+                    </div>
+                )}
+                <MenuLabel className="px-3">Model</MenuLabel>
                 <div role="radiogroup" aria-label="Model" className="flex flex-col">
                     {adapterModels.map((option) => {
                         const selected = option.model === selectedModel
@@ -90,7 +117,7 @@ export function ComposerModelEffortSheet({
                             >
                                 <span className="min-w-0 flex-1 truncate">{option.display_name}</span>
                                 <ModelCostChip model={option.model} />
-                                <IconCheck className={cn('shrink-0', !selected && 'invisible')} />
+                                <span className="flex size-4 shrink-0">{selected && <IconCheck />}</span>
                             </button>
                         )
                     })}
@@ -98,31 +125,6 @@ export function ComposerModelEffortSheet({
                 {showsAnyCost && (
                     <div className="px-1">
                         <ModelCostFooter />
-                    </div>
-                )}
-                {effortOptions.length > 0 && (
-                    <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
-                        <MenuLabel className="px-0">Reasoning</MenuLabel>
-                        <ToggleGroup
-                            variant="outline"
-                            value={[selectedEffort]}
-                            onValueChange={(value: string[]) =>
-                                value[0] && onEffortChange(value[0] as ReasoningEffortEnumApi)
-                            }
-                            aria-label="Reasoning"
-                            className="w-full"
-                        >
-                            {effortOptions.map((option) => (
-                                <ToggleGroupItem
-                                    key={option.value}
-                                    value={option.value}
-                                    className="flex-1"
-                                    data-attr="composer-model-sheet-effort"
-                                >
-                                    {option.label}
-                                </ToggleGroupItem>
-                            ))}
-                        </ToggleGroup>
                     </div>
                 )}
                 {(adapters.length > 1 || billing) && <SHEET_PARTS.Separator />}
