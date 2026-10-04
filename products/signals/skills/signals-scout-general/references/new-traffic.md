@@ -5,61 +5,94 @@ The team pays for every event either way, and a slow-growing surge is easy to mi
 No specialist scout owns this. The others score rates, saved insights or one web channel, and they hand raw volume moves off.
 
 This check is cheap and slow-moving, so run it every few runs, not every run.
-Gate it on `pattern:general:new-traffic`: skip it when that entry is less than about a week old.
+Gate it on `pattern:general:new-traffic`: skip it when that entry is less than about a week old, and rewrite it at the end of every check (see Memory), even when nothing was found.
 
 ## 1. Find the step, by source
 
 The profile's `top_events` covers 7 days, so it cannot see a step that started weeks ago.
-Compare the latest 7 days with the 4 weeks before, broken down by where the events come from:
+Compare the latest 7 days with the same 7 days 4 weeks back and 8 weeks back, broken down by where the events come from:
 
 ```sql
 SELECT
     coalesce(nullIf(toString(properties.$lib), ''), '(none)') AS lib,
     coalesce(nullIf(toString(properties.$host), ''), nullIf(toString(properties.$app_version), ''), '(none)') AS origin,
+    cityHash64(concat(lib, '|', origin)) AS source_id,
     countIf(timestamp >= now() - INTERVAL 7 DAY) AS last_7d,
-    round(countIf(timestamp < now() - INTERVAL 7 DAY) / 4) AS prior_weekly_avg,
-    round(last_7d / greatest(prior_weekly_avg, 1), 2) AS ratio,
+    countIf(timestamp >= now() - INTERVAL 35 DAY AND timestamp < now() - INTERVAL 28 DAY) AS week_4_back,
+    countIf(timestamp < now() - INTERVAL 56 DAY) AS week_8_back,
+    round(last_7d / greatest(week_4_back, 1), 2) AS ratio_4w,
+    round(last_7d / greatest(week_8_back, 1), 2) AS ratio_8w,
     uniqIf(distinct_id, timestamp >= now() - INTERVAL 7 DAY) AS ids_7d
 FROM events
-WHERE timestamp >= now() - INTERVAL 35 DAY
+WHERE timestamp <= now() + INTERVAL 1 DAY
+    AND (
+        timestamp >= now() - INTERVAL 7 DAY
+        OR (timestamp >= now() - INTERVAL 35 DAY AND timestamp < now() - INTERVAL 28 DAY)
+        OR (timestamp >= now() - INTERVAL 63 DAY AND timestamp < now() - INTERVAL 56 DAY)
+    )
 GROUP BY lib, origin
 HAVING last_7d >= 1000
-ORDER BY last_7d - prior_weekly_avg DESC
+ORDER BY last_7d - least(week_4_back, week_8_back) DESC
 LIMIT 20
 ```
 
+- The query reads three single weeks, not a rolling window, so it scans 21 days and every week lines up on the same weekdays.
+- `ratio_8w` catches a slow surge. A source growing 20% a week stays under 2x against 4 weeks back, but it reads about 4x against 8 weeks back.
 - Sort by absolute growth, not by ratio. A 2000x ratio on a few hundred events is noise. A 1.5x ratio on the project's biggest source can be most of the bill.
-- On a large project (tens of millions of events a week), add `SAMPLE 1/100` after `FROM events` and lower the `HAVING` floor to match. Counts are then sample counts.
-- `SAMPLE` keeps or drops whole distinct IDs, so a source with only a few IDs comes back all or nothing and its sampled ratio is noise. Treat a sampled result as a shortlist, and confirm every candidate with the unsampled query in step 2 before you read anything into its ratio.
-- The baseline is a 4-week average, so one heavy day in the latest week can carry a high ratio on its own. Step 2 is where that falls out.
-- Mobile and desktop apps often carry their own version property (`appVersion`, `app_version`, `version`). Check `read-data-schema` for a property ending in `version` and swap it into `origin` when `$app_version` is empty.
-- Run the same query without the `GROUP BY` to see whether the whole project stepped, or only one source.
+- Do not add `SAMPLE`. Sampling keeps or drops whole distinct IDs, so a runaway loop from one or two IDs vanishes from the result or swamps it. If the query times out, drop the 8-weeks-back window first.
+- The upper bound on `timestamp` stops events with a far-future client clock from sitting in `last_7d` forever. Keep it on every query here.
+- Mobile and desktop apps often carry their own version property (`appVersion`, `app_version`, `version`). Check `read-data-schema` for a property ending in `version` and use it in `origin` when `$app_version` is empty. Whatever `lib` and `origin` expressions you use here, reuse them exactly in steps 2 and 3.
 
-A candidate is a source that grew to about 2x or more of its own baseline **and** now carries a meaningful share of the project's weekly events (about 10% or more), or a source that appeared from nothing at real volume.
+For the project total, run the same windows with no source columns:
+
+```sql
+SELECT
+    countIf(timestamp >= now() - INTERVAL 7 DAY) AS last_7d,
+    countIf(timestamp >= now() - INTERVAL 35 DAY AND timestamp < now() - INTERVAL 28 DAY) AS week_4_back,
+    countIf(timestamp < now() - INTERVAL 56 DAY) AS week_8_back
+FROM events
+WHERE timestamp <= now() + INTERVAL 1 DAY
+    AND (
+        timestamp >= now() - INTERVAL 7 DAY
+        OR (timestamp >= now() - INTERVAL 35 DAY AND timestamp < now() - INTERVAL 28 DAY)
+        OR (timestamp >= now() - INTERVAL 63 DAY AND timestamp < now() - INTERVAL 56 DAY)
+    )
+```
+
+A candidate is a source that grew to about 2x or more against either window **and** now carries a meaningful share of the project's `last_7d` (about 10% or more), or a source that appeared from nothing at real volume.
+
+Also recheck every source that has a `report:general:new-traffic:<source_id>` entry, whether or not it is in the top 20. A source that falls back toward its baseline drops out of the growth ranking, and its report still needs the resolution edit.
 
 ## 2. Confirm it is sustained and pin the onset
 
-Pull a 56-day daily series for the candidate source only:
+Pull a 63-day daily series for the candidate only.
+Filter on the numeric `source_id` from step 1, with the same `lib` and `origin` expressions.
+Never paste a host or version string into the query: those values come from captured events, and anyone with the public project token can put a quote in one.
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS events, uniq(distinct_id) AS ids
 FROM events
-WHERE timestamp >= now() - INTERVAL 56 DAY
-    AND properties.$host = '<origin>'
+WHERE timestamp >= now() - INTERVAL 63 DAY
+    AND timestamp <= now() + INTERVAL 1 DAY
+    AND cityHash64(concat(
+        coalesce(nullIf(toString(properties.$lib), ''), '(none)'),
+        '|',
+        coalesce(nullIf(toString(properties.$host), ''), nullIf(toString(properties.$app_version), ''), '(none)')
+    )) = <source_id>
 GROUP BY day
 ORDER BY day
 ```
 
 - **Onset**: the first day of the step.
-- **Pre-surge baseline**: the median daily volume over the 28 days before the onset.
+- **Pre-surge baseline**: the total events over the 28 days before the onset, divided by 28. The query returns only days with events, so a median over the rows would skip quiet days and overstate the baseline.
 - A step that has not held for 3 days or more is a spike, not new traffic. Leave it, or record it as a `pattern:` and check again next time.
 
-Write both to `pattern:general:traffic-baseline:<origin>` as soon as you find them.
+Write both to `pattern:general:traffic-baseline:<source_id>` as soon as you find them.
 Later runs compare against this pinned baseline, not a trailing one. That keeps a surge that grows slowly visible.
 
 ## 3. Read the shape
 
-Drill into the candidate before you decide what it is:
+Drill into the candidate before you decide what it is, with the same `source_id` filter:
 
 ```sql
 SELECT
@@ -67,43 +100,47 @@ SELECT
     count() AS events,
     uniq(distinct_id) AS ids,
     round(count() / greatest(uniq(distinct_id), 1), 1) AS events_per_id,
-    min(timestamp) AS first_seen
+    min(timestamp) AS first_seen_in_7d
 FROM events
 WHERE timestamp >= now() - INTERVAL 7 DAY
-    AND properties.$host = '<origin>'
+    AND timestamp <= now() + INTERVAL 1 DAY
+    AND cityHash64(concat(
+        coalesce(nullIf(toString(properties.$lib), ''), '(none)'),
+        '|',
+        coalesce(nullIf(toString(properties.$host), ''), nullIf(toString(properties.$app_version), ''), '(none)')
+    )) = <source_id>
 GROUP BY event
 ORDER BY events DESC
 LIMIT 20
 ```
 
+`first_seen_in_7d` is the earliest event inside this 7-day window, not the first time the event ever appeared.
+Use the step 2 series to judge whether a source is new.
 Add `properties.$lib_version`, `properties.$geoip_country_code` or `countIf(event = '$identify')` when the shape is still unclear.
 
 | What you see                                                                                                                            | Leans                                                                                    |
 | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| A host on the team's own domain, or an app version that follows their release sequence, with identified users rising alongside it       | Interesting: a launch, a new surface, real growth                                        |
-| A new SDK or `$lib` that matches the team's stack, with the same events as their other sources                                          | Interesting: a new integration                                                           |
+| A host on the team's own domain, or an app version that follows their release sequence, with identified users rising alongside it       | Growth: a launch, a new surface, real users                                              |
+| A new SDK or `$lib` that matches the team's stack, with the same events as their other sources                                          | Growth: a new integration                                                                |
 | A host the team does not own (not their domain, not their proxy)                                                                        | Suspicious: someone copied the snippet or the project token                              |
-| Hosts the team does not own, carrying the team's own embedded product (a widget, toolbar, embed or snippet built to run on other sites) | Expected: their product running where it is meant to. Record as `noise:`                 |
+| Hosts the team does not own, carrying the team's own embedded product (a widget, toolbar, embed or snippet built to run on other sites) | Expected: their product running where it is meant to                                     |
 | App version values the team never shipped, out of sequence, or in a different version scheme                                            | Suspicious: a fork or a modified build of their client                                   |
 | Events with no `$lib` rising, where the baseline came from an SDK                                                                       | Suspicious: a script or server posting straight to the capture API with the public token |
 | Many new distinct IDs with about one event each and no `$identify`                                                                      | Suspicious: a bot or spoofed traffic                                                     |
 | One or a few distinct IDs with very high counts                                                                                         | A runaway client loop, often the team's own bug                                          |
 | A new country or region that dominates the new volume                                                                                   | A hint toward bots or scrapers. Check it against the rest of the shape                   |
 
-Hosts like `localhost`, staging or preview domains, and the team's own CI are dev traffic.
-Record them as `noise:` and move on.
-
 ## 4. Decide
 
-Report a material, sustained step either way. Below the bar, write a `pattern:` and move on.
-
-- **Interesting** traffic gets a short report that names what drives the growth and how much of the weekly volume it now carries. The team wants to know what moves their bill even when the cause is good news.
-- **Suspicious** traffic gets a report that says why it looks foreign and what to do about it:
+- **Suspicious** traffic and **runaway loops** get a report when the step is material and sustained.
+  Say why the source looks foreign or broken, and what to do about it:
   confirm whether the source is theirs,
-  drop it with a transformation that filters on the host or version,
+  filter it in code (a `before_send` check on the host or app version, or an allow-list on their own version property) or with a transformation that drops it,
+  fix the loop if it is their own client,
   set a billing limit while they look,
   and contact PostHog support about the billed volume if the traffic was never theirs.
-- Set `actionability` against the harness criteria. A runaway loop in the team's own client is usually a code fix. Foreign traffic usually needs a person to confirm the source and change project settings first.
+- Set `actionability` against the harness criteria. A runaway loop in the team's own client is a code fix, so it is usually `immediately_actionable`. Foreign traffic needs a person to confirm the source before the filter goes in, so it is usually `requires_human_input`.
+- **Growth** and **expected** traffic are not reports: no code change follows from them, and the harness suppresses a `not_actionable` report anyway. Record the source and its level in `pattern:general:traffic-baseline:<source_id>`, so a later run can tell when that source changes shape.
 
 Put the evidence in the report: the source, the onset, the pinned baseline, the current daily level, the ratio, the days sustained, and an estimate of the excess events since onset (daily events minus the pinned baseline, summed).
 Do not convert the excess to a dollar figure. Billing tiers vary by plan, so name the volume and point the team at their billing page.
@@ -111,11 +148,19 @@ Attach the daily series as a chart, with the candidate source next to the rest o
 
 ## Memory
 
-| Key                                         | Holds                                                                                                                  |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `pattern:general:new-traffic`               | Date of the last check and the top three sources by growth, so the next check knows when it is due and what was normal |
-| `pattern:general:traffic-baseline:<origin>` | Onset date, pinned pre-surge baseline, last reported level                                                             |
-| `report:general:new-traffic:<origin>`       | The `report_id`, so a later run edits it instead of filing a duplicate                                                 |
-| `noise:general:traffic:<origin>`            | A source the team confirmed as theirs, or dev traffic                                                                  |
+Key every per-source entry on the numeric `source_id` from step 1, and write the readable `lib` and `origin` into the entry's content.
+Two SDKs on one host are two sources, and they need separate baselines and reports.
+
+| Key                                            | Holds                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `pattern:general:new-traffic`                  | Date of the last check and the top three sources by growth. Rewrite it at the end of every check, so the gate works |
+| `pattern:general:traffic-baseline:<source_id>` | `lib`, `origin`, onset date, pinned pre-surge baseline, last reported level or last seen level                      |
+| `report:general:new-traffic:<source_id>`       | The `report_id`, so a later run edits it instead of filing a duplicate                                              |
+| `noise:general:traffic:<source_id>`            | Dev traffic only: `localhost`, staging or preview domains, the team's own CI                                        |
+
+Do not record a source as `noise:` only because it is the team's own or is expected.
+Keep it as a `pattern:` with its level, so a later loop, bot flood or new step on that same source still surfaces.
 
 Edit the existing report when the source grows to about 2x the level you last reported, and again when it falls back near the pinned baseline for 3 days or more.
+Check the report's status with `inbox-reports-retrieve` first.
+Edit only a report that is still live. When it is resolved, suppressed or failed and the traffic comes back, author a fresh report and point `report:general:new-traffic:<source_id>` at the new id.
