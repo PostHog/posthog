@@ -311,6 +311,33 @@ class AgentExecutor:
         )
         return (AssistantEventType.MESSAGE, failure_message)
 
+    async def ahas_live_run(self) -> bool:
+        """Whether Temporal still holds an open run for this conversation.
+
+        `Conversation.status` is written by the activity that runs the turn, so a worker that dies
+        mid-turn leaves the row locked forever. Temporal is the only authority on whether work is
+        still in flight. A visibility failure answers `True`, so an unreachable Temporal never lets
+        a second workflow start beside a live one.
+        """
+        query = (
+            f'(WorkflowId = "{self._workflow_id}" '
+            f'OR WorkflowId STARTS_WITH "{self._workflow_id}-" '
+            f'OR WorkflowId STARTS_WITH "subagent-{self._conversation.id}-") '
+            'AND ExecutionStatus = "Running"'
+        )
+        try:
+            client = await async_connect()
+            async for _ in client.list_workflows(query=query, limit=1):
+                return True
+            return False
+        except Exception as e:
+            logger.warning(
+                "Failed to list workflows for conversation liveness",
+                conversation_id=str(self._conversation.id),
+                error=str(e),
+            )
+            return True
+
     async def cancel_workflow(self) -> None:
         """Cancel the current conversation and clean up resources.
 

@@ -480,6 +480,43 @@ class TestAgentExecutor(BaseTest):
             # Verify sleep was called (indicating retry attempts)
             mock_sleep.assert_called()
 
+    @patch("ee.hogai.core.executor.async_connect")
+    async def test_ahas_live_run_reports_open_runs(self, mock_connect):
+        mock_client = Mock()
+        seen_queries: list[str] = []
+
+        async def mock_list_workflows(query, limit=None):
+            seen_queries.append(query)
+            self.assertEqual(limit, 1)
+            yield Mock(id=f"conversation-{self.conversation.id}-queued-1")
+
+        mock_client.list_workflows = mock_list_workflows
+        mock_connect.return_value = mock_client
+
+        self.assertTrue(await self.manager.ahas_live_run())
+        self.assertIn(f'WorkflowId = "conversation-{self.conversation.id}"', seen_queries[0])
+        self.assertIn(f'WorkflowId STARTS_WITH "conversation-{self.conversation.id}-"', seen_queries[0])
+        self.assertIn(f'WorkflowId STARTS_WITH "subagent-{self.conversation.id}-"', seen_queries[0])
+
+    @patch("ee.hogai.core.executor.async_connect")
+    async def test_ahas_live_run_reports_no_open_runs(self, mock_connect):
+        mock_client = Mock()
+
+        async def mock_list_workflows(query, limit=None):
+            return
+            yield  # noqa: B901 - make it an async generator
+
+        mock_client.list_workflows = mock_list_workflows
+        mock_connect.return_value = mock_client
+
+        self.assertFalse(await self.manager.ahas_live_run())
+
+    @patch("ee.hogai.core.executor.async_connect")
+    async def test_ahas_live_run_keeps_the_lock_when_temporal_is_unreachable(self, mock_connect):
+        mock_connect.side_effect = Exception("Temporal is down")
+
+        self.assertTrue(await self.manager.ahas_live_run())
+
     async def test_cancel_subagent_workflows_success(self):
         """Test successful cancellation of subagent workflows."""
         mock_client = Mock()
