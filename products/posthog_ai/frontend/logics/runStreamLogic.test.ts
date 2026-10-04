@@ -26,6 +26,7 @@ import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { resolveToolCall } from '../utils/toolResolver'
+import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
@@ -296,6 +297,8 @@ describe('runStreamLogic', () => {
                 [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'first answer' } }), 'replay'],
                 [notification('_client/human_message', { content: 'queued follow-up' }), 'live'],
                 [notification('_posthog/turn_complete', { traceId: 'trace-1' }), 'live'],
+                [notification('_posthog/turn_suggestion', SUGGESTION_FRAMES.scout), 'live'],
+                [notification('_posthog/turn_suggestion_resolved', { turnIndex: 0, outcome: 'accepted' }), 'live'],
                 [notification('_posthog/user_message', { content: 'queued follow-up' }), 'live'],
                 [sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { text: 'queued follow-up' } }), 'live'],
                 [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'completed' }), 'live'],
@@ -324,6 +327,7 @@ describe('runStreamLogic', () => {
                 expect(resumed.folded).toEqual(foldLogToThread(log.entries, options))
             })
             expect(checkpoint!.entries.at(-1)?.entry.notification.params).toEqual({ traceId: 'trace-2' })
+            expect(foldLogToThread(log.entries, options).turnSuggestions.outcomes.get(0)).toEqual('accepted')
         })
 
         it.each([
