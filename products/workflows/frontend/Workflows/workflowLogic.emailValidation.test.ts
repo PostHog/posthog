@@ -104,7 +104,6 @@ const loadedTemplatesResponse = {
 }
 
 const SENDER_ERROR = 'Choose an email sender, or connect a new one'
-const UNVERIFIED_SENDER_ERROR = "Verify this sender's domain under Channels, or choose a verified sender"
 
 const emailSender = (id: number, verified: boolean): IntegrationType =>
     ({ id, kind: 'email', display_name: `sender-${id}`, config: { verified } }) as IntegrationType
@@ -283,42 +282,20 @@ describe('workflowLogic email step "from" validation', () => {
     const ROTATION = { integrationId: 42, integrationIds: [42, 43] }
 
     it.each([
-        [
-            'the sender is unverified',
-            { integrationId: 42 },
-            'draft',
-            [emailSender(42, false)],
-            false,
-            UNVERIFIED_SENDER_ERROR,
-        ],
-        [
-            'one rotation sender is unverified',
-            ROTATION,
-            'draft',
-            [emailSender(42, true), emailSender(43, false)],
-            false,
-            UNVERIFIED_SENDER_ERROR,
-        ],
+        ['the sender is unverified', { integrationId: 42 }, 'draft', [emailSender(42, false)], [42]],
+        ['one rotation sender is unverified', ROTATION, 'draft', [emailSender(42, true), emailSender(43, false)], [43]],
         [
             'only the unused fallback sender is unverified',
             { integrationId: 42, integrationIds: [43] },
             'draft',
             [emailSender(42, false), emailSender(43, true)],
-            true,
-            undefined,
+            [],
         ],
-        ['the workflow is already live', ROTATION, 'active', [emailSender(42, false)], true, undefined],
-        [
-            'every sender is verified',
-            ROTATION,
-            'draft',
-            [emailSender(42, true), emailSender(43, true)],
-            true,
-            undefined,
-        ],
+        ['the workflow is already live', ROTATION, 'active', [emailSender(42, false)], []],
+        ['every sender is verified', ROTATION, 'draft', [emailSender(42, true), emailSender(43, true)], []],
     ] as const)(
-        'marks the email step with a field message when %s',
-        async (_name, from, status, senders, valid, expectedError) => {
+        'lists the senders to verify before enabling when %s',
+        async (_name, from, status, senders, expectedIds) => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(from, status),
@@ -332,35 +309,10 @@ describe('workflowLogic email step "from" validation', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
             await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
 
-            logic.actions.saveWorkflowPartial({ status: 'active' })
-
-            const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-            expect(result?.valid).toBe(valid)
-            expect(result?.emailErrors?.from).toBe(expectedError)
+            expect(logic.values.unverifiedEmailSenders.map(({ id }) => id)).toEqual(expectedIds)
+            expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.valid).toBe(expectedIds.length === 0)
         }
     )
-
-    it('clears the sender message once a blocked enable reloads a sender verified elsewhere', async () => {
-        let senderVerified = false
-        useMocks({
-            get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }),
-                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
-                '/api/environments/:team_id/integrations': () => [200, { results: [emailSender(42, senderVerified)] }],
-            },
-        })
-        initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID })
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
-        senderVerified = true
-
-        logic.actions.saveWorkflowPartial({ status: 'active' })
-        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
-
-        expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.emailErrors?.from).toBeUndefined()
-    })
 
     const PUBLISH_STEP_ERROR =
         'step \'Send email\': The email sender "hello@example.dev" is not verified yet. Verify its domain under Channels, or choose a verified sender.'

@@ -46,6 +46,7 @@ import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+import { WorkflowUnverifiedSenderBanner } from './WorkflowUnverifiedSenderBanner'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -219,6 +220,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {isSavedWorkflow && <WorkflowUnverifiedSenderBanner />}
                 {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
