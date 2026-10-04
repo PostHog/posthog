@@ -49,16 +49,17 @@ Page through it until a page returns fewer rows than you asked for.
 
 Read what each live workflow triggers on, not just its name.
 A workflow called "Onboarding" may fire on one event and leave the rest of onboarding silent, which is a `partial` coverage idea rather than a duplicate.
+The list shows triggers, not messages, so read a live workflow with `workflows-get` whenever its trigger overlaps a moment you are weighing, and judge coverage from what it actually sends.
 
 **A project with no workflows is the case this scout matters most for, not a reason to stop.**
 Its first workflow is the one most likely to get built, and every moment it has is uncovered.
 Do not read an empty list as "messaging is not in use, so there is nothing to suggest".
 
-Close out empty only when nobody can be messaged at all: no person in the project has an email address, so no idea could ever reach anyone.
-Check that with one query (people with a non-empty `email` person property over your window), then write one scratchpad entry:
+Close out empty only when nobody can be messaged on any channel: no person in the project has an email address, and `integrations-list` shows no push or SMS integration to send through instead.
+Check email with one query (people with a non-empty `email` person property over your window), then write one scratchpad entry:
 
 - key: `not-in-use:workflow-ideas`
-- content: brief note ("checked at {timestamp}, no person has an email address")
+- content: brief note ("checked at {timestamp}, no person has an email address and no push or SMS integration")
 
 Re-running with the same key refreshes the timestamp.
 
@@ -68,6 +69,7 @@ Re-running with the same key refreshes the timestamp.
 
 - `scout-scratchpad-search` (`text=idea`) - the ideas you already recorded, so you rank new ground above repeating yourself.
   An idea you recorded in an earlier run is not a new idea.
+  The search returns the newest matches only, so before recording an idea, search for its exact `idea:<slug>` key as well.
 - `scout-runs-list` (last 7d) - what the recent runs covered, so a short run rotates rather than re-treading.
 - `scout-project-profile-get` - `products_in_use`, `recent_actions`, `recent_cohorts` and `recent_hog_flows` give you the project's shape in one read, before you spend anything on queries.
 
@@ -92,7 +94,8 @@ Work from the project's own data, never from what a project like this usually do
 
 Find the outcomes first, then the moments that lead to them.
 An outcome is an event the project records when something it wants happens: a purchase, a subscription, a paid invoice, the first successful use of the product.
-Those are the `goal_event` candidates, and a moment with no outcome after it is only worth an idea in the `engagement` tier.
+Those are the `goal_event` candidates, and every idea names one.
+An `engagement` idea still has a goal, such as a return visit or the use of a feature; a moment with no recorded outcome after it at all is not an idea, and belongs in the scratchpad.
 When the event you need as a goal is not in the taxonomy, say so in the scratchpad (`gap:<event>`) rather than inventing a substitute.
 
 Copy every event, action and cohort name exactly as the project spells it.
@@ -116,7 +119,8 @@ These three are always measured the same way, so ideas compare across runs and p
 - `audience_people`: of those, the people who did not reach the goal event within your `delay_hours`. They are who the first message goes to.
 - `reachable_people`: of those, the people the channel can reach. For email, a non-empty `email` person property.
 
-`baseline_conversion_rate` is the share of `reach_people` who reached the goal within the window with no message.
+`baseline_conversion_rate` is the share of `reach_people` who reached the goal at any point after the trigger within the window, with no message.
+It deliberately includes people who convert after `delay_hours`: they would get the first message and convert anyway, so the baseline is the rate a workflow has to beat, not the rate of the audience it messages.
 Pick `delay_hours` from the data: look at how long the people who do convert take, and wait long enough that most of them are already gone.
 `estimated_monthly_sends` is `reachable_people` scaled to 30 days, times `message_count`.
 
@@ -170,7 +174,8 @@ The subject line names the product, the thing the person did, or the thing they 
 ### Remember
 
 - `idea:<slug>` - an idea you recorded, with its reach, so a later run can tell a growing moment from a flat one.
-- `covered:<event>` - a moment you checked and found already covered, with the workflow that covers it, so you stop re-checking it.
+- `covered:<event>` - a moment you checked and found already covered, with the workflow that covers it.
+  Before you rely on it in a later run, check that the workflow is still live: an archived or deleted workflow covers nothing.
 - `noise:<event>` - a moment you ruled out, and why (reach, no nameable audience, no message you could write).
 - `gap:<event>` - an idea that needs an event the project does not record yet, with the reach it would have.
 
@@ -198,8 +203,9 @@ Do not record an idea when:
 
 - A live workflow already covers it.
   Note it as `covered:` and move on.
-- You cannot name the trigger exactly as this project spells it, or it counts zero over your window.
+- For an event trigger, you cannot name the event exactly as this project spells it, or it counts zero over your window.
   A moment the project never records is not a moment it has.
+  A schedule or batch trigger has no event to count, so this check does not apply to it.
 - The message would be transactional or legally required, such as a receipt, a password reset or a breach notice.
   Those are engineering work, not a workflow somebody chose to send.
 - You already recorded it on the current `idea_schema_version`.
