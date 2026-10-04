@@ -2,9 +2,10 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
+from django.db import connection, transaction
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -69,7 +70,121 @@ class TestRecordInsightView(BaseTest):
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
 
 
+class TestInsightViewedCompatibility(APIBaseTest):
+    @parameterized.expand([("same_timestamp", 0, 2), ("different_timestamps", 1, 2), ("multiple_batches", 1, 101)])
+    def test_context_fields_default_to_unattributed_and_history_writes_are_monotonic(
+        self, _name: str, offset_hours: int, count: int
+    ) -> None:
+        from products.product_analytics.backend.facade.api import record_insight_views
+
+        insights = Insight.objects.bulk_create([Insight(team=self.team) for _ in range(count)])
+        latest = now()
+        expected = {insight.pk: latest - timedelta(hours=i * offset_hours) for i, insight in enumerate(insights)}
+        for age in [timedelta(), timedelta(days=1)]:
+            record_insight_views(
+                team_id=self.team.pk,
+                user_id=self.user.pk,
+                last_viewed_at_by_insight_id={pk: at - age for pk, at in expected.items()},
+            )
+        rows = InsightViewed.objects.filter(insight_id__in=expected)
+        assert all(row.source == "" and row.dashboard_id is None for row in rows)
+        assert {row.insight_id: row.last_viewed_at for row in rows} == expected
+
+    @parameterized.expand([("one_context", 1), ("more_than_one_page", 60)])
+    def test_readers_deduplicate_future_contexts_and_legacy_writes_do_not_renew_them(
+        self, _name: str, context_count: int
+    ) -> None:
+        from products.product_analytics.backend.facade.api import (
+            recent_viewers_by_insight,
+            recently_viewed_insights,
+            record_insight_views,
+        )
+
+        insight = Insight.objects.create(team=self.team)
+        other = Insight.objects.create(team=self.team)
+        earlier = now() - timedelta(days=1)
+        oldest = earlier - timedelta(hours=1)
+        record_insight_views(
+            team_id=self.team.pk,
+            user_id=self.user.pk,
+            last_viewed_at_by_insight_id={insight.pk: earlier, other.pk: oldest},
+        )
+        # Emulate the later constraint migration inside a rollback-only test transaction.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+                cursor.execute(
+                    "ALTER TABLE posthog_insightviewed DROP CONSTRAINT IF EXISTS posthog_unique_insightviewed"
+                )
+                cursor.execute(
+                    "CREATE UNIQUE INDEX test_insightviewed_context_unique ON posthog_insightviewed (COALESCE(team_id, 0), COALESCE(user_id, 0), insight_id, source, COALESCE(dashboard_id, 0))"
+                )
+            context = InsightViewed.objects.create(
+                team=self.team, user=self.user, insight=insight, source="mcp", last_viewed_at=earlier
+            )
+            InsightViewed.objects.bulk_create(
+                [
+                    InsightViewed(
+                        team=self.team, user=self.user, insight=insight, source=f"context_{i}", last_viewed_at=earlier
+                    )
+                    for i in range(context_count - 1)
+                ]
+            )
+            latest = now()
+            record_insight_views(
+                team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: latest}
+            )
+            assert InsightViewed.objects.filter(insight=insight, source="").count() == 1
+            context.refresh_from_db()
+            assert context.last_viewed_at == earlier
+            recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=2)
+            assert [(item.pk, vars(item)["last_viewed_at"]) for item in recent] == [
+                (insight.pk, latest),
+                (other.pk, oldest),
+            ]
+            assert recent_viewers_by_insight(
+                team_id=self.team.pk, insight_ids=[insight.pk], since=earlier, max_per_insight=5
+            ) == {insight.pk: [self.user]}
+            record_insight_view(insight_id=insight.pk)
+            response = self.client.get(f"/api/projects/{self.team.pk}/insights/trending")
+            assert response.status_code == 200
+            result = response.json()["results"][0]
+            assert result["id"] == insight.pk
+            assert result["view_count"] == 2
+            assert len(result["viewers"]) == 1
+            transaction.set_rollback(True)
+
+
 class TestInsightReads(BaseTest):
+    @parameterized.expand([(0,), (1,), (2,), (5,)])
+    def test_recent_views_preserve_ties_scope_and_limits(self, limit: int) -> None:
+        from products.product_analytics.backend.facade.api import recently_viewed_insights
+
+        first, second, deleted = Insight.objects.bulk_create(
+            [Insight(team=self.team), Insight(team=self.team), Insight(team=self.team, deleted=True)]
+        )
+        viewed_at = now()
+        InsightViewed.objects.bulk_create(
+            [
+                InsightViewed(team=self.team, user=self.user, insight=insight, last_viewed_at=viewed_at)
+                for insight in [first, second, deleted]
+            ]
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        InsightViewed.objects.create(
+            team=other_team, user=self.user, insight=first, last_viewed_at=viewed_at + timedelta(days=1)
+        )
+        InsightViewed.objects.create(
+            team=self.team, user=None, insight=first, last_viewed_at=viewed_at + timedelta(days=1)
+        )
+
+        recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=limit)
+
+        assert [(item.pk, vars(item)["last_viewed_at"]) for item in recent] == [
+            (second.pk, viewed_at),
+            (first.pk, viewed_at),
+        ][:limit]
+
     def test_including_soft_deleted_insights_stays_scoped_to_the_team(self) -> None:
         deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
         live_insight = Insight.objects.create(team=self.team, name="Live")
@@ -180,3 +295,28 @@ class TestRunCachedTrendsQuery(BaseTest):
             session_org_kwargs = org_limiter.return_value.run.call_args.kwargs
             assert session_team_kwargs["is_api"] is False
             assert session_org_kwargs["is_api"] is False
+
+
+class TestConcurrentLegacyInsightViews(NonAtomicBaseTest):
+    def test_concurrent_first_views_keep_one_row(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+
+        from django.db import connections
+
+        def record(insight_id: int, viewer: dict, barrier: Barrier) -> None:
+            try:
+                barrier.wait(timeout=10)
+                record_insight_view(insight_id=insight_id, **viewer)
+            finally:
+                connections.close_all()
+
+        for identified in [False, True]:
+            insight_id = Insight.objects.create(team=self.team).pk
+            viewer = {"team_id": self.team.pk, "user_id": self.user.pk} if identified else {}
+            barrier = Barrier(2)
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(record, insight_id, viewer, barrier) for _ in range(2)]
+                for future in futures:
+                    future.result(timeout=30)
+            assert InsightViewed.objects.filter(insight_id=insight_id).count() == 1

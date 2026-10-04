@@ -3,7 +3,9 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db import transaction
+from django.db.models import Case, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models.functions import Greatest
 from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
@@ -48,21 +50,46 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
 
 
 def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | None) -> None:
-    InsightViewed.objects.update_or_create(
-        insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
-    )
+    _record_insight_views(team_id=team_id, user_id=user_id, last_viewed_at_by_insight_id={insight_id: now()})
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
-    InsightViewed.objects.bulk_create(
-        [
-            InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=last_viewed_at)
-            for insight_id, last_viewed_at in last_viewed_at_by_insight_id.items()
-        ],
-        update_conflicts=True,
-        unique_fields=["team", "user", "insight"],
-        update_fields=["last_viewed_at"],
-    )
+    _record_insight_views(team_id=team_id, user_id=user_id, last_viewed_at_by_insight_id=last_viewed_at_by_insight_id)
+
+
+def _record_insight_views(
+    *, team_id: int | None, user_id: int | None, last_viewed_at_by_insight_id: Mapping[int, datetime]
+) -> None:
+    if not last_viewed_at_by_insight_id:
+        return
+    rows = sorted(last_viewed_at_by_insight_id.items())
+    # Skip existing rows, including concurrent inserts, then update their timestamps below.
+    # TODO: Consider a single upsert once the uniqueness migration is fully deployed:
+    # https://github.com/PostHog/posthog/pull/106556. It must still preserve the newest timestamp.
+    with transaction.atomic():
+        InsightViewed.objects.bulk_create(
+            [
+                InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=viewed_at)
+                for insight_id, viewed_at in rows
+            ],
+            ignore_conflicts=True,
+        )
+        # Shared timestamps need no CASE; bound CASE size for per-insight timestamps.
+        batch_size = len(rows) if len(set(last_viewed_at_by_insight_id.values())) == 1 else 100
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start : start + batch_size]
+            timestamp = (
+                Value(batch[0][1])
+                if all(viewed_at == batch[0][1] for _, viewed_at in batch)
+                else Case(*[When(insight_id=insight_id, then=viewed_at) for insight_id, viewed_at in batch])
+            )
+            InsightViewed.objects.filter(
+                Q(team_id__isnull=True) if team_id is None else Q(team_id=team_id),
+                Q(user_id__isnull=True) if user_id is None else Q(user_id=user_id),
+                insight_id__in=[insight_id for insight_id, _ in batch],
+                source="",
+                dashboard_id__isnull=True,
+            ).update(last_viewed_at=Greatest("last_viewed_at", timestamp))
 
 
 def with_last_viewed_at(insights: QuerySet) -> QuerySet:
@@ -78,15 +105,24 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
         .select_related("insight")
         .exclude(insight__deleted=True)
         .only("insight", "last_viewed_at")
-        .order_by("-last_viewed_at")[:limit]
+        .order_by("-last_viewed_at", "-insight_id", "-pk")
     )
-
-    recently_viewed = []
-    for view in views:
-        insight = view.insight
-        insight.last_viewed_at = view.last_viewed_at
-        recently_viewed.append(insight)
-    return recently_viewed
+    recent: list[Insight] = []
+    seen: set[int] = set()
+    while len(recent) < limit:
+        # Skip collected insights so repeated contexts cannot fill every page.
+        page = list(views.exclude(insight_id__in=seen)[:50])
+        if not page:
+            break
+        for view in page:
+            if view.insight_id not in seen:
+                seen.add(view.insight_id)
+                insight = view.insight
+                insight.last_viewed_at = view.last_viewed_at
+                recent.append(insight)
+                if len(recent) == limit:
+                    return recent
+    return recent
 
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
@@ -108,9 +144,11 @@ def recent_viewers_by_insight(
     )
 
     viewers_by_insight: dict[int, list[User]] = {}
+    seen: set[tuple[int, int]] = set()
     for view in views:
-        if view.user is None:
+        if view.user is None or (view.insight_id, view.user_id) in seen:
             continue
+        seen.add((view.insight_id, view.user.pk))
         bucket = viewers_by_insight.setdefault(view.insight_id, [])
         if len(bucket) < max_per_insight:
             bucket.append(view.user)
