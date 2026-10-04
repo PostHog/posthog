@@ -1691,10 +1691,6 @@
         "chromium": 35.165,
         "webkit": 7.171
     },
-    "products/links/frontend/LinksScene.stories.tsx": {
-        "chromium": 15.063,
-        "webkit": 2.919
-    },
     "products/logs/frontend/LogsScene.stories.tsx": {
         "chromium": 1.794,
         "webkit": 1.145

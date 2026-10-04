@@ -118,7 +118,6 @@
         "@posthog/products-groups": "workspace:*",
         "@posthog/products-growth": "workspace:*",
         "@posthog/products-legal-documents": "workspace:*",
-        "@posthog/products-links": "workspace:*",
         "@posthog/products-live-debugger": "workspace:*",
         "@posthog/products-logs": "workspace:*",
         "@posthog/products-managed-migrations": "workspace:*",

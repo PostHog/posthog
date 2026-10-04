@@ -482,7 +482,6 @@ posthog.User exports.ExportedAsset.created_by reverse-accessor(exportedasset_set
 posthog.User feature_flags.FeatureFlag.last_modified_by reverse-accessor(updated_feature_flags) 1
 posthog.User field_notes.FieldNote.created_by reverse-accessor(fieldnote_set) 1
 posthog.User legal_documents.LegalDocument.created_by reverse-accessor(legaldocument_set) 1
-posthog.User links.Link.created_by reverse-accessor(link_set) 1
 posthog.User logs.LogsAlertConfiguration.created_by reverse-accessor(logsalertconfiguration_set) 1
 posthog.User logs.LogsExclusionRule.created_by reverse-accessor(logsexclusionrule_set) 1
 posthog.User logs.LogsView.created_by reverse-accessor(logsview_set) 1
