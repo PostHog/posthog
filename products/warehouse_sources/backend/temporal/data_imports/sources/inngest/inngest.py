@@ -468,8 +468,7 @@ def _get_session_run_rows(
                 session_id = session_group.get("id")
                 if not session_id:
                     continue
-                # The spec routes sessionId as `.+`, so it may legitimately contain slashes.
-                path = config.path.format(session_key=encoded_key, session_id=quote(session_id, safe="/"))
+                path = config.path.format(session_key=encoded_key, session_id=quote(session_id, safe=""))
                 for runs, _ in _iter_v2_pages(session, headers, logger, path, _session_window_params(config, window)):
                     rows = [{**run, "session_key": session_key, "session_id": session_id} for run in runs]
                     if rows:

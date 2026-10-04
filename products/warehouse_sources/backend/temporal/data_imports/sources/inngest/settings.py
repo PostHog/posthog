@@ -23,7 +23,7 @@ class InngestVersionPath:
     pagination: Literal["events_cursor", "v2_cursor", "v2_runs_window", "none"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class InngestEndpointConfig:
     name: str
     path: str

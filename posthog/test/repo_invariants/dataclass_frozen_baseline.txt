@@ -691,7 +691,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/inflowinventory/inflowinventory.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/inflowinventory/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/inngest/inngest.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/inngest/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/insightly/insightly.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/insightly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/instagram/instagram.py
