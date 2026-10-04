@@ -1200,8 +1200,8 @@ function drawHatchedBarFill(ctx: CanvasRenderingContext2D, color: string): void 
 // Tracks render as a tinted base under hatched stripes — same construction as the legacy
 // funnel backdrop (`var(--series-color)` behind `repeating-linear-gradient` stripes), so the
 // whole region reads as continuously filled rather than as bare stripes on the background.
-const BAR_TRACK_BASE_ALPHA = 0.14
-const BAR_TRACK_HATCH_ALPHA = 0.18
+const BAR_TRACK_BASE_ALPHA = 0.06
+const BAR_TRACK_HATCH_ALPHA = 0.14
 /** Translucent overlay drawn over the track on hover. Exported so the chart-type's
  *  hover callback can match the resting track's tuning. */
 export const BAR_TRACK_HOVER_ALPHA = 0.2
@@ -1271,6 +1271,33 @@ export function drawBarTracks(
     ctx.fillStyle = getHatchPattern(ctx, series.color)
     fillTrackRects(ctx, renderableTracks, cornerRadius)
     ctx.restore()
+}
+
+/** Thickness (px) of the solid floor mark on an empty or near-empty tracked bar. */
+export const BAR_TRACK_FLOOR_MARK_SIZE = 3
+
+/** Paints a solid floor mark at the baseline of each bar thinner than
+ *  {@link BAR_TRACK_FLOOR_MARK_SIZE} along the value axis. Without it, a 0% bar leaves only its
+ *  full-height track, which reads as a filled 100% bar. */
+export function drawBarTrackFloorMarks(
+    ctx: CanvasRenderingContext2D,
+    series: ResolvedSeries,
+    bars: BarRect[],
+    isHorizontal: boolean
+): void {
+    for (const bar of bars) {
+        const valueSize = isHorizontal ? bar.width : bar.height
+        const bandSize = isHorizontal ? bar.height : bar.width
+        if (bandSize <= 0 || valueSize >= BAR_TRACK_FLOOR_MARK_SIZE) {
+            continue
+        }
+        ctx.fillStyle = barColorAt(series, bar.dataIndex)
+        if (isHorizontal) {
+            ctx.fillRect(bar.x, bar.y, BAR_TRACK_FLOOR_MARK_SIZE, bar.height)
+        } else {
+            ctx.fillRect(bar.x, bar.y + bar.height - BAR_TRACK_FLOOR_MARK_SIZE, bar.width, BAR_TRACK_FLOOR_MARK_SIZE)
+        }
+    }
 }
 
 /** Translucent fill on the overlay canvas, alpha-composited over the static bar. */

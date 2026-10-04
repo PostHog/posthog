@@ -15,6 +15,7 @@ import {
     drawAxes,
     drawBarHighlight,
     drawBars,
+    drawBarTrackFloorMarks,
     drawBarTracks,
     drawGrid,
     resolveAxisLineColor,
@@ -206,6 +207,12 @@ export function drawBarChartStatic(
             ctx.restore()
         }
     })
+
+    if (barTrack && barLayout === 'grouped') {
+        for (const { series: s, bars } of seriesBars) {
+            drawBarTrackFloorMarks(ctx, s, bars, isHorizontal)
+        }
+    }
 
     if (axisLineStyle) {
         const hasRightAxis =

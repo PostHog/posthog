@@ -432,7 +432,8 @@ export interface ValueDomain {
 export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
 
 export interface BarsConfig {
-    /** Draw a faint hatched track behind each bar, spanning the full plot height — for
+    /** Draw a faint hatched track behind each bar, spanning the full plot height, plus a solid
+     *  floor mark on bars thinner than 3px so an empty bar does not read as full — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
      *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
