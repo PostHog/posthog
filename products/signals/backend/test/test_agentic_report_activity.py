@@ -1,6 +1,7 @@
 import json
 import random
 import asyncio
+import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -15,6 +16,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import ValidationError
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -695,6 +697,50 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
     assert result.repository is None
     assert "No GitHub repositories" in result.reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_select_repository_activity_failure_event_carries_error_type_and_attempt(monkeypatch, ateam):
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
+    )
+
+    async def fake_select_repo(*args, **kwargs):
+        raise ValueError("No JSON in initial turn")
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        fake_select_repo,
+    )
+
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=2)
+
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture") as capture,
+    ):
+        with pytest.raises(ValueError):
+            await env.run(
+                select_repository_activity,
+                SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals()),
+            )
+
+    completed = [c.kwargs for c in capture.call_args_list if c.kwargs["event"] == "signals_repo_research_completed"]
+    assert len(completed) == 1
+    assert completed[0]["properties"] == {
+        "report_id": "test-report-id",
+        "result": "failed",
+        "failure_reason": "agentic_activity_error",
+        "error_type": "ValueError",
+        "attempt": 2,
+    }
 
 
 @pytest.mark.asyncio
