@@ -27,7 +27,7 @@ from posthog.models.oauth import (
     find_oauth_refresh_token,
 )
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, find_personal_api_key
-from posthog.models.project_secret_api_key import find_project_secret_api_key
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.rate_limit import LeakedKeyReportThrottle
 from posthog.test.api_keys import create_project_secret_api_key
@@ -203,6 +203,28 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
+
+    @patch("posthog.api.secret_revocation.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_team_token_with_backfilled_psak_deletes_the_row_and_notifies_admins(
+        self, mock_psak_exposed, mock_ff_exposed
+    ) -> None:
+        # The backfilled row IS the leaked legacy credential: revocation deletes it and
+        # tells the admins to rotate the still-valid team token.
+        token = "phs_legacy_team_secret_token_with_migrated_row"
+        self.team.secret_api_token = token
+        self.team.save()
+        row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+
+        response = self._post(token)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"found": True, "type": "team_secret_token"})
+        self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.secret_api_token, token)
+        mock_psak_exposed.assert_not_called()
+        mock_ff_exposed.assert_called_once()
 
     def test_expired_oauth_access_token_still_revokes_the_paired_refresh_token(self) -> None:
         # An expired access token can't authenticate on its own, but revoking still

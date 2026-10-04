@@ -23,6 +23,7 @@ from posthog.api.github import (
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import (
     generate_random_token_personal,
     generate_random_token_secret,
@@ -625,6 +626,28 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertEqual(self.team.secret_api_token, token)
         mock_ff_exposed.assert_called_once()
         mock_psak_exposed.assert_not_called()
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.secret_revocation.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_leaked_team_token_with_backfilled_psak_deletes_the_row_and_notifies(
+        self, mock_psak_exposed, mock_ff_exposed, mock_verify
+    ):
+        # The backfilled row IS the leaked legacy credential: revocation deletes it and
+        # tells the admins to rotate the still-valid team token, exactly once.
+        mock_verify.return_value = None
+        token = "phs_legacy_team_secret_token_123"
+        self.team.secret_api_token = token
+        self.team.save()
+        row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+
+        response = self._post_alert([token])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["label"], "true_positive")
+        self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
+        mock_psak_exposed.assert_not_called()
+        mock_ff_exposed.assert_called_once()
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")

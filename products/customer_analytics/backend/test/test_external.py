@@ -160,6 +160,17 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.refresh_from_db()
         self.assertIsNone(self.account.churned_at)
 
+    def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self) -> None:
+        # The #63111 backfill gives the legacy token a PSAK row with the same hash. The
+        # legacy string must keep the legacy path (updates allowed), not resolve as a PSAK.
+        create_project_secret_api_key(
+            self.team, label="Migrated legacy secret API key", value=self.team.secret_api_token
+        )
+        response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-01"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.account.refresh_from_db()
+        self.assertIsNotNone(self.account.churned_at)
+
     def test_post_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
         token = self._create_psak_token(scopes=["account:write"])
 
