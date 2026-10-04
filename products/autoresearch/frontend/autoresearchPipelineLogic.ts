@@ -612,7 +612,10 @@ export interface autoresearchPipelineLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (pipeline: AutoresearchPipelineApi | null) => Breadcrumb[]
         validationRuns: (runs: AutoresearchRunApi[]) => AutoresearchRunApi[]
-        scoringCoverage: (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null) => ScoringCoverage | null
+        scoringCoverage: (
+            runs: AutoresearchRunApi[],
+            pipeline: AutoresearchPipelineApi | null
+        ) => ScoringCoverage | null
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
     }

@@ -210,7 +210,11 @@ describe('autoresearchPipelineLogic', () => {
         })
 
         it('counts the rescore interval in days for a non-daily cadence', () => {
-            expect(scoringCoverage([makeScoringRun({})], 7)).toEqual({ scored: 45000, eligible: 250000, rescoreDays: 42 })
+            expect(scoringCoverage([makeScoringRun({})], 7)).toEqual({
+                scored: 45000,
+                eligible: 250000,
+                rescoreDays: 42,
+            })
         })
     })
 
