@@ -100,6 +100,22 @@ describe('renderColumn', () => {
         })
     })
 
+    it.each([
+        ['a new insight', {}, '/insights/new'],
+        [
+            'the Sentry issue',
+            { $sentry_url: 'https://sentry.example.com/issue/1' },
+            'https://sentry.example.com/issue/1',
+        ],
+    ])('event column links to %s', (_case, properties, expectedHref) => {
+        const record = select.map((column) =>
+            column === '*' ? { event: 'signed_up', properties } : column === 'event' ? 'signed_up' : null
+        )
+        render(<Provider>{renderColumn('event', 'signed_up', record, 0, 1, eventsTable)}</Provider>)
+
+        expect(screen.getByRole('link')).toHaveAttribute('href', expect.stringContaining(expectedHref))
+    })
+
     it('renders the actors person column through the core renderer', () => {
         // A product renderer registered under the bare key `person` used to win here and render
         // "Unknown", because it matches on `distinct_id` and an actor carries `distinct_ids`.
