@@ -96,12 +96,13 @@ export function setupSessionRecordingTest(options: SessionRecordingTestSetupOpti
         patchMocks = {},
         deleteMocks = {},
         snapshotSources = [BLOB_SOURCE_V2],
+        replayProxyToken,
         customQueryHandler,
     } = options
 
     useAvailableFeatures(features)
 
-    const defaults = getDefaultMocks(snapshotSources, customQueryHandler)
+    const defaults = getDefaultMocks(snapshotSources, customQueryHandler, replayProxyToken)
 
     useMocks({
         get: { ...defaults.get, ...getMocks },
