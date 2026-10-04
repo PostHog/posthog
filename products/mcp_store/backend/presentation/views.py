@@ -68,6 +68,7 @@ from ..oauth import (
     DcrClientRegistration,
     DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
+    OAuthMetadataValidationError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
     exchange_oauth_token,
@@ -124,6 +125,13 @@ def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
     if error.detail:
         return f"OAuth registration failed. {error.detail}"
     return "OAuth registration failed."
+
+
+def _oauth_discovery_failed_detail(error: Exception) -> str:
+    # Other discovery errors can carry upstream URLs or response bodies, so only validation messages reach the user.
+    if isinstance(error, OAuthMetadataValidationError):
+        return f"OAuth discovery failed. {error}"
+    return "OAuth discovery failed."
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -1474,7 +1482,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 )
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
                 registration = self._register_dcr_client_or_raise(
@@ -1735,7 +1743,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
             if created:
                 installation.delete()
-            return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
@@ -1945,7 +1953,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                         server_url=template.url,
                         error=str(e),
                     )
-                    return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
                 installation.oauth_metadata = metadata
                 installation.save(update_fields=["oauth_metadata", "updated_at"])
         else:
