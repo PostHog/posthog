@@ -6,8 +6,10 @@ two apart. A flagged answer gets one text-only rewrite, and an answer still flag
 `pii_detected`. Where Jev is unavailable or errors, the answer passes.
 """
 
+import re
 import json
 import asyncio
+from collections.abc import Sequence
 from typing import Any, TypeVar
 
 import structlog
@@ -153,12 +155,29 @@ def record_pii_check(outcome: str, scanner_type: str) -> None:
     REPLAY_VISION_PII_CHECKS.labels(outcome=outcome, scanner_type=scanner_type).inc()
 
 
+def _without(text: dict[str, str], values: Sequence[str]) -> dict[str, str]:
+    """`text` with each allowed identity value replaced, so the detector only judges what is left."""
+    allowed = sorted({value for value in values if value and value.strip()}, key=len, reverse=True)
+    if not allowed:
+        return text
+    pattern = re.compile("|".join(re.escape(value) for value in allowed), re.IGNORECASE)
+    return {field: pattern.sub("the user", value) for field, value in text.items()}
+
+
 async def keep_unrequested_pii_out(
-    output: _OutputT, *, team_id: int, question: str, scanner_type: str, trace_id: str
+    output: _OutputT,
+    *,
+    team_id: int,
+    question: str,
+    identity_values: Sequence[str],
+    scanner_type: str,
+    trace_id: str,
 ) -> _OutputT:
     """Return the answer, rewritten once if Jev finds personal data the question did not ask for.
 
-    Raises `ScannerFailureError(PII_DETECTED)` when the rewritten answer is still flagged, or the rewrite fails.
+    When the question asks who the session belongs to, the session's own identity values are allowed and only the
+    rest of the answer is judged. Raises `ScannerFailureError(PII_DETECTED)` when the rewritten answer is still
+    flagged, or the rewrite fails.
     """
     text = answer_text(output)
     if not text:
@@ -167,10 +186,8 @@ async def keep_unrequested_pii_out(
     if asks is None:
         record_pii_check("unavailable", scanner_type)
         return output
-    if asks:
-        record_pii_check("identity_asked", scanner_type)
-        return output
-    flagged = await asyncio.to_thread(contains_pii, team_id=team_id, text=text, trace_id=trace_id)
+    allowed = identity_values if asks else ()
+    flagged = await asyncio.to_thread(contains_pii, team_id=team_id, text=_without(text, allowed), trace_id=trace_id)
     if not flagged:
         record_pii_check("unavailable" if flagged is None else "clean", scanner_type)
         return output
@@ -185,7 +202,7 @@ async def keep_unrequested_pii_out(
             kind=FailureKind.PII_DETECTED,
         ) from e
     still_flagged = await asyncio.to_thread(
-        contains_pii, team_id=team_id, text=answer_text(rewritten), trace_id=trace_id
+        contains_pii, team_id=team_id, text=_without(answer_text(rewritten), allowed), trace_id=trace_id
     )
     if still_flagged:
         record_pii_check("failed", scanner_type)

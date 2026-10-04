@@ -98,6 +98,7 @@ from products.replay_vision.backend.temporal.types import (
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
+    SessionIdentity,
 )
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
@@ -329,6 +330,7 @@ async def run_scan(
         outcome.finalized,
         team_id=team_id,
         question=getattr(scanner, "prompt", "") or "",
+        identity_values=_identity_values(llm_inputs.identity),
         scanner_type=snapshot.scanner_type.value,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
@@ -345,6 +347,12 @@ async def run_scan(
         # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
         signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
     )
+
+
+def _identity_values(identity: SessionIdentity) -> list[str]:
+    """The values `<session_identity>` lets a scanner name when its question asks who the session belongs to."""
+    values = [identity.person_email, identity.person_name, identity.person_organization]
+    return [value for value in [*values, *(group.name for group in identity.groups)] if value]
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
