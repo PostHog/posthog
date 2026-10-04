@@ -15,7 +15,6 @@ import {
 import { TodaySessionBulkArchiveDialog } from './TodaySessionBulkArchiveDialog'
 import { sessionsLabel } from './todaySessionSelection'
 import { TodayBulkAction, todaySessionSelectionLogic } from './todaySessionSelectionLogic'
-import { todayShellLogic } from './todayShellLogic'
 import { TodaySpaceFileList } from './TodaySpaceFileList'
 import { todaySpacesLogic } from './todaySpacesLogic'
 
@@ -68,9 +67,7 @@ export function TodaySessionBulkBar(): JSX.Element {
         archiveSelected,
     } = useActions(todaySessionSelectionLogic)
     const { spaces } = useValues(todaySpacesLogic)
-    const { phoneLayout } = useValues(todayShellLogic)
     const count = selectedSessionIds.length
-    const minimum = phoneLayout ? 1 : 2
     const sessions = sessionsLabel(count)
     const pin = bulkPinDirection === 'pin'
 
@@ -78,9 +75,9 @@ export function TodaySessionBulkBar(): JSX.Element {
         <>
             {/* The bar is the only sign of a selection and unmounts below two, so the announcement lives outside it. */}
             <span aria-live="polite" className="sr-only">
-                {count >= minimum ? `${sessions} selected` : ''}
+                {count > 1 ? `${sessions} selected` : ''}
             </span>
-            {count >= minimum && (
+            {count > 1 && (
                 <div
                     className="-mx-3 flex items-center justify-between gap-2 border-t border-border px-3 py-1.5"
                     data-attr="today-session-bulk-bar"
@@ -89,11 +86,9 @@ export function TodaySessionBulkBar(): JSX.Element {
                         <Text size="xs" weight="medium" render={<span />} className="shrink-0">
                             {`${count} selected`}
                         </Text>
-                        {!phoneLayout && (
-                            <Text size="xxs" variant="muted" render={<span />} className="truncate">
-                                Esc to clear
-                            </Text>
-                        )}
+                        <Text size="xxs" variant="muted" render={<span />} className="truncate">
+                            Esc to clear
+                        </Text>
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
                         <BulkButton

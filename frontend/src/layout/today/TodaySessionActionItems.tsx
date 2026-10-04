@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconArchive,
-    IconCheckbox,
     IconCopy,
     IconExternal,
     IconFolder,
@@ -21,8 +20,6 @@ import { isMac } from 'lib/utils/dom'
 import { TodayMenuParts } from './todayMenuParts'
 import { todayArchiveShortcutLabel } from './todaySessionArchiveShortcut'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
-import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
-import { todayShellLogic } from './todayShellLogic'
 import { TodaySpaceFileList } from './TodaySpaceFileList'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySessionMenuTarget } from './todayWorkItems'
@@ -44,8 +41,6 @@ export function TodaySessionActionItems({
 }: TodaySessionActionItemsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { spaces } = useValues(todaySpacesLogic)
-    const { phoneLayout } = useValues(todayShellLogic)
-    const { toggleSessionSelection } = useActions(todaySessionSelectionLogic)
     const {
         setSessionPinned,
         startRenaming,
@@ -63,12 +58,10 @@ export function TodaySessionActionItems({
 
     return (
         <>
-            {!phoneLayout && (
-                <Item onClick={() => openSessionInNewTab(sessionId)} dataAttr={attr('open-new-tab')}>
-                    <IconExternal />
-                    Open in new tab
-                </Item>
-            )}
+            <Item onClick={() => openSessionInNewTab(sessionId)} dataAttr={attr('open-new-tab')}>
+                <IconExternal />
+                Open in new tab
+            </Item>
             <Item onClick={() => copySessionLink(sessionId)} dataAttr={attr('copy-link')}>
                 <IconCopy />
                 Copy link
@@ -101,7 +94,6 @@ export function TodaySessionActionItems({
                             File to…
                         </>
                     }
-                    title="File to…"
                     dataAttr={attr('file')}
                 >
                     <TodaySpaceFileList
@@ -116,12 +108,6 @@ export function TodaySessionActionItems({
                 <Item onClick={() => openHandoff(menuId)} dataAttr={attr('handoff')}>
                     <IconSend />
                     Hand off…
-                </Item>
-            )}
-            {phoneLayout && surface === 'sidebar' && (
-                <Item onClick={() => toggleSessionSelection(sessionId)} dataAttr={attr('select')}>
-                    <IconCheckbox />
-                    Select
                 </Item>
             )}
             <Separator />

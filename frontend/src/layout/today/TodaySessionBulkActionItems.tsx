@@ -64,7 +64,6 @@ export function TodaySessionBulkActionItems({
                             {`File ${sessions} to…`}
                         </>
                     }
-                    title={`File ${sessions} to…`}
                     dataAttr={attr('file')}
                 >
                     <TodaySpaceFileList
