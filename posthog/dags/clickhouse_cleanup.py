@@ -593,6 +593,7 @@ def resolve_tombstone_queue(
             "dropped": dagster.MetadataValue.int(result.dropped),
             "confirmed": dagster.MetadataValue.int(result.confirmed),
             "republished": dagster.MetadataValue.int(result.republished),
+            "raised": dagster.MetadataValue.int(result.raised),
             "failed_teams": dagster.MetadataValue.int(result.failed_teams),
             "remaining": dagster.MetadataValue.int(len(result.remaining)),
         }

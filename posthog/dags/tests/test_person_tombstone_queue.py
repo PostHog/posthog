@@ -23,6 +23,8 @@ from posthog.models.person.util import (
     PersonTombstone,
     QueuedPersonTombstone,
     create_person as create_person_in_ch,
+    create_person_distinct_id,
+    get_person_tombstones,
     publish_person_tombstone,
     tombstone_persons_in_postgres,
 )
@@ -87,15 +89,49 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert [row.person_uuid for row in result.remaining] == [person.uuid]
         assert self._queued() == {person.uuid}
 
+    def test_raises_a_tombstone_that_a_live_clickhouse_row_outranks(self) -> None:
+        person = create_person(team_id=self.team.pk, distinct_ids=["queue-outranked"])
+        [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        create_person_in_ch(uuid=str(person.uuid), team_id=self.team.pk, version=tombstone.version + 5)
+
+        result = self._resolve()
+
+        [stored] = get_person_tombstones(self.team.pk, [person.uuid])
+        assert stored.version == tombstone.version + 6
+        assert (result.raised, result.confirmed) == (1, 1)
+        assert result.remaining == []
+        assert self._queued() == set()
+        assert self._ch_person_deleted(person.uuid)
+
+    def test_a_live_distinct_id_above_its_tombstone_is_left_to_the_sweep(self) -> None:
+        person = create_person(team_id=self.team.pk, distinct_ids=["queue-did-above"])
+        [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        create_person_in_ch(uuid=str(person.uuid), team_id=self.team.pk, version=tombstone.version, is_deleted=True)
+        [mapping] = tombstone.distinct_ids
+        create_person_distinct_id(
+            team_id=self.team.pk, distinct_id=mapping.id, person_id=str(person.uuid), version=mapping.version + 5
+        )
+
+        with patch("posthog.dags.person_tombstone_queue.publish_person_tombstone") as publish:
+            result = self._resolve()
+
+        publish.assert_not_called()
+        assert (result.confirmed, result.remaining) == (1, [])
+        assert self._queued() == set()
+
     def test_dry_run_acks_and_publishes_nothing(self) -> None:
         confirmed = self._tombstoned("queue-dry-confirmed", published=True)
         behind = self._tombstoned("queue-dry-behind", published=False)
+        outranked = self._tombstoned("queue-dry-outranked", published=True)
+        [tombstone] = get_person_tombstones(self.team.pk, [outranked])
+        create_person_in_ch(uuid=str(outranked), team_id=self.team.pk, version=tombstone.version + 5)
 
         result = self._resolve(dry_run=True)
 
-        assert [row.person_uuid for row in result.remaining] == [behind]
-        assert self._queued() == {confirmed, behind}
+        assert {row.person_uuid for row in result.remaining} == {behind, outranked}
+        assert self._queued() == {confirmed, behind, outranked}
         assert not self._ch_person_deleted(behind)
+        assert get_person_tombstones(self.team.pk, [outranked]) == [tombstone]
 
     def test_leaves_teams_outside_the_range_alone(self) -> None:
         behind = self._tombstoned("queue-range", published=False)
