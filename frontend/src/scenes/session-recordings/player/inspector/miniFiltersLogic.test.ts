@@ -10,6 +10,7 @@ describe('miniFiltersLogic', () => {
     let eventLogic: ReturnType<typeof sessionRecordingEventUsageLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         eventLogic = sessionRecordingEventUsageLogic()
         eventLogic.mount()
@@ -26,6 +27,8 @@ describe('miniFiltersLogic', () => {
                     'events-pageview',
                     'events-autocapture',
                     'events-exceptions',
+                    'console-debug',
+                    'console-log',
                     'console-info',
                     'console-warn',
                     'console-error',
@@ -56,10 +59,6 @@ describe('miniFiltersLogic', () => {
     })
 
     describe('miniFilters', () => {
-        afterEach(() => {
-            localStorage.clear()
-        })
-
         it('can unselect', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setMiniFilter('events-posthog', false)
@@ -69,6 +68,8 @@ describe('miniFiltersLogic', () => {
                     'events-pageview',
                     'events-autocapture',
                     'events-exceptions',
+                    'console-debug',
+                    'console-log',
                     'console-info',
                     'console-warn',
                     'console-error',
@@ -78,6 +79,43 @@ describe('miniFiltersLogic', () => {
                     'logs-error',
                 ],
             })
+        })
+    })
+
+    describe('selection saved before the debug and log filters existed', () => {
+        const storageKey = 'scenes.session-recordings.player.miniFiltersLogic.selectedMiniFilters'
+
+        function remount(savedSelection?: string[]): void {
+            logic.unmount()
+            if (savedSelection) {
+                localStorage.clear()
+                localStorage.setItem(storageKey, JSON.stringify(savedSelection))
+            }
+            initKeaTests()
+            eventLogic = sessionRecordingEventUsageLogic()
+            eventLogic.mount()
+            logic = miniFiltersLogic()
+            logic.mount()
+        }
+
+        it('turns the new filters on once and then keeps what the user chooses', () => {
+            remount(['events-posthog', 'console-info', 'console-error'])
+            expect(logic.values.selectedMiniFilters).toEqual([
+                'events-posthog',
+                'console-info',
+                'console-error',
+                'console-debug',
+                'console-log',
+            ])
+
+            logic.actions.setMiniFilter('console-log', false)
+            remount()
+            expect(logic.values.selectedMiniFilters).toEqual([
+                'events-posthog',
+                'console-info',
+                'console-error',
+                'console-debug',
+            ])
         })
     })
 })

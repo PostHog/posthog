@@ -1659,6 +1659,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     'events-pageview': [],
                     'events-autocapture': [],
                     'events-exceptions': [],
+                    'console-debug': [],
+                    'console-log': [],
                     'console-info': [],
                     'console-warn': [],
                     'console-error': [],
