@@ -47,6 +47,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerModel,
     ScannerType,
     apply_experiment_targeting,
+    config_experiment_scope,
 )
 from products.replay_vision.backend.queries.action_volume import recent_action_sessions
 from products.replay_vision.backend.queries.event_volume import recent_event_sessions
@@ -307,10 +308,9 @@ class ScannerDraft:
     # budget so a mis-estimate cannot overspend it. None on the legacy path.
     model: str | None = None
     credit_limit: int | None = None
-    # Shape: ScannerExperimentTargetingSerializer. Set by the goal-based path when the goal named one
-    # of the team's experiments, so the scan watches that experiment's participants. It stays out of
-    # `query`, which is where the API refuses an exposure filter, and rides to the wizard as its own
-    # field the way a saved scanner carries it.
+    # Shape: ScannerExperimentTargetingSerializer. Always None now: a goal that names an experiment
+    # drafts the experiment type, which keeps the experiment in `scanner_config`. Kept until the
+    # legacy targeting column is removed, because the wizard still reads it.
     experiment_targeting: dict[str, Any] | None = None
 
 
@@ -1070,7 +1070,10 @@ Pick the single type that best fits the goal, then draft the scanner:
   limits the scan to the people that experiment exposed, which no page or event filter can
   express: a page filter scans everyone who visited the page, so the control group's sessions land
   in the results too and the observations describe the old experience and the new one at once.
-  Copy the name exactly; anything not in the list is discarded.
+  Copy the name exactly; anything not in the list is discarded. Naming an experiment makes the
+  draft an experiment scanner, whatever scanner_type you pick: it writes a summary of each exposed
+  session and is told that session's variant. So write the prompt as what each summary should focus
+  on, not as a yes/no question or a tag list.
   - filter_experiment_variant: the variant whose experience the goal is about, copied exactly from
     that experiment's variants. A goal about the new thing means the variant that has it, not
     control. Leave empty only when the goal compares the variants or names none.
@@ -1700,6 +1703,22 @@ def _grounded_targeting(
     }
 
 
+def _experiment_config(parsed: _LlmDraftV2, targeting: dict[str, Any]) -> dict[str, Any]:
+    """An experiment scanner's config from the drafted prompt and the grounded experiment."""
+    config: dict[str, Any] = {
+        "prompt": parsed.prompt.strip()[:_MAX_PROMPT_LENGTH],
+        "experiment_id": targeting["experiment_id"],
+    }
+    if targeting.get("variant"):
+        config["variants"] = [targeting["variant"]]
+    if parsed.scanner_type == "summarizer":
+        config["length"] = parsed.length
+    error = scanner_config_error(ScannerType.EXPERIMENT, config)
+    if error:
+        raise DraftError("config_invalid", str(error))
+    return config
+
+
 def _finalize_v2(
     parsed: _LlmDraftV2,
     *,
@@ -1716,8 +1735,6 @@ def _finalize_v2(
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
         raise DraftError("missing_name_or_prompt")
-    scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
-
     proposed_pages = _proposed_filter_values(parsed.filter_pages, allowed_pages)
     # Dead events count as offered here: they left the briefing, but revival below can still put one
     # back, and a name that itself ends in a numeric parenthetical must survive to be recognised.
@@ -1748,6 +1765,11 @@ def _finalize_v2(
     ][:_MAX_FILTER_COHORTS]
     targeting = _grounded_targeting(
         parsed.filter_experiment, parsed.filter_experiment_variant, allowed=allowed_experiments
+    )
+    # A goal that names an experiment drafts the experiment type, the only one that watches one.
+    scanner_type = ScannerType.EXPERIMENT.value if targeting is not None else parsed.scanner_type
+    scanner_config = (
+        _experiment_config(parsed, targeting) if targeting is not None else _normalized_config(parsed)  # type: ignore[arg-type]
     )
     # Dropping a dead event narrows only while another filter still holds the scan down. Alone it
     # inverts, leaving a query that matches every session rather than none, so the event goes back.
@@ -1833,13 +1855,12 @@ def _finalize_v2(
     return ScannerDraft(
         name=name,
         description=parsed.description.strip()[:_MAX_DESCRIPTION_LENGTH],
-        scanner_type=parsed.scanner_type,
+        scanner_type=scanner_type,
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
         query=query,
         sampling_mode=parsed.sampling_mode,
         model=parsed.model,
-        experiment_targeting=targeting,
     )
 
 
@@ -1951,7 +1972,7 @@ def draft_scanner_from_goal_v2(
             team=team,
             user=user,
             query=draft.query,
-            experiment_targeting=draft.experiment_targeting,
+            experiment_targeting=config_experiment_scope(draft.scanner_config) or draft.experiment_targeting,
             monthly_credit_budget=monthly_credit_budget,
             credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
             model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
@@ -2031,7 +2052,7 @@ def _fall_back_to_pages(
             # Targeting survives the fallback: the goal named the experiment, so a population that
             # ignores it answers a different question, and unlike an event filter it cannot be the
             # dead part — the exposure read is resolved from the experiment itself.
-            experiment_targeting=draft.experiment_targeting,
+            experiment_targeting=config_experiment_scope(draft.scanner_config) or draft.experiment_targeting,
             monthly_credit_budget=monthly_credit_budget,
             credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
             model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
