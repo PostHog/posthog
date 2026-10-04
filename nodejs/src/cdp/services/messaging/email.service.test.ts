@@ -540,9 +540,26 @@ describe('EmailService', () => {
                 [true, '<body><p>Hello</p><script><!--<script>'],
                 [false, '<body><p>Hello</p><template><script><!--<script>'],
                 [true, '<body><p>Hello</p><template><script><!--<script>'],
+                [
+                    false,
+                    '',
+                    '',
+                    'The sandbox email template must include HTML or text content. Update the template and try again.',
+                ],
+                [
+                    true,
+                    '',
+                    '',
+                    'The sandbox email template must include HTML or text content. Update the template and try again.',
+                ],
             ] as const)(
                 'rejects HTML that cannot retain the identification footer (isTest=%s, html=%s)',
-                async (isTest, html) => {
+                async (
+                    isTest,
+                    html,
+                    text: string | undefined = undefined,
+                    expectedError: string = 'The sandbox email template could not retain its identification footer. Update the template and try again.'
+                ) => {
                     const outputs = new IngestionOutputs({
                         message_assets: new SingleIngestionOutput(
                             'message_assets',
@@ -554,7 +571,7 @@ describe('EmailService', () => {
                     const limiter = await createSandboxLimiter('sandbox-rejected-html-budget-test')
                     service = createSandboxService(true, limiter, new MessageAssetsService(outputs))
                     invocation.state.actionId = 'send-email'
-                    const params = createEmailParams({ from: { integrationId: 4 }, text: undefined, html })
+                    const params = createEmailParams({ from: { integrationId: 4 }, text, html })
                     invocation.queueParameters = params
 
                     const result = await service.executeSendEmail(invocation, isTest)
@@ -562,7 +579,7 @@ describe('EmailService', () => {
                     expect(sendEmailSpy).not.toHaveBeenCalled()
                     expect(result).toMatchObject({
                         finished: true,
-                        error: 'The sandbox email template could not retain its identification footer. Update the template and try again.',
+                        error: expectedError,
                         messageAssets: [],
                     })
                     expect(result.skipped).not.toBe(true)
@@ -577,7 +594,7 @@ describe('EmailService', () => {
                     expect(result.capturedPostHogEvents.some((event) => event.event === '$workflows_email_sent')).toBe(
                         false
                     )
-                    expect(params).toEqual(createEmailParams({ from: { integrationId: 4 }, text: undefined, html }))
+                    expect(params).toEqual(createEmailParams({ from: { integrationId: 4 }, text, html }))
 
                     invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
                     const ownSender = await service.executeSendEmail(invocation)
@@ -586,6 +603,37 @@ describe('EmailService', () => {
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 }
             )
+
+            it('sends untracked with the fixed identity and organization footer for text-only content', async () => {
+                service = createSandboxService(true)
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 4 },
+                    html: '',
+                    text: 'Hello there.',
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                const input = (sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input
+                const textBody = input.Content?.Simple?.Body
+                expect(textBody).toEqual({
+                    Text: {
+                        Data:
+                            'Hello there.\n\nThis email was sent by Example organization via PostHog with the PostHog sandbox sender. Organization ID: ' +
+                            team.organization_id +
+                            '.',
+                        Charset: 'UTF-8',
+                    },
+                })
+                expect(capture).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: team.id, organization_id: team.organization_id }),
+                    'workflows sandbox email sent',
+                    { is_test: false, recipient_count: 1, source: 'workflow' }
+                )
+            })
 
             it.each([
                 ['provider rejection', new Error('Message rejected'), true],

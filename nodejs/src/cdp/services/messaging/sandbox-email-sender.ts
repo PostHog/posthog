@@ -91,6 +91,11 @@ export class SandboxEmailSender {
         senderName: string,
         teamId: number
     ): Promise<CyclotronInvocationQueueParametersEmailType> {
+        if (!params.text && !params.html) {
+            throw new Error(
+                'The sandbox email template must include HTML or text content. Update the template and try again.'
+            )
+        }
         const team = await this.teamManager.getTeam(teamId)
         if (!team) {
             throw new Error('Could not identify the organization sending this sandbox email. Try again.')
