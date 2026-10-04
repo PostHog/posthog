@@ -25,15 +25,15 @@ Fired once when the toolbar finishes initialization.
 
 Fired after the CORS reachability check to the PostHog app.
 
-| Property           | Type              | Description                                                          |
-| ------------------ | ----------------- | -------------------------------------------------------------------- |
-| `ui_host`          | `string`          | Host being checked                                                   |
-| `api_host`         | `string`          | API host for reference                                               |
-| `ui_host_source`   | `string`          | How the UI host was resolved                                         |
-| `is_authenticated` | `boolean`         | Auth state at time of check                                          |
-| `status`           | `'ok' \| 'error'` | Check result                                                         |
-| `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
-| `duration_ms`      | `number`          | Time taken for the check                                             |
+| Property           | Type              | Description                                                                         |
+| ------------------ | ----------------- | ----------------------------------------------------------------------------------- |
+| `ui_host`          | `string`          | Host being checked                                                                  |
+| `api_host`         | `string`          | API host for reference                                                              |
+| `ui_host_source`   | `string`          | How the UI host was resolved                                                        |
+| `is_authenticated` | `boolean`         | Auth state at time of check                                                         |
+| `status`           | `'ok' \| 'error'` | Check result                                                                        |
+| `error_type`       | `string`          | Only on error: `timeout`, `csp_blocked`, `network_or_cors`, `http_error`, `unknown` |
+| `duration_ms`      | `number`          | Time taken for the check                                                            |
 
 **File:** `toolbarConfigLogic.ts`
 
