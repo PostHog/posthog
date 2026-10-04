@@ -129,6 +129,20 @@ class ClickHouseClientNotConnected(Exception):
         super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
 
 
+_CLICKHOUSE_ERROR_START = re.compile(r"Code: \d+\. ")
+# ClickHouse 25+ wraps the error in "__exception__" lines and closes it with "<size> <tag>".
+_CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\r?\n\d+ \w+)?\r?\n__exception__\s*$")
+
+
+def extract_clickhouse_error(payload: bytes) -> str | None:
+    """Find a ClickHouse error message in bytes that ClickHouse appended to a response."""
+    text = payload.decode("utf-8", errors="replace")
+    match = _CLICKHOUSE_ERROR_START.search(text)
+    if match is None:
+        return None
+    return _CLICKHOUSE_ERROR_TRAILER.sub("", text[match.start() :]).strip()
+
+
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
@@ -418,6 +432,23 @@ class ClickHouseClient:
             if error_code in error_message:
                 raise exc_class(error_message, query=query, query_id=query_id)
         raise ClickHouseError(error_message, query=query, query_id=query_id)
+
+    @classmethod
+    def raise_stream_error(
+        cls, error: asyncpa.InvalidMessageFormat, query: str | None = None, query_id: str | None = None
+    ) -> typing.NoReturn:
+        """Raise the ClickHouse error in the unparsed tail of an Arrow stream, or the original error.
+
+        ClickHouse sends the 200 status before the query ends. When the query fails after that,
+        ClickHouse appends the error text to the stream that it already sent.
+        """
+        error_message = extract_clickhouse_error(error.unparsed)
+        if error_message is None:
+            raise error
+        try:
+            cls.raise_clickhouse_error(error_message, query=query, query_id=query_id)
+        except ClickHouseError as clickhouse_error:
+            raise clickhouse_error from error
 
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
@@ -936,10 +967,13 @@ class ClickHouseClient:
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
-            if on_schema is not None:
-                on_schema(await reader.get_schema())
-            async for batch in reader:
-                yield batch
+            try:
+                if on_schema is not None:
+                    on_schema(await reader.get_schema())
+                async for batch in reader:
+                    yield batch
+            except asyncpa.InvalidMessageFormat as error:
+                self.raise_stream_error(error, query=query, query_id=query_id)
 
     async def aproduce_query_as_arrow_record_batches(
         self,
@@ -957,7 +991,10 @@ class ClickHouseClient:
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
-            await reader.produce(queue=queue)
+            try:
+                await reader.produce(queue=queue)
+            except asyncpa.InvalidMessageFormat as error:
+                self.raise_stream_error(error, query=query, query_id=query_id)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""

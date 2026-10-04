@@ -716,6 +716,8 @@ class TestNodeSuspension:
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
             "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass.",
+            "Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            "Encapsulated IPC message format must begin with continuation bytes, received: 'bytearray(b'Code')'",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
