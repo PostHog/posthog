@@ -76,14 +76,14 @@ def _flag_state(team: Team) -> bool | None:
     return None if enabled is None else bool(enabled)
 
 
-def without_lone_surrogates(state: JsonValue) -> JsonValue:
+def _without_lone_surrogates(state: JsonValue) -> JsonValue:
     """A template can cut an emoji in half. The gateway client cannot encode the lone surrogate that
     remains, so it becomes U+FFFD."""
     text = json.dumps(state, ensure_ascii=False)
     return json.loads(text.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
 
 
-def state_size_bytes(state: JsonValue) -> int:
+def _state_size_bytes(state: JsonValue) -> int:
     return len(json.dumps(state, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
@@ -99,8 +99,8 @@ def decide(call: AIDecisionCall) -> AIDecisionOutcome:
         return AIDecisionFailed(code=AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED)
     if _is_over_ai_credit_budget(team):
         return AIDecisionFailed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
-    state = without_lone_surrogates(call.state)
-    if state_size_bytes(state) > MAX_AI_DECISION_STATE_BYTES:
+    state = _without_lone_surrogates(call.state)
+    if _state_size_bytes(state) > MAX_AI_DECISION_STATE_BYTES:
         return AIDecisionFailed(code=AIDecisionErrorCode.STATE_TOO_LARGE)
     try:
         request = _decision_request(call, state)
@@ -206,7 +206,9 @@ def _decision_question(question: AIDecisionQuestion) -> DecisionQuestion:
 
 def _gateway_error_outcome(status_code: int) -> AIDecisionOutcome:
     if status_code == 429:
-        return AIDecisionThrottled(retry_after_seconds=GATEWAY_BUSY_RETRY_AFTER_SECONDS, source="gateway")
+        # The gateway's own Retry-After does not reach this code, so the wait spreads to keep a batch apart.
+        retry_after = random.randint(GATEWAY_BUSY_RETRY_AFTER_SECONDS, 2 * GATEWAY_BUSY_RETRY_AFTER_SECONDS)
+        return AIDecisionThrottled(retry_after_seconds=retry_after, source="gateway")
     if status_code >= 500:
         return AIDecisionUnavailable(reason="gateway_error", status_code=status_code)
     reason = f"gateway_{status_code}"

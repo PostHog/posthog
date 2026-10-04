@@ -128,6 +128,9 @@ class TestValidateGraph(TestCase):
         assert f"missing the 'branch' edge with index {slots - 1}" in _graph_errors(
             actions, [_edge("t", "d"), *answer_edges[:-1], _edge("d", "x")]
         )
+        assert "missing its 'continue' edge" in _graph_errors(actions, [_edge("t", "d"), *answer_edges])
+        aborting = {**decision, "on_error": "abort"}
+        assert validate_graph([TRIGGER, aborting, EXIT], [_edge("t", "d"), *answer_edges]) == []
 
     def test_unreachable_node_returns_warning_not_error(self):
         actions = [TRIGGER, _fn("a"), _fn("orphan"), EXIT]

@@ -333,7 +333,12 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
         assert response.json()["error"]["code"] == "model_refused", response.json()
 
-    @override_settings(WORKFLOWS_AI_DECISION_TEAM_BURST=1, WORKFLOWS_AI_DECISION_TEAM_PER_HOUR=1)
+    @override_settings(
+        WORKFLOWS_AI_DECISION_TEAM_BURST=1,
+        WORKFLOWS_AI_DECISION_TEAM_PER_HOUR=1,
+        WORKFLOWS_AI_DECISION_GLOBAL_BURST=2,
+        WORKFLOWS_AI_DECISION_GLOBAL_PER_HOUR=1,
+    )
     def test_one_team_over_its_budget_does_not_throttle_another(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         with patch(_DECIDE, return_value=_pick_one_result()) as decide:
@@ -387,14 +392,16 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("unreadable_state", None),
             ("model_refused", DecisionGatewayError(400, "gateway-body-secret")),
             ("throttled", DecisionGatewayError(429, "gateway-body-secret")),
             ("unavailable", DecisionGatewayError(502, "gateway-body-secret")),
         ]
     )
-    def test_logs_never_carry_the_state_or_a_gateway_body(self, _name: str, error: Exception) -> None:
+    def test_logs_never_carry_the_state_or_a_gateway_body(self, _name: str, error: Exception | None) -> None:
+        reply: Any = json.loads("[" * 300 + '"state-secret"' + "]" * 300) if error is None else "state-secret"
         with capture_logs() as logs, patch(_DECIDE, side_effect=error):
-            response = self._post({"state": {"reply": "state-secret"}})
+            response = self._post({"state": {"reply": reply}})
 
         assert logs
         assert "secret" not in str(logs)

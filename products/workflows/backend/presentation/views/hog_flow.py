@@ -3239,9 +3239,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
         edges = data.get("edges", instance.edges if instance else [])
 
-        # Unlike the advisory checks below, an AI decision's answer edges are enforced on a strict save
-        # that sends the graph. An edit that leaves a builder draft's graph alone is not blocked by it.
-        if strict and ("actions" in data or "edges" in data):
+        # Unlike the advisory checks below, an AI decision's edges are enforced on a strict save that sends
+        # the graph. An edit that leaves a builder draft's graph alone is not blocked by it, and the /graph
+        # endpoint reports the same errors through validate_graph with the rest of the graph's errors.
+        enforce_graph = self.context.get("enforce_graph_structure", False)
+        if strict and not enforce_graph and ("actions" in data or "edges" in data):
             missing_edges = missing_ai_decision_edges(actions, edges)
             if missing_edges:
                 raise serializers.ValidationError({"graph": missing_edges})
@@ -3252,7 +3254,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # corruption (stale branch edges from removed conditions, legacy null endpoints), and a normal edit —
         # even an unrelated one — must not be blocked by graph state the caller didn't introduce. We log it
         # for telemetry instead. The web builder's incomplete drafts (not strict) skip the check entirely.
-        enforce_graph = self.context.get("enforce_graph_structure", False)
         if strict or enforce_graph:
             try:
                 warnings = validate_graph(actions, edges, abort_action=instance.abort_action if instance else None)

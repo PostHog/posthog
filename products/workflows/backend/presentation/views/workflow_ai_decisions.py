@@ -152,9 +152,9 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
         case AIDecisionFailed(code=code, reason=reason):
             AI_DECISION_OUTCOMES.labels("failed", code.value).inc()
-            # Codes about one organization repeat for every person a batch run sends, so the counter carries
-            # their rate. Codes about this deployment stay visible.
-            log = logger.warning if code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE else logger.debug
+            # Causes about one organization or one input repeat for every person a batch run sends, so the
+            # counter carries their rate. Causes that fail every decision on this deployment stay visible.
+            log = logger.warning if _fails_every_decision(code, reason) else logger.debug
             log("workflow_ai_decision_failed", team_id=team_id, code=code.value, reason=reason)
             body = {"status": AIDecisionStatus.FAILED, "error": {"code": code, "message": ERROR_MESSAGES[code]}}
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
@@ -174,3 +174,11 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
                 WorkflowAIDecisionRetrySerializer({"detail": "The AI decision service is unavailable."}).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+
+def _fails_every_decision(code: AIDecisionErrorCode, reason: str) -> bool:
+    return (
+        code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE
+        or reason.startswith("gateway_")
+        or reason == "region_without_decisions"
+    )

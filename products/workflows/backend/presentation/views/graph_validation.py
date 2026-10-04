@@ -30,17 +30,28 @@ def _branch_slot_count(action: dict) -> int:
 
 
 def missing_ai_decision_edges(actions: list[dict], edges: list[dict]) -> list[str]:
-    """The runtime follows the branch edge of the answer the model gives, and a missing one stops the
-    run for that person, so every answer edge and the Unsure edge must exist before the step can run."""
+    """The runtime follows the branch edge of the answer the model gives, and the 'continue' edge when the
+    decision fails. A missing one stops the run for that person, so each must exist before the step can run.
+    A step set to abort on error ends the run instead of following 'continue'."""
     branch_keys = {(edge.get("from"), edge.get("index")) for edge in edges if edge.get("type") == "branch"}
-    return [
-        f"ai_decision '{action.get('id')}' is missing the 'branch' edge with index {index}. "
-        "Add one edge per answer, in answer order, then one for Unsure when it is on."
-        for action in actions
-        if action.get("type") == "ai_decision"
-        for index in range(_branch_slot_count(action))
-        if (action.get("id"), index) not in branch_keys
-    ]
+    continue_sources = {edge.get("from") for edge in edges if edge.get("type") == "continue"}
+    errors: list[str] = []
+    for action in actions:
+        if action.get("type") != "ai_decision":
+            continue
+        action_id = action.get("id")
+        errors.extend(
+            f"ai_decision '{action_id}' is missing the 'branch' edge with index {index}. "
+            "Add one edge per answer, in answer order, then one for Unsure when it is on."
+            for index in range(_branch_slot_count(action))
+            if (action_id, index) not in branch_keys
+        )
+        if action.get("on_error") != "abort" and action_id not in continue_sources:
+            errors.append(
+                f"ai_decision '{action_id}' is missing its 'continue' edge, which a failed decision follows. "
+                "Add it, or set on_error to 'abort' to end the run when the decision fails."
+            )
+    return errors
 
 
 def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optional[str] = None) -> list[str]:

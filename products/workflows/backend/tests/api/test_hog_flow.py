@@ -6746,9 +6746,9 @@ def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None) -
             {"from": "trigger_node", "to": "decide", "type": "continue"},
             *(
                 {"from": "decide", "to": "exit_node", "type": "branch", "index": index}
-                for index in range(slots if answer_edges is None else answer_edges)
+                for index in range(slots if answer_edges is None or answer_edges < 0 else answer_edges)
             ),
-            {"from": "decide", "to": "exit_node", "type": "continue"},
+            *([] if answer_edges == -1 else [{"from": "decide", "to": "exit_node", "type": "continue"}]),
         ],
     }
 
@@ -6791,6 +6791,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
             ("long_context_name", {"inputs": {"context": {"value": {"n" * 101: "{event.event}"}}}}, None, "context"),
             ("missing_answer_edge", {}, 1, "graph"),
             ("missing_unsure_edge", {"unsure_enabled": True}, 2, "graph"),
+            ("missing_failure_edge", {}, -1, "graph"),
         ]
     )
     def test_rejects_a_decision_that_cannot_run(
@@ -6820,7 +6821,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert set(config["inputs"]) == {"context"}
         assert config["inputs"]["context"]["bytecode"]
 
-    def _patch(self, flow_id: str, body: dict, flag_enabled: bool = False) -> Any:
+    def _patch(self, flow_id: str, body: dict, flag_enabled: bool | None = False) -> Any:
         with _ai_decision_flag(flag_enabled):
             return self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", body, format="json")
 
@@ -6834,10 +6835,13 @@ class TestAIDecisionActionValidation(APIBaseTest):
         second_decision = {**flow["actions"][1], "id": "decide_again"}
         second_decision_edges = [{**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"]
 
-        kept = self._patch(flow_id, {"name": "Renamed", "actions": flow["actions"], "edges": flow["edges"]})
+        kept = self._patch(
+            flow_id, {"name": "Renamed", "actions": flow["actions"], "edges": flow["edges"]}, flag_enabled=flag_value
+        )
         added = self._patch(
             flow_id,
             {"actions": [*flow["actions"], second_decision], "edges": [*flow["edges"], *second_decision_edges]},
+            flag_enabled=flag_value,
         )
 
         assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.json()
