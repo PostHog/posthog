@@ -7,6 +7,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
+from asgiref.sync import async_to_sync
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
@@ -1158,3 +1160,18 @@ def refresh_signal_repository_activity(after_team_id: int | None = None, after_r
             kwargs={"after_team_id": last_team_id, "after_repository": last_repository},
             countdown=_REFRESH_BATCH_INTERVAL_SECONDS,
         )
+
+
+@shared_task(ignore_result=True, soft_time_limit=210, time_limit=240)
+@with_team_scope()
+def autostart_scout_report(team_id: int, report_id: str) -> None:
+    from products.signals.backend.scout_harness.tools.report import (
+        _maybe_autostart_report,  # noqa: PLC0415 - breaks the task/report cycle
+    )
+
+    try:
+        async_to_sync(_maybe_autostart_report)(team_id=team_id, report_id=report_id)
+    finally:
+        # Autostart reports its skip, steering and billing events on the global client, and a worker
+        # child can exit before that client's background flush runs.
+        posthoganalytics.flush()

@@ -437,7 +437,10 @@ Cap is **3 prompts per report**, each **≤200 characters**, and duplicates are 
 ### Opening a draft PR (autostart)
 
 A surfaced, immediately-actionable report can open a draft PR automatically — the same autostart path the pipeline uses.
-It's opt-in per report via three more `emit_report` fields; supply them only when the report is a concrete, fixable issue you'd want a PR for:
+It's opt-in per report via three more `emit_report` fields; supply them only when the report is a concrete, fixable issue you'd want a PR for.
+Autostart runs about 5 minutes after the emit, and again about 5 minutes after an `edit_report` that changes routing. It reads the report as it stands then, so a reviewer or repository correction made in your run reaches the PR. Once the PR is open, a later correction does not move it.
+
+The fields:
 
 | Field                  | Type        | Notes                                                                                                                                                                       |
 | ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

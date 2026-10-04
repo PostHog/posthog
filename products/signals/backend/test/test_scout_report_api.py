@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
+from time_machine import travel
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
@@ -28,6 +29,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.auto_start import _evaluate_link_gates
+from products.signals.backend.implementation_dispatch import ImplementationDispatcher
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
@@ -45,6 +47,7 @@ from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
     REPORT_KIND_SELF_IMPROVEMENT,
+    SCOUT_REPORT_AUTOSTART_DELAY_SECONDS,
     EditReportResult,
     InvalidScoutReportError,
     ReportChartInput,
@@ -61,6 +64,7 @@ from products.signals.backend.scout_harness.tools.report import (
 )
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.tasks import autostart_scout_report
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -73,6 +77,8 @@ JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
+AUTOSTART_ENQUEUE_PATH = "products.signals.backend.tasks.autostart_scout_report.apply_async"
+DISPATCH_ENQUEUE_PATH = "products.signals.backend.tasks.dispatch_implementation_replacement.apply_async"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
@@ -951,6 +957,12 @@ class TestScoutReportAPI(APIBaseTest):
                 assert progress["decision_id"] == str(decision.id)
                 assert progress["status"] == "pending"
                 assert progress["source_skill"] == run.skill_name
+                with patch(DISPATCH_ENQUEUE_PATH) as dispatch_enqueue:
+                    ImplementationDispatcher().enqueue_page()
+                    dispatch_enqueue.assert_not_called()
+                    with travel(timezone.now() + timedelta(seconds=SCOUT_REPORT_AUTOSTART_DELAY_SECONDS), tick=False):
+                        ImplementationDispatcher().enqueue_page()
+                    dispatch_enqueue.assert_called_once_with(args=[self.team.id, str(decision.id)], countdown=0)
 
         assert recorded == [(True, 1)] * MAX_SCOUT_CONTENT_REVISIONS + [(False, 0)]
         report = SignalReport.objects.get(id=report_id)
@@ -1488,15 +1500,44 @@ class TestScoutReportAPI(APIBaseTest):
         reviewers = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
         assert reviewers is not None and "octocat" in reviewers.content
 
-    def test_emit_report_fires_autostart_when_surfaced(self) -> None:
+    @parameterized.expand(
+        [
+            ("still_ready", SignalReport.Status.READY, 2),
+            ("dismissed", SignalReport.Status.SUPPRESSED, 1),
+            ("snoozed", SignalReport.Status.POTENTIAL, 1),
+            ("resolved", SignalReport.Status.RESOLVED, 1),
+            ("deleted", SignalReport.Status.DELETED, 1),
+        ]
+    )
+    def test_emit_report_fires_autostart_when_surfaced(
+        self, _name: str, later_status: SignalReport.Status, total_awaits: int
+    ) -> None:
         run = _make_run(self.team)
         payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="big blast radius")
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
             response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        autostart.assert_awaited_once()
-        assert autostart.await_args is not None
-        assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+            assert response.status_code == status.HTTP_200_OK
+            autostart.assert_awaited_once()
+            assert autostart.await_args is not None
+            report_id = response.json()["report_id"]
+            assert autostart.await_args.kwargs["report_id"] == report_id
+            SignalReport.objects.filter(id=report_id).update(status=later_status)
+            autostart_scout_report(team_id=self.team.id, report_id=report_id)
+        assert autostart.await_count == total_awaits
+
+    def test_emit_and_routing_edit_delay_autostart_so_a_later_reviewer_fix_reaches_the_pr(self) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="big blast radius")
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_ENQUEUE_PATH) as enqueue:
+            report_id = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "suggested_reviewers": [{"github_login": "OctoCat"}]},
+                format="json",
+            )
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        expected = {"kwargs": {"team_id": self.team.id, "report_id": report_id}, "countdown": 300}
+        assert [c.kwargs for c in enqueue.call_args_list] == [expected, expected]
 
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,

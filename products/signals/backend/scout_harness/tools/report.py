@@ -980,16 +980,46 @@ async def _resolve_report_repository(
     )
 
 
+# A scout often corrects a report's routing (reviewers, repository) later in the same run. Autostart
+# opens the draft PR once and never re-routes it, so it waits for the run to settle before it reads
+# the artefacts.
+SCOUT_REPORT_AUTOSTART_DELAY_SECONDS = 300
+
+
+def _queue_report_autostart(*, team_id: int, report_id: str) -> None:
+    """Queue `_maybe_autostart_report` after `SCOUT_REPORT_AUTOSTART_DELAY_SECONDS`. The task reads the
+    artefacts when it runs, so an edit inside the window reaches the PR. Each edit queues its own
+    task, and the report row lock in `_create_implementation_task_if_absent` keeps it to one PR."""
+    from products.signals.backend.tasks import autostart_scout_report  # noqa: PLC0415 — break worker-boot import cycle
+
+    try:
+        autostart_scout_report.apply_async(
+            kwargs={"team_id": team_id, "report_id": report_id}, countdown=SCOUT_REPORT_AUTOSTART_DELAY_SECONDS
+        )
+    except Exception:
+        logger.exception("signals_scout: autostart enqueue failed", extra={"report_id": report_id})
+
+
 async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
     """Best-effort autostart hand-off after a report surfaced. Reconstructs the autostart inputs from
     the report's artefacts (the same shared entry point the reviewer-edit hook uses) and swallows
-    failures so a draft-PR hiccup never fails the emit. No-ops unless the report is immediately
+    failures so a draft-PR hiccup never fails the emit. No-ops unless the report is still in the inbox
+    (a person can dismiss, snooze, resolve or delete it during the autostart delay), is immediately
     actionable, has a repo + priority, and a suggested reviewer clears their autonomy threshold."""
     from products.signals.backend.auto_start import (
         maybe_autostart_from_report_artefacts,  # noqa: PLC0415 — break worker-boot import cycle
     )
 
     try:
+        report_status = (
+            await SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("status", flat=True).afirst()
+        )
+        if report_status is None or not _surfaced(report_status):
+            logger.info(
+                "signals_scout: autostart skipped, report left the inbox",
+                extra={"report_id": report_id, "status": report_status},
+            )
+            return
         await maybe_autostart_from_report_artefacts(team_id=team_id, report_id=report_id)
     except Exception:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
@@ -1626,7 +1656,9 @@ async def emit_report(
                 # findings using the emission id); edits keep per-delivery ids since each notifies.
                 delivery_id=persisted.report_id,
             )
-        await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+        await database_sync_to_async(_queue_report_autostart, thread_sensitive=False)(
+            team_id=team.id, report_id=persisted.report_id
+        )
     return await finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -1775,7 +1807,7 @@ def emit_report_sync(
                 output_id=persisted.report_id,
                 delivery_id=persisted.report_id,
             )
-        async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+        _queue_report_autostart(team_id=team.id, report_id=persisted.report_id)
     return finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -1874,6 +1906,9 @@ def _do_edit_report(
                     attribution=attribution,
                     author=run.skill_name,
                     implementation_context=implementation_context,
+                    # The dispatch sweep starts a pending replacement on its next tick, so the
+                    # replacement waits as long as the queued autostart does.
+                    dispatch_delay_seconds=SCOUT_REPORT_AUTOSTART_DELAY_SECONDS,
                 )
         # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
         # between resolution and this transaction, autostart trusts the stored stamp, and an owner
@@ -2115,7 +2150,7 @@ def _do_edit_report(
     # Routing changes and a new replacement decision each need an autostart evaluation.
     # Run it after the commit because it spawns a task.
     if reviewers_set or repository_set or supersede_recorded:
-        async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
+        _queue_report_autostart(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",
         extra={
