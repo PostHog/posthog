@@ -284,9 +284,7 @@ describe('recipient detail', () => {
             }
         }
         await openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
-        if (request === 'activity load') {
-            await waitFor(() => expect(timelineQueries).toHaveLength(1))
-        }
+        await waitFor(() => expect(request === 'lookup' ? lookups : timelineQueries).toHaveLength(1))
         fireEvent.click(await screen.findByText('Back to recipients'))
         fireEvent.click(await screen.findByText('jamie@example.com'))
         expect(await screen.findByText('Clicked a link')).toBeInTheDocument()
