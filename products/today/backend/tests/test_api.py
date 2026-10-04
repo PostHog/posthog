@@ -10,6 +10,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.llm.system_one import SystemOneNotConfigured
+from posthog.models import PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
 
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
@@ -291,3 +293,30 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == expected
         if lead is not None:
             assert response.json()["lead"].startswith(lead)
+
+    @parameterized.expand(
+        [
+            ("the page with only today", "get", "page", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("the page with today and signals", "get", "page", ["today:read", "task:read"], status.HTTP_200_OK),
+            ("key clauses with only today", "post", "key_clauses", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("figure marks with only today", "get", "figure_marks", ["today:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_scoped_key_reads_report_data_only_with_the_signals_scope(
+        self, _sync_connect: MagicMock, _name: str, method: str, endpoint: str, scopes: list[str], expected: int
+    ) -> None:
+        raw_key = "today_report_page_key"
+        PersonalAPIKey.objects.create(
+            user=self.user, label="Today", secure_value=hash_key_value(raw_key), scopes=scopes
+        )
+        self.client.logout()
+        with (
+            self._flag(True),
+            patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/{endpoint}/",
+                HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+            )
+
+        assert response.status_code == expected

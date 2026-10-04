@@ -55,14 +55,7 @@ def _jev_unavailable_as_503(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = [
-        "briefing",
-        "candidates",
-        "report_page",
-        "key_clauses",
-        "figure_marks",
-        "excerpt_choice",
-    ]
+    scope_object_read_actions = ["briefing", "candidates", "excerpt_choice"]
     scope_object_write_actions = ["refresh"]
 
     def _user(self) -> User:
@@ -129,9 +122,14 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},
         summary="Get a report's page",
-        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation.",
+        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. A scoped key needs task:read as well, because the page shows the report's signals.",
     )
-    @action(detail=False, methods=["get"], url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page")
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page",
+        required_scopes=["today:read", "task:read"],
+    )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
         if not api.is_enabled_for(cast(User, request.user), self.team):
             raise NotFound()
@@ -146,7 +144,12 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Mark the key clauses of a report",
         description="For each text the report page shows, the clauses that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.",
     )
-    @action(detail=False, methods=["post"], url_path=rf"reports/(?P<report_id>{UUID_REGEX})/key_clauses")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=rf"reports/(?P<report_id>{UUID_REGEX})/key_clauses",
+        required_scopes=["today:read", "task:read"],
+    )
     def key_clauses(self, request: Request, report_id: str, **kwargs) -> Response:
         requests = [
             contracts.KeyClauseRequest(text=item["text"], roles=[KeyClauseRole(role) for role in item["roles"]])
@@ -164,7 +167,12 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Mark the numbers of a report with their sources",
         description="The numbers in the report's lead and impact sentence that a signal or the agent's research states, each with the sentence that states it. A number is marked only when the decision model is sure it is a measured result and that one source states the same result. 404 when the report is missing or the person may not use Jev.",
     )
-    @action(detail=False, methods=["get"], url_path=rf"reports/(?P<report_id>{UUID_REGEX})/figure_marks")
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=rf"reports/(?P<report_id>{UUID_REGEX})/figure_marks",
+        required_scopes=["today:read", "task:read"],
+    )
     def figure_marks(self, request: Request, report_id: str, **kwargs) -> Response:
         user = self._jev_user()
         with _jev_unavailable_as_503(self.team.id):

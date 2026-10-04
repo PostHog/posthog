@@ -72,6 +72,7 @@ export interface todayReportLogicValues {
     draft: string
     evidenceCount: number
     expandedEvidence: Record<string, boolean>
+    feedbackNoteFocused: boolean
     figureMarks: FigureMarkApi[] | null
     figureMarksLoading: boolean
     fullReport: SignalReport | null
@@ -130,6 +131,9 @@ export interface todayReportLogicActions {
     }
     expandEvidence: (signalId: string) => {
         signalId: string
+    }
+    focusFeedbackNote: () => {
+        value: true
     }
     keyClausesLoaded: (found: Record<string, KeyClauseApi[]>) => {
         found: Record<string, KeyClauseApi[]>
@@ -273,6 +277,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
         collapseEvidence: (signalId: string) => ({ signalId }),
         openComposer: (text: string | null) => ({ text }),
         setDraft: (draft: string) => ({ draft }),
+        focusFeedbackNote: true,
     }),
     loaders(({ props, values }) => ({
         fullReport: [
@@ -337,6 +342,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
             },
         ],
         composerOpen: [false, { openComposer: () => true }],
+        feedbackNoteFocused: [false, { focusFeedbackNote: () => true }],
         draft: [
             '',
             {

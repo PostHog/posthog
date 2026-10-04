@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ChangeEvent, useState } from 'react'
+import { type ChangeEvent } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { Button, Text, Textarea } from '@posthog/quill'
@@ -8,6 +8,7 @@ import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/i
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { TodayActionButton } from './TodayActionButton'
+import { todayReportLogic } from './todayReportLogic'
 
 const NOTE_MAX_LENGTH = 4000
 
@@ -16,7 +17,8 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
     const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent, feedbackNoteSubmitting } =
         useValues(logic)
     const { rateReport, openFeedbackNote, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
-    const [openedHere, setOpenedHere] = useState(false)
+    const { feedbackNoteFocused } = useValues(todayReportLogic({ reportId: report.id }))
+    const { focusFeedbackNote } = useActions(todayReportLogic({ reportId: report.id }))
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
     const canAddNote = !!feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent
@@ -52,7 +54,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         variant="link-muted"
                         size="sm"
                         onClick={() => {
-                            setOpenedHere(true)
+                            focusFeedbackNote()
                             openFeedbackNote()
                         }}
                         data-attr="today-report-feedback-note-open"
@@ -75,7 +77,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         aria-label="Add a note about this report"
                         maxLength={NOTE_MAX_LENGTH}
                         rows={4}
-                        autoFocus={openedHere}
+                        autoFocus={feedbackNoteFocused}
                         className="w-full"
                         data-attr="today-report-feedback-note"
                     />
