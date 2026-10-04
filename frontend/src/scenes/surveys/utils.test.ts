@@ -1148,6 +1148,15 @@ describe('survey utils', () => {
             expect(result.fromDate).toBe('2024-11-20T00:00:00')
             expect(result.toDate).toBe('2024-11-20T23:59:59')
         })
+
+        it('does not bound "All time" by the survey start date', () => {
+            const survey = { created_at: '2024-11-19T00:00:00Z', end_date: '2024-11-25T00:00:00Z' }
+
+            const result = getResolvedSurveyDateRange(survey, { date_from: 'all', date_to: null })
+
+            expect(result.fromDate).toBe('1970-01-01T00:00:00')
+            expect(result.toDate).toBe('2024-11-25T23:59:59')
+        })
     })
 
     describe('submission merging in the results queries', () => {
