@@ -216,10 +216,11 @@ def test_checkpoint_is_staged_before_yield_and_session_closes_on_interruption(se
 
 
 def test_completed_resume_does_not_repeat_requests(session: MagicMock) -> None:
-    response = aws_config_source(
-        make_config(), "config_rules", "2014-11-12", make_manager(AwsConfigResumeConfig(complete=True))
-    )
+    manager = make_manager(AwsConfigResumeConfig(complete=True))
+    response = aws_config_source(make_config(), "config_rules", "2014-11-12", manager)
+
     assert list(cast(Iterable[Any], response.items())) == []
+    manager.clear_state.assert_called_once()
     session.post.assert_not_called()
 
 
