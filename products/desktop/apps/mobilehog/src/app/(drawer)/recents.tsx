@@ -127,8 +127,8 @@ export default function RecentsScreen() {
               time={item.time}
               onPress={() =>
                 router.push({
-                  pathname: "/(drawer)/self-driving",
-                  params: { report: item.id },
+                  pathname: "/report/[id]",
+                  params: { id: item.id },
                 })
               }
             />
