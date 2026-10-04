@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     waits on the recording service in nodejs/, which still deletes from
     ee_single_session_summary, so it cannot land yet.
 
-    Team deletion already works: _delete_retired_session_summaries_for_teams in
+    Team deletion already works: _delete_retired_tables_for_teams in
     posthog/models/team/util.py clears these rows before the Team cascade reaches them. That
     helper filters on team_id and runs on team deletion only, so the keys to posthog_user stay
     live. Deleting a user runs the whole cascade and Postgres then rejects the transaction at

@@ -1,8 +1,11 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.apps import apps
+from django.db import connection
+from django.test import SimpleTestCase, TestCase
 
 from posthog.models.team.util import (
+    RETIRED_TEAM_TABLES,
     _delete_group_type_mappings_for_teams,
     _delete_groups_for_teams,
     _delete_hash_key_overrides_for_teams,
@@ -122,3 +125,15 @@ class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
         _delete_hash_key_overrides_for_teams([])
 
         mock_get_client.return_value.delete_hash_key_overrides_by_teams.assert_not_called()
+
+
+class TestRetiredTeamTables(TestCase):
+    def test_every_team_table_outside_django_state_is_cleared_on_team_deletion(self) -> None:
+        model_tables = {model._meta.db_table for model in apps.get_models(include_auto_created=True)}
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.columns WHERE column_name = 'team_id' AND table_schema = 'public'"
+            )
+            team_tables = {row[0] for row in cursor.fetchall()}
+
+        assert team_tables - model_tables <= set(RETIRED_TEAM_TABLES)
