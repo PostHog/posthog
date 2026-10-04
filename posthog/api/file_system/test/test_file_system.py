@@ -292,8 +292,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
 
-    @parameterized.expand([("file", False), ("parent_folder", True)])
-    def test_delete_row_of_retired_type(self, _name: str, delete_parent: bool) -> None:
+    def _create_retired_row_in_folder(self) -> tuple[FileSystem, FileSystem]:
         folder = FileSystem.objects.create(team=self.team, path="Unfiled/Links", type="folder", created_by=self.user)
         retired = FileSystem.objects.create(
             team=self.team,
@@ -303,13 +302,34 @@ class TestFileSystemAPI(APIBaseTest):
             href="/link/abc123",
             created_by=self.user,
         )
+        return folder, retired
+
+    @parameterized.expand(
+        [
+            ("file", False, ""),
+            ("parent_folder", True, ""),
+            ("parent_folder_without_cascading", True, "?recursive=false"),
+        ]
+    )
+    def test_delete_row_of_retired_type(self, _name: str, delete_parent: bool, query: str) -> None:
+        folder, retired = self._create_retired_row_in_folder()
 
         target = folder if delete_parent else retired
-        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/")
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/{query}")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertFalse(FileSystem.objects.filter(pk=retired.pk).exists())
         self.assertEqual(FileSystem.objects.filter(pk=folder.pk).exists(), not delete_parent)
+
+    def test_rows_of_retired_type_are_hidden_from_the_tree(self) -> None:
+        folder, _retired = self._create_retired_row_in_folder()
+        base = f"/api/projects/{self.team.id}/file_system"
+
+        listed = self.client.get(f"{base}/?parent=Unfiled/Links").json()
+        searched = self.client.get(f"{base}/?search=abc123").json()
+        counted = self.client.post(f"{base}/{folder.pk}/count/").json()
+
+        self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
 
     @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
     def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:

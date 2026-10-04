@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.constants import DEFAULT_SURFACE, RETIRED_FILE_SYSTEM_TYPES, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
 
 
@@ -152,6 +152,8 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
+        if self.action == "list":
+            queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         ordering_param = self.request.GET.get("ordering", "")
         if ordering_param == "-created_at":
             return queryset.order_by("-created_at")

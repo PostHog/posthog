@@ -25,7 +25,6 @@ from posthog.api.file_system.access_levels import (
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
-    RETIRED_FILE_SYSTEM_TYPES,
     delete_file_system_object,
     get_restorable_object,
     is_file_system_type_registered,
@@ -37,6 +36,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
+from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -502,6 +502,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
+        if self.action == "list":
+            queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
@@ -710,7 +712,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         exclude_types = [not_type_param] if not_type_param else None
         search_param = request.query_params.get("search")
 
-        base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
+        base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
+            type__in=RETIRED_FILE_SYSTEM_TYPES
+        )
         base_queryset = self._filter_by_access_control(base_queryset)
         if search_param:
             base_queryset = self._apply_search_to_queryset(
@@ -916,13 +920,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 descendants = self._scope_by_project_and_environment(
                     FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 )
+                hidden_descendants = descendants.filter(type__in=RETIRED_FILE_SYSTEM_TYPES)
                 empty_folder = FileSystem.objects.filter(
                     pk=instance.pk, team_id=instance.team_id, path=instance.path, type="folder"
-                ).filter(~Exists(descendants))
+                ).filter(~Exists(descendants.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)))
                 # Keep the emptiness predicate in the DELETE statement. Folders have no dependent rows,
                 # and the view-log cleanup signal only applies to files, so no collector is needed.
                 if not empty_folder._raw_delete(empty_folder.db):
                     raise Conflict("Folder is not empty.", code="directory_not_empty")
+                # The tree hides these rows, so a folder that holds only them looks empty to the user.
+                hidden_descendants.delete()
                 deleted_objects = []
             else:
                 reaches_backing_object = self._ensure_can_delete(instance)
@@ -1131,7 +1138,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
         qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/").order_by("depth", "path")
-        qs = self._scope_by_project_and_environment(qs)
+        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()
@@ -1203,7 +1210,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         qs = FileSystem.objects.filter(path__startswith=f"{path_param}/").order_by("depth", "path")
-        qs = self._scope_by_project_and_environment(qs)
+        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()
