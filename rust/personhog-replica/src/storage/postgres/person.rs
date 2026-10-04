@@ -13,10 +13,10 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, DistinctIdVersionFloor, DistinctIdVersionFloorResult,
-    DistinctIdVersionHead, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult,
-    PersonVersionHead, SplitResult, TombstonedDeleteOutcome, TombstonedDistinctId,
-    TombstonedPerson, VersionFloorOutcome,
+    DeletePersonsMode, DeletePersonsOutcome, DistinctIdTombstoneOutcome, DistinctIdTombstoneResult,
+    DistinctIdVersionFloor, DistinctIdVersionFloorResult, DistinctIdVersionHead, Person,
+    PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonVersionHead, SplitResult,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -1745,6 +1745,104 @@ impl PersonLookup for PostgresStorage {
         );
         Ok(results)
     }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdTombstoneResult>> {
+        if distinct_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_primary_labels("tombstone_distinct_ids");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut tx = self.bulk_primary_pool.begin().await?;
+        // A held row means a merge or revival in flight: fail fast and let the
+        // caller retry instead of queueing behind it.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+
+        // Only distinct id rows are locked. The update keeps person_id, so the FK
+        // check does not run and the person row is never locked or required.
+        let before = lock_distinct_ids(&mut tx, team_id, distinct_ids).await?;
+
+        let uuid_by_person_id =
+            person_uuids_by_id(&mut tx, team_id, before.values().map(|row| row.person_id)).await?;
+        // Cannot go stale: person ids are never reused, and the row lock blocks repointing.
+        let orphaned_ids: Vec<i64> = before
+            .values()
+            .filter(|row| !row.is_deleted && !uuid_by_person_id.contains_key(&row.person_id))
+            .map(|row| row.id)
+            .collect();
+        let mut tombstoned_versions: HashMap<i64, i64> = HashMap::new();
+        if !orphaned_ids.is_empty() {
+            tombstoned_versions = sqlx::query!(
+                r#"
+                UPDATE posthog_persondistinctid
+                SET is_deleted = true, version = COALESCE(version, 0) + 1
+                WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false
+                RETURNING id as "id!", version as "version!"
+                "#,
+                team_id as i32,
+                &orphaned_ids
+            )
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .map(|row| (row.id, row.version))
+            .collect();
+        }
+        // Every live row is locked, so the update cannot skip one.
+        if tombstoned_versions.len() != orphaned_ids.len() {
+            return Err(StorageError::Query(format!(
+                "tombstone_distinct_ids updated {} of {} locked live orphaned rows (team_id={team_id})",
+                tombstoned_versions.len(),
+                orphaned_ids.len()
+            )));
+        }
+
+        tx.commit().await?;
+
+        let results = distinct_ids
+            .iter()
+            .map(|distinct_id| match before.get(distinct_id) {
+                None => DistinctIdTombstoneResult {
+                    distinct_id: distinct_id.clone(),
+                    outcome: DistinctIdTombstoneOutcome::Absent,
+                    version: 0,
+                    person_uuid: None,
+                },
+                Some(row) => {
+                    let (outcome, version) = match tombstoned_versions.get(&row.id) {
+                        Some(version) => (DistinctIdTombstoneOutcome::Tombstoned, *version),
+                        None if row.is_deleted => {
+                            (DistinctIdTombstoneOutcome::AlreadyTombstoned, row.version)
+                        }
+                        None => (DistinctIdTombstoneOutcome::NotOrphaned, row.version),
+                    };
+                    DistinctIdTombstoneResult {
+                        distinct_id: distinct_id.clone(),
+                        outcome,
+                        version,
+                        person_uuid: uuid_by_person_id.get(&row.person_id).copied(),
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        record_outcomes(
+            DISTINCT_ID_TOMBSTONE_OUTCOMES_TOTAL,
+            "tombstone_distinct_ids",
+            results.iter().map(|r| match r.outcome {
+                DistinctIdTombstoneOutcome::Tombstoned => "tombstoned",
+                DistinctIdTombstoneOutcome::AlreadyTombstoned => "already_tombstoned",
+                DistinctIdTombstoneOutcome::Absent => "absent",
+                DistinctIdTombstoneOutcome::NotOrphaned => "not_orphaned",
+            }),
+        );
+        Ok(results)
+    }
 }
 
 fn bulk_replica_labels(operation: &str) -> [(String, String); 4] {
@@ -1766,6 +1864,8 @@ fn bulk_primary_labels(operation: &str) -> [(String, String); 4] {
 }
 
 const VERSION_FLOOR_OUTCOMES_TOTAL: &str = "personhog_replica_version_floor_outcomes_total";
+const DISTINCT_ID_TOMBSTONE_OUTCOMES_TOTAL: &str =
+    "personhog_replica_distinct_id_tombstone_outcomes_total";
 
 fn record_floor_outcomes(operation: &str, outcomes: impl Iterator<Item = VersionFloorOutcome>) {
     record_outcomes(

@@ -43,6 +43,7 @@ from posthog.personhog_client.proto import (
     AckPersonTombstonesRequest,
     DeletePersonsMode,
     DeletePersonsRequest,
+    DistinctIdTombstoneOutcome as DistinctIdTombstoneOutcomeProto,
     DistinctIdVersionFloor as DistinctIdVersionFloorProto,
     EnsureDistinctIdVersionFloorsRequest,
     EnsurePersonVersionFloorsRequest,
@@ -59,6 +60,7 @@ from posthog.personhog_client.proto import (
     ListPersonTombstoneQueueRequest,
     PersonVersionFloor as PersonVersionFloorProto,
     ReadOptions,
+    TombstoneDistinctIdsRequest,
     VersionFloorOutcome as VersionFloorOutcomeProto,
 )
 from posthog.settings import TEST
@@ -954,7 +956,7 @@ def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: 
     )
 
 
-# -- Version heads and version floors --
+# -- Version heads, version floors and distinct id tombstones --
 
 _T = TypeVar("_T")
 
@@ -964,6 +966,10 @@ _T = TypeVar("_T")
 VERSION_FLOOR_ATTEMPTS = 3
 VERSION_FLOOR_RETRY_BACKOFF_SECONDS = 0.05
 _LOST_RACE_CODES = frozenset({grpc.StatusCode.FAILED_PRECONDITION})
+
+# ClickHouse needs a person_id on every distinct id row. A Postgres row whose person has no
+# row has none, so its tombstone uses the nil uuid, as sync_persons_to_clickhouse does.
+ORPHAN_DISTINCT_ID_PERSON_UUID = UUID(int=0)
 
 
 @frozen
@@ -1025,6 +1031,32 @@ class DistinctIdVersionFloorResult:
     outcome: VersionFloorOutcome
     version: int
     # None when the row points at a person that has no row.
+    person_uuid: UUID | None
+
+
+class DistinctIdTombstoneOutcome(StrEnum):
+    TOMBSTONED = "tombstoned"
+    ALREADY_TOMBSTONED = "already_tombstoned"
+    ABSENT = "absent"
+    # A live row whose person row exists, left unchanged.
+    NOT_ORPHANED = "not_orphaned"
+
+
+_DISTINCT_ID_TOMBSTONE_OUTCOMES = {
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_TOMBSTONED: DistinctIdTombstoneOutcome.TOMBSTONED,
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_ALREADY_TOMBSTONED: DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED,
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_ABSENT: DistinctIdTombstoneOutcome.ABSENT,
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_NOT_ORPHANED: DistinctIdTombstoneOutcome.NOT_ORPHANED,
+}
+
+
+@frozen
+class DistinctIdTombstoneResult:
+    distinct_id: str
+    outcome: DistinctIdTombstoneOutcome
+    # 0 when the outcome is ABSENT.
+    version: int
+    # None when the row points at a person that has no row, or the outcome is ABSENT.
     person_uuid: UUID | None
 
 
@@ -1153,3 +1185,55 @@ def ensure_distinct_id_version_floors(
         return results
 
     return personhog_call("ensure_distinct_id_version_floors", personhog_fn)
+
+
+def tombstone_distinct_ids_in_postgres(team_id: int, distinct_ids: Sequence[str]) -> list[DistinctIdTombstoneResult]:
+    """Tombstone each orphaned distinct id row (is_deleted, version + 1) and return the versions it holds.
+
+    An orphaned row is a live row whose person row does not exist; any other row comes back unchanged, in request order.
+    """
+
+    def personhog_fn() -> list[DistinctIdTombstoneResult]:
+        results: list[DistinctIdTombstoneResult] = []
+        for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
+            response = _get_client().tombstone_distinct_ids(
+                TombstoneDistinctIdsRequest(
+                    team_id=team_id, distinct_ids=list(distinct_ids[i : i + PERSONHOG_BATCH_SIZE])
+                )
+            )
+            results.extend(
+                DistinctIdTombstoneResult(
+                    distinct_id=r.distinct_id,
+                    outcome=_DISTINCT_ID_TOMBSTONE_OUTCOMES[r.outcome],
+                    version=int(r.version),
+                    person_uuid=_optional_uuid(r, "person_uuid"),
+                )
+                for r in response.results
+            )
+        return results
+
+    return personhog_call("tombstone_distinct_ids", personhog_fn)
+
+
+def tombstone_distinct_ids_and_publish(team_id: int, distinct_ids: Sequence[str]) -> list[DistinctIdTombstoneResult]:
+    """Tombstone distinct id rows in Postgres, then publish ClickHouse tombstones at exactly those versions.
+
+    A failed delivery raises, and a repeat call republishes rows tombstoned earlier, which repairs ClickHouse.
+    """
+    results = tombstone_distinct_ids_in_postgres(team_id, distinct_ids)
+    produced = [
+        create_person_distinct_id(
+            team_id=team_id,
+            distinct_id=result.distinct_id,
+            person_id=str(result.person_uuid or ORPHAN_DISTINCT_ID_PERSON_UUID),
+            version=result.version,
+            is_deleted=True,
+        )
+        for result in results
+        if result.outcome in (DistinctIdTombstoneOutcome.TOMBSTONED, DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED)
+    ]
+    if not all(result.done() for result in produced):
+        _flush_person_producers(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
+    for result in produced:
+        result.get(timeout=0)
+    return results

@@ -101,10 +101,11 @@ service PersonHogService {
   rpc SetPersonDistinctIdVersionFloor(personhog.types.v1.SetPersonDistinctIdVersionFloorRequest) returns (personhog.types.v1.SetPersonDistinctIdVersionFloorResponse);
   rpc SetPersonVersionFloor(personhog.types.v1.SetPersonVersionFloorRequest) returns (personhog.types.v1.SetPersonVersionFloorResponse);
 
-  // Version heads (replica reads) and floors for the ClickHouse cleanup jobs.
-  // The writes go to the primary: same routing caveat as DeletePersons above.
+  // Version heads (replica reads), floors and distinct id tombstones for the ClickHouse
+  // cleanup jobs. The writes go to the primary: same routing caveat as DeletePersons above.
   rpc GetPersonVersionHeads(personhog.types.v1.GetPersonVersionHeadsRequest) returns (personhog.types.v1.GetPersonVersionHeadsResponse);
   rpc GetDistinctIdVersionHeads(personhog.types.v1.GetDistinctIdVersionHeadsRequest) returns (personhog.types.v1.GetDistinctIdVersionHeadsResponse);
   rpc EnsurePersonVersionFloors(personhog.types.v1.EnsurePersonVersionFloorsRequest) returns (personhog.types.v1.EnsurePersonVersionFloorsResponse);
   rpc EnsureDistinctIdVersionFloors(personhog.types.v1.EnsureDistinctIdVersionFloorsRequest) returns (personhog.types.v1.EnsureDistinctIdVersionFloorsResponse);
+  rpc TombstoneDistinctIds(personhog.types.v1.TombstoneDistinctIdsRequest) returns (personhog.types.v1.TombstoneDistinctIdsResponse);
 }

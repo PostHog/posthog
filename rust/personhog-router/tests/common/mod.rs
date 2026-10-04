@@ -57,7 +57,8 @@ use personhog_proto::personhog::types::v1::{
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
     SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
-    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SplitPersonResponse, TombstoneDistinctIdsRequest, TombstoneDistinctIdsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -570,6 +571,13 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(
             EnsureDistinctIdVersionFloorsResponse::default(),
         ))
+    }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        _request: Request<TombstoneDistinctIdsRequest>,
+    ) -> Result<Response<TombstoneDistinctIdsResponse>, Status> {
+        Ok(Response::new(TombstoneDistinctIdsResponse::default()))
     }
 }
 

@@ -360,6 +360,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsResponse.FromString,
             _registered_method=True,
         )
+        self.TombstoneDistinctIds = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/TombstoneDistinctIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsResponse.FromString,
+            _registered_method=True,
+        )
 
 
 class PersonHogServiceServicer:
@@ -679,8 +685,8 @@ class PersonHogServiceServicer:
         raise NotImplementedError("Method not implemented!")
 
     def GetPersonVersionHeads(self, request, context):
-        """Version heads (replica reads) and floors for the ClickHouse cleanup jobs.
-        The writes go to the primary: same routing caveat as DeletePersons above.
+        """Version heads (replica reads), floors and distinct id tombstones for the ClickHouse
+        cleanup jobs. The writes go to the primary: same routing caveat as DeletePersons above.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -699,6 +705,12 @@ class PersonHogServiceServicer:
         raise NotImplementedError("Method not implemented!")
 
     def EnsureDistinctIdVersionFloors(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def TombstoneDistinctIds(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -971,6 +983,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.EnsureDistinctIdVersionFloors,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsResponse.SerializeToString,
+        ),
+        "TombstoneDistinctIds": grpc.unary_unary_rpc_method_handler(
+            servicer.TombstoneDistinctIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -2563,6 +2580,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/EnsureDistinctIdVersionFloors",
             personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def TombstoneDistinctIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/TombstoneDistinctIds",
+            personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsResponse.FromString,
             options,
             channel_credentials,
             insecure,

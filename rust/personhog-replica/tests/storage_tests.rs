@@ -4,8 +4,9 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    DeletePersonsMode, DistinctIdVersionFloor, DistinctIdVersionFloorResult, DistinctIdVersionHead,
-    GroupKey, PersonVersionFloorResult, PersonVersionHead, StorageError, TombstonedDeleteOutcome,
+    DeletePersonsMode, DistinctIdTombstoneOutcome, DistinctIdTombstoneResult,
+    DistinctIdVersionFloor, DistinctIdVersionFloorResult, DistinctIdVersionHead, GroupKey,
+    PersonVersionFloorResult, PersonVersionHead, StorageError, TombstonedDeleteOutcome,
     TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 use rand::Rng;
@@ -4024,12 +4025,14 @@ enum HeldRowWrite {
     DeleteTombstoned,
     EnsurePersonFloor,
     EnsureDistinctIdFloor,
+    TombstoneDistinctIds,
 }
 
 #[rstest]
 #[case::delete_tombstoned(HeldRowWrite::DeleteTombstoned)]
 #[case::ensure_person_floor(HeldRowWrite::EnsurePersonFloor)]
 #[case::ensure_distinct_id_floor(HeldRowWrite::EnsureDistinctIdFloor)]
+#[case::tombstone_distinct_ids(HeldRowWrite::TombstoneDistinctIds)]
 #[tokio::test]
 async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: HeldRowWrite) {
     // lock_timeout makes the request fail fast behind a held row; without it this call would
@@ -4042,7 +4045,13 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
     let person_before = person_state(&ctx, person.uuid).await;
     let distinct_id_before = distinct_id_state(&ctx, "held_row").await;
     let mut holder = ctx.pool.begin().await.unwrap();
-    sqlx::query("SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR UPDATE")
+    let held_row_query = match write {
+        HeldRowWrite::TombstoneDistinctIds => {
+            "SELECT id FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2 FOR UPDATE"
+        }
+        _ => "SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR UPDATE",
+    };
+    sqlx::query(held_row_query)
         .bind(ctx.team_id)
         .bind(person.id)
         .execute(&mut *holder)
@@ -4074,6 +4083,11 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
             )
             .await
             .map(|_| ()),
+        HeldRowWrite::TombstoneDistinctIds => ctx
+            .storage
+            .tombstone_distinct_ids(ctx.team_id, &["held_row".to_string()])
+            .await
+            .map(|_| ()),
     };
 
     assert!(
@@ -4093,7 +4107,7 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
 }
 
 // ============================================================
-// Version head and version floor tests
+// Version heads, version floors and distinct id tombstone tests
 // ============================================================
 
 type PersonState = (Option<i64>, bool, serde_json::Value);
@@ -4636,15 +4650,134 @@ async fn test_ensure_distinct_id_version_floors_outcomes_and_idempotence() {
     other.cleanup().await.ok();
 }
 
+#[tokio::test]
+async fn test_tombstone_distinct_ids_outcomes_and_idempotence() {
+    use DistinctIdTombstoneOutcome::*;
+    let ctx = TestContext::new().await;
+    let other = TestContext::new().await;
+    let owner = ctx.insert_person("tdi_live", None).await.unwrap();
+    ctx.add_distinct_id_to_person(owner.id, "tdi_live_v3")
+        .await
+        .unwrap();
+    set_distinct_id_state(&ctx, "tdi_live_v3", Some(3), false).await;
+    ctx.add_distinct_id_to_person(owner.id, "tdi_already")
+        .await
+        .unwrap();
+    set_distinct_id_state(&ctx, "tdi_already", Some(4), true).await;
+    // A person tombstone is still a person row, so its live mapping is not orphaned.
+    let tombstoned_owner = seed_person(&ctx, "tdi_tombstoned_owner", Some(2), true).await;
+    let orphan_person_id = insert_orphan_distinct_id(&ctx, "tdi_orphan", 2).await;
+    let orphan_null_person_id = insert_orphan_distinct_id(&ctx, "tdi_orphan_null", 0).await;
+    set_distinct_id_state(&ctx, "tdi_orphan_null", None, false).await;
+    let other_team = other.insert_person("tdi_other_team", None).await.unwrap();
+
+    // (distinct id, outcome, reported version, reported owner)
+    let cases: Vec<(&str, DistinctIdTombstoneOutcome, i64, Option<Uuid>)> = vec![
+        ("tdi_live", NotOrphaned, 0, Some(owner.uuid)),
+        ("tdi_live_v3", NotOrphaned, 3, Some(owner.uuid)),
+        (
+            "tdi_tombstoned_owner",
+            NotOrphaned,
+            0,
+            Some(tombstoned_owner.uuid),
+        ),
+        ("tdi_already", AlreadyTombstoned, 4, Some(owner.uuid)),
+        ("tdi_absent", Absent, 0, None),
+        ("tdi_orphan", Tombstoned, 3, None),
+        ("tdi_orphan_null", Tombstoned, 1, None),
+        ("tdi_other_team", Absent, 0, None),
+    ];
+    let distinct_ids: Vec<String> = cases.iter().map(|(d, ..)| d.to_string()).collect();
+
+    let results = ctx
+        .storage
+        .tombstone_distinct_ids(ctx.team_id, &distinct_ids)
+        .await
+        .unwrap();
+
+    let expected: Vec<DistinctIdTombstoneResult> = cases
+        .iter()
+        .map(
+            |(distinct_id, outcome, version, owner)| DistinctIdTombstoneResult {
+                distinct_id: distinct_id.to_string(),
+                outcome: *outcome,
+                version: *version,
+                person_uuid: *owner,
+            },
+        )
+        .collect();
+    assert_eq!(results, expected);
+    let expected_rows = [
+        ("tdi_live", Some((owner.id, Some(0), false))),
+        ("tdi_live_v3", Some((owner.id, Some(3), false))),
+        (
+            "tdi_tombstoned_owner",
+            Some((tombstoned_owner.id, Some(0), false)),
+        ),
+        ("tdi_already", Some((owner.id, Some(4), true))),
+        ("tdi_absent", None),
+        ("tdi_orphan", Some((orphan_person_id, Some(3), true))),
+        (
+            "tdi_orphan_null",
+            Some((orphan_null_person_id, Some(1), true)),
+        ),
+        ("tdi_other_team", None),
+    ];
+    for (distinct_id, row) in expected_rows {
+        assert_eq!(
+            distinct_id_state(&ctx, distinct_id).await,
+            row,
+            "{distinct_id}"
+        );
+    }
+    // The owner person rows are never written.
+    assert_eq!(
+        person_state(&ctx, owner.uuid).await,
+        Some((Some(0), false, serde_json::json!({})))
+    );
+    assert_eq!(
+        person_state(&ctx, tombstoned_owner.uuid).await,
+        Some((Some(2), true, serde_json::json!({"seeded": true})))
+    );
+    assert_eq!(
+        distinct_id_state(&other, "tdi_other_team").await,
+        Some((other_team.id, Some(0), false))
+    );
+
+    // A redelivered call reports the versions the first call committed, so the caller
+    // can republish them.
+    let again = ctx
+        .storage
+        .tombstone_distinct_ids(ctx.team_id, &distinct_ids)
+        .await
+        .unwrap();
+    let expected_again: Vec<DistinctIdTombstoneResult> = expected
+        .into_iter()
+        .map(|result| DistinctIdTombstoneResult {
+            outcome: match result.outcome {
+                Tombstoned => AlreadyTombstoned,
+                outcome => outcome,
+            },
+            ..result
+        })
+        .collect();
+    assert_eq!(again, expected_again);
+
+    ctx.cleanup().await.ok();
+    other.cleanup().await.ok();
+}
+
 #[derive(Debug, Clone, Copy)]
 enum TombstoneWrite {
     PersonFloor,
     DistinctIdFloor,
+    DistinctIdTombstone,
 }
 
 #[rstest]
 #[case::person_floor(TombstoneWrite::PersonFloor)]
 #[case::distinct_id_floor(TombstoneWrite::DistinctIdFloor)]
+#[case::distinct_id_tombstone(TombstoneWrite::DistinctIdTombstone)]
 #[tokio::test]
 async fn test_ingestion_revives_above_the_written_tombstone(#[case] write: TombstoneWrite) {
     let ctx = TestContext::new().await;
@@ -4676,6 +4809,15 @@ async fn test_ingestion_revives_above_the_written_tombstone(#[case] write: Tombs
                 .await
                 .unwrap();
             (1, 6)
+        }
+        TombstoneWrite::DistinctIdTombstone => {
+            insert_orphan_distinct_id(&ctx, distinct_id, 0).await;
+            ctx.storage
+                .tombstone_distinct_ids(ctx.team_id, &[distinct_id.to_string()])
+                .await
+                .unwrap();
+            // A fresh uuid: the person insert does not conflict, the distinct id does.
+            (0, 2)
         }
     };
 

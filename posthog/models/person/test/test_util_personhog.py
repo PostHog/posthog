@@ -1,16 +1,21 @@
 from uuid import UUID, uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 import grpc
+from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
+from posthog.kafka_client.client import ProduceResult
 from posthog.models.person.util import (
+    ORPHAN_DISTINCT_ID_PERSON_UUID,
     PERSONHOG_BATCH_SIZE,
     VERSION_FLOOR_ATTEMPTS,
+    DistinctIdTombstoneOutcome,
     DistinctIdVersionFloor,
     PersonVersionFloor,
     _fetch_person_by_distinct_id_via_personhog,
@@ -19,6 +24,7 @@ from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    create_person_distinct_id,
     ensure_distinct_id_version_floors,
     ensure_person_version_floors,
     get_distinct_id_version_heads,
@@ -27,6 +33,8 @@ from posthog.models.person.util import (
     get_person_uuids_by_distinct_ids,
     get_person_version_heads,
     get_persons_mapped_by_distinct_id,
+    tombstone_distinct_ids_and_publish,
+    tombstone_distinct_ids_in_postgres,
 )
 from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
@@ -622,6 +630,10 @@ def _ensure_distinct_ids(uuids: list[UUID]) -> list[UUID]:
     return [UUID(r.distinct_id) for r in ensure_distinct_id_version_floors(1, floors)]
 
 
+def _tombstone(uuids: list[UUID]) -> list[UUID]:
+    return [UUID(r.distinct_id) for r in tombstone_distinct_ids_in_postgres(1, [str(u) for u in uuids])]
+
+
 class TestVersionRpcHelpers(SimpleTestCase):
     @parameterized.expand(
         [
@@ -674,6 +686,7 @@ class TestVersionRpcHelpers(SimpleTestCase):
         [
             ("person_floors", _ensure_persons, "ensure_person_version_floors"),
             ("distinct_id_floors", _ensure_distinct_ids, "ensure_distinct_id_version_floors"),
+            ("tombstone", _tombstone, "tombstone_distinct_ids"),
             ("person_heads", lambda uuids: get_person_version_heads(1, uuids), "get_person_version_heads"),
             (
                 "distinct_id_heads",
@@ -689,3 +702,59 @@ class TestVersionRpcHelpers(SimpleTestCase):
             fake.assert_called(method, times=2)
         # Heads skip keys with no row; every write reports each key in request order.
         assert results == ([] if name.endswith("heads") else uuids)
+
+
+class TestTombstoneDistinctIdsAndPublish(ClickhouseTestMixin, BaseTest):
+    def _ch_mapping_state(self, distinct_id: str) -> tuple[str, int, int] | None:
+        rows = sync_execute(
+            """
+            SELECT argMax(person_id, version), argMax(is_deleted, version), max(version)
+            FROM person_distinct_id2 FINAL
+            WHERE team_id = %(t)s AND distinct_id = %(d)s
+            GROUP BY distinct_id
+            """,
+            {"t": self.team.pk, "d": distinct_id},
+        )
+        return (str(rows[0][0]), int(rows[0][1]), int(rows[0][2])) if rows else None
+
+    def test_publishes_clickhouse_tombstones_at_the_versions_postgres_holds(self):
+        owner = uuid4()
+        fake = get_active_fake()
+        fake.add_person(
+            team_id=self.team.pk,
+            person_id=1,
+            uuid=str(owner),
+            distinct_ids=["live", "gone"],
+            distinct_id_versions={"live": 0, "gone": 4},
+            tombstoned_distinct_ids=["gone"],
+        )
+        fake.add_orphan_distinct_id(team_id=self.team.pk, distinct_id="orphan", version=2)
+        create_person_distinct_id(self.team.pk, "live", str(owner), version=0)
+        create_person_distinct_id(self.team.pk, "orphan", str(uuid4()), version=2)
+
+        results = tombstone_distinct_ids_and_publish(self.team.pk, ["live", "orphan", "gone", "absent"])
+
+        assert [(r.distinct_id, r.outcome, r.version, r.person_uuid) for r in results] == [
+            ("live", DistinctIdTombstoneOutcome.NOT_ORPHANED, 0, owner),
+            ("orphan", DistinctIdTombstoneOutcome.TOMBSTONED, 3, None),
+            ("gone", DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED, 4, owner),
+            ("absent", DistinctIdTombstoneOutcome.ABSENT, 0, None),
+        ]
+        assert self._ch_mapping_state("live") == (str(owner), 0, 0)
+        assert self._ch_mapping_state("orphan") == (str(ORPHAN_DISTINCT_ID_PERSON_UUID), 1, 3)
+        assert self._ch_mapping_state("gone") == (str(owner), 1, 4)
+        assert self._ch_mapping_state("absent") is None
+
+    def test_a_failed_delivery_raises_and_a_repeat_call_republishes_at_the_same_version(self):
+        get_active_fake().add_orphan_distinct_id(team_id=self.team.pk, distinct_id="orphan", version=0)
+        undelivered = ProduceResult(topic="clickhouse_person_distinct_id")
+        undelivered.set_result(KafkaError(-192, "Local: Message timed out"), None)
+
+        with patch("posthog.models.person.util.create_person_distinct_id", return_value=undelivered):
+            with self.assertRaises(KafkaException):
+                tombstone_distinct_ids_and_publish(self.team.pk, ["orphan"])
+        assert self._ch_mapping_state("orphan") is None
+
+        [result] = tombstone_distinct_ids_and_publish(self.team.pk, ["orphan"])
+        assert (result.outcome, result.version) == (DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED, 1)
+        assert self._ch_mapping_state("orphan") == (str(ORPHAN_DISTINCT_ID_PERSON_UUID), 1, 1)

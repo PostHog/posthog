@@ -471,6 +471,13 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<EnsureDistinctIdVersionFloorsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        _: Request<TombstoneDistinctIdsRequest>,
+    ) -> Result<Response<TombstoneDistinctIdsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

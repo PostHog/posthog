@@ -206,6 +206,14 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionFloorResult>> {
         Err(self.error.clone())
     }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdTombstoneResult>> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -650,6 +658,14 @@ impl storage::PersonLookup for SuccessStorage {
         _team_id: i64,
         _floors: &[storage::DistinctIdVersionFloor],
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionFloorResult>> {
+        Ok(Vec::new())
+    }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdTombstoneResult>> {
         Ok(Vec::new())
     }
 }
@@ -1157,6 +1173,14 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionFloorResult>> {
         Ok(Vec::new())
     }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdTombstoneResult>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1636,6 +1660,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _team_id: i64,
         _floors: &[storage::DistinctIdVersionFloor],
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionFloorResult>> {
+        Ok(Vec::new())
+    }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdTombstoneResult>> {
         Ok(Vec::new())
     }
 }

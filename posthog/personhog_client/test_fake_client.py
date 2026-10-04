@@ -717,6 +717,12 @@ class TestFakePersonHogClientVersionRpcs:
         )
         return list(response.results)
 
+    def _tombstone(self, *distinct_ids: str) -> list[person_pb2.DistinctIdTombstoneResult]:
+        response = self.client.tombstone_distinct_ids(
+            person_pb2.TombstoneDistinctIdsRequest(team_id=self.TEAM_ID, distinct_ids=list(distinct_ids))
+        )
+        return list(response.results)
+
     def _distinct_id_head(self, distinct_id: str) -> person_pb2.DistinctIdVersionHead | None:
         response = self.client.get_distinct_id_version_heads(
             person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=[distinct_id])
@@ -815,12 +821,42 @@ class TestFakePersonHogClientVersionRpcs:
         raised_again = self._ensure_distinct_ids(("tomb-did", 8, unused))[0]
         assert (raised_again.outcome, raised_again.version) == (raised, 8)
 
+    def test_tombstone_bumps_only_orphaned_rows_once(self):
+        tombstoned = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_TOMBSTONED
+        already = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_ALREADY_TOMBSTONED
+        absent = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_ABSENT
+        not_orphaned = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_NOT_ORPHANED
+        keys = ("live-did", "tomb-did", "orphan", "missing", "elsewhere-did")
+        result = person_pb2.DistinctIdTombstoneResult
+        head = person_pb2.DistinctIdVersionHead
+
+        assert self._tombstone(*keys) == [
+            result(distinct_id="live-did", outcome=not_orphaned, version=1, person_uuid="live"),
+            result(distinct_id="tomb-did", outcome=already, version=4, person_uuid="tomb-high"),
+            result(distinct_id="orphan", outcome=tombstoned, version=3),
+            result(distinct_id="missing", outcome=absent, version=0),
+            result(distinct_id="elsewhere-did", outcome=absent, version=0),
+        ]
+        person = self.client.stored_person(self.TEAM_ID, "live")
+        assert person is not None and (person.is_deleted, person.version) == (False, 2)
+        assert self._distinct_id_head("live-did") == head(
+            distinct_id="live-did", version=1, is_deleted=False, person_uuid="live"
+        )
+        assert self._distinct_id_head("orphan") == head(distinct_id="orphan", version=3, is_deleted=True)
+        assert [(r.distinct_id, r.outcome, r.version) for r in self._tombstone(*keys)] == [
+            ("live-did", not_orphaned, 1),
+            ("tomb-did", already, 4),
+            ("orphan", already, 3),
+            ("missing", absent, 0),
+            ("elsewhere-did", absent, 0),
+        ]
+
     @pytest.mark.parametrize(
         "rpc,keys,min_version,error",
         [
             *(
                 (rpc, keys, 0, error)
-                for rpc in ("ensure_persons", "ensure_distinct_ids")
+                for rpc in ("ensure_persons", "ensure_distinct_ids", "tombstone")
                 for keys, error in (([f"k-{i}" for i in range(251)], "Maximum 250"), (["k", "k"], "Duplicate key"))
             ),
             ("ensure_persons", ["k"], -1, "must not be negative"),
@@ -843,6 +879,7 @@ class TestFakePersonHogClientVersionRpcs:
             "ensure_distinct_ids_invalid_owner": lambda: self._ensure_distinct_ids(
                 *((k, min_version, "not-a-uuid") for k in keys)
             ),
+            "tombstone": lambda: self._tombstone(*keys),
         }
         with pytest.raises(ValueError, match=error):
             calls[rpc]()

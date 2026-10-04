@@ -3,9 +3,10 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, DistinctIdVersionFloor, DistinctIdVersionFloorResult,
-    DistinctIdVersionHead, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult,
-    PersonVersionHead, SplitResult, TombstonedDeleteOutcome, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, DistinctIdTombstoneResult, DistinctIdVersionFloor,
+    DistinctIdVersionFloorResult, DistinctIdVersionHead, Person, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, PersonVersionHead, SplitResult, TombstonedDeleteOutcome,
+    TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -182,4 +183,12 @@ pub trait PersonLookup: Send + Sync {
         team_id: i64,
         floors: &[DistinctIdVersionFloor],
     ) -> StorageResult<Vec<DistinctIdVersionFloorResult>>;
+
+    /// Tombstone (version + 1) each live distinct id row whose person row does not exist, in one primary
+    /// transaction that locks no person row; other rows are left unchanged, and keys must not repeat.
+    async fn tombstone_distinct_ids(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdTombstoneResult>>;
 }

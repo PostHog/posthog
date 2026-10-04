@@ -78,6 +78,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
+    "TombstoneDistinctIds",
     "UpdateGroup",
     "UpdateGroupTypeMapping",
     "UpdatePersonProperties",

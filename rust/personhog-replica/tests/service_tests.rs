@@ -5,19 +5,20 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
-    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DistinctIdVersionFloor,
-    DistinctIdVersionFloorResult, DistinctIdVersionHead, EnsureDistinctIdVersionFloorsRequest,
-    EnsurePersonVersionFloorsRequest, GetDistinctIdVersionHeadsRequest,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
-    GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DistinctIdTombstoneOutcome,
+    DistinctIdTombstoneResult, DistinctIdVersionFloor, DistinctIdVersionFloorResult,
+    DistinctIdVersionHead, EnsureDistinctIdVersionFloorsRequest, EnsurePersonVersionFloorsRequest,
+    GetDistinctIdVersionHeadsRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
+    GetPersonRequest, GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier,
     GroupKey, PersonVersionFloor, PersonVersionFloorResult, PersonVersionHead,
     SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
-    TeamDistinctId, UpsertHashKeyOverridesRequest, VersionFloorOutcome,
+    TeamDistinctId, TombstoneDistinctIdsRequest, UpsertHashKeyOverridesRequest,
+    VersionFloorOutcome,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1752,6 +1753,50 @@ async fn test_sweep_rpcs_map_results_to_proto() {
         }]
     );
 
+    let tombstones = ctx
+        .service
+        .tombstone_distinct_ids(Request::new(TombstoneDistinctIdsRequest {
+            team_id,
+            distinct_ids: vec![
+                "svc_sweep_live".to_string(),
+                "svc_sweep_orphan".to_string(),
+                "svc_sweep_absent".to_string(),
+                "svc_sweep_missing".to_string(),
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        tombstones.results,
+        vec![
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_live".to_string(),
+                outcome: DistinctIdTombstoneOutcome::NotOrphaned as i32,
+                version: 0,
+                person_uuid: Some(person.uuid.to_string()),
+            },
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_orphan".to_string(),
+                outcome: DistinctIdTombstoneOutcome::Tombstoned as i32,
+                version: 1,
+                person_uuid: None,
+            },
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_absent".to_string(),
+                outcome: DistinctIdTombstoneOutcome::AlreadyTombstoned as i32,
+                version: 3,
+                person_uuid: Some(absent_person.to_string()),
+            },
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_missing".to_string(),
+                outcome: DistinctIdTombstoneOutcome::Absent as i32,
+                version: 0,
+                person_uuid: None,
+            },
+        ]
+    );
+
     let person_heads = ctx
         .service
         .get_person_version_heads(Request::new(GetPersonVersionHeadsRequest {
@@ -1783,8 +1828,8 @@ async fn test_sweep_rpcs_map_results_to_proto() {
         distinct_id_heads.heads,
         vec![DistinctIdVersionHead {
             distinct_id: "svc_sweep_orphan".to_string(),
-            version: 0,
-            is_deleted: false,
+            version: 1,
+            is_deleted: true,
             person_uuid: None,
         }]
     );

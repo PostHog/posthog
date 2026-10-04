@@ -50,7 +50,7 @@ def _order_identified_first(
 # The replica's row budget when a request leaves max_rows at 0.
 DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
 
-# The replica's cap on keys per version head or version floor request.
+# The replica's cap on keys per version head, version floor or distinct id tombstone request.
 VERSION_RPC_MAX_KEYS = 250
 
 
@@ -75,7 +75,7 @@ class FakePersonHogClient:
         # keyed by (team_id, distinct_id): mappings tombstoned alongside their person
         self._tombstoned_distinct_ids: set[tuple[int, str]] = set()
         # keyed by (team_id, distinct_id): mappings whose person has no row. Only the version
-        # RPCs see them, as person lookups join the person row.
+        # and distinct id tombstone RPCs see them, as person lookups join the person row.
         self._orphan_distinct_ids: dict[tuple[int, str], person_pb2.DistinctIdWithVersion] = {}
         self.tombstone_queue: dict[tuple[int, str], int] = {}
         self.tombstone_queued_at_ms: dict[tuple[int, str], int] = {}
@@ -914,7 +914,7 @@ class FakePersonHogClient:
         person.version = request.min_version
         return person_pb2.SetPersonVersionFloorResponse(updated=True)
 
-    # ── Version heads and version floors ─────
+    # ── Version heads, version floors and distinct id tombstones ─────
 
     @staticmethod
     def _check_version_rpc_batch(keys: list[str], *, reject_duplicates: bool = True) -> None:
@@ -1052,6 +1052,33 @@ class FakePersonHogClient:
             if is_deleted:
                 mapping.version = max(mapping.version, floor.min_version)
             result = response.results.add(distinct_id=floor.distinct_id, outcome=outcome, version=mapping.version)
+            if person is not None:
+                result.person_uuid = person.uuid
+        return response
+
+    def tombstone_distinct_ids(
+        self, request: person_pb2.TombstoneDistinctIdsRequest, timeout: float | None = None
+    ) -> person_pb2.TombstoneDistinctIdsResponse:
+        self.calls.append(_Call("tombstone_distinct_ids", request))
+        self._check_version_rpc_batch(list(request.distinct_ids))
+        response = person_pb2.TombstoneDistinctIdsResponse()
+        for distinct_id in request.distinct_ids:
+            key = (request.team_id, distinct_id)
+            row = self._distinct_id_row(*key)
+            if row is None:
+                response.results.add(
+                    distinct_id=distinct_id, outcome=person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_ABSENT, version=0
+                )
+                continue
+            mapping, person = row
+            outcome = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_ALREADY_TOMBSTONED
+            if key not in self._tombstoned_distinct_ids and person is not None:
+                outcome = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_NOT_ORPHANED
+            elif key not in self._tombstoned_distinct_ids:
+                mapping.version += 1
+                self._tombstoned_distinct_ids.add(key)
+                outcome = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_TOMBSTONED
+            result = response.results.add(distinct_id=distinct_id, outcome=outcome, version=mapping.version)
             if person is not None:
                 result.person_uuid = person.uuid
         return response

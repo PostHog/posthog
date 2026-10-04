@@ -22,7 +22,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdVersionFloorResult, DistinctIdVersionHead,
+    DeleteTombstonedPersonsResponse, DistinctIdTombstoneOutcome as ProtoDistinctIdTombstoneOutcome,
+    DistinctIdTombstoneResult, DistinctIdVersionFloorResult, DistinctIdVersionHead,
     DistinctIdWithVersion, EnsureDistinctIdVersionFloorsRequest,
     EnsureDistinctIdVersionFloorsResponse, EnsurePersonVersionFloorsRequest,
     EnsurePersonVersionFloorsResponse, GetDistinctIdVersionHeadsRequest,
@@ -49,9 +50,10 @@ use personhog_proto::personhog::types::v1::{
     PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
     SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
-    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, TombstoneDistinctIdsRequest,
+    TombstoneDistinctIdsResponse, TombstonedDistinctId, TombstonedPerson, UpdateGroupRequest,
+    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
     VersionFloorOutcome as ProtoVersionFloorOutcome,
 };
 use tonic::{Request, Response, Status};
@@ -67,7 +69,7 @@ const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 // Splits run in a single all-or-nothing transaction holding row locks, so the
 // cap bounds both lock-hold time and payload size — same order as batch lookups.
 const MAX_SPLIT_BATCH_SIZE: usize = 250;
-// Version floors also run in one transaction holding
+// Version floors and distinct id tombstones also run in one transaction holding
 // row locks, so they take the same cap as splits.
 const MAX_LOCKED_WRITE_BATCH_SIZE: usize = 250;
 
@@ -1676,6 +1678,33 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .collect(),
         }))
     }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        request: Request<TombstoneDistinctIdsRequest>,
+    ) -> Result<Response<TombstoneDistinctIdsResponse>, Status> {
+        let req = request.into_inner();
+
+        check_write_batch(req.distinct_ids.iter().map(String::as_str))?;
+
+        let results = self
+            .storage
+            .tombstone_distinct_ids(req.team_id, &req.distinct_ids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "tombstone_distinct_ids"))?;
+
+        Ok(Response::new(TombstoneDistinctIdsResponse {
+            results: results
+                .into_iter()
+                .map(|r| DistinctIdTombstoneResult {
+                    distinct_id: r.distinct_id,
+                    outcome: distinct_id_tombstone_outcome_to_proto(r.outcome) as i32,
+                    version: r.version,
+                    person_uuid: r.person_uuid.map(|uuid| uuid.to_string()),
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -1726,6 +1755,23 @@ fn floor_outcome_to_proto(outcome: storage::VersionFloorOutcome) -> ProtoVersion
             ProtoVersionFloorOutcome::TombstoneAtFloor
         }
         storage::VersionFloorOutcome::Live => ProtoVersionFloorOutcome::Live,
+    }
+}
+
+fn distinct_id_tombstone_outcome_to_proto(
+    outcome: storage::DistinctIdTombstoneOutcome,
+) -> ProtoDistinctIdTombstoneOutcome {
+    match outcome {
+        storage::DistinctIdTombstoneOutcome::Tombstoned => {
+            ProtoDistinctIdTombstoneOutcome::Tombstoned
+        }
+        storage::DistinctIdTombstoneOutcome::AlreadyTombstoned => {
+            ProtoDistinctIdTombstoneOutcome::AlreadyTombstoned
+        }
+        storage::DistinctIdTombstoneOutcome::Absent => ProtoDistinctIdTombstoneOutcome::Absent,
+        storage::DistinctIdTombstoneOutcome::NotOrphaned => {
+            ProtoDistinctIdTombstoneOutcome::NotOrphaned
+        }
     }
 }
 

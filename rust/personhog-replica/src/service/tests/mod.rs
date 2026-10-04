@@ -13,8 +13,8 @@ use personhog_proto::personhog::types::v1::{
     DistinctIdVersionFloor, EnsureDistinctIdVersionFloorsRequest, EnsurePersonVersionFloorsRequest,
     GetDistinctIdVersionHeadsRequest, GetGroupRequest, GetPersonRequest,
     GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest,
-    ListCohortMemberIdsRequest, PersonVersionFloor, UpdateGroupRequest,
-    UpdateGroupTypeMappingRequest,
+    ListCohortMemberIdsRequest, PersonVersionFloor, TombstoneDistinctIdsRequest,
+    UpdateGroupRequest, UpdateGroupTypeMappingRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -1063,7 +1063,7 @@ async fn test_delete_group_type_mappings_batch_for_team_success() {
 }
 
 // ============================================================
-// Version head and version floor tests
+// Version heads, version floors and distinct id tombstone tests
 // ============================================================
 
 #[derive(Debug, Clone, Copy)]
@@ -1072,6 +1072,7 @@ enum SweepRpc {
     DistinctIdHeads,
     EnsurePersonFloors,
     EnsureDistinctIdFloors,
+    TombstoneDistinctIds,
 }
 
 const OWNER_UUID: &str = "00000000-0000-0000-0000-000000000001";
@@ -1132,6 +1133,13 @@ async fn call_sweep_rpc(
             }))
             .await
             .map(|_| ()),
+        SweepRpc::TombstoneDistinctIds => service
+            .tombstone_distinct_ids(Request::new(TombstoneDistinctIdsRequest {
+                team_id,
+                distinct_ids: keys,
+            }))
+            .await
+            .map(|_| ()),
     }
 }
 
@@ -1182,6 +1190,15 @@ async fn call_sweep_rpc(
 #[case::distinct_id_floors_duplicate(SweepRpc::EnsureDistinctIdFloors, vec!["a".to_string(), "a".to_string()], 0, OWNER_UUID, Some("Duplicate key"))]
 #[case::distinct_id_floors_negative(SweepRpc::EnsureDistinctIdFloors, vec!["a".to_string()], -1, OWNER_UUID, Some("must not be negative"))]
 #[case::distinct_id_floors_bad_owner(SweepRpc::EnsureDistinctIdFloors, vec!["a".to_string()], 0, "nope", Some("Invalid UUID"))]
+#[case::tombstone_at_cap(SweepRpc::TombstoneDistinctIds, uuid_keys(250), 0, OWNER_UUID, None)]
+#[case::tombstone_over_cap(
+    SweepRpc::TombstoneDistinctIds,
+    uuid_keys(251),
+    0,
+    OWNER_UUID,
+    Some("Maximum 250")
+)]
+#[case::tombstone_duplicate(SweepRpc::TombstoneDistinctIds, vec!["a".to_string(), "a".to_string()], 0, OWNER_UUID, Some("Duplicate key"))]
 #[tokio::test]
 async fn test_sweep_rpc_input_validation(
     #[case] rpc: SweepRpc,
@@ -1234,6 +1251,11 @@ async fn test_sweep_rpc_input_validation(
     SweepRpc::EnsureDistinctIdFloors,
     FailingStorage::with_failed_precondition(),
     tonic::Code::FailedPrecondition
+)]
+#[case::tombstone_query_error(
+    SweepRpc::TombstoneDistinctIds,
+    FailingStorage::with_query_error(),
+    tonic::Code::Internal
 )]
 #[tokio::test]
 async fn test_sweep_rpc_storage_error(

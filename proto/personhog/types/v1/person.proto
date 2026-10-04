@@ -499,6 +499,43 @@ message EnsureDistinctIdVersionFloorsResponse {
   repeated DistinctIdVersionFloorResult results = 1;
 }
 
+// What a TombstoneDistinctIds call found and did for one distinct_id.
+enum DistinctIdTombstoneOutcome {
+  DISTINCT_ID_TOMBSTONE_OUTCOME_UNSPECIFIED = 0;
+  // A live row whose person row does not exist. The call set is_deleted and
+  // raised its version by 1.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_TOMBSTONED = 1;
+  // A tombstone. Nothing changed.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_ALREADY_TOMBSTONED = 2;
+  // No row. Nothing changed.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_ABSENT = 3;
+  // A live row whose person row exists. Nothing changed.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_NOT_ORPHANED = 4;
+}
+
+// TombstoneDistinctIdsRequest tombstones live posthog_persondistinctid rows whose person row does
+// not exist, so a later revival lands above them. One transaction per request.
+message TombstoneDistinctIdsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicates are rejected.
+  repeated string distinct_ids = 2;
+}
+
+message DistinctIdTombstoneResult {
+  string distinct_id = 1;
+  DistinctIdTombstoneOutcome outcome = 2;
+  // The stored version after the call. 0 when the outcome is ABSENT.
+  int64 version = 3;
+  // The person the row points at. Absent when that person row does not exist,
+  // or when the outcome is ABSENT.
+  optional string person_uuid = 4;
+}
+
+message TombstoneDistinctIdsResponse {
+  // Same order as the request.
+  repeated DistinctIdTombstoneResult results = 1;
+}
+
 // FencePersonRequest freezes a person for a lifecycle operation (see
 // PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
 // op_type selects the rejection surfaced to writers while the fence holds.

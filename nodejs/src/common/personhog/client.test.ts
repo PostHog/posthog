@@ -153,6 +153,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getDistinctIdVersionHeads: () => ({ heads: [] }),
     ensurePersonVersionFloors: () => ({ results: [] }),
     ensureDistinctIdVersionFloors: () => ({ results: [] }),
+    tombstoneDistinctIds: () => ({ results: [] }),
     fencePerson: () => ({}),
     fencePersons: () => ({}),
     releaseFence: () => ({}),

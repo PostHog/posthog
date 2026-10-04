@@ -131,6 +131,25 @@ pub struct DistinctIdVersionFloorResult {
     pub person_uuid: Option<Uuid>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistinctIdTombstoneOutcome {
+    Tombstoned,
+    AlreadyTombstoned,
+    Absent,
+    /// A live row whose person row exists. Left unchanged.
+    NotOrphaned,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdTombstoneResult {
+    pub distinct_id: String,
+    pub outcome: DistinctIdTombstoneOutcome,
+    /// 0 when the outcome is Absent.
+    pub version: i64,
+    /// None when the row points at a person that has no row, or the outcome is Absent.
+    pub person_uuid: Option<Uuid>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SplitResult {
     pub distinct_id: String,
