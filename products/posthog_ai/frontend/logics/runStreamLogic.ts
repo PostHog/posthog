@@ -905,6 +905,14 @@ export interface RunLog {
     toolUpdateIndex: Record<string, number>
 }
 
+interface HistoryLoadTiming {
+    session: RunStreamRecovery
+    startedAt: number
+    runReadAt?: number
+    historyRequestedAt?: number
+    historyReadAt?: number
+}
+
 interface OptimisticResume {
     entries: StoredEntry[]
     message: string
@@ -3627,11 +3635,42 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.recoveryStartedAt = undefined
             }
         }
+        const historyLoadFor = (session: RunStreamRecovery): HistoryLoadTiming | undefined =>
+            cache.historyLoad?.session === session ? cache.historyLoad : undefined
+        const reportHistoryLoad = (session: RunStreamRecovery, entryCount: number): void => {
+            const timing = historyLoadFor(session)
+            if (!timing) {
+                return
+            }
+            cache.historyLoad = undefined
+            const sinceStart = (at: number | undefined): number | undefined =>
+                at === undefined ? undefined : Math.round(at - timing.startedAt)
+            posthog.capture('task_run_history_loaded', {
+                conversation_id: props.conversationId,
+                task_id: session.taskId,
+                run_id: session.runId,
+                run_status: values.currentRunStatus,
+                replay_only: !!props.replayOnly,
+                via_proxy: values.streamViaProxyEnabled,
+                entry_count: entryCount,
+                run_read_ms: sinceStart(timing.runReadAt),
+                history_requested_ms: sinceStart(timing.historyRequestedAt),
+                history_read_ms:
+                    timing.historyReadAt === undefined || timing.historyRequestedAt === undefined
+                        ? undefined
+                        : Math.round(timing.historyReadAt - timing.historyRequestedAt),
+                duration_ms: sinceStart(performance.now()),
+            })
+        }
         const reconcileHistory = async (session: RunStreamRecovery): Promise<void> => {
             const turnCompleteBeforeReconcile = values.turnComplete
             const recoveringLiveTurn = session.phase === 'history' || session.phase === 'stream'
             if (session.phase !== 'finalization') {
                 session.phase = 'history'
+            }
+            const timing = historyLoadFor(session)
+            if (timing) {
+                timing.historyRequestedAt ??= performance.now()
             }
             const entries = await readWithRetry(session, () =>
                 session.request(STREAM_HISTORY_TIMEOUT_MS, (signal) =>
@@ -3642,6 +3681,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
             )
             session.check()
+            if (timing) {
+                timing.historyReadAt = performance.now()
+            }
             // Django log-N cursors index the same object entries, including non-notification records.
             entries.filter(isRecord).forEach((raw, index) => {
                 const entry = normalizeNotificationEntry(raw)
@@ -3730,6 +3772,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             actions.setHistoryComplete(true)
             actions.bootstrapLogReady()
+            reportHistoryLoad(session, entries.length)
             if (session.phase !== 'finalization') {
                 recordRecovery(session)
             }
@@ -3792,6 +3835,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 cache.retainedMessage = retainedMessage
                 cache.isBootstrapping = true
+                cache.historyLoad = justCreatedRun ? undefined : { session, startedAt: performance.now() }
                 actions.setHistoryComplete(false)
                 try {
                     if (hasEnded(session)) {
@@ -3807,6 +3851,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         return
                     }
                     const run = await readWithRetry(session, () => readRun(session))
+                    const timing = historyLoadFor(session)
+                    if (timing) {
+                        timing.runReadAt = performance.now()
+                    }
                     applyRun(session, run)
                     if (isTerminalRunStatus(run.status) || props.replayOnly) {
                         if (isTerminalRunStatus(run.status)) {

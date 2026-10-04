@@ -1354,6 +1354,35 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('history load telemetry', () => {
+        it('reports one history load per bootstrap with the entry count', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/user_message', { content: 'hello' }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } }),
+            ] as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            const loads = capture.mock.calls.filter(([event]) => event === 'task_run_history_loaded')
+            expect(loads).toEqual([
+                [
+                    'task_run_history_loaded',
+                    expect.objectContaining({
+                        task_id: 'task-1',
+                        run_id: 'run-1',
+                        entry_count: 2,
+                        duration_ms: expect.any(Number),
+                        history_read_ms: expect.any(Number),
+                    }),
+                ],
+            ])
+        })
+    })
+
     describe('turn trace ids', () => {
         const TRACE = '1d223305-d7ca-bfeb-3775-a4a15a6a31c6'
 
