@@ -1,6 +1,6 @@
 """Drain person_pg_cleanup_queue into Postgres hard deletes.
 
-The ClickHouse sweep (clickhouse_cleanup.py) removes a deleted person's rows from ClickHouse and
+The ClickHouse sweep (clickhouse_cleanup.py) removes a deleted person's rows from ClickHouse, then
 queues the person here. Postgres still holds the tombstoned posthog_person row and its dependent
 rows (distinct ids, hash key overrides, cohort memberships) until this job asks personhog to
 delete them.
@@ -20,6 +20,9 @@ reopened and the statement run again), a fatal gRPC code, or more blocked person
 max_blocked. The one state the job parks is a tombstoned person that still owns a live distinct
 id: personhog reports it as blocked, and its row is stamped blocked_at and skipped for a retry
 interval, because ingestion can still reach that person and no delete may resolve it.
+
+The drain stops before each page, request and retry when a sweep executes, and the sweep waits for
+it to stop, so the two never run together.
 """
 
 import math
@@ -42,8 +45,14 @@ from prometheus_client import Gauge
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
-from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE, PublishedGauge
-from posthog.dags.common import JobOwners
+from posthog.dags.clickhouse_cleanup import (
+    DRAIN_STOP_POLL_SECONDS,
+    PERSON_PG_CLEANUP_DRAIN_JOB,
+    PG_CLEANUP_QUEUE_TABLE,
+    PublishedGauge,
+    clickhouse_deletion_sweep_job,
+)
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.personhog_client.client import PersonHogClient, personhog_call, require_personhog_client
@@ -58,6 +67,11 @@ DRAIN_METRICS_JOB = "person_pg_cleanup_drain"
 
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
+
+# The sweep polls for the drain this often, so checking for the sweep more often only loads
+# Dagster's run storage.
+SWEEP_CHECK_INTERVAL_SECONDS = DRAIN_STOP_POLL_SECONDS
+STOPPED_EARLY = frozenset({"max_runtime", "sweep_running"})
 
 # tonic takes min(client deadline, personhog-router's BACKEND_TIMEOUT_MS), which is 15 s, so this
 # deadline is what bounds a request.
@@ -283,8 +297,8 @@ class DrainTotals:
         }
 
 
-class _OutOfTime(Exception):
-    """The run's deadline passed while a request or statement was being retried."""
+class _Stopped(Exception):
+    """The run's deadline passed, or a sweep started, while a request or statement was being retried."""
 
 
 def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk]:
@@ -488,6 +502,7 @@ class _Drain:
         self.totals.step_rows_min = self.totals.step_rows_max = self.step_rows
         self.successes_at_step = 0
         self.deadline = math.inf if config.max_runtime_seconds == 0 else _now_monotonic() + config.max_runtime_seconds
+        self.next_sweep_check = 0.0
         self.blocked_before = datetime.now(UTC) - timedelta(hours=config.blocked_retry_hours)
 
     def out_of_time(self) -> bool:
@@ -546,8 +561,8 @@ class _Drain:
                     self.close()
                 elif pg_is_queue_conflict(exc):
                     self.totals.pg_queue_conflict_retries += 1
-                if self.out_of_time():
-                    raise _OutOfTime from exc
+                if self.should_stop():
+                    raise _Stopped from exc
                 pause = backoff_seconds(PG_RETRY_BACKOFF_SECONDS, failures)
                 self.context.log.warning(
                     "persons Postgres %s (%s); attempt %d in %.1fs",
@@ -562,9 +577,36 @@ class _Drain:
             self.totals.pg_seconds_total += time.perf_counter() - started
             return result
 
+    def yield_to_sweep(self) -> bool:
+        """Stop when a sweep run executes, so the drain never runs while the sweep does.
+
+        Unresolved rows stay queued, and checking before every page, request and retry keeps the sweep's
+        wait to one attempt.
+        """
+        if self.totals.stopped_reason == "sweep_running":
+            return True
+        now = time.monotonic()
+        if now < self.next_sweep_check:
+            return False
+        self.next_sweep_check = now + SWEEP_CHECK_INTERVAL_SECONDS
+        sweeps = describe_runs(
+            self.context.instance,
+            (clickhouse_deletion_sweep_job.name,),
+            statuses=EXECUTING_RUN_STATUSES,
+            exclude_run_id=self.context.run_id,
+        )
+        if not sweeps:
+            return False
+        self.context.log.warning("stopping for the ClickHouse sweep: %s", "; ".join(sweeps))
+        self.totals.stopped_reason = "sweep_running"
+        return True
+
+    def should_stop(self) -> bool:
+        return self.out_of_time() or self.yield_to_sweep()
+
     def pages(self) -> Iterator[list[QueueRow]]:
         after: QueueCursor | None = None
-        while not self.out_of_time():
+        while not self.should_stop():
             limit = self.page_limit()
             if limit <= 0:
                 self.totals.stopped_reason = "max_persons"
@@ -632,8 +674,8 @@ class _Drain:
                             "grpc_code": dagster.MetadataValue.text(_code_name(code)),
                         },
                     ) from exc
-                if self.out_of_time():
-                    raise _OutOfTime from exc
+                if self.should_stop():
+                    raise _Stopped from exc
                 pause = backoff_seconds(self.config.retry_backoff_seconds, failures)
                 self.context.log.warning(
                     "personhog delete of %d persons failed (%s); attempt %d in %.1fs with a %d-row budget",
@@ -672,7 +714,7 @@ class _Drain:
         self.totals.chunks += 1
         pending: Sequence[str] = chunk.person_uuids
         while pending:
-            if self.out_of_time():
+            if self.should_stop():
                 # Rows of the persons still pending stay queued; the next run continues them.
                 return
             response = self.send(chunk, pending)
@@ -765,16 +807,16 @@ class _Drain:
                     continue
                 for chunk in chunks_for_page(page, self.config.rpc_batch_size):
                     self.resolve(chunk)
-                    if self.totals.stopped_reason == "max_runtime":
+                    if self.totals.stopped_reason in STOPPED_EARLY:
                         break
                 if self.totals.pages % LOG_EVERY_PAGES == 0:
                     self.emit_counters_since(emitted)
                     emitted = self.snapshot()
                     self.log_progress()
-                if self.totals.stopped_reason == "max_runtime":
+                if self.totals.stopped_reason in STOPPED_EARLY:
                     # Requests left in this page were never sent, so their rows stay queued.
                     break
-        except _OutOfTime:
+        except _Stopped:
             # Raised inside a retry, so the rows of that request stay queued for the next run.
             pass
         except Exception:
@@ -898,7 +940,7 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
         ),
         PublishedGauge(
             name=f"{prefix}pg_queue_conflict_retries",
-            help_text="Queue statements retried after a lock or serialization conflict, mostly with the sweep",
+            help_text="Queue statements retried after a lock or serialization conflict",
             value=totals.pg_queue_conflict_retries,
         ),
         PublishedGauge(
@@ -914,10 +956,14 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
     """Publish what the run measured, so alerting and dashboards can read it.
 
     A dry run publishes nothing. It deletes nothing, so moving the last-success gauge would let an
-    ad-hoc run from the Dagster UI mask a drain that has stopped working.
+    ad-hoc run from the Dagster UI mask a drain that has stopped working. A run that stopped for
+    the sweep publishes nothing for the same reason: a sweep that never finishes stops every drain.
     """
     if totals.dry_run:
         context.log.info("dry run: publishing no metrics")
+        return totals
+    if totals.stopped_reason == "sweep_running":
+        context.log.info("stopped for the sweep: publishing no metrics")
         return totals
 
     gauges = _drain_gauges(totals, time.time())
@@ -930,6 +976,7 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
 
 
 @dagster.job(
+    name=PERSON_PG_CLEANUP_DRAIN_JOB,
     tags={
         "owner": JobOwners.TEAM_INGESTION.value,
         # Limit 1 in charts (argocd/dagster/deployment_settings), so a second drain queues rather
