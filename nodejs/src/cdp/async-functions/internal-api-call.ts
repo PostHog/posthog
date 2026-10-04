@@ -43,11 +43,9 @@ export async function callInternalApi(
         body?: string
         extraHeaders?: Record<string, string>
         retriableStatuses?: number[]
-        /** Per-attempt budget. Defaults to internalFetch's inter-service timeout. */
-        timeoutMs?: number
     }
 ): Promise<void> {
-    const { jwt, path, method, entityClaims, body, extraHeaders, retriableStatuses = [], timeoutMs } = options
+    const { jwt, path, method, entityClaims, body, extraHeaders, retriableStatuses = [] } = options
     const startedAt = performance.now()
 
     // Counts once per handler call, not per retry attempt below: the retries are all one
@@ -83,7 +81,6 @@ export async function callInternalApi(
                     Authorization: `Bearer ${token}`,
                 },
                 ...(body !== undefined ? { body } : {}),
-                ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             })
             status = fetchResponse.status
             text = await fetchResponse.text()

@@ -15,7 +15,7 @@ from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneNotCon
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS, build_system_one_client
 from posthog.models import Team
 
-from products.workflows.backend.service_jwt import WORKFLOW_CLASSIFY_PURPOSE
+from products.workflows.backend.facade.service_jwt import WORKFLOW_AI_DECISION_PURPOSE
 
 logger = structlog.get_logger(__name__)
 
@@ -29,8 +29,8 @@ _QUESTION_ID = "category"
 MAX_CONTEXT_CHARS = 65_536
 
 
-class WorkflowClassifyJWTAuthentication(ScopedServiceJWTAuthentication):
-    purpose = WORKFLOW_CLASSIFY_PURPOSE
+class WorkflowAIDecisionJWTAuthentication(ScopedServiceJWTAuthentication):
+    purpose = WORKFLOW_AI_DECISION_PURPOSE
 
     # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
     def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
@@ -41,7 +41,7 @@ class WorkflowClassifyJWTAuthentication(ScopedServiceJWTAuthentication):
         return user, str(hog_flow_id)
 
 
-class WorkflowClassificationRequestSerializer(serializers.Serializer):
+class WorkflowAIDecisionRequestSerializer(serializers.Serializer):
     question = serializers.CharField(
         max_length=2000,
         help_text="What to decide about the context, for example 'Which team should handle this ticket?'",
@@ -65,7 +65,7 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
         return value
 
 
-class WorkflowClassificationResponseSerializer(serializers.Serializer):
+class WorkflowAIDecisionResponseSerializer(serializers.Serializer):
     category = serializers.CharField(help_text="The category the model chose.")
     confidence = serializers.FloatField(help_text="The model's probability for the chosen category, from 0 to 1.")
     probabilities = serializers.DictField(
@@ -73,35 +73,35 @@ class WorkflowClassificationResponseSerializer(serializers.Serializer):
     )
 
 
-class WorkflowClassificationErrorSerializer(serializers.Serializer):
+class WorkflowAIDecisionErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the context was not classified.")
 
 
-class WorkflowClassificationViewSet(viewsets.GenericViewSet):
+class WorkflowAIDecisionViewSet(viewsets.GenericViewSet):
     """Classify a workflow's context with Jev for the "Classify with Jev" action. Authenticated by a
     scoped service JWT minted by the plugin server, never by a user credential."""
 
-    authentication_classes = [WorkflowClassifyJWTAuthentication]
+    authentication_classes = [WorkflowAIDecisionJWTAuthentication]
     permission_classes = [IsAuthenticated]
-    serializer_class = WorkflowClassificationRequestSerializer
+    serializer_class = WorkflowAIDecisionRequestSerializer
 
     @extend_schema(
-        request=WorkflowClassificationRequestSerializer,
+        request=WorkflowAIDecisionRequestSerializer,
         responses={
-            200: WorkflowClassificationResponseSerializer,
+            200: WorkflowAIDecisionResponseSerializer,
             403: OpenApiResponse(
-                response=WorkflowClassificationErrorSerializer,
+                response=WorkflowAIDecisionErrorSerializer,
                 description="The organization has not approved AI data processing",
             ),
             501: OpenApiResponse(
-                response=WorkflowClassificationErrorSerializer,
+                response=WorkflowAIDecisionErrorSerializer,
                 description="This deployment has no AI gateway configured",
             ),
             422: OpenApiResponse(
-                response=WorkflowClassificationErrorSerializer, description="The model rejected the request"
+                response=WorkflowAIDecisionErrorSerializer, description="The model rejected the request"
             ),
             503: OpenApiResponse(
-                response=WorkflowClassificationErrorSerializer,
+                response=WorkflowAIDecisionErrorSerializer,
                 description="The model is busy or unreachable. Retry later",
             ),
         },
@@ -111,7 +111,7 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
         user = cast(InternalAPIUser, request.user)
         team = Team.objects.select_related("organization").get(id=cast(int, user.current_team_id))
 
-        serializer = WorkflowClassificationRequestSerializer(data=request.data)
+        serializer = WorkflowAIDecisionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -146,11 +146,11 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
 
         answer = cast(ChoiceAnswer, result.answers[_QUESTION_ID])
         return Response(
-            WorkflowClassificationResponseSerializer(
+            WorkflowAIDecisionResponseSerializer(
                 {"category": answer.choice, "confidence": answer.confidence, "probabilities": answer.probabilities}
             ).data
         )
 
 
 def _error(detail: str, http_status: int) -> Response:
-    return Response(WorkflowClassificationErrorSerializer({"detail": detail}).data, status=http_status)
+    return Response(WorkflowAIDecisionErrorSerializer({"detail": detail}).data, status=http_status)

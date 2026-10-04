@@ -19,23 +19,23 @@ from posthog.llm.system_one import (
     SystemOneResult,
 )
 
-SECRET = "test-workflow-classify-jwt"
-_BUILD = "products.workflows.backend.presentation.views.workflow_classifications.build_system_one_client"
+SECRET = "test-workflow-ai-decision-jwt"
+_BUILD = "products.workflows.backend.presentation.views.workflow_ai_decisions.build_system_one_client"
 CATEGORIES = {"spam": "Cold outreach or marketing", "support": "A customer asking for help"}
 
 
-def _token(team_id: int, audience: PosthogJwtAudience = PosthogJwtAudience.WORKFLOW_CLASSIFY) -> str:
+def _token(team_id: int, audience: PosthogJwtAudience = PosthogJwtAudience.WORKFLOW_AI_DECISION) -> str:
     return encode_jwt(
         {"team_id": team_id, "hog_flow_id": str(uuid4())}, timedelta(minutes=5), audience, signing_key=SECRET
     )
 
 
-@override_settings(WORKFLOW_CLASSIFY_JWT_SECRETS=[SECRET], TASKS_CREATE_JWT_SECRETS=[SECRET])
-class TestWorkflowClassificationsAPI(APIBaseTest):
+@override_settings(WORKFLOW_AI_DECISION_JWT_SECRETS=[SECRET], TASKS_CREATE_JWT_SECRETS=[SECRET])
+class TestWorkflowAIDecisionsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.client.logout()
-        self.url = f"/api/projects/{self.team.id}/workflow_classifications/"
+        self.url = f"/api/projects/{self.team.id}/workflow_ai_decisions/"
 
     def _post(self, body: dict | None = None, token: str | None = None) -> Any:
         return self.client.post(
