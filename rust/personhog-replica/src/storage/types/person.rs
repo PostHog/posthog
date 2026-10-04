@@ -71,6 +71,24 @@ pub struct TombstonedDeleteOutcome {
     pub rows_deleted: i64,
 }
 
+/// The stored version of a person row, tombstones included.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonVersionHead {
+    pub uuid: Uuid,
+    pub version: i64,
+    pub is_deleted: bool,
+}
+
+/// The stored version of a distinct id row, tombstones included.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdVersionHead {
+    pub distinct_id: String,
+    pub version: i64,
+    pub is_deleted: bool,
+    /// None when the row points at a person that has no row.
+    pub person_uuid: Option<Uuid>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SplitResult {
     pub distinct_id: String,

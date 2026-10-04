@@ -41,12 +41,14 @@ from posthog.personhog_client.proto import (
     DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
+    GetDistinctIdVersionHeadsRequest,
     GetPersonByDistinctIdRequest,
     GetPersonByUuidRequest,
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonTombstonesRequest,
+    GetPersonVersionHeadsRequest,
     ListPersonTombstoneQueueRequest,
     ReadOptions,
 )
@@ -58,6 +60,7 @@ PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
 
 
 if TYPE_CHECKING:
+    from google.protobuf.message import Message
     from personhog.types.v1 import person_pb2
 
     from posthog.personhog_client.client import PersonHogClient
@@ -940,3 +943,70 @@ def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: 
         version=version + 100,
         is_deleted=True,
     )
+
+
+# -- Version heads --
+
+
+@frozen
+class PersonVersionHead:
+    uuid: UUID
+    version: int
+    is_deleted: bool
+
+
+@frozen
+class DistinctIdVersionHead:
+    distinct_id: str
+    version: int
+    is_deleted: bool
+    # None when the row points at a person that has no row.
+    person_uuid: UUID | None
+
+
+def _optional_uuid(message: Message, field_name: str) -> UUID | None:
+    return UUID(getattr(message, field_name)) if message.HasField(field_name) else None
+
+
+def get_person_version_heads(team_id: int, uuids: Sequence[UUID]) -> list[PersonVersionHead]:
+    """Read the stored version of each person, tombstones included, from the replica; missing persons are left out, in no defined order."""
+
+    def personhog_fn() -> list[PersonVersionHead]:
+        heads: list[PersonVersionHead] = []
+        keys = [str(u) for u in uuids]
+        for i in range(0, len(keys), PERSONHOG_BATCH_SIZE):
+            response = _get_client().get_person_version_heads(
+                GetPersonVersionHeadsRequest(team_id=team_id, person_uuids=keys[i : i + PERSONHOG_BATCH_SIZE])
+            )
+            heads.extend(
+                PersonVersionHead(uuid=UUID(h.person_uuid), version=int(h.version), is_deleted=h.is_deleted)
+                for h in response.heads
+            )
+        return heads
+
+    return personhog_call("get_person_version_heads", personhog_fn)
+
+
+def get_distinct_id_version_heads(team_id: int, distinct_ids: Sequence[str]) -> list[DistinctIdVersionHead]:
+    """``get_person_version_heads`` for distinct id rows."""
+
+    def personhog_fn() -> list[DistinctIdVersionHead]:
+        heads: list[DistinctIdVersionHead] = []
+        for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
+            response = _get_client().get_distinct_id_version_heads(
+                GetDistinctIdVersionHeadsRequest(
+                    team_id=team_id, distinct_ids=list(distinct_ids[i : i + PERSONHOG_BATCH_SIZE])
+                )
+            )
+            heads.extend(
+                DistinctIdVersionHead(
+                    distinct_id=h.distinct_id,
+                    version=int(h.version),
+                    is_deleted=h.is_deleted,
+                    person_uuid=_optional_uuid(h, "person_uuid"),
+                )
+                for h in response.heads
+            )
+        return heads
+
+    return personhog_call("get_distinct_id_version_heads", personhog_fn)

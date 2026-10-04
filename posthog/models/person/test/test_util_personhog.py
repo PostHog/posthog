@@ -1,18 +1,25 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
     _fetch_person_by_uuid_via_personhog,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    get_distinct_id_version_heads,
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
+    get_person_version_heads,
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.client import personhog_call
@@ -591,3 +598,23 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
         assert "id" in mask
         assert "team_id" in mask
         assert "properties" not in mask
+
+
+class TestVersionRpcHelpers(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_heads", lambda uuids: get_person_version_heads(1, uuids), "get_person_version_heads"),
+            (
+                "distinct_id_heads",
+                lambda uuids: get_distinct_id_version_heads(1, [str(u) for u in uuids]),
+                "get_distinct_id_version_heads",
+            ),
+        ]
+    )
+    def test_splits_requests_at_the_replica_key_cap(self, _name, helper, method):
+        uuids = [uuid4() for _ in range(PERSONHOG_BATCH_SIZE + 1)]
+        with fake_personhog_client() as fake:
+            results = helper(uuids)
+            fake.assert_called(method, times=2)
+        # Heads skip keys with no row.
+        assert results == []

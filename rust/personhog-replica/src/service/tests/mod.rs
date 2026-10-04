@@ -10,9 +10,9 @@ use personhog_proto::personhog::types::v1::{
     DeleteCohortMembersBulkRequest, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
     DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
-    GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
-    InsertCohortMembersRequest, ListCohortMemberIdsRequest, UpdateGroupRequest,
-    UpdateGroupTypeMappingRequest,
+    GetDistinctIdVersionHeadsRequest, GetGroupRequest, GetPersonRequest,
+    GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest,
+    ListCohortMemberIdsRequest, UpdateGroupRequest, UpdateGroupTypeMappingRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -1058,4 +1058,70 @@ async fn test_delete_group_type_mappings_batch_for_team_success() {
         .await;
 
     assert!(result.is_ok());
+}
+
+// ============================================================
+// Version head tests
+// ============================================================
+
+#[derive(Debug, Clone, Copy)]
+enum SweepRpc {
+    PersonHeads,
+    DistinctIdHeads,
+}
+
+fn uuid_keys(n: usize) -> Vec<String> {
+    (0..n)
+        .map(|i| format!("00000000-0000-0000-0000-{i:012}"))
+        .collect()
+}
+
+async fn call_sweep_rpc(
+    service: &PersonHogReplicaService,
+    rpc: SweepRpc,
+    keys: Vec<String>,
+) -> Result<(), tonic::Status> {
+    let team_id = 1;
+    match rpc {
+        SweepRpc::PersonHeads => service
+            .get_person_version_heads(Request::new(GetPersonVersionHeadsRequest {
+                team_id,
+                person_uuids: keys,
+            }))
+            .await
+            .map(|_| ()),
+        SweepRpc::DistinctIdHeads => service
+            .get_distinct_id_version_heads(Request::new(GetDistinctIdVersionHeadsRequest {
+                team_id,
+                distinct_ids: keys,
+            }))
+            .await
+            .map(|_| ()),
+    }
+}
+
+#[rstest]
+#[case::person_heads_at_cap(SweepRpc::PersonHeads, uuid_keys(250), None)]
+#[case::person_heads_over_cap(SweepRpc::PersonHeads, uuid_keys(251), Some("Maximum 250"))]
+#[case::person_heads_bad_uuid(SweepRpc::PersonHeads, vec!["nope".to_string()], Some("Invalid UUID"))]
+#[case::distinct_id_heads_at_cap(SweepRpc::DistinctIdHeads, uuid_keys(250), None)]
+#[case::distinct_id_heads_over_cap(SweepRpc::DistinctIdHeads, uuid_keys(251), Some("Maximum 250"))]
+#[tokio::test]
+async fn test_sweep_rpc_input_validation(
+    #[case] rpc: SweepRpc,
+    #[case] keys: Vec<String>,
+    #[case] expected_error: Option<&str>,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = call_sweep_rpc(&service, rpc, keys).await;
+
+    match expected_error {
+        None => assert!(result.is_ok(), "{result:?}"),
+        Some(message) => {
+            let status = result.unwrap_err();
+            assert_eq!(status.code(), tonic::Code::InvalidArgument);
+            assert!(status.message().contains(message), "{}", status.message());
+        }
+    }
 }

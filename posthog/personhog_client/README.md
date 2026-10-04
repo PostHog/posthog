@@ -74,6 +74,10 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 **Person split:**
 `split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback
 
+**Version heads:**
+`get_person_version_heads`, `get_distinct_id_version_heads` (stored versions, tombstones included).
+Use the helpers in `posthog/models/person/util.py`: they batch requests at the 250 key cap.
+
 **Cohort membership:**
 `check_cohort_membership`, `count_cohort_members`, `insert_cohort_members`,
 `delete_cohort_member`, `delete_cohort_members_bulk`, `list_cohort_member_ids`
