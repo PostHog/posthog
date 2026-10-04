@@ -14,6 +14,7 @@ from products.ml_inference.backend.facade.contracts import MAX_OPTIONS_PER_QUEST
 from products.workflows.backend.facade.enums import AIDecisionAnswerType, AIDecisionErrorCode, AIDecisionStatus
 from products.workflows.backend.facade.service_jwt import WORKFLOW_AI_DECISION_PURPOSE
 from products.workflows.backend.services.ai_decision import (
+    MAX_STATE_BYTES,
     AIDecisionCall,
     AIDecisionOutcome,
     AIDecisionQuestion,
@@ -39,7 +40,7 @@ ERROR_MESSAGES: dict[AIDecisionErrorCode, str] = {
     AIDecisionErrorCode.FEATURE_UNAVAILABLE: "AI decisions aren't available for this organization. Remove the step or contact support.",
     AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED: "Your organization hasn't approved AI data processing. An organization admin can approve it in organization settings.",
     AIDecisionErrorCode.QUOTA_EXCEEDED: "Your organization is out of AI credits. Add credits in billing settings, then try again.",
-    AIDecisionErrorCode.STATE_TOO_LARGE: "The step's context is larger than 8 KB. Remove fields from the context or shorten them.",
+    AIDecisionErrorCode.STATE_TOO_LARGE: f"The step's context is larger than {MAX_STATE_BYTES // 1024} KB. Remove fields from the context or shorten them.",
     AIDecisionErrorCode.MODEL_REFUSED: "The AI model refused the request. Check the step's question, options, and context.",
     AIDecisionErrorCode.GATEWAY_UNAVAILABLE: "The AI service isn't set up on this PostHog deployment.",
 }
@@ -71,7 +72,6 @@ class AIDecisionConfigSerializer(serializers.Serializer):
     )
     answer_type = serializers.ChoiceField(
         choices=AIDecisionAnswerType.choices,
-        default=AIDecisionAnswerType.YES_NO,
         help_text="yes_no: the step has a Yes and a No output. pick_one: the step has one output per option.",
     )
     options = serializers.ListField(
@@ -145,7 +145,7 @@ class WorkflowAIDecisionRequestSerializer(AIDecisionConfigSerializer):
     )
     action_id = serializers.CharField(max_length=200, help_text="The AI decision step asking.")
     state = serializers.DictField(
-        child=serializers.JSONField(),
+        child=serializers.JSONField(allow_null=True),
         help_text="The step's rendered context: field names mapped to values. The model reads it as data, never as instructions.",
     )
 
@@ -240,14 +240,14 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             body = {"status": AIDecisionStatus.FAILED, "error": {"code": code, "message": ERROR_MESSAGES[code]}}
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
         case Throttled(retry_after_seconds=retry_after_seconds):
-            logger.info("workflow_ai_decision_throttled", team_id=team_id, retry_after=retry_after_seconds)
+            logger.debug("workflow_ai_decision_throttled", team_id=team_id, retry_after=retry_after_seconds)
             return Response(
                 WorkflowAIDecisionRetrySerializer({"detail": "Too many AI decisions right now."}).data,
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
                 headers={"Retry-After": str(retry_after_seconds)},
             )
-        case Unavailable():
-            logger.warning("workflow_ai_decision_unavailable", team_id=team_id)
+        case Unavailable(reason=reason):
+            logger.warning("workflow_ai_decision_unavailable", team_id=team_id, reason=reason)
             return Response(
                 WorkflowAIDecisionRetrySerializer({"detail": "The AI decision service is unavailable."}).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,

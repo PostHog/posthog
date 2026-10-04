@@ -113,6 +113,7 @@ from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
+from products.ml_inference.backend.facade.contracts import MAX_OPTIONS_PER_QUESTION
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -206,6 +207,7 @@ from products.workflows.backend.presentation.views.message_assets import (
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.presentation.views.workflow_ai_decisions import (
     AI_DECISION_INPUTS_SCHEMA,
+    MIN_OPTIONS,
     AIDecisionConfigSerializer,
     ai_decision_context_error,
 )
@@ -1229,10 +1231,11 @@ class HogFlowActionSerializer(serializers.Serializer):
             "entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout "
             "falls through the 'continue' edge. "
             "ai_decision: asks a hosted AI model a question about the run and branches on the answer. "
-            "{question, answer_type: 'yes_no'|'pick_one', options?: [{name, description?}] (pick_one, 2 to 16, "
-            "unique names), yes_means?, no_means?, yes_threshold? (1-99, default 50), unsure_enabled?, "
-            "min_pick_probability? (1-99, default 60), no_threshold? (1-98, below yes_threshold, default 20), "
-            "inputs: {context: {value: {<field name>: '<hog template>'}}}}. question and options are plain text; "
+            "{question, answer_type: 'yes_no'|'pick_one', options?: [{name, description?}] "
+            f"(pick_one, {MIN_OPTIONS} to {MAX_OPTIONS_PER_QUESTION}, unique names), yes_means?, no_means?, "
+            "yes_threshold? (percent), unsure_enabled?, min_pick_probability? (percent), no_threshold? (percent, "
+            "below yes_threshold), inputs: {context: {value: {<field name>: '<hog template>'}}}}. "
+            "question and options are plain text; "
             "only the context is templated. Branch edge N is answer N, then Unsure when unsure_enabled; the "
             "'continue' edge is taken when the decision fails. Each run uses AI credits. "
             "exit: {reason}."
@@ -1422,7 +1425,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     def _reject_ai_decision_without_flag(self, action_id: Optional[str]) -> None:
         # Same grandfathering as a flag-gated template: a step an active flow already holds keeps
         # saving after the flag turns off, and fails at run time instead.
-        if action_id in (self.context.get("stored_gated_template_action_ids") or set()):
+        if action_id in (self.context.get("stored_ai_decision_action_ids") or set()):
             return
         get_team = self.context.get("get_team")
         if get_team is not None and not ai_decision_enabled(get_team()):
@@ -3034,22 +3037,27 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
-        # Action ids already stored with a flag-gated template or action type, so the gate only polices new
+        # Action ids already stored with a flag-gated template, so the gate only polices new
         # adoption: a flow that was allowed to hold the step keeps validating after a flag
         # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
         # failing refresh_hog_flows. Only an active flow's steps count - active means the step
         # passed the gate at activation, whereas a draft can hold the step without ever passing
         # it (lenient web saves skip strict validation), so grandfathering a draft would let an
         # unflagged team activate the step.
+        active_actions = (instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or []
         self.context["stored_gated_template_action_ids"] = {
             action["id"]
-            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            for action in active_actions
             if isinstance(action, dict)
             and action.get("id")
-            and (
-                (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
-                or action.get("type") == "ai_decision"
-            )
+            and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
+        }
+        # Kept apart from the template set, so a stored decision cannot carry its grandfathering over to a
+        # flag-gated template saved under the same action id, and the reverse.
+        self.context["stored_ai_decision_action_ids"] = {
+            action["id"]
+            for action in active_actions
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "ai_decision"
         }
 
         status = data.get("status")
@@ -3230,11 +3238,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # drafts — same posture as HogFlowActionSerializer, so a conversion filter that can't compile
         # (e.g. a cohort reference) fails at create rather than being silently stored.
         strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
+        edges = data.get("edges", instance.edges if instance else [])
 
         # Unlike the advisory checks below, an AI decision's answer edges are enforced on every strict
         # save. The step type is new, so no stored workflow carries a legacy gap here.
         if strict:
-            missing_edges = missing_ai_decision_edges(actions, data.get("edges", instance.edges if instance else []))
+            missing_edges = missing_ai_decision_edges(actions, edges)
             if missing_edges:
                 raise serializers.ValidationError({"graph": missing_edges})
 
@@ -3246,7 +3255,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # for telemetry instead. The web builder's incomplete drafts (not strict) skip the check entirely.
         enforce_graph = self.context.get("enforce_graph_structure", False)
         if strict or enforce_graph:
-            edges = data.get("edges", instance.edges if instance else [])
             try:
                 warnings = validate_graph(actions, edges, abort_action=instance.abort_action if instance else None)
             except serializers.ValidationError as exc:

@@ -1,17 +1,22 @@
+import json
 from datetime import timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 from structlog.testing import capture_logs
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.models import Team
 from posthog.redis import get_client
 from posthog.token_bucket import BucketUnavailable
 
@@ -31,6 +36,7 @@ _DECIDE = "products.ml_inference.backend.facade.api.decide_when_available"
 _FLAG = "posthoganalytics.feature_enabled"
 _CREDITS = "ee.billing.quota_limiting.is_team_over_ai_credit_budget"
 _CONSUME = "products.workflows.backend.services.ai_decision.consume"
+_GET_CLIENT = "products.workflows.backend.services.ai_decision.get_client"
 OPTIONS = [
     {"name": "spam", "description": "Cold outreach or marketing"},
     {"name": "support", "description": "A customer asking for help"},
@@ -67,20 +73,25 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         self.addCleanup(flag.stop)
         get_client().flushdb()
 
-    def _post(self, body: dict | None = None, token: str | None = None) -> Any:
+    def _post(
+        self, body: dict | None = None, token: str | None = None, team_id: int | None = None, omit: tuple[str, ...] = ()
+    ) -> Any:
+        payload = {
+            "invocation_id": "inv-1",
+            "action_id": "action-1",
+            "answer_type": "pick_one",
+            "question": "Is this ticket spam?",
+            "options": OPTIONS,
+            "state": {"subject": "Buy SEO"},
+            **(body or {}),
+        }
+        team_id = team_id or self.team.id
+        # Escaped ASCII JSON, as the CDP worker's JSON.stringify sends a lone surrogate.
         return self.client.post(
-            self.url,
-            {
-                "invocation_id": "inv-1",
-                "action_id": "action-1",
-                "answer_type": "pick_one",
-                "question": "Is this ticket spam?",
-                "options": OPTIONS,
-                "state": {"subject": "Buy SEO"},
-                **(body or {}),
-            },
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id)}",
+            f"/api/projects/{team_id}/workflow_ai_decisions/",
+            json.dumps({key: value for key, value in payload.items() if key not in omit}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token or _token(team_id)}",
         )
 
     def test_pick_one_returns_every_option_probability(self) -> None:
@@ -109,23 +120,63 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             )
         }
         assert decide.call_args.kwargs == {"timeout_seconds": 5}
+        self.flag.assert_called_once_with(
+            "workflows-ai-decision",
+            str(self.team.uuid),
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
 
-    def test_yes_no_returns_yes_and_no_probabilities(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "both_meanings",
+                "A real company",
+                "A free mailbox",
+                {"true": "A real company", "false": "A free mailbox"},
+            ),
+            ("yes_meaning_only", "A real company", "", {"true": "A real company"}),
+            ("no_meanings", "", "", None),
+        ]
+    )
+    def test_yes_no_returns_yes_and_no_probabilities(
+        self, _name: str, yes_means: str, no_means: str, criteria: dict[str, str] | None
+    ) -> None:
         result = DecisionResult(model="jev", answers={"answer": NoulAnswer(probability=0.75)}, input_tokens=9)
         with patch(_DECIDE, return_value=result) as decide:
             response = self._post(
-                {"answer_type": "yes_no", "options": [], "yes_means": "A real company", "no_means": "A free mailbox"}
+                {"answer_type": "yes_no", "options": [], "yes_means": yes_means, "no_means": no_means}
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["probabilities"] == {"yes": 0.75, "no": 0.25}
         assert decide.call_args.args[0].questions == {
             "answer": DecisionQuestion(
-                type=DecisionQuestionType.NOUL,
-                instructions="Is this ticket spam?",
-                criteria={"true": "A real company", "false": "A free mailbox"},
+                type=DecisionQuestionType.NOUL, instructions="Is this ticket spam?", criteria=criteria
             )
         }
+
+    @parameterized.expand(
+        [
+            ("one_option", {"options": OPTIONS[:1]}, (), "options"),
+            ("seventeen_options", {"options": [{"name": f"o{i}"} for i in range(17)]}, (), "options"),
+            ("duplicate_option_names", {"options": [OPTIONS[0], OPTIONS[0]]}, (), "options"),
+            ("no_question", {"question": ""}, (), "question"),
+            ("no_answer_type", {}, ("answer_type",), "answer_type"),
+            ("state_not_an_object", {"state": ["Buy SEO"]}, (), "state"),
+        ]
+    )
+    def test_rejects_a_request_the_save_would_reject(
+        self, _name: str, body: dict, omit: tuple[str, ...], error_field: str
+    ) -> None:
+        with patch(_DECIDE) as decide:
+            response = self._post(body, omit=omit)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert error_field in response.json()["attr"], response.json()
+        decide.assert_not_called()
 
     def test_a_test_run_of_an_unsaved_workflow_has_no_workflow_label(self) -> None:
         with patch(_DECIDE, return_value=_pick_one_result()) as decide:
@@ -168,11 +219,32 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ascii_at_the_cap", "a" * 8184, "succeeded"),
-            ("two_byte_characters_over_the_cap", "é" * 4093, "failed"),
+            ("flag_check_raises", _FLAG, status.HTTP_503_SERVICE_UNAVAILABLE, None),
+            ("credit_lookup_raises", _CREDITS, status.HTTP_200_OK, "succeeded"),
         ]
     )
-    def test_the_state_cap_counts_compact_utf8_bytes(self, _name: str, value: str, expected_outcome: str) -> None:
+    def test_a_lookup_that_raises_never_fails_the_decision_for_good(
+        self, _name: str, target: str, expected_status: int, expected_outcome: str | None
+    ) -> None:
+        with patch(target, side_effect=RuntimeError("blip")), patch(_DECIDE, return_value=_pick_one_result()):
+            response = self._post()
+
+        assert response.status_code == expected_status, response.json()
+        if expected_outcome is not None:
+            assert response.json()["status"] == expected_outcome
+
+    @parameterized.expand(
+        [
+            ("ascii_at_the_cap", "a" * 8184, "succeeded"),
+            ("two_byte_characters_at_the_cap", "é" * 4092, "succeeded"),
+            ("two_byte_characters_over_the_cap", "é" * 4093, "failed"),
+            ("lone_surrogate_from_a_split_emoji", "\ud83d", "succeeded"),
+            ("property_the_person_does_not_have", None, "succeeded"),
+        ]
+    )
+    def test_accepts_any_rendered_state_up_to_the_compact_utf8_byte_cap(
+        self, _name: str, value: str | None, expected_outcome: str
+    ) -> None:
         with patch(_DECIDE, return_value=_pick_one_result()):
             response = self._post({"state": {"t": value}})
 
@@ -187,6 +259,9 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             ("gateway_bad_request", DecisionGatewayError(400, "bad"), status.HTTP_200_OK, "model_refused"),
             ("gateway_too_large", DecisionGatewayError(413, "big"), status.HTTP_200_OK, "model_refused"),
             ("gateway_unprocessable", DecisionGatewayError(422, "no"), status.HTTP_200_OK, "model_refused"),
+            ("gateway_unreadable_answer", DecisionGatewayError(200, "bad answer"), status.HTTP_200_OK, "model_refused"),
+            ("gateway_rejects_credential", DecisionGatewayError(401, "who"), status.HTTP_200_OK, "gateway_unavailable"),
+            ("gateway_route_missing", DecisionGatewayError(404, "where"), status.HTTP_200_OK, "gateway_unavailable"),
             ("gateway_rate_limited", DecisionGatewayError(429, "slow down"), status.HTTP_429_TOO_MANY_REQUESTS, None),
             ("gateway_server_error", DecisionGatewayError(502, "oops"), status.HTTP_503_SERVICE_UNAVAILABLE, None),
             ("gateway_timeout", DecisionGatewayUnreachableError("timeout"), status.HTTP_503_SERVICE_UNAVAILABLE, None),
@@ -204,32 +279,83 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
             assert int(response["Retry-After"]) > 0
 
+    @parameterized.expand(
+        [
+            ("option_missing", {"spam": 1.0}),
+            ("unknown_option", {"spam": 0.5, "support": 0.3, "other": 0.2}),
+            ("probability_above_one", {"spam": 1.2, "support": 0.0}),
+        ]
+    )
+    def test_an_answer_that_does_not_match_the_options_is_refused(
+        self, _name: str, probabilities: dict[str, float]
+    ) -> None:
+        result = DecisionResult(
+            model="jev",
+            answers={"answer": ChoiceAnswer(choice="spam", confidence=0.9, probabilities=probabilities)},
+            input_tokens=1,
+        )
+        with patch(_DECIDE, return_value=result):
+            response = self._post()
+
+        assert response.json()["error"]["code"] == "model_refused", response.json()
+
     @override_settings(WORKFLOWS_AI_DECISION_TEAM_BURST=1, WORKFLOWS_AI_DECISION_TEAM_PER_HOUR=1)
-    def test_a_team_over_its_admission_budget_is_told_when_to_retry(self) -> None:
-        with patch(_DECIDE, return_value=_pick_one_result()) as decide:
+    def test_one_team_over_its_budget_does_not_throttle_another(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        with patch(_DECIDE, return_value=_pick_one_result()):
             first = self._post()
-            second = self._post()
+            throttled = self._post()
+            other = self._post(team_id=other_team.id)
 
         assert first.status_code == status.HTTP_200_OK, first.json()
-        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert int(second["Retry-After"]) > 0
-        assert decide.call_count == 1
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert int(throttled["Retry-After"]) > 0
+        assert other.status_code == status.HTTP_200_OK, other.json()
 
-    def test_admission_fails_closed_when_redis_is_unavailable(self) -> None:
-        with (
-            patch(_CONSUME, return_value=BucketUnavailable(error="down")),
-            patch(_DECIDE) as decide,
-        ):
+    @override_settings(
+        WORKFLOWS_AI_DECISION_TEAM_BURST=1,
+        WORKFLOWS_AI_DECISION_TEAM_PER_HOUR=1,
+        WORKFLOWS_AI_DECISION_GLOBAL_BURST=1,
+        WORKFLOWS_AI_DECISION_GLOBAL_PER_HOUR=3600,
+    )
+    def test_the_global_budget_throttles_every_team_and_keeps_their_own_budget(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        with time_machine.travel("2026-10-04 12:00:00", tick=False) as clock:
+            with patch(_DECIDE, return_value=_pick_one_result()):
+                first = self._post()
+                throttled = self._post(team_id=other_team.id)
+                clock.shift(2)
+                after_refill = self._post(team_id=other_team.id)
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert after_refill.status_code == status.HTTP_200_OK, after_refill.json()
+
+    @parameterized.expand(
+        [
+            ("bucket_unavailable", patch(_CONSUME, return_value=BucketUnavailable(error="down"))),
+            ("redis_not_configured", patch(_GET_CLIENT, side_effect=ImproperlyConfigured("no redis"))),
+            ("redis_error", patch(_GET_CLIENT, side_effect=RedisError("down"))),
+        ]
+    )
+    def test_admission_fails_closed_when_redis_is_unavailable(self, _name: str, redis_failure: Any) -> None:
+        with redis_failure, patch(_DECIDE) as decide:
             response = self._post()
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         decide.assert_not_called()
 
-    def test_logs_never_carry_the_state_or_a_gateway_body(self) -> None:
-        with capture_logs() as logs, patch(_DECIDE, side_effect=DecisionGatewayError(400, "gateway-body-secret")):
+    @parameterized.expand(
+        [
+            ("model_refused", DecisionGatewayError(400, "gateway-body-secret")),
+            ("throttled", DecisionGatewayError(429, "gateway-body-secret")),
+            ("unavailable", DecisionGatewayError(502, "gateway-body-secret")),
+        ]
+    )
+    def test_logs_never_carry_the_state_or_a_gateway_body(self, _name: str, error: Exception) -> None:
+        with capture_logs() as logs, patch(_DECIDE, side_effect=error):
             response = self._post({"state": {"reply": "state-secret"}})
 
-        assert response.json()["error"]["code"] == "model_refused"
         assert logs
         assert "secret" not in str(logs)
         assert "secret" not in str(response.json())

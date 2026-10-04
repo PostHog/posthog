@@ -6706,7 +6706,11 @@ class TestRunScoutActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
-_AI_DECISION_FLAG = "products.workflows.backend.presentation.views.hog_flow.ai_decision_enabled"
+def _ai_decision_flag(enabled: bool) -> Any:
+    return patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *args, **kwargs: enabled if key == "workflows-ai-decision" else None,
+    )
 
 
 def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None) -> dict:
@@ -6751,7 +6755,7 @@ def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None) -
 
 class TestAIDecisionActionValidation(APIBaseTest):
     def _post(self, flow: dict, flag_enabled: bool = True) -> Any:
-        with patch(_AI_DECISION_FLAG, return_value=flag_enabled):
+        with _ai_decision_flag(flag_enabled):
             return self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, format="json")
 
     @parameterized.expand(
@@ -6775,6 +6779,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
             ("duplicate_option_name", {"options": [{"name": "Same"}, {"name": "Same"}]}, None, "options"),
             ("blank_option_name", {"options": [{"name": " "}, {"name": "B"}]}, None, "options"),
             ("question_too_long", {"question": "q" * 2001}, None, "question"),
+            ("no_answer_type", {"answer_type": None}, None, "answer_type"),
             ("question_as_a_template", {"question": {"value": "{person.name}", "templating": "hog"}}, None, "question"),
             (
                 "no_threshold_at_yes_threshold",
@@ -6815,18 +6820,57 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert set(config["inputs"]) == {"context"}
         assert config["inputs"]["context"]["bytecode"]
 
-    def test_the_flag_rejects_a_new_decision_and_keeps_a_stored_one(self) -> None:
+    def _patch(self, flow_id: str, body: dict, flag_enabled: bool = False) -> Any:
+        with _ai_decision_flag(flag_enabled):
+            return self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", body, format="json")
+
+    def test_the_flag_rejects_new_decisions_and_keeps_the_ones_an_active_flow_holds(self) -> None:
         flow = _ai_decision_flow({})
-
         rejected = self._post(flow, flag_enabled=False)
-        assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.json()
+        flow_id = self._post(flow).json()["id"]
+        second_decision = {**flow["actions"][1], "id": "decide_again"}
 
-        created = self._post(flow)
-        assert created.status_code == status.HTTP_201_CREATED, created.json()
-        with patch(_AI_DECISION_FLAG, return_value=False):
-            updated = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}",
-                {"name": "Renamed", "actions": flow["actions"], "edges": flow["edges"]},
-                format="json",
-            )
-        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        kept = self._patch(flow_id, {"name": "Renamed", "actions": flow["actions"], "edges": flow["edges"]})
+        added = self._patch(flow_id, {"actions": [*flow["actions"], second_decision], "edges": flow["edges"]})
+
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.json()
+        assert rejected.json()["attr"] == "actions__1__type", rejected.json()
+        assert kept.status_code == status.HTTP_200_OK, kept.json()
+        assert added.status_code == status.HTTP_400_BAD_REQUEST, added.json()
+
+    def test_a_draft_does_not_grandfather_a_decision_past_the_flag(self) -> None:
+        flow_id = self._post({**_ai_decision_flow({}), "status": "draft"}).json()["id"]
+
+        activated = self._patch(flow_id, {"status": "active"})
+
+        assert activated.status_code == status.HTTP_400_BAD_REQUEST, activated.json()
+
+    def test_a_stored_decision_does_not_unlock_a_flag_gated_template(self) -> None:
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-run-scout"
+        template["inputs_schema"] = [{"key": "skill_name", "type": "string", "label": "Scout", "required": True}]
+        sync_template_to_db(template)
+        flow = _ai_decision_flow({})
+        flow_id = self._post(flow).json()["id"]
+        run_scout = {
+            "id": "decide",
+            "name": "decide",
+            "type": "function",
+            "config": {"template_id": "template-posthog-run-scout", "inputs": {"skill_name": {"value": "s"}}},
+        }
+
+        response = self._patch(flow_id, {"actions": [flow["actions"][0], run_scout, flow["actions"][2]]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__template_id", response.json()
+
+    def test_a_builder_draft_saves_without_the_flag_and_drops_templated_inputs_but_the_context(self) -> None:
+        flow = _ai_decision_flow(
+            {"inputs": {"context": {"value": {"a": "{event.event}"}}, "question": {"value": "{person.id}"}}}
+        )
+
+        response = self._post({**flow, "status": "draft"}, flag_enabled=False)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        config = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]
+        assert set(config["inputs"]) == {"context"}
