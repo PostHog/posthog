@@ -40,7 +40,24 @@ from posthog.temporal.proxy_service.cloudflare import (
     get_custom_hostname_by_domain,
     update_cloudflare_proxy_root_redirect,
 )
-from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
+from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname, use_cloudflare_proxy
+
+
+def proxy_base_cname() -> str:
+    return settings.CLOUDFLARE_PROXY_BASE_CNAME if use_cloudflare_proxy() else settings.PROXY_BASE_CNAME
+
+
+def is_managed_proxy_provisioning_available() -> bool:
+    # Provisioning needs the proxy infrastructure that hands out the base CNAME. Without it the
+    # workflow has no target to point a customer domain at, so the request can never succeed.
+    return bool(proxy_base_cname())
+
+
+PROVISIONING_UNAVAILABLE_DETAIL = (
+    "Managed reverse proxy is not available on this PostHog instance. "
+    "It needs proxy infrastructure that only PostHog Cloud runs. "
+    "To use your own domain here, set up a reverse proxy yourself: https://posthog.com/docs/advanced/proxy"
+)
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -48,10 +65,7 @@ def generate_target_cname(organization_id, domain) -> str:
     m.update(f"{organization_id}".encode())
     m.update(domain.encode())
     digest = m.hexdigest()[:20]
-    base_cname = (
-        settings.CLOUDFLARE_PROXY_BASE_CNAME if settings.CLOUDFLARE_PROXY_ENABLED else settings.PROXY_BASE_CNAME
-    )
-    return f"{digest}.{base_cname}"
+    return f"{digest}.{proxy_base_cname()}"
 
 
 def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
@@ -370,6 +384,12 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "Once the CNAME is configured, the proxy will be automatically verified and provisioned.",
     )
     def create(self, request, *args, **kwargs):
+        if not is_managed_proxy_provisioning_available():
+            return Response(
+                {"detail": PROVISIONING_UNAVAILABLE_DETAIL},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         domain = serializer.validated_data["domain"]
@@ -411,7 +431,12 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
             record.delete()
             return Response(
-                {"detail": "Failed to start provisioning workflow."},
+                {
+                    "detail": (
+                        "Couldn't start provisioning for this proxy. Please try again in a few minutes; "
+                        "if this keeps happening, contact PostHog support."
+                    )
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -478,6 +503,12 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         except ProxyRecord.DoesNotExist:
             raise NotFound()
 
+        if not is_managed_proxy_provisioning_available():
+            return Response(
+                {"detail": PROVISIONING_UNAVAILABLE_DETAIL},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
         if record.status not in (
             ProxyRecord.Status.ERRORING,
             ProxyRecord.Status.TIMED_OUT,
@@ -524,7 +555,12 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.status = ProxyRecord.Status.ERRORING
             record.save()
             return Response(
-                {"detail": "Failed to start retry workflow."},
+                {
+                    "detail": (
+                        "Couldn't restart provisioning for this proxy. Please try again in a few minutes; "
+                        "if this keeps happening, contact PostHog support."
+                    )
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
