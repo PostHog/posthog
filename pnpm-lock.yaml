@@ -755,9 +755,6 @@ importers:
       '@posthog/products-legal-documents':
         specifier: workspace:*
         version: link:../products/legal_documents
-      '@posthog/products-live-debugger':
-        specifier: workspace:*
-        version: link:../products/live_debugger
       '@posthog/products-logs':
         specifier: workspace:*
         version: link:../products/logs
@@ -3821,42 +3818,7 @@ importers:
 
   products/links: {}
 
-  products/live_debugger:
-    dependencies:
-      '@posthog/icons':
-        specifier: 'catalog:'
-        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@posthog/lemon-ui':
-        specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-      '@types/react-dom':
-        specifier: 18.3.7
-        version: 18.3.7(@types/react@18.3.27)
-      clsx:
-        specifier: '*'
-        version: 1.2.1
-      fuse.js:
-        specifier: 'catalog:'
-        version: 7.3.0
-      kea:
-        specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
-      kea-loaders:
-        specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: 18.3.1
-        version: 18.3.1(react@18.3.1)
-    devDependencies:
-      kea-test-utils:
-        specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+  products/live_debugger: {}
 
   products/llm_analytics: {}
 

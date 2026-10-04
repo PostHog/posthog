@@ -210,7 +210,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
-    '/live-debugger': ['LiveDebugger', 'liveDebugger'],
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
     '/logs/alerts/:id/notifications/:hogFunctionId': ['LogsAlertNotificationDetail', 'logsAlertNotificationDetail'],
@@ -893,11 +892,6 @@ export const productConfiguration: Record<string, any> = {
         description: 'Generate a Business Associate Agreement or Data Processing Agreement for your organization.',
     },
     LegalDocumentNew: { name: 'New legal document', organizationBased: true, activityScope: 'LegalDocument' },
-    LiveDebugger: {
-        name: 'Live debugger',
-        projectBased: true,
-        description: 'Set breakpoints in your running code and inspect the state captured when they hit.',
-    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -1553,7 +1547,6 @@ export const productUrls = {
     aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
-    liveDebugger: (): string => '/live-debugger',
     logs: (): string => '/logs',
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
@@ -1857,14 +1850,6 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-product-analytics-light)'],
         filterKey: 'insight',
     },
-    live_debugger: {
-        name: 'Live Debugger',
-        iconType: 'live_debugger',
-        href: () => urls.liveDebugger(),
-        iconColor: ['var(--color-product-live-debugger-light)'],
-        filterKey: 'live_debugger',
-        flag: FEATURE_FLAGS.LIVE_DEBUGGER,
-    },
     notebook: {
         name: 'Notebook',
         iconType: 'notebook',
@@ -2112,7 +2097,6 @@ export type ProductTreePath =
     | 'Heatmaps'
     | 'Identity matching'
     | 'Inbox'
-    | 'Live Debugger'
     | 'LLM analytics'
     | 'Logs'
     | 'Marketing analytics'
@@ -2556,20 +2540,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
-    },
-    {
-        path: 'Live Debugger',
-        displayLabel: 'Live debugger',
-        intents: [ProductKey.LIVE_DEBUGGER],
-        sceneKey: 'LiveDebugger',
-        category: ProductItemCategory.UNRELEASED,
-        type: 'live_debugger',
-        href: urls.liveDebugger(),
-        flag: FEATURE_FLAGS.LIVE_DEBUGGER,
-        iconType: 'live_debugger',
-        tags: ['alpha'],
-        iconColor: ['var(--color-product-live-debugger-light)', 'var(--color-product-live-debugger-dark)'],
-        sceneKeys: ['LiveDebugger'],
     },
     {
         path: 'Logs',
