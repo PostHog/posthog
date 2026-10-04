@@ -48,6 +48,7 @@ from ..models import (
 )
 from ..training import artifacts as artifact_store
 from ..training.recipe_validation import RecipeValidationError, validate_feature_sql, validate_recipe
+from ..training.shadow_set import shadow_set_ids
 from .contracts import (
     ArtifactContent,
     ArtifactDeleteResult,
@@ -158,7 +159,7 @@ def _pipeline_with_champion(row: AutoresearchPipeline) -> Pipeline:
     )
 
 
-def _model_to_contract(row: AutoresearchModel) -> Model:
+def _model_to_contract(row: AutoresearchModel, *, in_shadow_set: bool) -> Model:
     return Model(
         id=row.id,
         pipeline=row.pipeline_id,
@@ -179,6 +180,7 @@ def _model_to_contract(row: AutoresearchModel) -> Model:
         archived_at=row.archived_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        in_shadow_set=in_shadow_set,
     )
 
 
@@ -652,7 +654,9 @@ def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, li
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
-    return [_model_to_contract(row) for row in qs[offset : offset + limit]], count
+    rows = list(qs[offset : offset + limit])
+    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows})
+    return [_model_to_contract(row, in_shadow_set=row.pk in in_shadow) for row in rows], count
 
 
 def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
@@ -663,7 +667,9 @@ def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | N
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     row = qs.first()
-    return _model_to_contract(row) if row else None
+    if row is None:
+        return None
+    return _model_to_contract(row, in_shadow_set=row.pk in shadow_set_ids(team_id, {row.pipeline_id}))
 
 
 # ── Operational runs ───────────────────────────────────────────────────────

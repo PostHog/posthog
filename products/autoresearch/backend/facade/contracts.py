@@ -127,6 +127,7 @@ class Model:
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    in_shadow_set: bool
 
 
 @dataclass(frozen=True)

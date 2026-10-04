@@ -834,6 +834,13 @@ class AutoresearchModelSerializer(DataclassSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    in_shadow_set = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True if this model is in the pipeline's shadow set: the champion, the previous champion, "
+            "and up to 3 recent fitted challengers with distinct recipes."
+        ),
+    )
 
     class Meta:
         dataclass = Model
@@ -857,6 +864,7 @@ class AutoresearchModelSerializer(DataclassSerializer):
             "archived_at",
             "created_at",
             "updated_at",
+            "in_shadow_set",
         ]
 
 

@@ -89,7 +89,7 @@ Before suspecting the model, check that features, labels, and population all key
 
 - **Scheduled by** — `AutoresearchInferenceWorkflow` and `activity_run_inference` in `../temporal/workflows.py`.
 - **Run headlessly by** — `autoresearch_score` (see `../management/AGENTS.md`), which calls the same functions directly.
-- **Called by training** — `fit_champion_model()` is invoked from the completion path in `../training/promotion.py`. It lives here because it shares the materialization and sandbox machinery with scoring, not because it is part of the inference loop.
+- **Called by training** — `fit_champion_model()` is invoked from the completion path in `../training/promotion.py`, for a promoted champion and for a challenger that enters the shadow set (`../training/shadow_set.py`). Scoring still reads the champion only. It lives here because it shares the materialization and sandbox machinery with scoring, not because it is part of the inference loop.
 - **Reads** — `AutoresearchModel` (champion role) and the bundle in object storage via `../training/artifacts.py`.
 - **Feeds** — `../evaluation/online_validation.py`, which reads the emitted events back once their horizon has elapsed.
 - **Population and anchors** — `../dataset/labeling.py`, shared with training so the cutoff contract cannot drift.

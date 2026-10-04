@@ -32,7 +32,13 @@ The other half is `../inference/`, which consumes what this package produces and
   The bundle is written once per run, so a losing iteration can overwrite it: the uploaded `features.sql` must match the `feature_sql` recorded by the selected iteration, whitespace aside, or promotion raises rather than publishing a champion whose recipe and score describe other code.
   `complete_training_run()` reads the bundle and enters the run's `team_scope()` before it opens the transaction, because the `TaskRun` safety net calls it from a worker thread with no request scope, and object-storage calls must not run under the row lock.
   The agent's `report_notebook_short_id` goes into the run summary only if that notebook exists in the run's team. A bad id or a failed check stores an empty value and never fails completion.
-  Only a promoted model is fitted. A challenger's `model.pkl` would never be read, because inference serves the champion and no path promotes a challenger row later.
+  A promoted bundle-backed model is fitted. A bundle-backed challenger is fitted only when it enters the shadow set (see `shadow_set.py`). The fit runs after commit, and a failed fit only logs: it never changes the completion result.
+  A successful fit sets `metrics.model_fitted`. A challenger without it stays out of the shadow set.
+- `shadow_set.py`
+  `shadow_set(pipeline)` computes the models worth scoring side by side. Nothing stores the set.
+  It holds the champion, the previous champion (the newest archived bundle-backed row with `promoted_at` set), and up to `SHADOW_CHALLENGER_LIMIT` (3) fitted bundle-backed challengers. No two members share a `recipe_hash`.
+  A challenger younger than `horizon_days + SHADOW_MIN_MATURED_DATES` days keeps its place, so a new challenger cannot displace it. Past that age, a newer challenger displaces it. A challenger that does not enter at completion is never fitted, so it cannot enter later.
+  The models API exposes membership as `in_shadow_set`. Nothing scores or promotes from the set yet.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.
@@ -64,7 +70,7 @@ Two things routinely surprise people:
 
 - **Launched by** — the `train` API action in `../presentation/views/views.py`, the `autoresearch_train` management command, and `activity_kickoff_training` in `../temporal/workflows.py`.
 - **Finalized by** — the `complete` action on the training-run viewset, or `ingestion.py` via the `TaskRun` `post_save` signal wired in `../apps.py`.
-- **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time.
+- **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time, for the champion and for a challenger that enters the shadow set.
 - **Agent-facing surface** — the `autoresearch-training-runs-*` MCP tools in `../../mcp/tools.yaml`, backed by the viewsets in `../presentation/views/views.py`. The sandbox agent has no other way to write.
 - **Labels and features** — `../dataset/labeling.py` builds the training population the bundle is fitted against.
 
