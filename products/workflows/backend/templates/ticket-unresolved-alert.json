@@ -103,7 +103,6 @@
             "config": {
                 "inputs": {
                     "slack_workspace": {
-                        "value": 54567,
                         "templating": "hog"
                     },
                     "channel": {
@@ -118,11 +117,32 @@
                         "templating": "hog"
                     },
                     "blocks": {
-                        "value": "[\n  {\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"⚠️ *Unresolved support ticket*\\n\\nA support ticket is still open after 24 hours.\"\n    }\n  },\n  {\n    \"type\": \"actions\",\n    \"elements\": [\n      {\n        \"type\": \"button\",\n        \"text\": {\n          \"type\": \"plain_text\",\n          \"text\": \"Open ticket\"\n        },\n        \"url\": \"{source.url}\"\n      }\n    ]\n  }\n]",
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "⚠️ *Unresolved support ticket*\n\nA support ticket is still open."
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "Open ticket"
+                                        },
+                                        "url": "{source.url}"
+                                    }
+                                ]
+                            }
+                        ],
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "*{ticket_id}* is still unresolved",
+                        "value": "Ticket *{event.properties.ticket_number}* is still unresolved",
                         "templating": "hog"
                     }
                 },
