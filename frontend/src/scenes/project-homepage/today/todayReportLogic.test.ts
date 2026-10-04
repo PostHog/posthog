@@ -28,13 +28,13 @@ describe('todayReportLogic', () => {
         [
             'implements a report that is ready to act on',
             { actionability: 'immediately_actionable', status: SignalReportStatus.READY },
-            ['createPrFromReport'],
+            ['createPrFromReport'] as const,
             'discussReport',
         ],
         [
             'investigates a report that needs a person',
             { actionability: 'requires_human_input', status: SignalReportStatus.PENDING_INPUT },
-            ['openReportDiscussion', 'discussReport'],
+            ['openReportDiscussion', 'discussReport'] as const,
             'createPrFromReport',
         ],
     ])('starting with PostHog %s through a task linked to the report', async (_, overrides, kickoffs, other) => {
@@ -53,7 +53,13 @@ describe('todayReportLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadFullReportSuccess', 'loadPageSuccess'])
 
         await expectLogic(kickoffLogic, () => logic.actions.startWithPostHog())
-            .toDispatchActions(kickoffs)
+            .toDispatchActions(
+                kickoffs.map(
+                    (kickoff) =>
+                        (action: { type: string; payload: Record<string, any> }): boolean =>
+                            action.type === kickoffLogic.actionTypes[kickoff] && action.payload.report.id === report.id
+                )
+            )
             .toNotHaveDispatchedActions([other])
     })
 })
