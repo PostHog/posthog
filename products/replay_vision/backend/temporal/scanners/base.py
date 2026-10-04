@@ -308,6 +308,7 @@ class BaseScanner(BaseModel, frozen=True):
         event_descriptions: dict[str, str] | None = None,
         tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
         network_state: Literal["available", "clean", "none"] = "none",
+        touch: bool = False,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
@@ -326,6 +327,7 @@ class BaseScanner(BaseModel, frozen=True):
             tool_budget=tool_budget,
             default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
             network_state=network_state,
+            touch=touch,
         )
 
     def core_steps(self) -> list[MissionStep]:
