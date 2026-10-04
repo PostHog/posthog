@@ -148,7 +148,11 @@ class _KernelHandle:
     sandbox_id: str | None = None
 
 
-@dataclass
+class KernelBusyError(RuntimeError):
+    pass
+
+
+@frozen(frozen=False)
 class _RedisLock:
     name: str
     timeout: float
@@ -159,7 +163,7 @@ class _RedisLock:
         client = get_client()
         lock = client.lock(self.name, timeout=self.timeout, blocking_timeout=self.blocking_timeout)
         if not lock.acquire():
-            raise RuntimeError(f"Failed to acquire Redis lock: {self.name}")
+            raise KernelBusyError(f"Failed to acquire Redis lock: {self.name}")
         self._lock = lock
         return self
 

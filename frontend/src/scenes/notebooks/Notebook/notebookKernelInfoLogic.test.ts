@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
@@ -203,6 +204,31 @@ describe('notebookKernelInfoLogic', () => {
         expect(configSpy).toHaveBeenCalled()
         expect(restartSpy).not.toHaveBeenCalled()
     })
+
+    test.each([
+        { action: 'stopKernel' as const, endpoint: 'kernelStop' as const },
+        { action: 'restartKernel' as const, endpoint: 'kernelRestart' as const },
+    ])(
+        '$action shows the server error and refreshes the status when the request fails',
+        async ({ action, endpoint }) => {
+            // The kernel still runs after a failed stop, and the refresh must not leave the stop flag set.
+            kernelStatusSpy.mockResolvedValue({ backend: 'modal', status: 'running' })
+            jest.spyOn(api.notebooks, endpoint).mockRejectedValue({ status: 409, detail: 'The kernel is busy.' })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            logic = notebookKernelInfoLogic({ shortId: `${action}-fails-01890abc`, mode: 'notebook' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            kernelStatusSpy.mockClear()
+
+            logic.actions[action]()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(toastSpy).toHaveBeenCalledWith('The kernel is busy.')
+            expect(kernelStatusSpy).toHaveBeenCalled()
+            expect(logic.values.actionInFlight.stop).toBe(false)
+            expect(logic.values.actionInFlight.restart).toBe(false)
+        }
+    )
 
     test('a shared notebook issues no team-scoped kernel requests', async () => {
         // A shared view renders from cachedNotebook so a logged-out viewer makes no team-scoped

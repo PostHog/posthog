@@ -115,7 +115,7 @@ from products.notebooks.backend.facade.widgets import (
     set_widget_instance_version,
     start_widget_generation,
 )
-from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.kernel_runtime import KernelBusyError, build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetAttachRequestSerializer,
@@ -529,6 +529,7 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
 ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
 ALLOWED_KERNEL_MEMORY_GB = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
 ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
+KERNEL_BUSY_DETAIL = "The kernel is busy running code. Wait for the cell to finish, then try again."
 
 
 class NotebookKernelConfigSerializer(serializers.Serializer):
@@ -1560,6 +1561,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             stopped = get_kernel_runtime(notebook, self._current_user()).shutdown()
+        except KernelBusyError:
+            logger.warning("notebook_kernel_busy", action="stop", notebook_short_id=notebook.short_id)
+            return Response({"detail": KERNEL_BUSY_DETAIL}, status=409)
         except RuntimeError:
             logger.exception("notebook_kernel_stop_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to stop notebook kernel."}, status=503)
@@ -1570,6 +1574,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except KernelBusyError:
+            logger.warning("notebook_kernel_busy", action="restart", notebook_short_id=notebook.short_id)
+            return Response({"detail": KERNEL_BUSY_DETAIL}, status=409)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
