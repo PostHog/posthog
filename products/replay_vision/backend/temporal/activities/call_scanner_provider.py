@@ -325,8 +325,9 @@ async def run_scan(
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
-    checked = await keep_unrequested_pii_out(
+    checked, checked_signals = await keep_unrequested_pii_out(
         outcome.finalized,
+        outcome.signals,
         team_id=team_id,
         question=getattr(scanner, "prompt", "") or "",
         scanner_type=snapshot.scanner_type.value,
@@ -337,7 +338,7 @@ async def run_scan(
         update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
     )
     finalized = scanner.resolve_session_clock(finalized, outcome.core_response, video_clock, duration_ms)
-    signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
+    signals = [_signal_on_session_clock(signal, video_clock) for signal in checked_signals]
     return ScannerCallOutput(
         model_output=finalized,
         signals=signals,

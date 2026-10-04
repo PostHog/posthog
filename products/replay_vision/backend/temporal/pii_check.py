@@ -8,6 +8,7 @@ two apart. A flagged answer gets one text-only rewrite, and an answer still flag
 
 import json
 import asyncio
+from collections.abc import Sequence
 from typing import Any, TypeVar
 
 import structlog
@@ -23,6 +24,7 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +37,9 @@ PII_FLAG_PROBABILITY = 0.8
 ASKS_FOR_IDENTITY_PROBABILITY = 0.5
 _JEV_TIMEOUT_SECONDS = 10.0
 _REWRITE_MODEL = "gemini-3.8-flash"
+_FAILURE_MESSAGE = "The answer included personal data the scanner didn't ask for, and it could not be removed."
 _TEXT_FIELDS = ("title", "summary", "reasoning", "notability_reason")
+_SIGNAL_FIELDS = ("headline", "description")
 
 _DETECT_QUESTION = (
     "The state holds the text an AI scanner wrote about one recorded user session. Does the text contain personal data "
@@ -50,11 +54,11 @@ _ASKS_QUESTION = (
 )
 
 _REWRITE_INSTRUCTIONS = """\
-Below is the question a product team gave an AI scanner, and the text fields of the answer it wrote about one \
-recorded user session. The answer contains personal data the question did not ask for: names, usernames, email \
+Below is the question a product team gave an AI scanner, and the text fields it wrote about one recorded user \
+session, keyed by field. Fields named `signal_N_...` belong to separate issue reports from the same session. The answer contains personal data the question did not ask for: names, usernames, email \
 addresses, phone numbers, addresses, payment details, or account or government IDs.
 
-Rewrite each field without that personal data. Refer to people generically, such as "the user" or "a customer's \
+Return every field that holds personal data, with the same key, rewritten without it. Refer to people generically, such as "the user" or "a customer's \
 email address". Change nothing else: keep every claim, the verdict, the wording, and every `(t N)` timestamp marker \
 exactly as they are. If the question explicitly asks who the session belongs to, keep only the identity it asks for.
 
@@ -75,19 +79,48 @@ REPLAY_VISION_PII_CHECKS = Counter(
 )
 
 
+class _RewrittenField(BaseModel):
+    key: str
+    text: str
+
+
 class _Rewrite(BaseModel):
-    title: str | None = None
-    summary: str | None = None
-    reasoning: str | None = None
-    notability_reason: str | None = None
+    fields: list[_RewrittenField]
 
 
-def answer_text(output: BaseModel) -> dict[str, str]:
-    return {
+def _signal_key(index: int, field: str) -> str:
+    return f"signal_{index}_{field}"
+
+
+def answer_text(output: BaseModel, signals: Sequence[SignalFinding] = ()) -> dict[str, str]:
+    """The text a scan wrote, keyed by field, with each signal's headline and description under its own keys."""
+    text = {
         field: value
         for field in _TEXT_FIELDS
         if isinstance(value := getattr(output, field, None), str) and value.strip()
     }
+    for index, signal in enumerate(signals):
+        for field in _SIGNAL_FIELDS:
+            if (value := getattr(signal, field)).strip():
+                text[_signal_key(index, field)] = value
+    return text
+
+
+def _apply(
+    output: _OutputT, signals: Sequence[SignalFinding], updates: dict[str, str]
+) -> tuple[_OutputT, list[SignalFinding]]:
+    answer = output.model_copy(update={field: updates[field] for field in _TEXT_FIELDS if field in updates})
+    # Revalidated rather than copied, so the headline's length bound and marker stripping still apply.
+    rewritten_signals = [
+        SignalFinding.model_validate(
+            {
+                **signal.model_dump(),
+                **{f: updates[k] for f in _SIGNAL_FIELDS if (k := _signal_key(index, f)) in updates},
+            }
+        )
+        for index, signal in enumerate(signals)
+    ]
+    return answer, rewritten_signals
 
 
 def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, trace_id: str) -> float | None:
@@ -145,8 +178,8 @@ async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, st
         posthog_properties={"$ai_span_name": "pii_rewrite"},
         posthog_groups={"project": str(team_id)},
     )
-    rewritten = _Rewrite.model_validate_json(response.text or "{}")
-    return {field: new for field in text if isinstance(new := getattr(rewritten, field), str) and new.strip()}
+    rewritten = _Rewrite.model_validate_json(response.text or '{"fields": []}')
+    return {entry.key: entry.text for entry in rewritten.fields if entry.key in text and entry.text.strip()}
 
 
 def record_pii_check(outcome: str, scanner_type: str) -> None:
@@ -154,44 +187,44 @@ def record_pii_check(outcome: str, scanner_type: str) -> None:
 
 
 async def keep_unrequested_pii_out(
-    output: _OutputT, *, team_id: int, question: str, scanner_type: str, trace_id: str
-) -> _OutputT:
-    """Return the answer, rewritten once if Jev finds personal data the question did not ask for.
+    output: _OutputT,
+    signals: Sequence[SignalFinding],
+    *,
+    team_id: int,
+    question: str,
+    scanner_type: str,
+    trace_id: str,
+) -> tuple[_OutputT, list[SignalFinding]]:
+    """Return the answer and its signals, rewritten once if Jev finds personal data the question did not ask for.
 
-    Raises `ScannerFailureError(PII_DETECTED)` when the rewritten answer is still flagged, or the rewrite fails.
+    Raises `ScannerFailureError(PII_DETECTED)` when the rewritten text is still flagged, or the rewrite fails.
     """
-    text = answer_text(output)
+    signals = list(signals)
+    text = answer_text(output, signals)
     if not text:
-        return output
+        return output, signals
     asks = await asyncio.to_thread(asks_for_identity, team_id=team_id, question=question, trace_id=trace_id)
     if asks is None:
         record_pii_check("unavailable", scanner_type)
-        return output
+        return output, signals
     if asks:
         record_pii_check("identity_asked", scanner_type)
-        return output
+        return output, signals
     flagged = await asyncio.to_thread(contains_pii, team_id=team_id, text=text, trace_id=trace_id)
     if not flagged:
         record_pii_check("unavailable" if flagged is None else "clean", scanner_type)
-        return output
+        return output, signals
     try:
-        rewritten = output.model_copy(
-            update=await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
-        )
+        updates = await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
+        rewritten, rewritten_signals = _apply(output, signals, updates)
     except Exception as e:
         record_pii_check("failed", scanner_type)
-        raise ScannerFailureError(
-            "The answer included personal data the scanner didn't ask for, and it could not be removed.",
-            kind=FailureKind.PII_DETECTED,
-        ) from e
+        raise ScannerFailureError(_FAILURE_MESSAGE, kind=FailureKind.PII_DETECTED) from e
     still_flagged = await asyncio.to_thread(
-        contains_pii, team_id=team_id, text=answer_text(rewritten), trace_id=trace_id
+        contains_pii, team_id=team_id, text=answer_text(rewritten, rewritten_signals), trace_id=trace_id
     )
     if still_flagged:
         record_pii_check("failed", scanner_type)
-        raise ScannerFailureError(
-            "The answer included personal data the scanner didn't ask for, and it could not be removed.",
-            kind=FailureKind.PII_DETECTED,
-        )
+        raise ScannerFailureError(_FAILURE_MESSAGE, kind=FailureKind.PII_DETECTED)
     record_pii_check("rewritten", scanner_type)
-    return rewritten
+    return rewritten, rewritten_signals
