@@ -128,7 +128,6 @@ class TestPromptAgent(_VisionAPITestCase):
         self.assertEqual(final_turn.parts[-1].text, "Respond now with the JSON answer.")
 
     def test_observation_tools_return_full_detail_and_the_rated_session_listing(self) -> None:
-
         detail = _dispatch_agent_tool(self.scanner, _call("get_rated_observation", {"session_id": "sess-1"}))
         self.assertEqual(detail["rating"], "thumbs_down")
         self.assertEqual(detail["feedback"], "should be yes")
