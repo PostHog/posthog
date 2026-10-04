@@ -6,6 +6,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import temporalio.worker
 from parameterized import parameterized
 from temporalio import (
@@ -33,6 +35,7 @@ from products.replay_vision.backend.temporal.activities import benchmark as benc
 from products.replay_vision.backend.temporal.benchmark_types import (
     BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE,
     BENCHMARK_CASE_SKIPPED_ERROR_TYPE,
+    BENCHMARK_VERSION_ALREADY_BUILT_ERROR_TYPE,
     BuildBenchmarkInputs,
     LoadBenchmarkCasesInputs,
     LoadBenchmarkCasesOutput,
@@ -224,6 +227,19 @@ def test_a_session_without_production_inputs_is_skipped(
         benchmark_activities._production_inputs(case)
 
     assert (raised.value.type, raised.value.message) == (BENCHMARK_CASE_SKIPPED_ERROR_TYPE, expected_reason)
+
+
+def test_snapshot_refuses_a_built_version_without_a_retry() -> None:
+    with (
+        override_settings(REPLAY_VISION_BENCHMARK_BUCKET="bench"),
+        patch.object(benchmark_activities.object_storage, "head_object", return_value={"ContentLength": 1}),
+        patch.object(benchmark_activities.LabelingExportClient, "from_settings") as labeling,
+        pytest.raises(ApplicationError) as raised,
+    ):
+        benchmark_activities._snapshot(SnapshotBenchmarkInputs(version="v1"))
+
+    assert (raised.value.type, raised.value.non_retryable) == (BENCHMARK_VERSION_ALREADY_BUILT_ERROR_TYPE, True)
+    labeling.assert_not_called()
 
 
 @wf.defn(name="rasterize-recording")

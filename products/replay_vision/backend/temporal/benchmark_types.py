@@ -15,6 +15,8 @@ from products.replay_vision.backend.benchmark.layout import BenchmarkCase
 BENCHMARK_CASE_SKIPPED_ERROR_TYPE = "BenchmarkCaseSkipped"
 # Its error type for a case an earlier run of the same version already built, which a resumed build counts as is.
 BENCHMARK_CASE_ALREADY_BUILT_ERROR_TYPE = "BenchmarkCaseAlreadyBuilt"
+# The snapshot activity's error type for a version that already has a manifest. A retry cannot succeed.
+BENCHMARK_VERSION_ALREADY_BUILT_ERROR_TYPE = "BenchmarkVersionAlreadyBuilt"
 
 CaseOutcome = Literal["built", "failed", "skipped"]
 
