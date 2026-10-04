@@ -2360,15 +2360,16 @@ class TestInviteSignupAPI(APIBaseTest):
             target_email="test+99@posthog.com", organization=self.organization
         )
 
-        response = self.client.post(
-            f"/api/signup/{invite.id}/",
-            {
-                "first_name": "Alice",
-                "password": VALID_TEST_PASSWORD,
-                "email_opt_in": True,
-                "role_at_organization": "Engineering",
-            },
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/signup/{invite.id}/",
+                {
+                    "first_name": "Alice",
+                    "password": VALID_TEST_PASSWORD,
+                    "email_opt_in": True,
+                    "role_at_organization": "Engineering",
+                },
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
         self.assertEqual(
@@ -2430,6 +2431,12 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
+
+        # Reopening the used invite link reports it as used, so the frontend can send the user to login
+        self.client.logout()
+        response = self.client.get(f"/api/signup/{invite.id}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invite_used")
 
     @pytest.mark.ee
     def test_api_invite_sign_up_where_there_are_no_default_non_private_projects(self):

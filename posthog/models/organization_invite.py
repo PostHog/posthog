@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models.functions import Upper
 from django.db.models.signals import pre_delete
@@ -32,6 +33,22 @@ logger = structlog.get_logger(__name__)
 # being unsuppressed by a single invite delete, the logic invariant has drifted and ops should
 # investigate rather than silently bulk-update many User rows.
 _DELEGATION_UNSUPPRESS_WARN_THRESHOLD = 5
+
+# use() deletes the invite row. This marker lets a reopened invite link say "already used"
+# instead of "not valid", so the invitee gets sent to login.
+USED_INVITE_MARKER_TTL_SECONDS = 90 * 24 * 60 * 60
+
+
+def _used_invite_cache_key(invite_id: object) -> str:
+    return f"organization_invite_used:{invite_id}"
+
+
+def mark_invite_used(invite_id: object) -> None:
+    cache.set(_used_invite_cache_key(invite_id), True, timeout=USED_INVITE_MARKER_TTL_SECONDS)
+
+
+def was_invite_used(invite_id: object) -> bool:
+    return bool(cache.get(_used_invite_cache_key(invite_id)))
 
 
 def validate_private_project_access(value):
@@ -218,7 +235,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 OrganizationInvite.objects.filter(pk=sibling_pk).delete()
                 if sibling_pk in sibling_delegation_ids:
                     mark_delegators_accepted(invite_id=sibling_pk)
+            invite_id = self.pk
             self.delete()
+            transaction.on_commit(lambda: mark_invite_used(invite_id))
 
         if is_email_available(with_absolute_urls=True):
             from posthog.tasks.email import send_member_join
