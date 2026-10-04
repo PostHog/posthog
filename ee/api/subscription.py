@@ -81,7 +81,7 @@ from products.product_analytics.backend.facade.api import insights_including_sof
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.tasks.subscriptions.auto_disable import validate_re_enable
+from ee.tasks.subscriptions.auto_disable import is_valid_email_recipient, parse_email_recipients, validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
@@ -887,8 +887,13 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         # permanently broken — otherwise the next delivery would just auto-disable
         # them again.
         is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
+        effective_target_value = (
+            attrs["target_value"]
+            if "target_value" in attrs
+            else (self.instance.target_value if self.instance else None)
+        )
         if is_re_enabling:
-            error_message = validate_re_enable(target_type, integration_id)
+            error_message = validate_re_enable(target_type, integration_id, effective_target_value)
             if error_message:
                 raise ValidationError({"enabled": [error_message]})
             # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
@@ -933,6 +938,18 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             target_value = submitted or (self.instance.target_value if self.instance else "")
             if not is_microsoft_teams_webhook_url(target_value):
                 raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
+
+        if target_type == Subscription.SubscriptionTarget.EMAIL and (
+            self.instance is None or "target_value" in attrs or "target_type" in attrs
+        ):
+            emails = parse_email_recipients(effective_target_value)
+            if not emails:
+                raise ValidationError({"target_value": ["Add at least one email address."]})
+            invalid_emails = [email for email in emails if not is_valid_email_recipient(email)]
+            if invalid_emails:
+                raise ValidationError(
+                    {"target_value": [f"These are not valid email addresses: {', '.join(invalid_emails)}."]}
+                )
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:

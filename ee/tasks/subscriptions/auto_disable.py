@@ -2,6 +2,9 @@ import uuid
 from typing import NamedTuple
 from urllib.parse import urlparse
 
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+
 import structlog
 
 from posthog.email import EmailMessage
@@ -69,11 +72,30 @@ AI_CONSENT_REVOKED_DISABLE_REASON = DisableReason(
     description="Organization has not approved AI data processing",
     user_message="Cannot re-enable AI subscription: your organization has not approved AI data processing. Approve it in your organization settings, then re-enable this subscription.",
 )
+INVALID_EMAIL_RECIPIENTS_DISABLE_REASON = DisableReason(
+    key="invalid_email_recipients",
+    description="The recipient list has no valid email address",
+    user_message="Cannot re-enable {target_type} subscription: add at least one valid email address, then try again.",
+)
 
 logger = structlog.get_logger(__name__)
 
 
-def get_subscription_disable_reason(target_type: str | None, integration_id: int | None) -> DisableReason | None:
+def parse_email_recipients(target_value: str | None) -> list[str]:
+    return list(dict.fromkeys(e.strip() for e in (target_value or "").split(",") if e.strip()))
+
+
+def is_valid_email_recipient(email: str) -> bool:
+    try:
+        validate_email(email)
+    except ValidationError:
+        return False
+    return True
+
+
+def get_subscription_disable_reason(
+    target_type: str | None, integration_id: int | None, target_value: str | None = None
+) -> DisableReason | None:
     """Single source of truth for "what target configuration is permanently broken"."""
     if not target_type:
         return None
@@ -81,6 +103,12 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
         return UNSUPPORTED_TARGET_DISABLE_REASON
     if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
         return SLACK_DISCONNECTED_DISABLE_REASON
+    if (
+        target_type == Subscription.SubscriptionTarget.EMAIL
+        and target_value is not None
+        and not any(is_valid_email_recipient(email) for email in parse_email_recipients(target_value))
+    ):
+        return INVALID_EMAIL_RECIPIENTS_DISABLE_REASON
     return None
 
 
@@ -93,9 +121,11 @@ def target_type_label(target_type: str | None) -> str:
         return target_type
 
 
-def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
+def validate_re_enable(
+    target_type: str | None, integration_id: int | None, target_value: str | None = None
+) -> str | None:
     """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
-    reason = get_subscription_disable_reason(target_type, integration_id)
+    reason = get_subscription_disable_reason(target_type, integration_id, target_value)
     if reason is None:
         return None
     return reason.user_message.format(target_type=target_type_label(target_type))
