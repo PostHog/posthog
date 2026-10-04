@@ -33,7 +33,9 @@ jest.mock('./ScoutCreateModal', () => ({
             {initialValues?.name ? <span>{initialValues.name}</span> : null}
             {initialValues?.description ? <span>{initialValues.description}</span> : null}
             {onSwitchToChat ? (
-                <button onClick={() => onSwitchToChat(initialValues?.description ?? '')}>Back to chat</button>
+                <button onClick={() => onSwitchToChat(initialValues?.description ?? '')}>
+                    Chat with an agent instead
+                </button>
             ) : null}
         </div>
     ),
@@ -79,6 +81,7 @@ describe('scout creation buttons', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
     })
 
     afterEach(cleanup)
@@ -86,6 +89,12 @@ describe('scout creation buttons', () => {
     function setSuggestionsFlag(enabled: boolean): void {
         featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI] : [], {
             [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: enabled,
+        })
+    }
+
+    function setScoutCreateVariant(variant: 'control' | 'test'): void {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUT_CREATE_FLOW_EXPERIMENT], {
+            [FEATURE_FLAGS.SCOUT_CREATE_FLOW_EXPERIMENT]: variant,
         })
     }
 
@@ -204,6 +213,37 @@ describe('scout creation buttons', () => {
     })
 
     it.each([
+        ['control', 'Manual scout form'],
+        ['test', 'What should this scout watch?'],
+    ] as const)('opens the assigned %s flow without showing a choice', async (variant, modalTitle) => {
+        setScoutCreateVariant(variant)
+        const { findByText, getByText, queryByText } = render(<ScoutNewButton surface="fleet_list" />)
+
+        fireEvent.click(getByText('New scout'))
+
+        expect(await findByText(modalTitle)).toBeTruthy()
+        expect(queryByText('Fill in the form')).toBeNull()
+        expect(queryByText('Chat with an agent')).toBeNull()
+    })
+
+    it.each([
+        ['control', 'Manual scout form', 'Chat with an agent instead', 'What should this scout watch?'],
+        ['test', 'What should this scout watch?', 'Use the form instead', 'Manual scout form'],
+    ] as const)(
+        'keeps the alternate flow available from the %s modal',
+        async (variant, firstTitle, switchLabel, secondTitle) => {
+            setScoutCreateVariant(variant)
+            const { findByText, getByText } = render(<ScoutNewButton surface="fleet_list" />)
+
+            fireEvent.click(getByText('New scout'))
+            expect(await findByText(firstTitle)).toBeTruthy()
+            fireEvent.click(getByText(switchLabel))
+
+            expect(await findByText(secondTitle)).toBeTruthy()
+        }
+    )
+
+    it.each([
         ['a picked template', 'Churn risk', SCOUT_CHAT_TEMPLATES.find(({ id }) => id === 'churn_risk')!.prompt],
         [
             'a typed request longer than the form description allows',
@@ -233,7 +273,7 @@ describe('scout creation buttons', () => {
         expect(await findByText('Manual scout form')).toBeTruthy()
         expect(getByText(request)).toBeTruthy()
 
-        fireEvent.click(getByText('Back to chat'))
+        fireEvent.click(getByText('Chat with an agent instead'))
         expect((await findChatPrompt()).value).toBe(request)
         expect(startedChatTypes).toEqual([])
     })

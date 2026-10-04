@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.test import SimpleTestCase
 
@@ -74,6 +74,22 @@ class TestSignalScoutCreateAPI(APIBaseTest):
             "slack": {**payload["config"]["output_destinations"]["slack"], "thread_reports": True}
         }
         assert response.json()["config"]["description"] == payload["description"]
+
+    @patch("products.signals.backend.scout_harness.views.report_user_action")
+    def test_create_reports_the_shared_conversion_outcome_once(self, report_user_action) -> None:
+        payload = self._payload()
+
+        first = self.client.post(self._url(), data=payload, format="json")
+        second = self.client.post(self._url(), data=payload, format="json")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        report_user_action.assert_called_once_with(
+            self.user,
+            "scout created",
+            team=self.team,
+            request=ANY,
+        )
 
     def test_create_stores_normalized_tags_from_the_config_block(self) -> None:
         # Tagging at authoring time is the point — a scout the agent creates should land in the

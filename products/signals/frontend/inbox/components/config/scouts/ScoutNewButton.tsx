@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { IconChat, IconDocument, IconPlus } from '@posthog/icons'
 import { LemonButton, type LemonButtonProps, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
@@ -44,6 +47,7 @@ export function ScoutNewButton({
     size = 'small',
 }: ScoutNewButtonProps): JSX.Element {
     const [openModal, setOpenModal] = useState<OpenScoutModal | null>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const chatDisabledReason =
@@ -57,10 +61,24 @@ export function ScoutNewButton({
         captureScoutCreatePathChosen({ path: 'form', surface })
         setOpenModal({ kind: 'form', initialValues: {} })
     }
+    const experimentVariant = featureFlags[FEATURE_FLAGS.SCOUT_CREATE_FLOW_EXPERIMENT]
+    const assignedPath = experimentVariant === 'test' ? 'chat' : experimentVariant === 'control' ? 'form' : null
+    const assignedDisabledReason = creationDisabledReason ?? (assignedPath === 'chat' ? chatDisabledReason : undefined)
 
     return (
         <>
-            {layout === 'menu' ? (
+            {assignedPath ? (
+                <LemonButton
+                    type="primary"
+                    size={size}
+                    icon={<IconPlus />}
+                    disabledReason={assignedDisabledReason ?? undefined}
+                    onClick={assignedPath === 'chat' ? openChat : openForm}
+                    data-attr="scout-new"
+                >
+                    New scout
+                </LemonButton>
+            ) : layout === 'menu' ? (
                 <LemonMenu
                     items={[
                         {
