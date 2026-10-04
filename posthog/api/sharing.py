@@ -925,7 +925,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "recording",
                         "notebook",
                     )
-                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                    .filter(
+                        Q(expires_at__isnull=True) | Q(expires_at__gt=now()),
+                        SharingConfiguration.without_retired_resources_q(),
+                    )
                     .get(access_token=access_token)
                 )
             except SharingConfiguration.DoesNotExist:
