@@ -3051,6 +3051,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for action in active_actions
             if isinstance(action, dict)
             and action.get("id")
+            and action.get("type") != "ai_decision"
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
         # Kept apart from the template set, so a stored decision cannot carry its grandfathering over to a

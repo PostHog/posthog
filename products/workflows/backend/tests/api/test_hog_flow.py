@@ -6910,7 +6910,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
         template["id"] = "template-posthog-run-scout"
         template["inputs_schema"] = [{"key": "skill_name", "type": "string", "label": "Scout", "required": True}]
         sync_template_to_db(template)
-        flow = _ai_decision_flow({})
+        flow = _ai_decision_flow({"template_id": "template-posthog-run-scout"})
         flow_id = self._post(flow).json()["id"]
         run_scout = {
             "id": "decide",
