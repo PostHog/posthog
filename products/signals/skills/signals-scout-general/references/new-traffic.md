@@ -144,7 +144,7 @@ ORDER BY day
 A day is observed when it has a row. The query returns no row for a day with no project events, so a missing day is unknown history, not a zero.
 
 - **Onset**: the first day of the step.
-- **Uncertain onset**: the source's first day with events can be the project's first observed day, or the first observed day after a gap. Then the source can be older than the history the project has, and that day is not an onset. Record the onset as "on or before" that day.
+- **Uncertain onset**: test the day the step starts, not the source's first day with events. The step can start on the project's first observed day, or on the first observed day after a gap. Then the step can be older than the history the project has, and that day is not an onset. Record the onset as "on or before" that day.
 - **Pre-surge baseline**: the total events over the 28 days before the onset, divided by 28. Pin it only when the onset is certain and all 28 of those days are observed. The query returns only days with project events, so a median over the rows would skip quiet days and overstate the baseline.
 - When the onset is uncertain, or the 28 days are not all observed, do not pin a baseline and do not estimate the excess events. Record the baseline as unknown, do not report the source as new traffic, and check it again on a later run.
 - A step that has not held for 3 days or more is a spike, not new traffic. Leave it, or record it as a `pattern:` and check again next time.
