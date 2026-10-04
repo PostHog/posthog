@@ -5079,6 +5079,22 @@ class TestValidateCredentialsErrorMapping:
                 "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  PAM authentication failed for user "example_user"',
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: FATAL:  no such user',
+                "Your connection pooler doesn't recognize this username. Use the username your pooler "
+                "expects, such as postgres.<project-ref> for Supabase, then try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  role "example_user" is not permitted to log in',
+                "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
+                "different user, then try again.",
+            ),
+            (
                 f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
                 "PostHog couldn't resolve your database host right now. Check the host name, then try "
                 "again in a moment.",
