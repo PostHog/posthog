@@ -15,7 +15,7 @@ import { ActivityTab } from '~/types'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { buildExploreAgentContext } from '../activityAgentContext'
-import { createSessionsRowTransformer, getSessionsColumns } from './sessionsColumns'
+import { createSessionsRowProps, createSessionsRowTransformer, getSessionsColumns } from './sessionsColumns'
 import { sessionsSceneLogic } from './sessionsSceneLogic'
 
 export function SessionsScene(): JSX.Element {
@@ -24,6 +24,7 @@ export function SessionsScene(): JSX.Element {
 
     // Create the row transformer based on the current query
     const dataTableRowsTransformer = useMemo(() => createSessionsRowTransformer(query as DataTableNode), [query])
+    const rowProps = useMemo(() => createSessionsRowProps(query as DataTableNode), [query])
 
     useAttachedContext(buildExploreAgentContext(ActivityTab.ExploreSessions, query))
 
@@ -48,6 +49,7 @@ export function SessionsScene(): JSX.Element {
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
                     dataTableRowsTransformer,
+                    rowProps,
                     // A live-data explorer over captured events, so it keeps the hidden ones selectable.
                     includeHiddenEvents: true,
                 }}
