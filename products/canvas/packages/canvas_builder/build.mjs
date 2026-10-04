@@ -243,6 +243,10 @@ const platformStylesheet = `
 @import "@posthog/quill/primitives.css";
 @import "@posthog/quill/tailwind.css";
 @custom-variant dark (&:where(.dark, .dark *));
+/* A lone card fills its grid cell so a row ends on one line; sandboxRuntime.ts carries the same rule. */
+@layer base {
+  :where(.grid > *) > :where([data-slot="card"]:only-child) { height: 100%; }
+}
 
 /* Recharts hardcodes a white outline on every pie sector. It disappears into a light card and
    draws a white ring around every slice on a dark one. Canvas pie charts want no slice outline. */

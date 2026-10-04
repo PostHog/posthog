@@ -68,6 +68,19 @@ control or a styled `<div>` standing in for one:
   Give an intermediate wrapper an explicit height (`h-[280px]`) when a child must fill a box.
 - Style with Tailwind utilities and Quill components; reserve inline `style` for genuinely dynamic
   runtime values (fixed sizes use arbitrary-value utilities like `h-[280px]`).
+
+### Cards side by side
+
+- Give a grid exactly as many columns as the cards in its row: two cards take `md:grid-cols-2`, not `md:grid-cols-3`.
+  An extra column leaves a hole at the end of the row.
+  Put a card that must span the full width below the grid, not inside it.
+- Make each card a direct child of the grid, or the only child of its cell `<div>`.
+  The platform then stretches every card to the row's height, so cards in a row end on one line.
+- Align the charts in a row on a common baseline.
+  Give every chart in the row the same height, put the chart last in its card, and push it to the bottom:
+  `<CardContent className="flex flex-1 flex-col">` with the chart wrapper `<div className="mt-auto h-[280px]">`.
+  These are layout utilities, so they are an allowed exception to the rule against classes on Quill components.
+  A card with a longer header or a row of stats above its chart then still draws its x-axis on the same line as its neighbor.
 - Write specific interface copy. Never use lorem ipsum or placeholder labels in a finished canvas.
 - The canvas follows the user's PostHog theme; a `.dark` class on the document root flips at runtime.
   Color only from the design-token utilities — surfaces `bg-background bg-card bg-muted bg-primary
