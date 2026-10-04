@@ -69,6 +69,12 @@ export function TodaySpacesSidebar(): JSX.Element {
 
     // Like Desktop, Cmd/Ctrl-click and Shift-click pick rows instead of opening them, and a plain click clears the pick.
     const onSelectClick = (sessionId: string, event: React.MouseEvent<HTMLElement>): void => {
+        if (phoneLayout && selectedIds.size > 0) {
+            event.preventDefault()
+            event.stopPropagation()
+            toggleSessionSelection(sessionId)
+            return
+        }
         const click = selectionClick(event)
         if (click === 'open') {
             clearSelection()

@@ -82,6 +82,8 @@ const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
+export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter'
+
 /** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
 export function spaceIdForPath(pathname: string): string | null {
     const match = removeProjectIdIfPresent(pathname).match(/^\/spaces\/([^/]+)/)
@@ -338,6 +340,9 @@ export interface todaySpacesLogicActions {
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
     }
+    touchMenuOpened: (menu: TodayTouchMenu) => {
+        menu: TodayTouchMenu
+    }
     toggleStar: (
         spaceId: string,
         starred: boolean
@@ -415,6 +420,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
     actions({
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
         setPhoneSection: (section: TodayWorkSectionId) => ({ section }),
+        touchMenuOpened: (menu: TodayTouchMenu) => ({ menu }),
         setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
         resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
         spaceVisited: (spaceId: string) => ({ spaceId }),
@@ -750,6 +756,9 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
     listeners(({ actions, values }) => ({
         setPhoneSection: ({ section }) => {
             posthog.capture('today spaces section picked', { section })
+        },
+        touchMenuOpened: ({ menu }) => {
+            posthog.capture('today touch menu opened', { menu })
         },
         loadPinnedTasksSuccess: ({ pinnedTasks }) =>
             actions.loadPullRequestStates(sessionIdsWithPullRequests(pinnedTasks)),

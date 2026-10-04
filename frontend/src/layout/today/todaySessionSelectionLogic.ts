@@ -23,6 +23,7 @@ import {
     pruneToVisible,
     toggleSelection,
 } from './todaySessionSelection'
+import { todayShellLogic } from './todayShellLogic'
 import { TodayWorkSectionId, todaySpacesLogic } from './todaySpacesLogic'
 import { TodayWorkItem, activeCloudRunId } from './todayWorkItems'
 
@@ -43,6 +44,7 @@ export interface todaySessionSelectionLogicValues {
     collapsedSections: TodayWorkSectionId[] // todaySpacesLogic
     pinnedItems: TodayWorkItem[] // todaySpacesLogic
     recentGroups: TodayRecentSection[] // todaySpacesLogic
+    phoneLayout: boolean // todayShellLogic
     bulkAction: TodayBulkAction | null
     bulkArchiveConfirm: TodayBulkArchiveConfirm
     bulkPinDirection: 'pin' | 'unpin'
@@ -126,7 +128,8 @@ export interface todaySessionSelectionLogicMeta {
         orderedSessionIds: (
             pinnedItems: TodayWorkItem[],
             recentGroups: TodayRecentSection[],
-            collapsedSections: TodayWorkSectionId[]
+            collapsedSections: TodayWorkSectionId[],
+            phoneLayout: boolean
         ) => string[]
         selectedSessionIds: (selection: TodaySessionSelection, orderedSessionIds: string[]) => string[]
         selectedSessions: (
@@ -149,7 +152,14 @@ export type todaySessionSelectionLogicType = MakeLogicType<
 export const todaySessionSelectionLogic = kea<todaySessionSelectionLogicType>([
     path(['layout', 'today', 'todaySessionSelectionLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], todaySpacesLogic, ['collapsedSections', 'pinnedItems', 'recentGroups']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            todaySpacesLogic,
+            ['collapsedSections', 'pinnedItems', 'recentGroups'],
+            todayShellLogic,
+            ['phoneLayout'],
+        ],
         actions: [router, ['locationChanged'], todaySpacesLogic, ['loadPinnedTasks', 'loadRecentTasks']],
     })),
     actions({
@@ -199,16 +209,17 @@ export const todaySessionSelectionLogic = kea<todaySessionSelectionLogicType>([
     }),
     selectors({
         orderedSessionIds: [
-            (s) => [s.pinnedItems, s.recentGroups, s.collapsedSections],
+            (s) => [s.pinnedItems, s.recentGroups, s.collapsedSections, s.phoneLayout],
             (
                 pinnedItems: TodayWorkItem[],
                 recentGroups: TodayRecentSection[],
-                collapsedSections: TodayWorkSectionId[]
+                collapsedSections: TodayWorkSectionId[],
+                phoneLayout: boolean
             ): string[] =>
                 orderedVisibleSessionIds(
                     pinnedItems,
                     recentGroups.flatMap((group) => group.items),
-                    collapsedSections
+                    phoneLayout ? [] : collapsedSections
                 ),
         ],
         // Rows that leave the list, like archived ones or those behind a filter, drop out of the selection.
