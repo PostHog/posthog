@@ -5,11 +5,13 @@ import posthoganalytics
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from rest_framework import status, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
 
@@ -63,9 +65,23 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         }
 
-        result = HogQLQueryFixerTool(
-            team=self.team, user=user, config=config, tool_call_id="fix_hogql_query_tool_call_id"
-        ).invoke({})
+        try:
+            result = HogQLQueryFixerTool(
+                team=self.team, user=user, config=config, tool_call_id="fix_hogql_query_tool_call_id"
+            ).invoke({})
+        except APIException:
+            raise
+        except Exception as e:
+            capture_exception(e, {"trace_id": trace_id, "has_connection_id": bool(connection_id)})
+            # 503 marks the failure as transient, so the frontend shows the message on the button
+            # without a generic error toast.
+            return Response(
+                {
+                    "trace_id": trace_id,
+                    "error": "AI could not fix this query right now. Try again later, or edit the query by hand.",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         if result is None or (isinstance(result, str) and len(result) == 0):
             return Response({"trace_id": trace_id, "error": "Could not fix the query"}, status=400)
