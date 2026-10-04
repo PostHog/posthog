@@ -102,6 +102,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'metrics:read',
     'notebook:read',
     'notebook:write',
+    'offline_evaluation_ingestion:write',
     'organization:read',
     'organization:write',
     'organization_member:read',
