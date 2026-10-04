@@ -158,7 +158,7 @@ def scan_delete_chunk_for_pdwp(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
-    Tombstone live posthog_persondistinctid rows in the chunk that have no associated person row.
+    Tombstone posthog_persondistinctid rows in the chunk that have no associated person row.
     Processes in batches of batch_size records.
     """
     chunk_min, chunk_max = chunk
@@ -306,7 +306,7 @@ WHERE pd.id >= %s AND pd.id <= %s
                         batch_counter = 0
 
                     context.log.info(
-                        f"Tombstoned batch: {records_deleted} of {records_found} live orphan mappings "
+                        f"Tombstoned batch: {records_deleted} of {records_found} orphan mappings "
                         f"(chunk {chunk_min}-{chunk_max}, batch ID range {batch_start_id} to {batch_end_id})"
                     )
 
