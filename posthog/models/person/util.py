@@ -956,7 +956,8 @@ def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: 
 
 _T = TypeVar("_T")
 
-# An ensure call that loses an insert race fails whole with FAILED_PRECONDITION and commits nothing.
+# An ensure call waits out a concurrent insert of the same key and classifies the winner's row.
+# It fails whole with FAILED_PRECONDITION, and commits nothing, only when that row is gone before the call can lock it.
 VERSION_FLOOR_ATTEMPTS = 3
 VERSION_FLOOR_RETRY_BACKOFF_SECONDS = 0.05
 _LOST_RACE_CODES = frozenset({grpc.StatusCode.FAILED_PRECONDITION})
