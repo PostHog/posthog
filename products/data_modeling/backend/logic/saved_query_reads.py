@@ -97,9 +97,11 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
 def saved_query_ids_by_workflow_id(team_id: int, workflow_ids: Collection[str]) -> dict[str, str]:
     if not workflow_ids:
         return {}
-    rows = DataModelingJob.objects.filter(
-        team_id=team_id, workflow_id__in=list(workflow_ids), saved_query__isnull=False
-    ).values_list("workflow_id", "saved_query_id")
+    rows = (
+        DataModelingJob.objects.filter(team_id=team_id, workflow_id__in=list(workflow_ids), saved_query__isnull=False)
+        .exclude(saved_query__deleted=True)
+        .values_list("workflow_id", "saved_query_id")
+    )
     return {workflow_id: str(saved_query_id) for workflow_id, saved_query_id in rows if workflow_id}
 
 
