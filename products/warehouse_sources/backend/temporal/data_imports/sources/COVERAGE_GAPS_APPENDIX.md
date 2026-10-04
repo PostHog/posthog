@@ -4187,10 +4187,10 @@ Today (8): `actions`, `activities`, `advisors`, `candidates`, `employers`, `job_
 
 Diffed against: <https://docs.huntr.co>
 
-- [ ] `/org/events` — the job state transition log (JOB_CREATED, JOB_MOVED, JOB_OFFER_DATE_SET, interview dates) - the pipeline history behind jobs we already sync (high)
-- [ ] `/org/activity-categories` — lookup resolving the category ID on every activity row we already sync (high)
-- [ ] `/org/tags` — lookup resolving tag IDs applied across members, jobs and candidates (high)
-- [ ] `/org/candidates/{id}/action-metrics` — per-candidate activity metrics - the engagement measure for candidates we already sync (high)
+- [ ] `/org/events` — the job state transition log (JOB_CREATED, JOB_MOVED, JOB_OFFER_DATE_SET, interview dates) - the pipeline history behind jobs we already sync (high) — skipped: deprecated by Huntr in favor of `/org/actions` and `/org/activities`, which we already sync
+- [x] `/org/activity-categories` — lookup resolving the category ID on every activity row we already sync (high). Added as `activity_categories`.
+- [x] `/org/tags` — lookup resolving tag IDs applied across members, jobs and candidates (high). Added as `tags`.
+- [x] `/org/candidates/{id}/action-metrics` — per-candidate activity metrics - the engagement measure for candidates we already sync (high). Added as `candidate_action_metrics` (fan-out over `candidates`, one row per candidate and action type).
 - [ ] `/org/goals` — goal definitions and targets that member progress is measured against (medium)
 - [ ] `/org/member-groups` — cohort/group membership for the members table, the main breakdown dimension (medium)
 - [ ] `/org/member-fields (and /org/members/{id}/member-fields)` — custom field definitions plus per-member values, the org's own segmentation attributes (medium)
