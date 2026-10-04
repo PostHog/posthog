@@ -36,6 +36,7 @@ const setupPromiseCacheCounter = new Counter({
 export type PluginState = {
     setupPromise: Promise<any>
     errored: boolean
+    hogFunctionUpdatedAt: string
     meta: LegacyTransformationPluginMeta
 }
 
@@ -164,7 +165,12 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin ${pluginId} is not a transformation`)
             }
 
-            let state = this.pluginState[invocation.hogFunction.id]
+            let state: PluginState | undefined = this.pluginState[invocation.hogFunction.id]
+
+            // A config edit bumps updated_at, so the plugin must set up again with the new inputs
+            if (state && state.hogFunctionUpdatedAt !== invocation.hogFunction.updated_at) {
+                state = undefined
+            }
 
             setupPromiseCacheCounter.labels({ result: state ? 'hit' : 'miss' }).inc()
 
@@ -209,6 +215,7 @@ export class LegacyPluginExecutorService {
                     setupPromise,
                     meta,
                     errored: false,
+                    hogFunctionUpdatedAt: invocation.hogFunction.updated_at,
                 }
             }
 
