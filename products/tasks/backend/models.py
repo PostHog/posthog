@@ -3,7 +3,7 @@ import re
 import copy
 import json
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -775,6 +775,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
+        initial_artifacts: list[dict[str, Any]] | None = None,
     ) -> "TaskRun":
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
             raise ValueError("scheduled_at must be timezone-aware")
@@ -889,6 +890,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 **({"environment": environment} if environment else {}),
                 state=state,
                 branch=branch,
+                artifacts=initial_artifacts or [],
             )
 
             def emit_created_events() -> None:
@@ -1497,6 +1499,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        initial_text_attachments: Mapping[str, str] | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1569,6 +1572,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # whether or not the run clones, so a repo-pinned caller that asks for read access
             # gets a checkout it can read and never write capability it did not ask for.
             run_extra_state["github_read_access"] = True
+        initial_artifacts = None
+        if initial_text_attachments:
+            from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — breaks the models/staged_artifacts import cycle
+                upload_task_text_attachments,
+            )
+
+            # Upload before a queued run exists so dispatch recovery cannot start without its files.
+            initial_artifacts = upload_task_text_attachments(task, initial_text_attachments)
+            run_extra_state["pending_user_message"] = pending_user_message or description
+            run_extra_state["pending_user_artifact_ids"] = [artifact["id"] for artifact in initial_artifacts]
         # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
         # reconciler can re-dispatch faithfully if the workflow start is ever lost.
         run_extra_state["pending_dispatch"] = {
@@ -1586,6 +1599,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 branch=branch,
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
+                initial_artifacts=initial_artifacts,
             )
 
             if start_workflow and scheduled_at is None:

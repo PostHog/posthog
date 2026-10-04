@@ -18,7 +18,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     ReviewArm,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
@@ -175,13 +175,22 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
     plan = ChunksList(chunks=[Chunk(chunk_id=1, files=[FileInfo(filename="a.py")])])
     mock_oneshot = AsyncMock(return_value=plan)
     mock_sandbox = AsyncMock(return_value=plan)
+    code = "chunking_snapshot_value = 1\nchunking_snapshot_value += 1"
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_chunk_set", return_value=None),
         patch(
             f"{_MODULE}.load_pr_snapshot",
             return_value=_snapshot(
-                pr_files=[PRFile(filename="a.py", status="modified", additions=additions, deletions=0)]
+                pr_files=[
+                    PRFile(
+                        filename="a.py",
+                        status="modified",
+                        additions=additions,
+                        deletions=0,
+                        changes=[PRFileUpdate(type="addition", new_start_line=1, new_end_line=2, code=code)],
+                    )
+                ]
             ),
         ),
         patch(f"{_MODULE}.persist_chunk_set"),
@@ -204,10 +213,15 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
     assert chunk_ids == [1]
     assert mock_oneshot.called is expects_oneshot
     assert mock_sandbox.called is not expects_oneshot
-    if not expects_oneshot:
+    if expects_oneshot:
+        assert code.splitlines()[0] in mock_oneshot.call_args.kwargs["prompt"]
+        assert "initial_text_attachments" not in mock_oneshot.call_args.kwargs
+    else:
         # The pin kwargs default to None, so dropping them at this call site would silently fall
         # back to the sandbox default model — same contract as the review-pin test below.
         kwargs = mock_sandbox.call_args.kwargs
+        assert code.splitlines()[0] not in kwargs["prompt"]
+        assert code in kwargs["initial_text_attachments"]["review.diff"]
         assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == (
             CHUNKING_RUNTIME_ADAPTER,
             CHUNKING_MODEL,

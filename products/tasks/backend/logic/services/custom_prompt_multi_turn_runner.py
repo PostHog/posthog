@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -90,14 +90,15 @@ class MultiTurnSession:
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
+        initial_text_attachments: Mapping[str, str] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
-        `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
-        BEFORE the agent's first turn runs. Callers that need a row linked to the
-        TaskRun to be queryable during that first turn use this — e.g. the Signals
-        scout creates its `SignalScoutRun` bridge here so first-turn finding emits
-        can resolve the run by id instead of 404ing on a not-yet-created row.
+        `on_task_run_created`, if given, is awaited after task creation and dispatch.
+        It does not guarantee completion before the agent's first turn.
+
+        `initial_text_attachments` maps filenames to text uploaded as private task
+        artifacts before dispatch. The agent receives these files with the first prompt.
 
         `max_poll_seconds` caps each turn's poll budget — see the field docstring.
 
@@ -134,6 +135,7 @@ class MultiTurnSession:
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
+            initial_text_attachments=initial_text_attachments,
         )
         # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
         salvageable = True
@@ -211,11 +213,12 @@ class MultiTurnSession:
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
+        initial_text_attachments: Mapping[str, str] | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
-        `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
-        BEFORE the agent's first turn runs — see `start` for the rationale.
+        `on_task_run_created` runs after dispatch. `initial_text_attachments` are
+        uploaded before dispatch and accompany the first prompt; see `start`.
 
         `max_poll_seconds` caps each turn's poll budget — see the field docstring.
 
@@ -243,6 +246,7 @@ class MultiTurnSession:
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
+            initial_text_attachments=initial_text_attachments,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.
