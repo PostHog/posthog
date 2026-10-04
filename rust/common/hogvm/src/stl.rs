@@ -2128,14 +2128,18 @@ fn extract_utc_field(
     let secs = temporal_seconds(vm, value, name)?;
     let utc = DateTime::from_timestamp(secs.floor() as i64, 0)
         .ok_or_else(|| VmError::NativeCallFailed(format!("{name}: timestamp out of range")))?;
-    Ok(match field {
-        "year" => utc.year() as i64,
-        "month" => utc.month() as i64,
-        "day" => utc.day() as i64,
-        "hour" => utc.hour() as i64,
-        "minute" => utc.minute() as i64,
-        "second" => utc.second() as i64,
-        _ => 0,
+    Ok(datetime_field(&utc, field).unwrap_or(0))
+}
+
+fn datetime_field<Tz: TimeZone>(dt: &DateTime<Tz>, field: &str) -> Option<i64> {
+    Some(match field {
+        "year" => dt.year() as i64,
+        "month" => dt.month() as i64,
+        "day" => dt.day() as i64,
+        "hour" => dt.hour() as i64,
+        "minute" => dt.minute() as i64,
+        "second" => dt.second() as i64,
+        _ => return None,
     })
 }
 
@@ -2159,20 +2163,9 @@ fn extract_impl(vm: &HogVM, part: &str, value: &HogValue) -> Result<Option<i64>,
     let Some(dt) = DateTime::from_timestamp(secs.floor() as i64, 0) else {
         return Ok(None);
     };
-    let local = dt.with_timezone(&tz);
-    Ok(Some(match part {
-        "year" => local.year() as i64,
-        "month" => local.month() as i64,
-        "day" => local.day() as i64,
-        "hour" => local.hour() as i64,
-        "minute" => local.minute() as i64,
-        "second" => local.second() as i64,
-        _ => {
-            return Err(VmError::NativeCallFailed(format!(
-                "Unknown extract part: {part}"
-            )))
-        }
-    }))
+    datetime_field(&dt.with_timezone(&tz), part)
+        .map(Some)
+        .ok_or_else(|| VmError::NativeCallFailed(format!("Unknown extract part: {part}")))
 }
 
 // dateTrunc: truncate the UTC wall-clock to the unit, then re-interpret in the value's zone.

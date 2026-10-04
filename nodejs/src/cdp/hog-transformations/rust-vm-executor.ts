@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
@@ -42,14 +43,11 @@ export const rustVmExecutionDuration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100],
 })
 
-// An unsupported-function fallback repeats on every invocation of the same program, so its warn
-// log is emitted once per function and error. The counter still counts every fallback. The cap
-// bounds memory; at the cap the set clears and each pair logs once more.
-const MAX_LOGGED_UNSUPPORTED_FALLBACKS = 10_000
-
 export class RustVmExecutor {
     private scheduler: RustVmBatchScheduler
-    private loggedUnsupportedFallbacks = new Set<string>()
+    // An unsupported-function fallback repeats on every invocation of the same program, so its warn
+    // log is emitted once per function and error. The counter still counts every fallback.
+    private loggedUnsupportedFallbacks = new LRUCache<string, true>({ max: 10_000 })
 
     constructor(private options: { mmdbPath: string }) {
         this.scheduler = new RustVmBatchScheduler((program, events) => {
@@ -96,10 +94,7 @@ export class RustVmExecutor {
         if (this.loggedUnsupportedFallbacks.has(key)) {
             return false
         }
-        if (this.loggedUnsupportedFallbacks.size >= MAX_LOGGED_UNSUPPORTED_FALLBACKS) {
-            this.loggedUnsupportedFallbacks.clear()
-        }
-        this.loggedUnsupportedFallbacks.add(key)
+        this.loggedUnsupportedFallbacks.set(key, true)
         return true
     }
 

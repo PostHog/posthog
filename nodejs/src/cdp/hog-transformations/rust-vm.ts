@@ -43,17 +43,20 @@ export function isUnsupportedByRustVm(error: string): boolean {
 }
 
 /**
- * True when the error is an `Unknown function <name>` call that the Node VM can't resolve either:
- * `name` is in none of the scopes it looks up (the host functions passed to it, the STL, the
- * bytecode STL, the async STL). A fallback would only rerun the program to the same failure, so the
- * Rust error is the final result.
+ * True when the error is an `Unknown function <name>` call that the Node VM can't resolve either. A
+ * fallback would only rerun the program to the same failure, so the Rust error is the final result.
  */
 export function isUnknownToNodeVm(error: string, nodeFunctions: Record<string, unknown>): boolean {
     if (!error.startsWith(UNKNOWN_FUNCTION_ERROR_PREFIX)) {
         return false
     }
     const name = error.slice(UNKNOWN_FUNCTION_ERROR_PREFIX.length)
-    return ![nodeFunctions, STL, BYTECODE_STL, ASYNC_STL].some((scope) => Object.hasOwn(scope, name))
+    return !(
+        Object.hasOwn(nodeFunctions, name) ||
+        Object.hasOwn(STL, name) ||
+        Object.hasOwn(BYTECODE_STL, name) ||
+        Object.hasOwn(ASYNC_STL, name)
+    )
 }
 
 export interface RustExecResult {
