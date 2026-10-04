@@ -2,16 +2,16 @@
 Team discovery activity for AI observability workflows.
 
 Provides dynamic team discovery that combines a guaranteed allowlist
-with a configurable random sample of teams that have AI events.
+with a configurable sample of teams that have AI events.
 
 Config is read from the `llm-analytics-clustering-workflows` feature flag
 payload so it can be changed from the PostHog UI without a deploy.
 Falls back to hardcoded defaults when the payload is missing or invalid.
 """
 
-import math
 import random
 import asyncio
+import hashlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
@@ -139,6 +139,22 @@ def get_min_traces_override(team_id: int) -> int | None:
         return None
 
 
+def _is_team_in_sample(team_id: int, sample_percentage: float) -> bool:
+    """Decide if a non-allowlisted team belongs to the rollout sample.
+
+    The decision is a hash of the team id, so it stays the same on every run. A team is
+    clustered every day or never, instead of only on the days a fresh draw picks it. The
+    hash is uniform, so the sample keeps its target size, and it is monotonic: a larger
+    percentage only adds teams, it never drops a team that is already included.
+    """
+    if sample_percentage <= 0.0:
+        return False
+    if sample_percentage >= 1.0:
+        return True
+    digest = hashlib.sha256(f"{FEATURE_FLAG_KEY}:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") / (1 << 64) < sample_percentage
+
+
 # Activity timeout for team discovery. Must exceed the underlying ClickHouse
 # query's max_execution_time (5 min in CH_AI_OBSERVABILITY_SETTINGS) plus retry
 # overhead so the activity doesn't get killed before the fallback path runs.
@@ -170,7 +186,7 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
     Discover teams for AI observability workflows.
 
     Config (guaranteed/skip/sample/lookback) is read from the feature flag payload.
-    Candidates are the guaranteed allowlist teams + a random sample of other teams with AI
+    Candidates are the guaranteed allowlist teams + a stable sample of other teams with AI
     events. If that sampling query fails, the candidates are the guaranteed teams only.
 
     Every candidate then passes the third-party AI data processing consent filter, guaranteed
@@ -204,13 +220,13 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
 
             remaining = [t for t in ai_event_teams if t not in guaranteed and t not in skip]
 
-            sample_size = math.ceil(len(remaining) * sample_percentage)
-            sampled = random.sample(remaining, min(sample_size, len(remaining)))
+            sampled = [team_id for team_id in remaining if _is_team_in_sample(team_id, sample_percentage)]
+            random.shuffle(sampled)
 
             # Guaranteed teams first: the coordinator processes teams in this order and
             # may exhaust its run budget before reaching the tail, so allowlisted teams
-            # must never sit behind the sampled set. The sampled set keeps its random
-            # order, so a run that stops early skips different teams each hour.
+            # must never sit behind the sampled set. The sampled set is shuffled, so a run
+            # that stops early skips different teams each hour.
             discovered = sorted(guaranteed - skip) + sampled
             discovery_context = {
                 "ai_event_teams_count": len(ai_event_teams),
