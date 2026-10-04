@@ -167,6 +167,16 @@ impl StreamingWriter {
         })
     }
 
+    /// Encode with `compression` instead of delta-rs's write default (SNAPPY). delta-rs's
+    /// `optimize` writes ZSTD, so a compaction that rewrites files uses this to match it.
+    pub(crate) fn with_compression(mut self, compression: Compression) -> Self {
+        self.writer_properties = WriterProperties::builder()
+            .set_created_by(format!("delta-rs version {}", deltalake::crate_version()))
+            .set_compression(compression)
+            .build();
+        self
+    }
+
     /// Bytes held across all open files; the rollover measure.
     pub(crate) fn buffer_len(&self) -> usize {
         self.open.values().map(OpenFile::buffer_len).sum()

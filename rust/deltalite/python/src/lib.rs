@@ -460,6 +460,65 @@ impl DeltaLiteTable {
         Ok(stats)
     }
 
+    /// Compact small files into `target_file_size` files in one OPTIMIZE commit. Only
+    /// partitions with two or more neighbouring small files are read. Returns a stats dict.
+    #[pyo3(signature = (
+        *,
+        target_file_size = None,
+        max_parallel_bins = 2,
+        max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
+        read_batch_size = 8192,
+        decode_batch_bytes = 4194304,
+        partitions = None,
+        commit_max_retries = 15,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn compact(
+        &mut self,
+        py: Python<'_>,
+        target_file_size: Option<usize>,
+        max_parallel_bins: usize,
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        read_batch_size: usize,
+        decode_batch_bytes: usize,
+        partitions: Option<Vec<String>>,
+        commit_max_retries: usize,
+    ) -> PyResult<Py<PyAny>> {
+        let opts = deltalite_core::CompactOptions {
+            target_file_size,
+            max_parallel_bins,
+            max_buffered_bytes,
+            max_fetch_bytes,
+            read_batch_size,
+            decode_batch_bytes,
+            partitions,
+            commit_max_retries,
+            commit_metadata: None,
+            limits: ProcessLimits::global().clone(),
+        };
+        let multipart = MultipartConfig::resolve(None, None);
+        let handle = &mut self.handle;
+        let s = py
+            .detach(|| runtime().block_on(handle.compact(opts, multipart)))
+            .map_err(to_py_err)?;
+        let d = PyDict::new(py);
+        d.set_item("files_considered", s.files_considered)?;
+        d.set_item("partitions_compacted", s.partitions_compacted)?;
+        d.set_item("bins", s.bins)?;
+        d.set_item("files_removed", s.files_removed)?;
+        d.set_item("files_added", s.files_added)?;
+        d.set_item("bytes_removed", s.bytes_removed)?;
+        d.set_item("bytes_added", s.bytes_added)?;
+        d.set_item("rows_rewritten", s.rows_rewritten)?;
+        d.set_item("plan_ms", s.plan_ms)?;
+        d.set_item("rewrite_ms", s.rewrite_ms)?;
+        d.set_item("commit_ms", s.commit_ms)?;
+        d.set_item("version", s.version)?;
+        Ok(d.into_any().unbind())
+    }
+
     /// Commit metadata of the most recent `limit` commits, oldest first.
     fn history(&self, py: Python<'_>, limit: usize) -> PyResult<Py<PyAny>> {
         let table = self.handle.table().clone();
