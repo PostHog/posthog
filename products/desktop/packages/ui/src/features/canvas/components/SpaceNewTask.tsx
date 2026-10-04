@@ -1,6 +1,9 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
+import {
+  CHANNEL_TASK_SUGGESTIONS,
+  GUIDED_FIRST_TASK_PROMPT,
+} from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
@@ -26,7 +29,13 @@ import { useCallback, useMemo, useState } from "react";
 // created task into the space (/spaces/$channelId/tasks/$id) instead of the
 // unscoped detail route, and files the task to the space (the task's `channel`
 // field on the tasks API).
-export function SpaceNewTask({ channelId }: { channelId: string }) {
+export function SpaceNewTask({
+  channelId,
+  guidedFirstTask = false,
+}: {
+  channelId: string;
+  guidedFirstTask?: boolean;
+}) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const view = useAppView();
@@ -176,7 +185,9 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           // initialContent + recoveredFromKey carry a recovered prompt's chips
           // and attachments, and let the composer clear the durable record once
           // applied — same as the unscoped NewTaskScreen.
-          initialPrompt={view.initialPrompt}
+          initialPrompt={
+            guidedFirstTask ? GUIDED_FIRST_TASK_PROMPT : view.initialPrompt
+          }
           initialContent={view.initialContent}
           recoveredFromKey={view.recoveredFromKey}
           initialPromptKey={view.taskInputRequestId}
