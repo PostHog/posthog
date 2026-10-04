@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
+import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
@@ -56,7 +57,6 @@ import {
     groupRecentItems,
     sortRecentItems,
 } from './todayRecentOrder'
-import { todayRecentsLogic } from './todayRecentsLogic'
 import {
     TodayWorkItem,
     buildRecentItems,
@@ -81,6 +81,8 @@ const SPACE_PRESENCE_FETCH_LIMIT = 100
 const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
+
+export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter'
 
 /** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
 export function spaceIdForPath(pathname: string): string | null {
@@ -132,10 +134,10 @@ export interface todaySpacesLogicValues {
     conversationHistory: ConversationDetail[] // maxGlobalLogic
     conversationHistoryLoading: boolean // maxGlobalLogic
     currentTeamId: number | null // teamLogic
-    recentSessionIds: string[] // todayRecentsLogic
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
+    phoneSection: TodayWorkSectionId
     lastSpaceId: string | null
     pendingSpaceIds: string[]
     pinnedItems: TodayWorkItem[]
@@ -154,7 +156,6 @@ export interface todaySpacesLogicValues {
     recentTasks: TaskListItemApi[]
     recentTasksLoading: boolean
     recentTasksUnavailable: boolean
-    recentlyViewedSessions: TodayWorkItem[]
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     shownPinnedItems: TodayWorkItem[]
     shownSpaces: ChannelDTOApi[]
@@ -327,6 +328,9 @@ export interface todaySpacesLogicActions {
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
     }
+    setPhoneSection: (section: TodayWorkSectionId) => {
+        section: TodayWorkSectionId
+    }
     spaceVisited: (spaceId: string) => {
         spaceId: string
     }
@@ -335,6 +339,9 @@ export interface todaySpacesLogicActions {
     }
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
+    }
+    touchMenuOpened: (menu: TodayTouchMenu) => {
+        menu: TodayTouchMenu
     }
     toggleStar: (
         spaceId: string,
@@ -360,11 +367,6 @@ export interface todaySpacesLogicMeta {
         recentSourceOptions: (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters) => string[]
         shownPinnedItems: (pinnedItems: TodayWorkItem[], recentQuery: string) => TodayWorkItem[]
         shownSpaces: (visibleSpaces: ChannelDTOApi[], recentQuery: string) => ChannelDTOApi[]
-        recentlyViewedSessions: (
-            recentSessionIds: string[],
-            allRecentItems: TodayWorkItem[],
-            recentQuery: string
-        ) => TodayWorkItem[]
         recentFiltersActive: (recentFilters: TodayRecentFilters) => boolean
         unreadSessionIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
         recentItems: (
@@ -412,13 +414,13 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             ['user'],
             maxGlobalLogic,
             ['conversationHistory', 'conversationHistoryLoading'],
-            todayRecentsLogic,
-            ['recentSessionIds'],
         ],
         actions: [router, ['locationChanged']],
     })),
     actions({
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
+        setPhoneSection: (section: TodayWorkSectionId) => ({ section }),
+        touchMenuOpened: (menu: TodayTouchMenu) => ({ menu }),
         setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
         resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
         spaceVisited: (spaceId: string) => ({ spaceId }),
@@ -531,6 +533,11 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     state.includes(sectionId) ? state.filter((id) => id !== sectionId) : [...state, sectionId],
             },
         ],
+        phoneSection: [
+            'recent' as TodayWorkSectionId,
+            { persist: true },
+            { setPhoneSection: (_, { section }) => section },
+        ],
         sectionHeights: [
             {} as Partial<Record<TodayWorkSectionId, number>>,
             { persist: true },
@@ -626,14 +633,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (s) => [s.visibleSpaces, s.recentQuery],
             (visibleSpaces: ChannelDTOApi[], recentQuery: string): ChannelDTOApi[] =>
                 visibleSpaces.filter((space) => matchesPaneQuery(spaceLabel(space), recentQuery)),
-        ],
-        // A session outside the loaded Recent list has no title or status to show, so it waits until it loads.
-        recentlyViewedSessions: [
-            (s) => [s.recentSessionIds, s.allRecentItems, s.recentQuery],
-            (recentSessionIds: string[], allRecentItems: TodayWorkItem[], recentQuery: string): TodayWorkItem[] =>
-                recentSessionIds
-                    .flatMap((id) => allRecentItems.find((item) => item.kind === 'session' && item.id === id) ?? [])
-                    .filter((item) => matchesPaneQuery(item.title || '', recentQuery)),
         ],
         recentFiltersActive: [
             (s) => [s.recentFilters],
@@ -755,6 +754,12 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         }
     }),
     listeners(({ actions, values }) => ({
+        setPhoneSection: ({ section }) => {
+            posthog.capture('today spaces section picked', { section })
+        },
+        touchMenuOpened: ({ menu }) => {
+            posthog.capture('today touch menu opened', { menu })
+        },
         loadPinnedTasksSuccess: ({ pinnedTasks }) =>
             actions.loadPullRequestStates(sessionIdsWithPullRequests(pinnedTasks)),
         loadRecentTasksSuccess: ({ recentTasks }) =>

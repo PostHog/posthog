@@ -149,4 +149,23 @@ describe('todaySessionSelectionLogic', () => {
 
         expect(logic.values.selectedSessionIds).toEqual([])
     })
+
+    it.each([
+        ['drops', 'a desktop window', 1280, []],
+        ['keeps', 'a phone', 375, ['task-a']],
+    ])('%s a picked session from a collapsed Recent section in %s', (_, __, width, expected) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+        window.dispatchEvent(new Event('resize'))
+        todaySpacesLogic.actions.toggleSection('recent')
+        try {
+            logic.actions.toggleSessionSelection('task-a')
+
+            expect(logic.values.selectedSessionIds).toEqual(expected)
+        } finally {
+            todaySpacesLogic.actions.toggleSection('recent')
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+            window.dispatchEvent(new Event('resize'))
+        }
+    })
 })
