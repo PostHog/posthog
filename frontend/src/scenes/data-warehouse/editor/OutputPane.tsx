@@ -15,6 +15,7 @@ import DataGrid, {
 } from 'react-data-grid'
 
 import {
+    IconClock,
     IconCode,
     IconColumns,
     IconCopy,
@@ -97,6 +98,7 @@ import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
+import { RecentQueries } from './output-pane-tabs/RecentQueries'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
@@ -184,6 +186,11 @@ const outputTabs: OutputTabConfig[] = [
         key: OutputTab.Visualization,
         label: 'Visualization',
         icon: <IconGraph />,
+    },
+    {
+        key: OutputTab.RecentQueries,
+        label: 'Recent queries',
+        icon: <IconClock />,
     },
 ]
 
@@ -1297,6 +1304,11 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
+
+    if (activeTab === OutputTab.RecentQueries) {
+        return <RecentQueries />
+    }
+
     const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
 
     if (hasError) {
