@@ -147,21 +147,49 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                         ? 'Choose a PNG, JPEG, GIF or WebP under 4 MB'
                         : undefined,
             }),
-            submit: async ({ name, primaryColor, logo }) => {
+            submit: async ({ name, primaryColor, logo }, breakpoint) => {
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
                     throw new Error('The email editor is loading. Try again in a moment.')
                 }
                 let logoUrl: string | undefined
+                const teamId = values.currentTeamIdStrict
+                const previousUpload: { file: File; teamId: number | string; url: string } | undefined =
+                    cache.uploadedLogo
                 if (logo) {
-                    const uploaded = await uploadedMediaCreate(String(values.currentTeamIdStrict), {
-                        image: logo,
-                        purpose: 'email',
-                    })
-                    if (typeof uploaded.image_location !== 'string') {
-                        throw new Error('Could not upload the logo. Try again.')
+                    if (previousUpload?.file === logo && previousUpload.teamId === teamId) {
+                        logoUrl = previousUpload.url
+                    } else {
+                        const controller = new AbortController()
+                        cache.disposables.add(
+                            () => {
+                                const timeout = setTimeout(() => controller.abort(), 30000)
+                                return () => {
+                                    clearTimeout(timeout)
+                                    controller.abort()
+                                }
+                            },
+                            'starterUpload',
+                            { pauseOnPageHidden: false }
+                        )
+                        const uploaded = await uploadedMediaCreate(
+                            String(teamId),
+                            { image: logo, purpose: 'email' },
+                            { signal: controller.signal }
+                        )
+                            .catch((error) => {
+                                throw controller.signal.aborted ? new Error('Logo upload timed out. Try again.') : error
+                            })
+                            .finally(() => {
+                                cache.disposables.dispose('starterUpload')
+                                breakpoint()
+                            })
+                        if (typeof uploaded.image_location !== 'string') {
+                            throw new Error('Could not upload the logo. Try again.')
+                        }
+                        logoUrl = uploaded.image_location
+                        cache.uploadedLogo = { file: logo, teamId, url: logoUrl }
                     }
-                    logoUrl = uploaded.image_location
                 }
                 if (cache.disposables.isDisposed) {
                     return
@@ -172,8 +200,8 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                         () => {
                             let active = true
                             const timeout = setTimeout(() => {
-                                cache.disposables.dispose('starterExport')
                                 reject(new Error('Could not export the starter. Try again.'))
+                                cache.disposables.dispose('starterExport')
                             }, 30000)
                             cache.completeStarter = () => {
                                 editor.exportHtml(
@@ -191,8 +219,8 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                                             if (!active) {
                                                 return
                                             }
-                                            cache.disposables.dispose('starterExport')
                                             resolve({ ...template.content.email, html, text, design })
+                                            cache.disposables.dispose('starterExport')
                                         })
                                     }
                                 )
@@ -201,13 +229,14 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                                 active = false
                                 clearTimeout(timeout)
                                 cache.completeStarter = null
+                                reject(new Error('Starter export cancelled'))
                             }
                         },
                         'starterExport',
                         { pauseOnPageHidden: false }
                     )
                     editor.loadDesign(template.content.email.design!)
-                })
+                }).finally(() => breakpoint())
                 if (!cache.disposables.isDisposed) {
                     actions.setTemplateValues({ ...template, content: { ...template.content, email } })
                 }

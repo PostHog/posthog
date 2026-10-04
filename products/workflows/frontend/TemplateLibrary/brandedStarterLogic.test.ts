@@ -64,7 +64,9 @@ describe('branded starter editor handoff', () => {
     })
 
     afterEach(() => {
-        starter.unmount()
+        if (starter.isMounted()) {
+            starter.unmount()
+        }
         templater.unmount()
         templateLogic.unmount()
         jest.useRealTimers()
@@ -113,5 +115,67 @@ describe('branded starter editor handoff', () => {
         expect(starter.values.isBrandSubmitting).toBe(false)
         expect(templateLogic.values.template.content.email.text).toBe('Juniper Studio\nUnsubscribe')
         await retry
+    })
+
+    it('reuses a logo upload when retrying an export, then omits it when removed', async () => {
+        let uploads = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/uploaded_media/': () => {
+                    uploads++
+                    return [201, { image_location: 'https://example.com/juniper.png' }]
+                },
+            },
+        })
+        starter.actions.setBrandValue('logo', new File(['logo'], 'logo.png', { type: 'image/png' }))
+        editor.loadDesign.mockImplementationOnce(() => {
+            throw new Error('Could not load the starter')
+        })
+        await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandFailure'])
+        await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
+        expect(uploads).toBe(1)
+        expect(templateLogic.values.template.content.email.design!.body.rows[0].columns[0].contents[0].type).toBe(
+            'image'
+        )
+
+        starter.actions.setBrandValue('logo', null)
+        await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
+        expect(uploads).toBe(1)
+        expect(templateLogic.values.template.content.email.design!.body.rows[0].columns[0].contents[0].type).toBe(
+            'heading'
+        )
+    })
+
+    it('settles an in-flight submission when the starter is unmounted', async () => {
+        jest.useFakeTimers()
+        editor.loadDesign.mockImplementationOnce(() => {})
+        let settled = false
+        const submission = starter.asyncActions.submitBrandRequest(starter.values.brand).then(() => {
+            settled = true
+        })
+        starter.unmount()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(settled).toBe(true)
+        expect(lemonToast.error).not.toHaveBeenCalled()
+        expect(templateLogic.values.templateChanged).toBe(false)
+        await submission
+    })
+
+    it('restores the form after a stalled logo upload times out', async () => {
+        jest.useFakeTimers()
+        useMocks({
+            post: { '/api/projects/:team_id/uploaded_media/': () => new Promise(() => {}) },
+        })
+        starter.actions.setBrandValue('logo', new File(['logo'], 'logo.png', { type: 'image/png' }))
+        let settled = false
+        const submission = starter.asyncActions.submitBrandRequest(starter.values.brand).then(() => {
+            settled = true
+        })
+        await jest.advanceTimersByTimeAsync(30001)
+        expect(settled).toBe(true)
+        expect(starter.values.isBrandSubmitting).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalledWith('Logo upload timed out. Try again.')
+        expect(templateLogic.values.templateChanged).toBe(false)
+        await submission
     })
 })
