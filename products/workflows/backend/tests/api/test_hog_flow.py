@@ -6831,6 +6831,12 @@ class TestAIDecisionActionValidation(APIBaseTest):
             ("empty_context", {"inputs": {"context": {"value": {}}}}, None, "context"),
             ("long_context_name", {"inputs": {"context": {"value": {"n" * 101: "{event.event}"}}}}, None, "context"),
             ("blank_context_name", {"inputs": {"context": {"value": {" ": "{event.event}"}}}}, None, "context"),
+            (
+                "context_template_does_not_compile",
+                {"inputs": {"context": {"value": {"answer": "{event.properties."}}}},
+                None,
+                "context",
+            ),
             ("missing_answer_edge", {}, 1, "graph"),
             ("missing_unsure_edge", {"unsure_enabled": True}, 2, "graph"),
         ]
@@ -6900,15 +6906,13 @@ class TestAIDecisionActionValidation(APIBaseTest):
         flow = _ai_decision_flow({})
         rejected = self._post(flow, flag_enabled=flag_value)
         flow_id = self._post(flow, flag_enabled=True).json()["id"]
-        second_decision = {**flow["actions"][1], "id": "decide_again"}
-        second_decision_edges = [{**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"]
 
         kept = self._patch(
             flow_id, {"name": "Renamed", "actions": flow["actions"], "edges": flow["edges"]}, flag_enabled=flag_value
         )
         added = self._patch(
             flow_id,
-            {"actions": [*flow["actions"], second_decision], "edges": [*flow["edges"], *second_decision_edges]},
+            {**_with_a_second_decision(flow), **_with_the_second_decision_wired(flow)},
             flag_enabled=flag_value,
         )
 

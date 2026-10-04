@@ -340,6 +340,8 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             assert response.json()["error"]["code"] == expected_code
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
             assert 5 <= int(response["Retry-After"]) <= 10
+        else:
+            assert "Retry-After" not in response
 
     @parameterized.expand(
         [
@@ -369,7 +371,10 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
     )
     def test_one_team_over_its_budget_does_not_throttle_another(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
-        with patch(_DECIDE, return_value=_pick_one_result()) as decide:
+        with (
+            time_machine.travel("2026-10-04 12:00:00", tick=False),
+            patch(_DECIDE, return_value=_pick_one_result()) as decide,
+        ):
             first = self._post()
             throttled = self._post()
             calls_after_throttle = decide.call_count
@@ -377,7 +382,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert 1 <= int(throttled["Retry-After"]) <= 3600
+        assert throttled["Retry-After"] == "3600"
         assert calls_after_throttle == 1
         assert other.status_code == status.HTTP_200_OK, other.json()
 
@@ -417,6 +422,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             response = self._post()
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "Retry-After" not in response
         decide.assert_not_called()
 
     @parameterized.expand(
@@ -439,10 +445,12 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("flag_off", patch(_FLAG, return_value=False), "debug"),
             ("flag_undetermined", patch(_FLAG, return_value=None), "debug"),
             ("redis_unavailable", patch(_CONSUME, return_value=BucketUnavailable(error="down")), "debug"),
             ("team_throttled", patch(_CONSUME, return_value=_DENIED), "debug"),
             ("model_refused", patch(_DECIDE, side_effect=DecisionGatewayError(400, "bad")), "debug"),
+            ("gateway_out_of_credits", patch(_DECIDE, side_effect=DecisionGatewayError(402, "no credits")), "debug"),
             ("gateway_throttled", patch(_DECIDE, side_effect=DecisionGatewayError(429, "slow down")), "debug"),
             ("gateway_rejects_credential", patch(_DECIDE, side_effect=DecisionGatewayError(403, "who")), "warning"),
             ("gateway_server_error", patch(_DECIDE, side_effect=DecisionGatewayError(502, "oops")), "warning"),

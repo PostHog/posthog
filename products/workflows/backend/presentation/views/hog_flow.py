@@ -3252,8 +3252,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         edges = data.get("edges", instance.edges if instance else [])
 
         # Unlike the advisory checks below, an AI decision's edges are enforced on a strict save that sends
-        # the graph. An edit that leaves a builder draft's graph alone is not blocked by it, and the /graph
-        # endpoint reports the same errors through validate_graph with the rest of the graph's errors.
+        # the graph, and on activation, whose re-validated actions are in data. An edit that leaves a builder
+        # draft's graph alone is not blocked by it, and the /graph endpoint reports the same errors through
+        # validate_graph with the rest of the graph's errors.
         enforce_graph = self.context.get("enforce_graph_structure", False)
         if strict and not enforce_graph and self._sends_a_graph_to_check_early(instance, data):
             missing_edges = missing_ai_decision_edges(actions, edges)
