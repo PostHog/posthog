@@ -40,21 +40,22 @@ jobs:
         if: needs.holiday.outputs.skip != 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 60
+        permissions:
+            actions: write # deletes the action's state cache at the end of a cycle
+            issues: write
+            pull-requests: write
         steps:
-            # App token gives higher API rate limits (15k/hr vs 1k/hr for GITHUB_TOKEN)
-            # and lets a full cycle through every open issue + PR complete in one run,
-            # which is required for the action's state model to re-evaluate PRs that
+            # Use GITHUB_TOKEN, not an App token. Labels, comments and closes made with
+            # GITHUB_TOKEN start no workflows. With an App token, each stale PR starts every
+            # workflow that listens for labeled, closed or issue_comment events, and one sweep
+            # dispatches more than a thousand runs against the 500 runs per 10s repo limit.
+            # On this Enterprise Cloud repo GITHUB_TOKEN also has the 15k/hr rate limit,
+            # which lets a full cycle through every open issue + PR complete in one run.
+            # The action's state model needs that full cycle to re-evaluate PRs that
             # were unstaled mid-cycle.
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
-
             - uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
               with:
-                  repo-token: ${{ steps.app-token.outputs.token }}
+                  repo-token: ${{ github.token }}
                   days-before-issue-stale: 730
                   days-before-issue-close: 14
                   stale-issue-message: "This issue hasn't seen activity in two years! If you want to keep it open, please remove the `stale` label – otherwise this will be closed in two weeks."
