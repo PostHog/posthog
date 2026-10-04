@@ -7,6 +7,7 @@ matching rules the inbox reads it with.
 
 from __future__ import annotations
 
+import json
 import uuid as uuid_module
 
 from django.db import transaction
@@ -45,23 +46,38 @@ def _current_reviewer_artefacts(team_id: int, report_id: str) -> list[SignalRepo
 
 
 def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSuggestedReviewer]:
+    # `receivers` imports this module from `SignalsConfig.ready()`, so importing reviewer
+    # resolution at module scope would put it and the signals contracts behind it on the
+    # `django.setup()` path of every process. Only an index write needs them.
+    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
+        ReviewerIdentity,
+        reviewer_identities_from_payloads,
+    )
+
+    log_fields = {
+        "team_id": artefact.team_id,
+        "report_id": str(artefact.report_id),
+        "artefact_id": str(artefact.id),
+    }
     try:
-        entries = SuggestedReviewers.model_validate_json(artefact.content).root
-    except ValidationError:
-        # A row the current schema cannot read names nobody. The artefact still holds the truth,
-        # so a later edit that parses restores the index.
-        logger.warning(
-            "signals_suggested_reviewer_index_unparseable_artefact",
-            team_id=artefact.team_id,
-            report_id=str(artefact.report_id),
-            artefact_id=str(artefact.id),
-        )
+        payloads = json.loads(artefact.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        payloads = None
+    if not isinstance(payloads, list):
+        # Content that is not a list names nobody. The artefact still holds the truth, so a later
+        # edit that parses restores the index.
+        logger.warning("signals_suggested_reviewer_index_unparseable_artefact", **log_fields)
         return []
+    try:
+        # The result is deliberately discarded: the index needs identities alone, and every other
+        # reviewer reader already ignores the schema. Validating only separates the two cases in
+        # the logs, so a rebuild can count the artefacts the schema cannot read.
+        SuggestedReviewers.model_validate(payloads)
+    except ValidationError:
+        logger.warning("signals_suggested_reviewer_index_identity_only_artefact", **log_fields)
     rows: list[SignalReportSuggestedReviewer] = []
-    seen: set[tuple[str | None, str | None]] = set()
-    for entry in entries:
-        login = entry.github_login.lower() if entry.github_login else None
-        identity = (entry.user_uuid, login)
+    seen: set[ReviewerIdentity] = set()
+    for identity in reviewer_identities_from_payloads(payloads):
         if identity in seen:
             continue
         seen.add(identity)
@@ -70,8 +86,8 @@ def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSugge
                 team_id=artefact.team_id,
                 report_id=artefact.report_id,
                 artefact_id=artefact.id,
-                user_uuid=uuid_module.UUID(entry.user_uuid) if entry.user_uuid else None,
-                github_login=login,
+                user_uuid=uuid_module.UUID(identity.user_uuid) if identity.user_uuid else None,
+                github_login=identity.github_login,
             )
         )
     return rows
