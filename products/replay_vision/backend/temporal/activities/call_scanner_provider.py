@@ -73,6 +73,7 @@ from products.replay_vision.backend.temporal.network_tool import (
     dispatch_network_tool,
     network_tool,
 )
+from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
@@ -323,7 +324,15 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
+    checked = await keep_unrequested_pii_out(
+        outcome.finalized,
+        team_id=team_id,
+        question=getattr(scanner, "prompt", "") or "",
+        scanner_type=snapshot.scanner_type.value,
+        trace_id=trace_id if trace_id is not None else str(uuid4()),
+    )
+    finalized = _resolve_citations(checked, scanner, duration_ms, video_clock)
     finalized = finalized.model_copy(
         update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
     )
