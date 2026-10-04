@@ -2226,12 +2226,14 @@ class TestInviteSignupAPI(APIBaseTest):
 
     # Invite pre-validation
 
-    def test_api_invite_sign_up_prevalidate(self):
+    @parameterized.expand([("cache_available", None), ("cache_unavailable", ConnectionError("cache down"))])
+    def test_api_invite_sign_up_prevalidate(self, _name: str, cache_error: Exception | None) -> None:
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+19@posthog.com", organization=self.organization
         )
 
-        response = self.client.get(f"/api/signup/{invite.id}/")
+        with patch("posthog.models.organization_invite.cache.get", side_effect=cache_error, return_value=None):
+            response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json(),
