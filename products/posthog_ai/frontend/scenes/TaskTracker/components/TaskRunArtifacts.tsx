@@ -920,7 +920,6 @@ function copyWithToast(text: string, title: string, onCopied?: () => void): void
     })
 }
 
-/** A phone's header for the open artifact: back to the list, the name, comments, and the rest in a sheet. */
 function PhoneArtifactHeader({
     taskId,
     artifact,
