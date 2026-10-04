@@ -27,12 +27,12 @@ intervals** they were active, then count units per bucket.
 Classify each unit's activity in each interval relative to the previous interval and the unit's creation date
 (person or group profile `created_at`), as `query-lifecycle` does:
 
-| Bucket           | Meaning                                                                                |
-| ---------------- | -------------------------------------------------------------------------------------- |
-| **New**          | Active this interval, and the profile was created this interval.                       |
-| **Returning**    | Active this interval and the immediately previous interval (not new).                  |
-| **Resurrecting** | Active this interval, inactive the previous interval, and not new.                     |
-| **Dormant**      | Not active this interval, but active the previous interval (plotted negative).         |
+| Bucket           | Meaning                                                                        |
+| ---------------- | ------------------------------------------------------------------------------ |
+| **New**          | Active this interval, and the profile was created this interval.               |
+| **Returning**    | Active this interval and the immediately previous interval (not new).          |
+| **Resurrecting** | Active this interval, inactive the previous interval, and not new.             |
+| **Dormant**      | Not active this interval, but active the previous interval (plotted negative). |
 
 - A unit created before its first chosen event counts as resurrecting in that interval, not new.
 - Do not use "first event inside the analysis window" as new. It labels every existing user who is active at
