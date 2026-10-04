@@ -637,6 +637,26 @@ export class PostgresPersonRepository
             [person.id, person.team_id, names, distinctIds.map(({ version }) => version ?? 0)],
             'reattachStrayDistinctIds'
         )
+        const reattached = new Set(rows.map((row) => row.distinct_id))
+        const unattached = names.filter((name) => !reattached.has(name))
+        if (unattached.length > 0) {
+            // A create that revives the stray's own owner (same uuid) leaves the mapping live and already correct.
+            const { rows: owned } = await this.postgres.query<{
+                id: string
+                team_id: number
+                person_id: string
+                distinct_id: string
+                version: string
+            }>(
+                tx,
+                `SELECT id::text AS id, team_id, person_id, distinct_id, version
+                 FROM posthog_persondistinctid
+                 WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3::text[]) AND is_deleted = false`,
+                [person.team_id, person.id, unattached],
+                'fetchOwnedStrayDistinctIds'
+            )
+            rows.push(...owned)
+        }
         return rows.map((row) => ({ ...row, version: Number(row.version) }))
     }
 

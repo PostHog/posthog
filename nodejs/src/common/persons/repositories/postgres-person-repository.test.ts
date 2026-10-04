@@ -628,6 +628,26 @@ describe('PostgresPersonRepository', () => {
             ])
         })
 
+        it('createPerson that revives the owner of a stray keeps the stray attached', async () => {
+            const owner = await createTestPerson(team.id, 'self-stray-did')
+            await tombstonePerson(owner)
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                owner.uuid,
+                { distinctId: 'self-stray-did' }
+            )
+
+            expect(result).toMatchObject({ success: true, person: { id: owner.id, uuid: owner.uuid } })
+            await expect(repository.fetchPerson(team.id, 'self-stray-did')).resolves.toMatchObject({ uuid: owner.uuid })
+        })
+
         it('addDistinctId revives a tombstoned mapping, repointing it at the new person', async () => {
             const newOwner = await createTestPerson(team.id, 'adder-did')
             const oldOwner = await createTestPerson(team.id, 'old-owner-did')
