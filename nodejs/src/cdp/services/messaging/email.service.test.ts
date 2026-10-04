@@ -217,6 +217,7 @@ describe('EmailService', () => {
             let capture: jest.SpyInstance
             let memberId: number
             let memberIds: number[]
+            let extraOrganizationIds: string[]
             const memberEmail = (name = 'test'): string => `${name}-${team.id}@example.com`
             const createSandboxParams = (
                 params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
@@ -232,6 +233,11 @@ describe('EmailService', () => {
                     [email, id],
                     'test:verify-sandbox-member'
                 )
+                return id
+            }
+            const createOtherOrganization = async (): Promise<string> => {
+                const id = await createOrganization(hub.postgres)
+                extraOrganizationIds.push(id)
                 return id
             }
             let sandboxRedisClient: Redis.Redis | undefined
@@ -287,7 +293,7 @@ describe('EmailService', () => {
                         },
                         hub.teamManager
                     ),
-                    new OrganizationMembersService(membersPostgres, hub.teamManager)
+                    new OrganizationMembersService(membersPostgres)
                 )
                 sendEmailSpy = jest.spyOn(sandboxService.sesV2Client!, 'send') as jest.SpyInstance
                 sendEmailSpy.mockResolvedValue({ MessageId: 'sandbox-message-id' })
@@ -297,6 +303,7 @@ describe('EmailService', () => {
             beforeEach(async () => {
                 capture = jest.spyOn(posthog, 'captureTeamEvent').mockImplementation(() => {})
                 memberIds = []
+                extraOrganizationIds = []
                 memberId = await createMember(memberEmail())
                 await createMember(memberEmail('cc'))
                 await createMember(memberEmail('bcc'))
@@ -328,6 +335,12 @@ describe('EmailService', () => {
                     'DELETE FROM posthog_user WHERE id = ANY($1::integer[])',
                     [memberIds],
                     'test:delete-sandbox-members'
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'DELETE FROM posthog_organization WHERE id = ANY($1::uuid[])',
+                    [extraOrganizationIds],
+                    'test:delete-sandbox-organizations'
                 )
                 capture.mockRestore()
                 if (sandboxRedisClient) {
@@ -381,8 +394,9 @@ describe('EmailService', () => {
                     params = { ...params, cc: 'outside@example.com', bcc: 'another@example.com' }
                     blocked = ['outside@example.com', 'another@example.com']
                 } else if (recipient === 'other organization') {
-                    await createMember('outside@example.com', await createOrganization(hub.postgres))
-                    params = { ...params, to: { email: 'outside@example.com' } }
+                    blocked = [memberEmail('outside')]
+                    await createMember(blocked[0], await createOtherOrganization())
+                    params = { ...params, to: { email: blocked[0] } }
                 } else {
                     blocked = [memberEmail()]
                     await hub.postgres.query(
@@ -417,12 +431,18 @@ describe('EmailService', () => {
                 expect(result.capturedPostHogEvents).toEqual([])
             })
 
-            it.each([false, true])('matches bare addresses without case sensitivity (isTest=%s)', async (isTest) => {
+            it.each(
+                [false, true].flatMap((isTest) =>
+                    ['Example colleague', '"member@example.com"', '"Example, colleague"'].map(
+                        (name) => [isTest, name] as const
+                    )
+                )
+            )('matches bare addresses without case sensitivity (isTest=%s, name=%s)', async (isTest, name) => {
                 service = createSandboxService(true)
                 invocation.queueParameters = createSandboxParams({
                     from: { integrationId: 4 },
                     to: { email: memberEmail().toUpperCase() },
-                    cc: `Example colleague <${memberEmail('cc').toUpperCase()}>`,
+                    cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
                     bcc: ` ${memberEmail('bcc').toUpperCase()} `,
                 })
 
@@ -438,6 +458,105 @@ describe('EmailService', () => {
                     'workflows sandbox email sent',
                     { recipient_count: 3, source: isTest ? 'test' : 'workflow', is_test: isTest }
                 )
+            })
+
+            it.each([false, true])(
+                'blocks previous organization members after a project transfer (isTest=%s)',
+                async (isTest) => {
+                    const otherOrganization = await createOtherOrganization()
+                    const now = Date.now()
+                    const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                    try {
+                        service = createSandboxService(true)
+                        const first = await service.executeSendEmail(invocation, isTest)
+                        expect(first.error).toBeUndefined()
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'UPDATE posthog_team SET organization_id = $1 WHERE id = $2',
+                            [otherOrganization, team.id],
+                            'test:transfer-sandbox-team'
+                        )
+                        clock.mockReturnValue(now + 61_000)
+                        invocation.queueParameters = createSandboxParams({ from: { integrationId: 4 } })
+
+                        const transferred = await service.executeSendEmail(invocation, isTest)
+
+                        expect(transferred).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                        expect(transferred.error).toBeUndefined()
+                        expect(transferred.invocation.state.vmState?.stack.at(-1)).toEqual({ success: false })
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                        expect(transferred.logs).toContainEqual(
+                            expect.objectContaining({
+                                message: `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${memberEmail()}. Verify your own domain to send to anyone.`,
+                            })
+                        )
+                        expect(capture).toHaveBeenLastCalledWith(
+                            expect.objectContaining({ id: team.id }),
+                            'workflows sandbox email blocked',
+                            { reason: 'recipient_not_member', is_test: isTest, blocked_recipient_count: 1 }
+                        )
+                    } finally {
+                        clock.mockRestore()
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'UPDATE posthog_team SET organization_id = $1 WHERE id = $2',
+                            [team.organization_id, team.id],
+                            'test:restore-sandbox-team'
+                        )
+                    }
+                }
+            )
+
+            it('includes member query latency in the maximum cache age', async () => {
+                const membersPostgres = new PostgresRouter(hub)
+                const queries = jest.spyOn(membersPostgres, 'query')
+                const now = Date.now()
+                const clock = jest
+                    .spyOn(Date, 'now')
+                    .mockImplementation(
+                        () =>
+                            now +
+                            (queries.mock.calls.some(
+                                ([, sql]) => typeof sql === 'string' && sql.includes('posthog_organizationmembership')
+                            )
+                                ? 5_000
+                                : 0)
+                    )
+                try {
+                    service = createSandboxService(true, null, undefined, membersPostgres)
+                    const first = await service.executeSendEmail(invocation)
+                    expect(first.error).toBeUndefined()
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
+                        [memberId],
+                        'test:remove-member-after-slow-lookup'
+                    )
+                    clock.mockReturnValue(now + 60_000)
+                    invocation.queueParameters = createSandboxParams({ from: { integrationId: 4 } })
+
+                    const expired = await service.executeSendEmail(invocation)
+
+                    expect(expired).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(expired.error).toBeUndefined()
+                    expect(expired.invocation.state.vmState?.stack.at(-1)).toEqual({ success: false })
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect(capture).toHaveBeenLastCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        {
+                            reason: expect.stringMatching(/^(check_failed|recipient_not_member)$/),
+                            is_test: false,
+                            blocked_recipient_count: 1,
+                        }
+                    )
+                } finally {
+                    clock.mockRestore()
+                    queries.mockRestore()
+                    await membersPostgres.end()
+                }
             })
 
             it.each([false, true])(
@@ -498,10 +617,7 @@ describe('EmailService', () => {
                                 [memberId, team.organization_id],
                                 'test:remove-sandbox-member'
                             )
-                        } else if (change === 'lookup failure') {
-                            await membersPostgres.end()
-                            databaseClosed = true
-                        } else {
+                        } else if (change !== 'lookup failure') {
                             await hub.postgres.query(
                                 PostgresUse.COMMON_WRITE,
                                 'UPDATE posthog_user SET is_active = $1, is_email_verified = $2 WHERE id = $3',
@@ -516,6 +632,10 @@ describe('EmailService', () => {
                         expect(cached.skipped).not.toBe(true)
                         expect(sendEmailSpy).toHaveBeenCalledTimes(2)
 
+                        if (change === 'lookup failure') {
+                            await membersPostgres.end()
+                            databaseClosed = true
+                        }
                         clock.mockReturnValue(now + 60_000)
                         invocation.queueParameters = params
                         const expired = await service.executeSendEmail(invocation)

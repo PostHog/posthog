@@ -337,9 +337,13 @@ export function parseAddressList(value?: string): string[] | undefined {
 }
 
 function sandboxAddressList(value?: string): string[] {
-    return (parseAddressList(value) ?? []).map(
-        (address) => address.match(/^[^<>@;\r\n]*<([^<>]+)>$/)?.[1].trim() ?? address
-    )
+    return (value?.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/) ?? [])
+        .map((address) => address.trim())
+        .filter(Boolean)
+        .map(
+            (address) =>
+                address.match(/^(?:"(?:[^"\\\r\n]|\\[^\r\n])*"|[^<>"@;\r\n]*)\s*<([^<>]+)>$/)?.[1].trim() ?? address
+        )
 }
 
 export class EmailService {
@@ -559,7 +563,7 @@ export class EmailService {
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
             // route. Covers `to`, `cc`, and `bcc`; a suppressed address anywhere blocks the send.
-            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params)
+            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, deliveryParams)
             if (skipReason) {
                 addLog('info', skipReason)
                 if (!isTest) {
@@ -628,7 +632,9 @@ export class EmailService {
             // Charged per recipient, not per send: SES counts every to/cc/bcc address against its
             // own quota, so a send with many copies must spend that many tokens.
             const capRecipients =
-                1 + extractEmailsFromAddressList(params.cc).length + extractEmailsFromAddressList(params.bcc).length
+                1 +
+                extractEmailsFromAddressList(deliveryParams.cc).length +
+                extractEmailsFromAddressList(deliveryParams.bcc).length
             const capDelay = isSandbox ? null : await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false

@@ -1,20 +1,22 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
-import { TeamManager } from '~/common/utils/team-manager'
+
+type OrganizationMemberSnapshot = {
+    emails: ReadonlySet<string>
+    expiresAt: number
+}
 
 export class OrganizationMembersService {
-    private members: LazyLoader<ReadonlySet<string>>
+    private members: LazyLoader<OrganizationMemberSnapshot>
 
-    constructor(
-        postgres: PostgresRouter,
-        private teamManager: TeamManager
-    ) {
+    constructor(private postgres: PostgresRouter) {
         this.members = new LazyLoader({
             name: 'organization_email_members',
             refreshAgeMs: 59_000,
             refreshJitterMs: 0,
             bufferMs: 0,
             loader: async (organizationIds) => {
+                const expiresAt = Date.now() + 60_000
                 const { rows } = await postgres.query<{ organization_id: string; email: string }>(
                     PostgresUse.COMMON_WRITE,
                     `SELECT membership.organization_id, users.email
@@ -31,13 +33,21 @@ export class OrganizationMembersService {
                 for (const row of rows) {
                     members[row.organization_id].add(row.email.trim().toLowerCase())
                 }
-                return members
+                return Object.fromEntries(Object.entries(members).map(([id, emails]) => [id, { emails, expiresAt }]))
             },
         })
     }
 
     public async getBlockedRecipients(teamId: number, recipients: string[]): Promise<string[]> {
-        const team = await this.teamManager.getTeam(teamId)
+        const expiresAt = Date.now() + 60_000
+        const {
+            rows: [team],
+        } = await this.postgres.query<{ organization_id: string }>(
+            PostgresUse.COMMON_WRITE,
+            'SELECT organization_id FROM posthog_team WHERE id = $1',
+            [teamId],
+            'fetch-sandbox-team-organization'
+        )
         if (!team) {
             throw new Error('Could not identify the organization for this team')
         }
@@ -45,6 +55,10 @@ export class OrganizationMembersService {
         if (!members) {
             throw new Error('Could not check organization members')
         }
-        return recipients.filter((email) => !members.has(email.trim().toLowerCase()))
+        if (Date.now() >= Math.min(expiresAt, members.expiresAt)) {
+            this.members.markForRefresh(team.organization_id)
+            throw new Error('The organization member check expired')
+        }
+        return recipients.filter((email) => !members.emails.has(email.trim().toLowerCase()))
     }
 }
