@@ -200,6 +200,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
         "AtlasSearchBot/1.0 (+https://github.com/atlassearch/bot)",
+        "MySearchBot/0.1 (hobby search engine; obeys robots.txt)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -372,6 +373,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 zgrab/0.x",
         # Self-declared crawlers observed in production `$http_log` traffic
         "Mozilla/5.0 (compatible; MrAnandPortfolio/1.0; +https://mranand.com)",
+        "attosearch-research/0.1 (+https://attosearch.dev; contact ops@attosearch.dev)",
+        "SemavoraAuditLab/0.1 (+https://semavora.com/bot)",
         "PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)",
     ],
     "headless_browser": [

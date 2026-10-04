@@ -901,6 +901,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://swissaitalent.ch/bot",
     ),
     "AtlasSearchBot": BotDefinition("AtlasSearch", "search_crawler", "Bot", "AtlasSearch"),
+    "MySearchBot": BotDefinition("MySearchBot", "search_crawler", "Bot", "Unknown"),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -1002,6 +1003,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
+    ),
+    "attosearch-research": BotDefinition(
+        "attosearch-research", "http_client", "Bot", "attosearch.dev", documentation_url="https://attosearch.dev"
+    ),
+    "SemavoraAuditLab": BotDefinition(
+        "SemavoraAuditLab", "http_client", "Bot", "Semavora", documentation_url="https://semavora.com/bot"
     ),
     "PostHogImageFetcherBot": BotDefinition(
         "PostHog Image Fetcher",
