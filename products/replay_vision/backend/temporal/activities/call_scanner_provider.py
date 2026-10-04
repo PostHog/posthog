@@ -13,7 +13,7 @@ import asyncio
 import functools
 import dataclasses
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
@@ -73,12 +73,7 @@ from products.replay_vision.backend.temporal.network_tool import (
     dispatch_network_tool,
     network_tool,
 )
-from products.replay_vision.backend.temporal.pii_check import (
-    PII_FIX_INSTRUCTION,
-    PiiCheckContext,
-    has_unrequested_pii,
-    pii_failure,
-)
+from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
@@ -329,7 +324,15 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
+    checked = await keep_unrequested_pii_out(
+        outcome.finalized,
+        team_id=team_id,
+        question=getattr(scanner, "prompt", "") or "",
+        scanner_type=snapshot.scanner_type.value,
+        trace_id=trace_id if trace_id is not None else str(uuid4()),
+    )
+    finalized = _resolve_citations(checked, scanner, duration_ms, video_clock)
     finalized = finalized.model_copy(
         update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
     )
@@ -680,17 +683,6 @@ async def _run_mission(
     def on_round(calls: int) -> None:
         record_tool_round(scanner_type, snapshot.model, calls)
 
-    pii_context = PiiCheckContext(
-        team_id=team_id,
-        question=getattr(scanner, "prompt", "") or "",
-        scanner_type=scanner_type,
-        trace_id=trace_id,
-    )
-
-    async def check(step_name: str, output: BaseModel) -> bool:
-        # Signals are a separate, best-effort report, so only the core answer is checked.
-        return step_name == STEP_CORE and await has_unrequested_pii(output, pii_context)
-
     run = functools.partial(
         _run_steps,
         client=client,
@@ -704,7 +696,6 @@ async def _run_mission(
         trace_id=trace_id,
         tools=tools,
         on_round=on_round,
-        check=check,
     )
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
@@ -797,20 +788,14 @@ async def _run_steps(
     trace_id: str,
     tools: list[types.Tool],
     on_round: Callable[[int], None] | None = None,
-    check: Callable[[str, BaseModel], Awaitable[bool]] | None = None,
 ) -> dict[str, BaseModel]:
-    """Run the ordered steps over one growing conversation; return the validated output keyed by step name.
-
-    A step's answer that `check` flags for personal data gets one more turn to remove it; an answer flagged again
-    fails the scan.
-    """
+    """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
     convo: list[Any] = [] if cache_name else [video_part, types.Part(text=preamble_text)]
     step_outputs: dict[str, BaseModel] = {}
-
-    async def attempt(step: MissionStep, instruction: str) -> BaseModel | None:
+    for step in steps:
         checkpoint = len(convo)
-        convo.append(types.Part(text=instruction))
+        convo.append(types.Part(text=step.instruction))
         try:
             result = await _run_step(
                 client=client,
@@ -833,26 +818,15 @@ async def _run_steps(
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
             del convo[checkpoint:]
-            return None
+            continue
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
             # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
             del convo[checkpoint:]
             if step.required:
                 raise _exhausted_step_error(step, result)
-            return None
-        return result.output
-
-    for step in steps:
-        output = await attempt(step, step.instruction)
-        if output is None:
             continue
-        if check is not None and await check(step.name, output):
-            fixed = await attempt(step, PII_FIX_INSTRUCTION)
-            if fixed is None or await check(step.name, fixed):
-                raise pii_failure()
-            output = fixed
-        step_outputs[step.name] = output
+        step_outputs[step.name] = result.output
     return step_outputs
 
 

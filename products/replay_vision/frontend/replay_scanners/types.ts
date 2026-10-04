@@ -181,7 +181,7 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
     pii_detected: {
         label: 'Personal data in the answer',
         description:
-            "The AI's answer included personal data the scanner didn't ask for, and it still did after being asked to remove it, so PostHog didn't save it. Retry the scan, or rephrase the scanner prompt if it keeps happening.",
+            "The AI's answer included personal data the scanner didn't ask for, so PostHog didn't save it. Retry the scan, or rephrase the scanner prompt if it keeps happening.",
         retryWorthwhile: true,
     },
 }

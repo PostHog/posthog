@@ -1,36 +1,51 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.temporal import pii_check
-from products.replay_vision.backend.temporal.pii_check import PiiCheckContext, has_unrequested_pii
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse
+from products.replay_vision.backend.temporal.errors import ScannerFailureError
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 
-_CTX = PiiCheckContext(team_id=1, question="Did the user pay?", scanner_type="monitor", trace_id="t")
+_LEAKY = "(t 12) jane@example.com opened checkout and paid."
+_CLEAN = "(t 12) The user opened checkout and paid."
 
 
-def _answer() -> MonitorLlmResponse:
-    return MonitorLlmResponse.model_validate(
-        {"verdict": "yes", "reasoning": "(t 12) jane@example.com paid.", "confidence": 0.9, "notability": 0.2}
-    )
+def _output() -> MonitorOutput:
+    return MonitorOutput(verdict="yes", reasoning=_LEAKY, confidence=0.9)
+
+
+async def _check(asks: bool | None, flags: list[bool | None]) -> MonitorOutput:
+    with (
+        patch.object(pii_check, "asks_for_identity", return_value=asks),
+        patch.object(pii_check, "contains_pii", side_effect=flags),
+        patch.object(pii_check, "rewrite_without_pii", new=AsyncMock(return_value={"reasoning": _CLEAN})),
+    ):
+        return await pii_check.keep_unrequested_pii_out(
+            _output(), team_id=1, question="did they pay?", scanner_type="monitor", trace_id="t"
+        )
 
 
 @parameterized.expand(
     [
-        ("personal_data_unasked", 0.05, 0.95, True),
-        ("clean_answer", 0.05, 0.1, False),
-        ("question_asks_for_identity", 0.9, 0.95, False),
-        ("jev_cannot_judge_the_question", None, 0.95, False),
-        ("jev_cannot_judge_the_answer", 0.05, None, False),
+        ("question_asks_for_identity", True, [], _LEAKY),
+        ("jev_unavailable", None, [], _LEAKY),
+        ("clean_answer", False, [False], _LEAKY),
+        ("detector_unavailable", False, [None], _LEAKY),
+        ("rewrite_removes_it", False, [True, False], _CLEAN),
     ]
 )
 @pytest.mark.asyncio
-async def test_flags_only_personal_data_the_question_did_not_ask_for(
-    _name: str, asks: float | None, detected: float | None, flagged: bool
-) -> None:
-    def fake(ctx: PiiCheckContext, state: dict, instructions: str) -> float | None:
-        return asks if instructions == pii_check._ASKS_QUESTION else detected
+async def test_answer_passes_or_is_rewritten(_name: str, asks: bool | None, flags: list, reasoning: str) -> None:
+    result = await _check(asks, flags)
+    assert result.reasoning == reasoning
+    assert result.verdict == "yes"
 
-    with patch.object(pii_check, "_yes_probability", side_effect=fake):
-        assert await has_unrequested_pii(_answer(), _CTX) is flagged
+
+@pytest.mark.asyncio
+async def test_answer_still_flagged_after_the_rewrite_fails_the_observation() -> None:
+    with pytest.raises(ScannerFailureError) as raised:
+        await _check(False, [True, True])
+    assert raised.value.kind == FailureKind.PII_DETECTED
+    assert raised.value.non_retryable

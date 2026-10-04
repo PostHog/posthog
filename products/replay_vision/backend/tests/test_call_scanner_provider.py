@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 from google.genai import types
 from google.genai.errors import APIError
-from parameterized import parameterized
 from pydantic import BaseModel
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
@@ -21,8 +20,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _step_config,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.events_tool import EventsIndex, events_tool
-from products.replay_vision.backend.temporal.pii_check import PII_FIX_INSTRUCTION
+from products.replay_vision.backend.temporal.events_tool import events_tool
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_MAX_OUTPUT_TOKENS,
     MissionStep,
@@ -103,7 +101,6 @@ async def _run(
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
     on_round: Callable[[int], None] | None = None,
-    check: Any = None,
 ):
     return await _run_steps(
         client=client,
@@ -118,7 +115,6 @@ async def _run(
         metric_labels=_LABELS,
         trace_id="trace-1",
         on_round=on_round,
-        check=check,
     )
 
 
@@ -147,7 +143,7 @@ async def test_scanner_generations_include_team_attribution() -> None:
         ),
         patch(
             "products.replay_vision.backend.temporal.activities.call_scanner_provider.build_events_index",
-            return_value=EventsIndex(offsets=[], events=[]),
+            return_value={},
         ),
     ):
         await _run_mission(
@@ -180,34 +176,6 @@ async def test_runs_each_step_and_keys_outputs_by_name() -> None:
     assert out["core"].verdict == "yes"
     assert out["side"].note == "ok"
     assert len(client.models.calls) == 2  # one generate per step
-
-
-@parameterized.expand(
-    [
-        ("removed_on_the_second_answer", [True, False], "no"),
-        ("still_there_after_the_fix_turn", [True, True], None),
-    ]
-)
-@pytest.mark.asyncio
-async def test_personal_data_in_the_answer_gets_one_fix_turn(
-    _name: str, flags: list[bool], verdict: str | None
-) -> None:
-    steps = [MissionStep(name="core", instruction="do core", response_model=_Core)]
-    client = _FakeClient([_Resp(text='{"verdict":"yes"}'), _Resp(text='{"verdict":"no"}')])
-    results = iter(flags)
-
-    async def check(step_name: str, output: BaseModel) -> bool:
-        return next(results)
-
-    if verdict is not None:
-        out = await _run(client, steps, check=check)
-        assert out["core"].verdict == verdict
-    else:
-        with pytest.raises(ScannerFailureError) as raised:
-            await _run(client, steps, check=check)
-        assert raised.value.kind == FailureKind.PII_DETECTED
-    assert client.models.calls[1]["contents"][-1].text == PII_FIX_INSTRUCTION
-    assert len(client.models.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -445,7 +413,7 @@ async def test_signal_timestamps_use_recording_duration(
     with (
         patch(f"{module}.genai.AsyncClient", return_value=client),
         patch(f"{module}.GoogleGenAIClient"),
-        patch(f"{module}.build_events_index", return_value=EventsIndex(offsets=[], events=[])),
+        patch(f"{module}.build_events_index", return_value={}),
         patch(f"{module}._maybe_create_video_cache", new=AsyncMock(return_value=None)),
     ):
         outcome = await _run_mission(
