@@ -183,6 +183,10 @@ class ReportDecision:
     # Work-log note to append with the transition. The no-repo branch records its blocker here
     # instead of in the title/summary.
     note: str | None = None
+    # Stored in place of a `None` title/summary only when the report holds none yet (a recurrence
+    # of a safety-failed report starts blank), so a blocked report never shows up empty.
+    fallback_title: str | None = None
+    fallback_summary: str | None = None
     # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
@@ -443,13 +447,16 @@ class SignalReportSummaryWorkflow:
                     "Report has no repository selected",
                     reason=repo_result.reason,
                 )
+                blocker = f"Could not automatically select a repository: {repo_result.reason}"
                 decision = ReportDecision(
                     title=None,
                     summary=None,
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
                     suggested_prompts=None,
-                    note=f"Could not automatically select a repository: {repo_result.reason}",
+                    note=blocker,
+                    fallback_title="Repository selection required",
+                    fallback_summary=blocker,
                     pending_reason="repo_selection_required",
                 )
             else:
@@ -535,6 +542,8 @@ class SignalReportSummaryWorkflow:
                         charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
                         note=decision.note,
+                        fallback_title=decision.fallback_title,
+                        fallback_summary=decision.fallback_summary,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1246,6 +1255,9 @@ class MarkReportPendingInput:
     pending_reason: str | None = None
     # See ReportDecision.note. Appended to the work log in the same transaction.
     note: str | None = None
+    # See ReportDecision.fallback_title.
+    fallback_title: str | None = None
+    fallback_summary: str | None = None
 
 
 @temporalio.activity.defn
@@ -1260,8 +1272,10 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
                 return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
+            title = input.title if input.title is not None or report.title else input.fallback_title
+            summary = input.summary if input.summary is not None or report.summary else input.fallback_summary
             updated_fields = report.transition_to(
-                SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
+                SignalReport.Status.PENDING_INPUT, title=title, summary=summary, error=input.reason
             )
             if input.charts is not None:
                 report.charts = input.charts

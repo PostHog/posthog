@@ -419,6 +419,8 @@ async def test_no_repository_keeps_report_content_and_logs_the_blocker():
     assert pending.suggested_prompts is None
     assert pending.pending_reason == "repo_selection_required"
     assert pending.note == "Could not automatically select a repository: no repository matched"
+    assert pending.fallback_title == "Repository selection required"
+    assert pending.fallback_summary == "Could not automatically select a repository: no repository matched"
 
 
 # ---------------------------------------------------------------------------

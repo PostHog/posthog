@@ -262,14 +262,29 @@ async def test_pending_input_fires_completed_and_status_changed_with_pending_rea
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_pending_input_without_new_content_keeps_title_summary_and_logs_note(ateam):
+@pytest.mark.parametrize(
+    "stored_title,stored_summary,expected_title,expected_summary",
+    [
+        (
+            "Checkout button does nothing on Safari",
+            "Users on Safari click checkout and nothing happens.",
+            "Checkout button does nothing on Safari",
+            "Users on Safari click checkout and nothing happens.",
+        ),
+        ("", "", "Repository selection required", "Could not automatically select a repository: no repository matched"),
+    ],
+    ids=["keeps_stored_content", "fills_blank_content"],
+)
+async def test_pending_input_without_new_content_keeps_title_summary_and_logs_note(
+    ateam, stored_title, stored_summary, expected_title, expected_summary
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
         signal_count=3,
         total_weight=2.0,
-        title="Checkout button does nothing on Safari",
-        summary="Users on Safari click checkout and nothing happens.",
+        title=stored_title,
+        summary=stored_summary,
         suggested_prompts=["Why does checkout fail on Safari?"],
     )
     report_id = str(report.id)
@@ -284,13 +299,15 @@ async def test_pending_input_without_new_content_keeps_title_summary_and_logs_no
                 reason="Requires human input: no repository matched",
                 pending_reason="repo_selection_required",
                 note="Could not automatically select a repository: no repository matched",
+                fallback_title="Repository selection required",
+                fallback_summary="Could not automatically select a repository: no repository matched",
             )
         )
 
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
     assert refreshed.status == SignalReport.Status.PENDING_INPUT
-    assert refreshed.title == "Checkout button does nothing on Safari"
-    assert refreshed.summary == "Users on Safari click checkout and nothing happens."
+    assert refreshed.title == expected_title
+    assert refreshed.summary == expected_summary
     assert refreshed.suggested_prompts == ["Why does checkout fail on Safari?"]
     assert refreshed.error == "Requires human input: no repository matched"
     notes = await database_sync_to_async(list)(
