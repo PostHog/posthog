@@ -1,14 +1,17 @@
 import clsx from 'clsx'
 import { toHtml } from 'hast-util-to-html'
 import xml from 'highlight.js/lib/languages/xml'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
-import { useMemo, useRef } from 'react'
+import { useId, useMemo, useRef } from 'react'
 
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
+
+import { htmlEditorLogic } from './htmlEditorLogic'
+import { SurveyRichTextEditor } from './SurveyRichTextEditor'
 
 const lowlight = createLowlight(common)
 lowlight.register({ xml })
@@ -158,7 +161,7 @@ export function HTMLEditor({
     className,
 }: {
     value?: string
-    onChange: (value: any) => void
+    onChange: (value: string) => void
     onTabChange: (key: SurveyQuestionDescriptionContentType) => void
     activeTab: SurveyQuestionDescriptionContentType
     textPlaceholder?: string
@@ -166,11 +169,16 @@ export function HTMLEditor({
     disableTabSwitching?: boolean
     className?: string
 }): JSX.Element {
+    const editorKey = useId()
+    const logic = htmlEditorLogic({ editorKey, value: value ?? '', activeTab, onChange, onTabChange })
+    const { richTextEnabled, richTextCompatible, shownTab, textTabValue, htmlTabValue } = useValues(logic)
+    const { selectTab } = useActions(logic)
+
     return (
         <>
             <LemonTabs
-                activeKey={activeTab}
-                onChange={disableTabSwitching ? undefined : onTabChange}
+                activeKey={shownTab}
+                onChange={disableTabSwitching ? undefined : selectTab}
                 tabs={[
                     {
                         key: 'text',
@@ -178,18 +186,43 @@ export function HTMLEditor({
                         content: (
                             <LemonTextArea
                                 minRows={textMinRows}
-                                value={value}
+                                value={textTabValue}
                                 onChange={(v) => onChange(v)}
                                 placeholder={textPlaceholder}
                                 className={className}
                             />
                         ),
                     },
+                    richTextEnabled
+                        ? {
+                              key: 'rich',
+                              label: <span className="text-sm">Rich text</span>,
+                              content: (
+                                  <div className="flex flex-col gap-2">
+                                      {!richTextCompatible && (
+                                          <LemonBanner type="warning">
+                                              This description has HTML that the rich text editor can't show. If you
+                                              edit it here, that formatting is removed. Use the HTML tab to keep it.
+                                          </LemonBanner>
+                                      )}
+                                      <SurveyRichTextEditor value={htmlTabValue} onChange={onChange} />
+                                      <div className="text-xs text-secondary">
+                                          Formatting shows in web surveys. Some mobile SDKs don't show formatted
+                                          descriptions.
+                                      </div>
+                                  </div>
+                              ),
+                          }
+                        : null,
                     {
                         key: 'html',
                         label: <span className="text-sm">HTML</span>,
                         content: (
-                            <HighlightedTextArea value={value} onChange={onChange} placeholder={textPlaceholder} />
+                            <HighlightedTextArea
+                                value={htmlTabValue}
+                                onChange={onChange}
+                                placeholder={textPlaceholder}
+                            />
                         ),
                     },
                 ]}
