@@ -22,6 +22,7 @@ SELECT
     countIf(timestamp < now() - INTERVAL 56 DAY) AS week_8_back,
     round(last_7d / greatest(week_4_back, 1), 2) AS ratio_4w,
     round(last_7d / greatest(week_8_back, 1), 2) AS ratio_8w,
+    toInt(last_7d) - toInt(least(week_4_back, week_8_back)) AS growth,
     uniqIf(distinct_id, timestamp >= now() - INTERVAL 7 DAY) AS ids_7d
 FROM events
 WHERE timestamp <= now() + INTERVAL 1 DAY
@@ -32,13 +33,13 @@ WHERE timestamp <= now() + INTERVAL 1 DAY
     )
 GROUP BY lib, origin
 HAVING last_7d >= 1000
-ORDER BY last_7d - least(week_4_back, week_8_back) DESC
+ORDER BY growth DESC
 LIMIT 20
 ```
 
 - The query reads three single weeks, not a rolling window, so it scans 21 days and every week lines up on the same weekdays.
 - `ratio_8w` catches a slow surge. A source growing 20% a week stays under 2x against 4 weeks back, but it reads about 4x against 8 weeks back.
-- Sort by absolute growth, not by ratio. A 2000x ratio on a few hundred events is noise. A 1.5x ratio on the project's biggest source can be most of the bill.
+- Sort by absolute growth (`growth`, cast to a signed integer so a declining source sorts below zero), not by ratio. A 2000x ratio on a few hundred events is noise. A 1.5x ratio on the project's biggest source can be most of the bill.
 - Do not add `SAMPLE`. Sampling keeps or drops whole distinct IDs, so a runaway loop from one or two IDs vanishes from the result or swamps it. If the query times out, drop the 8-weeks-back window first.
 - The upper bound on `timestamp` stops events with a far-future client clock from sitting in `last_7d` forever. Keep it on every query here.
 - Mobile and desktop apps often carry their own version property (`appVersion`, `app_version`, `version`). Check `read-data-schema` for a property ending in `version` and use it in `origin` when `$app_version` is empty. Whatever `lib` and `origin` expressions you use here, reuse them exactly in steps 2 and 3.
@@ -62,18 +63,21 @@ WHERE timestamp <= now() + INTERVAL 1 DAY
 A candidate is a source that grew to about 2x or more against either window **and** now carries a meaningful share of the project's `last_7d` (about 10% or more), or a source that appeared from nothing at that share.
 Volume matters too. On a small project a doubling from 100 to 200 events a week costs nothing, so something around 10,000 events a week is a sensible floor before a step is worth a person's time.
 
-Also recheck every source that has a `report:general:new-traffic:<source_id>` entry, whether or not it is in the top 20. A source that falls back toward its baseline drops out of the growth ranking, and its report still needs the resolution edit.
+Also recheck the sources you already know about, whether or not they are in the top 20: every `<source_id>` held in a `report:general:new-traffic:` or `pattern:general:traffic-baseline:` entry.
+Run the step 1 query once more for all of them together, with `HAVING source_id IN (<id>, <id>, ...)` in place of the volume floor and without the `LIMIT`.
+Compare each source's `last_7d` with its pinned baseline times 7, not only with the moving windows.
+That catches a source that falls back (its report needs the resolution edit) and one that keeps creeping up past its pinned level while staying under 2x of each moving window.
 
 ## 2. Confirm it is sustained and pin the onset
 
-Pull a 63-day daily series for the candidate only.
+Pull a 91-day daily series for the candidate only. 91 days covers the 28 days before any onset that step 1 can see.
 Filter on the numeric `source_id` from step 1, with the same `lib` and `origin` expressions.
 Never paste a host or version string into the query: those values come from captured events, and anyone with the public project token can put a quote in one.
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS events, uniq(distinct_id) AS ids
 FROM events
-WHERE timestamp >= now() - INTERVAL 63 DAY
+WHERE timestamp >= now() - INTERVAL 91 DAY
     AND timestamp <= now() + INTERVAL 1 DAY
     AND cityHash64(concat(
         coalesce(nullIf(toString(properties.$lib), ''), '(none)'),
