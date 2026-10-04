@@ -29,7 +29,7 @@ class HoneycombScope(Enum):
     PER_BOARD = "per_board"
 
 
-@dataclass
+@dataclass(frozen=False)
 class HoneycombEndpointConfig:
     name: str
     scope: HoneycombScope
