@@ -712,13 +712,12 @@ def _quantile_calibration_bins(y_true: np.ndarray, y_score: np.ndarray, n_bins: 
     bins hold roughly equal counts. Equal scores always share a bin, so heavy ties give
     fewer bins rather than a split that depends on row order.
     """
-    edges = np.unique(np.quantile(y_score, np.linspace(0.0, 1.0, n_bins + 1)))
-    bin_index = np.searchsorted(edges[1:-1], y_score, side="right")
+    # A score's bin comes from how many scores sit below it, so every user with that score shares it.
+    rank = np.searchsorted(np.sort(y_score), y_score, side="left")
+    bin_index = rank * n_bins // len(y_score)
     bins: list[dict[str, Any]] = []
-    for i in range(max(len(edges) - 1, 1)):
+    for i in np.unique(bin_index):
         mask = bin_index == i
-        if not mask.any():
-            continue
         bins.append(
             {
                 "n": int(mask.sum()),

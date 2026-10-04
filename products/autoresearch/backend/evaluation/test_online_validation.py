@@ -112,6 +112,7 @@ class TestQuantileCalibrationBins(SimpleTestCase):
         [
             ("all_scores_equal", [0.2] * 6, [6]),
             ("ties_never_split", [0.1] * 5 + [0.9] * 5, [5, 5]),
+            ("tie_group_past_the_median_keeps_its_own_bin", [0.1] * 51 + [0.9] * 49, [51, 49]),
         ]
     )
     def test_equal_scores_share_a_bin(self, _name, scores, expected_counts):
