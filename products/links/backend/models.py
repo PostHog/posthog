@@ -4,6 +4,7 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
+# nosemgrep: no-new-uuidt-models -- a retired model, and a new primary key default would need a migration.
 class Link(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """The links product is retired. The model stays so that Django keeps cascading team and user
     deletes into its table. A later migration removes the model and drops the table.
