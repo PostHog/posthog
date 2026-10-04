@@ -208,6 +208,14 @@ class ExpectedControlFlowActivityWorkflow:
 
 
 @workflow.defn
+class ExpectedControlFlowWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        # Replay vision raises its ineligible-session error from workflow code, outside any activity.
+        raise ApplicationError("Recording too large to render", type="IneligibleSession", non_retryable=True)
+
+
+@workflow.defn
 class DirectlyFailingWorkflow:
     @workflow.run
     async def run(self, inputs: OptionallyFailingInputs) -> None:
@@ -436,12 +444,17 @@ async def test_non_reportable_error_is_not_captured(temporal_client: Client):
         mock_ph_capture.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "workflow_name,activities",
+    [
+        ("ExpectedControlFlowActivityWorkflow", [expected_control_flow_activity]),
+        ("ExpectedControlFlowWorkflow", []),
+    ],
+)
 @pytest.mark.asyncio
-async def test_expected_control_flow_application_error_is_not_captured(temporal_client: Client):
-    """An ApplicationError whose type is in EXPECTED_CONTROL_FLOW_ERROR_TYPES (here the
-    error-tracking embedding transport failure) is expected control flow, not a defect. The
-    interceptor sits outside the activity decorators, so it must re-raise it without reporting it
-    to error tracking even when the activity already re-raised it uncaptured."""
+async def test_expected_control_flow_application_error_is_not_captured(
+    workflow_name: str, activities: list[Any], temporal_client: Client
+):
     task_queue = "TEST-TASK-QUEUE"
     workflow_id = str(uuid.uuid4())
 
@@ -449,14 +462,14 @@ async def test_expected_control_flow_application_error_is_not_captured(temporal_
         async with Worker(
             temporal_client,
             task_queue=task_queue,
-            workflows=[ExpectedControlFlowActivityWorkflow],
-            activities=[expected_control_flow_activity],
+            workflows=[ExpectedControlFlowActivityWorkflow, ExpectedControlFlowWorkflow],
+            activities=activities,
             interceptors=[PostHogClientInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
-                    "ExpectedControlFlowActivityWorkflow",
+                    workflow_name,
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,
