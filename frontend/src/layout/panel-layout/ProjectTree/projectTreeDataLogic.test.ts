@@ -123,6 +123,19 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.shortcutData).toEqual(updatedShortcuts)
     })
 
+    it('does not list a shortcut twice when starring returns one that already exists', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const existing = { id: 'star-dash', path: 'Dashboards', type: 'dashboard', ref: '42' }
+        logic.actions.loadShortcutsSuccess([existing])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue(existing)
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'dash', path: 'Dashboards', type: 'dashboard', ref: '42' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-dash'])
+    })
+
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
         const projectTree = projectTreeLogic({ key: 'navbar-files', root: 'project://' })
         projectTree.mount()

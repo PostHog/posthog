@@ -53,9 +53,23 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystemShortcut:
         request = self.context["request"]
         team = self.context["get_team"]()
+        surface = self.context.get("file_system_surface", DEFAULT_SURFACE)
         with transaction.atomic():
             # Two stars added at once would otherwise read the same last order and share it.
             lock_user_shortcuts(team.pk, request.user.pk)
+            # Starring the same item twice must not add a second row: nothing in the schema stops
+            # it, and `bulk_update` already dedupes on this key, so a single star has to agree.
+            duplicate = FileSystemShortcut.objects.filter(
+                surface_q(surface),
+                team=team,
+                user=request.user,
+                path=validated_data.get("path"),
+                type=validated_data.get("type") or "",
+                ref=validated_data.get("ref"),
+                href=validated_data.get("href"),
+            ).first()
+            if duplicate is not None:
+                return duplicate
             # Place new shortcuts at the end of the user's current order so they don't jump
             # ahead of items the user has explicitly reordered.
             last_order = (
@@ -68,7 +82,7 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
             file_system_shortcut = FileSystemShortcut.objects.create(
                 team=team,
                 user=request.user,
-                surface=self.context.get("file_system_surface", DEFAULT_SURFACE),
+                surface=surface,
                 **validated_data,
             )
         return file_system_shortcut
