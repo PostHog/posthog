@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -15,9 +16,11 @@ import {
     tasksRunsRetrieve,
     tasksRunsStreamTokenRetrieve,
 } from 'products/tasks/frontend/generated/api'
-import type {
-    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
-    TaskRunDetailDTOApi,
+import {
+    type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    type TaskRunCommandRequestApi,
+    type TaskRunDetailDTOApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -72,6 +75,13 @@ import {
     isTaskRunStateFrame,
     parseAvailableCommands,
 } from '../types/wireTypes'
+import {
+    buildPiPermissionCommand,
+    isPiWireEntry,
+    readPiExtensionUiMeta,
+    translatePiWireEntry,
+    withPiMcpOptions,
+} from '../utils/piWire'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconcileFoldedThread'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
@@ -434,7 +444,11 @@ export function userAttachment(content: unknown): ThreadAttachment | null {
     if (!name) {
         return null
     }
-    return { name, ...(uri ? (artifactRefFromUri(uri) ?? {}) : {}) }
+    const fromPath = uri ? artifactRefFromUri(uri) : null
+    if (fromPath) {
+        return { name, ...fromPath }
+    }
+    return { name, ...(typeof content.artifactId === 'string' ? { artifactId: content.artifactId } : {}) }
 }
 
 /**
@@ -481,6 +495,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
     if (isNotificationFrame(entry)) {
         return entry
+    }
+    if (isPiWireEntry(entry)) {
+        return translatePiWireEntry(entry)
     }
 
     // Older append_log callers wrote `{ notification }` directly, without the stream envelope.
@@ -597,6 +614,30 @@ export function foldUsageNotification(existing: ContextUsage | null, params: Pos
     const cost = normalizeUsageCost(params.cost)
     if (cost !== undefined) {
         next.cost = cost
+    }
+    return next
+}
+
+const PI_USAGE_TOKEN_FIELDS = ['inputTokens', 'outputTokens', 'cachedReadTokens', 'cachedWriteTokens'] as const
+
+export function foldPiTurnUsage(
+    existing: ContextUsage | null,
+    turns: Record<string, unknown>[],
+    latest: Record<string, unknown>
+): ContextUsage {
+    const tokens: NonNullable<ContextUsage['tokens']> = {}
+    for (const field of PI_USAGE_TOKEN_FIELDS) {
+        const values = turns.map((turn) => turn[field]).filter((value): value is number => typeof value === 'number')
+        if (values.length > 0) {
+            tokens[field] = values.reduce((sum, value) => sum + value, 0)
+        }
+    }
+    const next: ContextUsage = { ...existing, tokens }
+    if (typeof latest.contextTokens === 'number') {
+        next.used = latest.contextTokens
+    }
+    if (typeof latest.contextWindow === 'number') {
+        next.size = latest.contextWindow
     }
     return next
 }
@@ -798,13 +839,14 @@ function parsePermissionOption(raw: unknown): PermissionOption | null {
         return null
     }
     const meta = r._meta
-    const customInput =
-        typeof meta === 'object' && meta !== null && (meta as Record<string, unknown>).customInput === true
+    const metaRecord = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>) : {}
+    const customInput = metaRecord.customInput === true
     return {
         optionId,
         name: String(r.name ?? ''),
         kind,
         customInput,
+        ...(typeof metaRecord.hint === 'string' && metaRecord.hint ? { hint: metaRecord.hint } : {}),
     }
 }
 
@@ -1092,6 +1134,9 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
             continue
         }
         eventIds.set(JSON.stringify([entry.source_run_id, entry.event_id]), index)
+        for (const coveredId of entry.covered_event_ids ?? []) {
+            eventIds.set(JSON.stringify([entry.source_run_id, coveredId]), index)
+        }
         if (!isAgentMessageEntry(entry) || typeof entry.first_event_id !== 'string' || !entry.first_event_id) {
             continue
         }
@@ -1187,6 +1232,9 @@ class RunEventCoverage {
             return
         }
         this.ids.add(JSON.stringify([entry.source_run_id, entry.event_id]))
+        for (const coveredId of entry.covered_event_ids ?? []) {
+            this.ids.add(JSON.stringify([entry.source_run_id, coveredId]))
+        }
         // Neutral notifications can occur inside a coalesced text range without being superseded.
         if (!isAgentMessageEntry(entry)) {
             return
@@ -1254,6 +1302,20 @@ class RunEventCoverage {
         const last = eventPosition(entry)
         return !!(range && first && last && range.first <= first.sequence && range.last >= last.sequence)
     }
+}
+
+function permissionEndedByLaterTurn(eventId: unknown, sourceRunId: string | undefined, log: RunLog): boolean {
+    const position = typeof eventId === 'string' ? parseAgentEventId(eventId) : null
+    if (!position) {
+        return false
+    }
+    return log.entries.some(({ entry }) => {
+        if (entry.notification.method !== '_posthog/turn_complete' || entry.source_run_id !== sourceRunId) {
+            return false
+        }
+        const end = entry.event_id ? parseAgentEventId(entry.event_id) : null
+        return !!end && end.boot === position.boot && end.sequence > position.sequence
+    })
 }
 
 function compareEntryPosition(left: StoredLogEntry, right: StoredLogEntry): number {
@@ -2036,18 +2098,28 @@ export function foldLogFromCheckpoint(
         if (method === '_posthog/status') {
             const status = String(params.status ?? '')
             const isComplete = params.isComplete === true
-            if (isComplete && (status === 'compacting' || status === 'clearing')) {
+            if (isComplete && (status === 'compacting' || status === 'clearing' || status === 'retrying')) {
                 items = items.filter((item) => !isPendingStatus(item, status))
-            } else if (status === 'clearing_failed') {
+            } else if (status === 'clearing_failed' || status === 'compacting_failed') {
                 // A failed clear emits no `conversation_cleared` marker, so retire the spinner
                 // here and report the outcome in its place.
-                items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+                items = items.filter(
+                    (item) => !isPendingStatus(item, status === 'clearing_failed' ? 'clearing' : 'compacting')
+                )
                 items.push({
                     id: `status-${statusSeq++}`,
                     type: 'status',
                     status,
                     isComplete: true,
                     errorMessage: stringifyOptional(params.error),
+                })
+            } else if (status === 'extension_notice') {
+                items.push({
+                    id: `status-${statusSeq++}`,
+                    type: 'status',
+                    status,
+                    isComplete: true,
+                    errorMessage: stringifyOptional(params.message),
                 })
             } else {
                 items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
@@ -2096,7 +2168,11 @@ export function foldLogFromCheckpoint(
                     }
                     const attachment = userAttachment(block)
                     if (attachment) {
-                        noteAttachment(attachment)
+                        noteAttachment(
+                            attachment.artifactId && !attachment.runId && entryRunId
+                                ? { ...attachment, runId: entryRunId }
+                                : attachment
+                        )
                     }
                 }
             }
@@ -2269,6 +2345,7 @@ export interface runStreamLogicValues {
     pendingPermissionRequest: PermissionRequestRecord | null
     pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
+    piRuntime: boolean
     reconnectAttempt: number
     recoveryState: {
         attempt: number
@@ -2343,12 +2420,14 @@ export interface runStreamLogicActions {
         retainedMessage?: string
         runId: string
         taskId: string
+        taskRuntime?: string | null
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
+        taskRuntime?: string | null | undefined
         traceId?: string | undefined
     }
     cancelPermissionDelivery: () => {
@@ -2413,6 +2492,9 @@ export interface runStreamLogicActions {
     }
     markPermissionRequestSeen: (requestId: string) => {
         requestId: string
+    }
+    markPiRuntime: () => {
+        value: true
     }
     markRunStarted: () => {
         value: true
@@ -2698,7 +2780,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             justCreatedRun?: boolean
             traceId?: string
             retainedMessage?: string
+            taskRuntime?: string | null
         }) => payload,
+        markPiRuntime: true,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /**
          * Internal: a replay snapshot finished loading and no stream will follow — clears the bootstrap
@@ -3021,6 +3105,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 bootstrapRun: (_, { runId }) => runId,
                 reset: () => null,
+            },
+        ],
+        piRuntime: [
+            false,
+            {
+                bootstrapRun: (state, { taskRuntime }) =>
+                    taskRuntime === undefined ? state : taskRuntime === TaskRuntimeEnumApi.Pi,
+                markPiRuntime: () => true,
+                reset: () => false,
             },
         ],
         // The task id this instance last bootstrapped, so the `ingestAcpFrame` history-derived context
@@ -3510,6 +3603,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => {
+        const parseRunPermissionRequest = (
+            frame: PermissionRequestFrame | PosthogPermissionRequestParams,
+            sourceRunId: string | undefined
+        ): PermissionRequestRecord | null => {
+            const record = parsePermissionRequestFrame(frame, sourceRunId)
+            return record && values.piRuntime ? withPiMcpOptions(record) : record
+        }
         const sessionNow = (): RunStreamRecovery | undefined => cache.recoverySession
         const endedKey = (projectId: number, taskId: string, runId: string): string => `${projectId}:${taskId}:${runId}`
         const hasEnded = (session: RunStreamRecovery): boolean =>
@@ -3642,6 +3742,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
             )
             session.check()
+            if (!values.piRuntime && entries.some(isPiWireEntry)) {
+                actions.markPiRuntime()
+            }
             // Django log-N cursors index the same object entries, including non-notification records.
             entries.filter(isRecord).forEach((raw, index) => {
                 const entry = normalizeNotificationEntry(raw)
@@ -3669,7 +3772,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.
             cache.rebuildingHistory = true
+            cache.rebuildingLog = log
             cache.trackedToolInvocations = undefined
+            cache.piTurnUsage = undefined
             try {
                 let reachedSuccessor = false
                 for (const stored of log.entries) {
@@ -3695,6 +3800,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             } finally {
                 cache.rebuildingHistory = false
+                cache.rebuildingLog = undefined
             }
             actions.replaceLog(log)
             cache.eventCoverage = new RunEventCoverage([
@@ -3920,6 +4026,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     } catch {
                         return
                     }
+                    if (isPiWireEntry(parsed)) {
+                        if (!values.piRuntime) {
+                            actions.markPiRuntime()
+                        }
+                        parsed = translatePiWireEntry(parsed)
+                    }
                     if (isNotificationFrame(parsed)) {
                         const marker =
                             parsed.notification.method === '_posthog/run_started'
@@ -3968,11 +4080,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             })
                             return
                         }
-                        const record = parsePermissionRequestFrame(parsed, runId)
+                        const record = parseRunPermissionRequest(parsed, runId)
                         if (
                             record &&
                             !values.seenPermissionRequestIds.has(record.requestId) &&
-                            !values.resolvedPermissionRequestIds.has(record.requestId)
+                            !values.resolvedPermissionRequestIds.has(record.requestId) &&
+                            !permissionEndedByLaterTurn(parsed.event_id, runId, values.log)
                         ) {
                             actions.routePermissionRequest(record)
                         }
@@ -4001,14 +4114,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     try {
                         let response: Response
                         for (;;) {
-                            const proxyTarget = values.streamViaProxyEnabled
-                                ? await session.request(
-                                      STREAM_REQUEST_TIMEOUT_MS,
-                                      (signal) =>
-                                          resolveStreamTarget(String(session.projectId), taskId, runId, true, signal),
-                                      controller.signal
-                                  )
-                                : null
+                            const proxyTarget =
+                                values.streamViaProxyEnabled || values.piRuntime
+                                    ? await session.request(
+                                          STREAM_REQUEST_TIMEOUT_MS,
+                                          (signal) =>
+                                              resolveStreamTarget(
+                                                  String(session.projectId),
+                                                  taskId,
+                                                  runId,
+                                                  true,
+                                                  signal
+                                              ),
+                                          controller.signal
+                                      )
+                                    : null
                             if (!ownsStream()) {
                                 return
                             }
@@ -4296,26 +4416,32 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     key,
                     { pauseOnPageHidden: false }
                 )
-                const params = {
-                    requestId: record.requestId,
-                    optionId,
-                    customInput,
-                    answers: answers ? { ...answers } : undefined,
-                }
+                const piCommand =
+                    values.piRuntime || readPiExtensionUiMeta(record.rawToolCall.meta) !== null
+                        ? buildPiPermissionCommand(
+                              { requestId: record.requestId, meta: record.rawToolCall.meta, options: record.options },
+                              { optionId, customInput, answers },
+                              uuid()
+                          )
+                        : null
+                const body: TaskRunCommandRequestApi = piCommand
+                    ? { jsonrpc: '2.0', method: 'pi/rpc', id: piCommand.id, params: { command: piCommand } }
+                    : {
+                          jsonrpc: '2.0',
+                          method: 'permission_response',
+                          params: {
+                              requestId: record.requestId,
+                              optionId,
+                              customInput,
+                              answers: answers ? { ...answers } : undefined,
+                          },
+                      }
                 try {
                     await deliverPermissionResponse(
                         (signal) =>
-                            tasksRunsCommandCreate(
-                                String(projectId),
-                                activeRun.taskId,
-                                activeRun.runId,
-                                {
-                                    jsonrpc: '2.0',
-                                    method: 'permission_response',
-                                    params,
-                                },
-                                { signal }
-                            ),
+                            tasksRunsCommandCreate(String(projectId), activeRun.taskId, activeRun.runId, body, {
+                                signal,
+                            }),
                         controller.signal
                     )
                     if (!controller.signal.aborted && !disposables.isDisposed) {
@@ -4496,6 +4622,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // `log` clears via its own reducer on `reset`, so the projection empties with it. The
                 // per-frame invocation tracker mirrors the log, so it must clear alongside it.
                 cache.trackedToolInvocations = undefined
+                cache.piTurnUsage = undefined
                 cache.permissionRunId = undefined
                 cache.activeRun = undefined
                 cache.turnStartedAtMs = undefined
@@ -4692,6 +4819,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             run_id: activeRun?.runId,
                             task_id: activeRun?.taskId,
                             execution_type: 'sandbox',
+                            task_runtime: values.piRuntime ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp,
                             // The run-started frame carries no warmth signal and pre-warming isn't wired
                             // yet, so every run is a cold start. A later pre-warm hook flips this.
                             cold_start: true,
@@ -4709,6 +4837,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
                     }
                     actions.markTurnComplete(isReplay)
+                    const turnUsage = notification.params?.usage
+                    if (isRecord(turnUsage)) {
+                        const turns: Map<string, Record<string, unknown>> = (cache.piTurnUsage ??= new Map())
+                        turns.set(entry.event_id ?? `turn-${turns.size}`, turnUsage)
+                        actions.setContextUsage(foldPiTurnUsage(values.contextUsage, [...turns.values()], turnUsage))
+                    }
                     return
                 }
                 if (method === '_posthog/progress') {
@@ -4730,11 +4864,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
                 // the agent stays blocked), and a resolution observed here clears the local card.
                 if (isPosthogNotification(notification, '_posthog/permission_request')) {
-                    const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
+                    const record = parseRunPermissionRequest(notification.params ?? {}, entry.source_run_id)
                     if (
                         record &&
                         !values.seenPermissionRequestIds.has(record.requestId) &&
-                        !values.resolvedPermissionRequestIds.has(record.requestId)
+                        !values.resolvedPermissionRequestIds.has(record.requestId) &&
+                        !permissionEndedByLaterTurn(
+                            entry.event_id ?? notification.params?.event_id,
+                            entry.source_run_id,
+                            (cache.rebuildingLog as RunLog | undefined) ?? values.log
+                        )
                     ) {
                         actions.routePermissionRequest(record, isReplay)
                     }

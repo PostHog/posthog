@@ -7,6 +7,7 @@ import {
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 import {
@@ -33,6 +34,7 @@ const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
 ]
 
 export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
+export const PI_DEFAULT_MODEL = 'gpt-5.6-terra'
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
 const EFFORT_LABELS: Record<string, string> = REASONING_EFFORT_LABELS
@@ -67,14 +69,24 @@ export function getRuntimeAdapterForModel(
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
 // runtime the gateway stops serving disappears from the picker on its own.
-export function listRuntimeAdapters(catalogue: ModelChoiceApi[]): RuntimeAdapterEnumApi[] {
+export function listRuntimeAdapters(
+    catalogue: ModelChoiceApi[],
+    taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
+): RuntimeAdapterEnumApi[] {
+    if (taskRuntime === TaskRuntimeEnumApi.Pi) {
+        return []
+    }
     return [...new Set(catalogue.map((option) => option.runtime_adapter))]
 }
 
 export function modelsForRuntimeAdapter(
     catalogue: ModelChoiceApi[],
-    runtimeAdapter: RuntimeAdapterEnumApi
+    runtimeAdapter: RuntimeAdapterEnumApi,
+    taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
 ): ModelChoiceApi[] {
+    if (taskRuntime === TaskRuntimeEnumApi.Pi) {
+        return catalogue
+    }
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 

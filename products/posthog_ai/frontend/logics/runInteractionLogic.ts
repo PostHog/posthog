@@ -3,6 +3,7 @@ import {
     actions,
     afterMount,
     connect,
+    getContext,
     kea,
     key,
     listeners,
@@ -17,6 +18,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 
 import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
@@ -24,6 +26,7 @@ import {
     buildRunCreateRequest,
     DEFAULT_COMPOSER_MODEL,
     getRuntimeAdapterForModel,
+    PI_DEFAULT_MODEL,
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
@@ -39,17 +42,20 @@ import {
 } from 'products/tasks/frontend/generated/api'
 import {
     type ModelChoiceApi,
-    type ReasoningEffortEnumApi,
+    ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
     type TaskRunDetailDTOApi,
+    type TaskRuntimeEnumApi,
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord, StagedAttachment } from '../types/streamTypes'
+import { isPiTaskRuntime } from '../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
+import { piRpcRequest, piRpcResponseError } from '../utils/piWire'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -64,6 +70,31 @@ import type { DraftRecovery } from './taskDraftPersistence'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
 import { taskWarmLogic, type WarmSubmission } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
+
+export interface PiSessionConfig {
+    model: string | null
+    effort: string | null
+}
+
+const PI_THINKING_LEVELS_AS_EFFORTS = new Set<string>([
+    ReasoningEffortEnumApi.Low,
+    ReasoningEffortEnumApi.Medium,
+    ReasoningEffortEnumApi.High,
+    ReasoningEffortEnumApi.Xhigh,
+    ReasoningEffortEnumApi.Max,
+])
+
+function parsePiSessionConfig(result: unknown): PiSessionConfig | null {
+    const data = typeof result === 'object' && result !== null ? (result as { data?: unknown }).data : undefined
+    if (typeof data !== 'object' || data === null) {
+        return null
+    }
+    const { model, thinkingLevel } = data as { model?: { id?: unknown }; thinkingLevel?: unknown }
+    const modelId = typeof model?.id === 'string' && model.id ? model.id : null
+    const effort =
+        typeof thinkingLevel === 'string' && PI_THINKING_LEVELS_AS_EFFORTS.has(thinkingLevel) ? thinkingLevel : null
+    return modelId || effort ? { model: modelId, effort } : null
+}
 
 export interface RunInteractionLogicProps {
     /** Empty until creation attaches a real task and run. */
@@ -92,6 +123,7 @@ export interface RunInteractionLogicProps {
     currentRuntimeAdapter?: string | null
     /** Who pays for the run's Codex model use, from the run state. A live run keeps it. */
     currentCodexModelAccess?: string | null
+    taskRuntime?: TaskRuntimeEnumApi
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
@@ -225,6 +257,7 @@ export interface runInteractionLogicValues {
     modeOverride: PermissionMode | null
     modelOverride: string | null
     pendingContextItems: AttachedContextItem[]
+    piSessionConfig: PiSessionConfig | null
     queueEditing: boolean
     queueHeld: boolean
     queueHold: QueueHold
@@ -312,6 +345,9 @@ export interface runInteractionLogicActions {
     } // runStreamLogic
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
+    } // runStreamLogic
+    markRunStarted: () => {
+        value: true
     } // runStreamLogic
     markTurnComplete: (isReplay?: boolean | undefined) => {
         isReplay: boolean
@@ -472,6 +508,9 @@ export interface runInteractionLogicActions {
     setModel: (model: string) => {
         model: string
     }
+    setPiSessionConfig: (config: PiSessionConfig) => {
+        config: PiSessionConfig
+    }
     setQueueEditing: (editing: boolean) => {
         editing: boolean
     }
@@ -553,14 +592,18 @@ export interface runInteractionLogicMeta {
             defaultModel: string | null,
             catalogue: ModelChoiceApi[],
             arg2: any,
-            isTerminal: boolean
+            isTerminal: boolean,
+            piSessionConfig: PiSessionConfig | null,
+            arg3: any
         ) => string
         selectedEffort: (
             effortOverride: string | null,
             arg: any,
             defaultEffort: string | null,
             selectedModel: string,
-            catalogue: ModelChoiceApi[]
+            catalogue: ModelChoiceApi[],
+            piSessionConfig: PiSessionConfig | null,
+            arg2: any
         ) => ReasoningEffortEnumApi
         selectedMode: (
             unsentStartupMode: PermissionMode | null,
@@ -670,6 +713,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'respondToPermission',
                 'cancelRun',
                 'markTurnComplete',
+                'markRunStarted',
                 'setCurrentMode',
                 'handleTerminalStatus',
                 'markPermissionRequestResolved',
@@ -738,6 +782,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // doesn't persist live changes back to the run state, so the override is the source of truth.
         setModel: (model: string) => ({ model }),
         setEffort: (effort: string) => ({ effort }),
+        setPiSessionConfig: (config: PiSessionConfig) => ({ config }),
         // Pick the permission mode for the run. Like model/effort, selection is held client-side and synced to
         // the running agent (via `set_config_option { configId: 'mode' }`) at send time, or seeds the next run.
         setMode: (mode: PermissionMode) => ({ mode, beforeStart: !values.runStarted }),
@@ -845,6 +890,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as string | null,
             {
                 setModel: (_, { model }) => model,
+            },
+        ],
+        piSessionConfig: [
+            null as PiSessionConfig | null,
+            {
+                setPiSessionConfig: (_, { config }) => config,
             },
         ],
         effortOverride: [
@@ -996,6 +1047,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 s.catalogue,
                 (_, p) => p.currentRuntimeAdapter,
                 s.isTerminal,
+                s.piSessionConfig,
+                (_, p) => p.taskRuntime,
             ],
             (
                 override: string | null,
@@ -1003,7 +1056,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 serverDefault: string | null,
                 catalogue: ModelChoiceApi[],
                 runtimeAdapter: string | null | undefined,
-                terminal: boolean
+                terminal: boolean,
+                piSession: PiSessionConfig | null,
+                taskRuntime: TaskRuntimeEnumApi | undefined
             ): string => {
                 const compatibleOverride =
                     override &&
@@ -1012,18 +1067,36 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     getRuntimeAdapterForModel(catalogue, override) !== runtimeAdapter
                         ? null
                         : override
+                if (isPiTaskRuntime(taskRuntime)) {
+                    return compatibleOverride ?? current ?? piSession?.model ?? PI_DEFAULT_MODEL
+                }
                 return compatibleOverride ?? current ?? serverDefault ?? DEFAULT_COMPOSER_MODEL
             },
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.defaultEffort, s.selectedModel, s.catalogue],
+            (s) => [
+                s.effortOverride,
+                (_, p) => p.currentEffort,
+                s.defaultEffort,
+                s.selectedModel,
+                s.catalogue,
+                s.piSessionConfig,
+                (_, p) => p.taskRuntime,
+            ],
             (
                 override: string | null,
                 current: string | null | undefined,
                 serverDefault: string | null,
                 model: string,
-                catalogue: ModelChoiceApi[]
-            ): ReasoningEffortEnumApi => resolveEffortForModel(catalogue, override ?? current ?? serverDefault, model),
+                catalogue: ModelChoiceApi[],
+                piSession: PiSessionConfig | null,
+                taskRuntime: TaskRuntimeEnumApi | undefined
+            ): ReasoningEffortEnumApi =>
+                resolveEffortForModel(
+                    catalogue,
+                    override ?? current ?? (isPiTaskRuntime(taskRuntime) ? piSession?.effort : serverDefault),
+                    model
+                ),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -1341,54 +1414,95 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // `set_config_option` command before the message rather than ride inside `user_message`. A
                     // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
                     // successful sync so the next send retries an unsent change.
-                    const activeModel =
-                        values.sentModel ?? props.currentModel ?? values.defaultModel ?? DEFAULT_COMPOSER_MODEL
-                    const activeEffort = resolveEffortForModel(
-                        values.catalogue,
-                        values.sentEffort ?? props.currentEffort ?? values.defaultEffort,
-                        activeModel
-                    )
-                    if (values.selectedModel !== activeModel) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
-                        })
-                        if (!isCurrent()) {
-                            return
+                    if (isPiTaskRuntime(props.taskRuntime)) {
+                        const sendPiCommand = async (
+                            command: Record<string, unknown> & { type: string }
+                        ): Promise<void> => {
+                            const response = await tasksRunsCommandCreate(
+                                String(values.currentProjectId),
+                                props.taskId,
+                                props.runId,
+                                piRpcRequest(command, uuid())
+                            )
+                            const error = piRpcResponseError(response.result)
+                            if (error) {
+                                throw new Error(error)
+                            }
                         }
-                        actions.setSentModel(values.selectedModel)
-                    }
-                    if (values.selectedEffort !== activeEffort) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
-                        })
-                        if (!isCurrent()) {
-                            return
+                        const liveModel = values.sentModel ?? props.currentModel ?? values.piSessionConfig?.model
+                        if (values.modelOverride && values.selectedModel !== liveModel) {
+                            await sendPiCommand({
+                                type: 'set_model',
+                                provider: 'posthog',
+                                modelId: values.selectedModel,
+                            })
+                            if (!isCurrent()) {
+                                return
+                            }
+                            actions.setSentModel(values.selectedModel)
                         }
-                        actions.setSentEffort(values.selectedEffort)
-                    }
-                    const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
-                    const lastKnownMode =
-                        values.sentMode ??
-                        getModeOption(values.currentMode)?.value ??
-                        getModeOption(props.currentMode)?.value
-                    const activeMode = lastKnownMode
-                        ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
-                        : getDefaultModeForRuntimeAdapter(modeAdapter)
-                    if (values.selectedMode !== activeMode) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: MODE_CONFIG_ID, value: values.selectedMode },
-                        })
-                        if (!isCurrent()) {
-                            return
+                        const liveEffort = resolveEffortForModel(
+                            values.catalogue,
+                            values.sentEffort ?? props.currentEffort ?? values.piSessionConfig?.effort,
+                            values.selectedModel
+                        )
+                        if (values.effortOverride && values.selectedEffort !== liveEffort) {
+                            await sendPiCommand({ type: 'set_thinking_level', level: values.selectedEffort })
+                            if (!isCurrent()) {
+                                return
+                            }
+                            actions.setSentEffort(values.selectedEffort)
                         }
+                    } else {
+                        const activeModel =
+                            values.sentModel ?? props.currentModel ?? values.defaultModel ?? DEFAULT_COMPOSER_MODEL
+                        const activeEffort = resolveEffortForModel(
+                            values.catalogue,
+                            values.sentEffort ?? props.currentEffort ?? values.defaultEffort,
+                            activeModel
+                        )
+                        if (values.selectedModel !== activeModel) {
+                            await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                                jsonrpc: '2.0',
+                                method: 'set_config_option',
+                                params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
+                            })
+                            if (!isCurrent()) {
+                                return
+                            }
+                            actions.setSentModel(values.selectedModel)
+                        }
+                        if (values.selectedEffort !== activeEffort) {
+                            await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                                jsonrpc: '2.0',
+                                method: 'set_config_option',
+                                params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
+                            })
+                            if (!isCurrent()) {
+                                return
+                            }
+                            actions.setSentEffort(values.selectedEffort)
+                        }
+                        const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
+                        const lastKnownMode =
+                            values.sentMode ??
+                            getModeOption(values.currentMode)?.value ??
+                            getModeOption(props.currentMode)?.value
+                        const activeMode = lastKnownMode
+                            ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
+                            : getDefaultModeForRuntimeAdapter(modeAdapter)
+                        if (values.selectedMode !== activeMode) {
+                            await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                                jsonrpc: '2.0',
+                                method: 'set_config_option',
+                                params: { configId: MODE_CONFIG_ID, value: values.selectedMode },
+                            })
+                            if (!isCurrent()) {
+                                return
+                            }
+                        }
+                        actions.setSentMode(values.selectedMode)
                     }
-                    actions.setSentMode(values.selectedMode)
                     // A drain carries the files queued with its text, not whatever the composer holds now.
                     const sending = source === 'queue' ? values.queuedAttachments : values.stagedAttachments
                     let artifactIds: string[] = []
@@ -1468,6 +1582,49 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 }
             },
 
+            markRunStarted: async () => {
+                const { currentProjectId } = values
+                const { taskId, runId } = props
+                if (
+                    !isPiTaskRuntime(props.taskRuntime) ||
+                    values.isTerminal ||
+                    currentProjectId === null ||
+                    !taskId ||
+                    !runId ||
+                    cache.piSessionConfigRunId === runId
+                ) {
+                    return
+                }
+                cache.piSessionConfigRunId = runId
+                const disposables = cache.disposables
+                const context = getContext()
+                let result: unknown
+                try {
+                    const response = await tasksRunsCommandCreate(
+                        String(currentProjectId),
+                        taskId,
+                        runId,
+                        piRpcRequest({ type: 'get_state' }, uuid())
+                    )
+                    result = response.result
+                } catch {
+                    return
+                }
+                if (
+                    disposables.isDisposed ||
+                    getContext() !== context ||
+                    values.currentProjectId !== currentProjectId ||
+                    props.taskId !== taskId ||
+                    props.runId !== runId
+                ) {
+                    return
+                }
+                const config = parsePiSessionConfig(result)
+                if (config) {
+                    actions.setPiSessionConfig(config)
+                }
+            },
+
             // The agent finished a turn — drain any staged follow-ups.
             markTurnComplete: ({ isReplay }) => {
                 if (!isReplay) {
@@ -1478,7 +1635,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             // The new model may not support the current effort — clamp the override so it never holds an
             // unsupported value. No network here: the pick is synced to the agent at send time.
             setModel: ({ model }) => {
-                const currentEffort = values.effortOverride ?? props.currentEffort
+                const currentEffort =
+                    values.effortOverride ??
+                    props.currentEffort ??
+                    (isPiTaskRuntime(props.taskRuntime) ? values.piSessionConfig?.effort : undefined)
                 const resolvedEffort = resolveEffortForModel(values.catalogue, currentEffort, model)
                 if (resolvedEffort !== currentEffort) {
                     actions.setEffort(resolvedEffort)
@@ -1541,20 +1701,29 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run as `run`; the consumer-provided `onRunStarted` re-points to it.
+                    const resumeRequest = {
+                        resume_from_run_id: props.runId,
+                        pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                    }
                     const codexModelAccess = pickedCodexModelAccess(
                         getRuntimeAdapterForModel(values.catalogue, values.selectedModel)
                     )
-                    const createRequest = buildRunCreateRequest(
-                        values.catalogue,
-                        values.selectedModel,
-                        values.selectedEffort,
-                        values.selectedMode,
-                        {
-                            resume_from_run_id: props.runId,
-                            pending_user_message: wrapWithPosthogContext(content, pendingContext),
-                            ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
-                        }
-                    )
+                    const createRequest = isPiTaskRuntime(props.taskRuntime)
+                        ? {
+                              ...resumeRequest,
+                              ...(values.modelOverride ? { model: values.selectedModel } : {}),
+                              ...(values.effortOverride ? { reasoning_effort: values.selectedEffort } : {}),
+                          }
+                        : buildRunCreateRequest(
+                              values.catalogue,
+                              values.selectedModel,
+                              values.selectedEffort,
+                              values.selectedMode,
+                              {
+                                  ...resumeRequest,
+                                  ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
+                              }
+                          )
                     // The task already exists here, so staged artifacts hold the files whether this request
                     // activates a warm run or cold-boots one.
                     // The queue rides along into the run this send starts, so its files come too.

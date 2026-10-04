@@ -26,6 +26,9 @@ export interface AgentQuestion {
     header?: string
     multiSelect: boolean
     options: AgentQuestionOption[]
+    placeholder?: string
+    defaultAnswer?: string
+    multiline?: boolean
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -59,6 +62,9 @@ function parseQuestionItem(record: Record<string, unknown>): AgentQuestion | nul
         header: typeof record.header === 'string' && record.header ? record.header : undefined,
         multiSelect: record.multiSelect === true,
         options: parseOptions(record.options),
+        ...(typeof record.placeholder === 'string' && record.placeholder ? { placeholder: record.placeholder } : {}),
+        ...(typeof record.defaultAnswer === 'string' ? { defaultAnswer: record.defaultAnswer } : {}),
+        ...(record.multiline === true ? { multiline: true } : {}),
     }
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
 import { CollapsiblePrimitive, CollapsiblePrimitiveContent } from 'lib/ui/Collapsible/lib/CollapsiblePrimitive'
 import { cn } from 'lib/utils/css-classes'
@@ -29,6 +29,7 @@ interface OptionSelectorProps {
     submitLabel?: string
     /** Called when the user clicks "Skip question" */
     onSkip?: () => void
+    multiline?: boolean
 }
 
 export function OptionSelector({
@@ -44,10 +45,12 @@ export function OptionSelector({
     selectedValue,
     submitLabel = 'Next',
     onSkip,
+    multiline = false,
 }: OptionSelectorProps): JSX.Element {
+    const freeTextOnly = allowCustom && options.length === 0
     const isCustomValue = selectedValue !== undefined && !options.some((o) => o.value === selectedValue)
     const [userWantsCustomMode, setUserWantsCustomMode] = useState(isCustomValue)
-    const showCustomInput = userWantsCustomMode || isCustomValue
+    const showCustomInput = freeTextOnly || userWantsCustomMode || isCustomValue
     const [customInput, setCustomInput] = useState(initialCustomValue ?? '')
     const selectedValueRef = useRef(selectedValue)
     selectedValueRef.current = selectedValue
@@ -58,7 +61,7 @@ export function OptionSelector({
         }
 
         function handleKeyDown(event: KeyboardEvent): void {
-            if (showCustomInput && event.key === 'Escape') {
+            if (showCustomInput && !freeTextOnly && event.key === 'Escape') {
                 event.preventDefault()
                 setUserWantsCustomMode(false)
                 setCustomInput('')
@@ -93,7 +96,7 @@ export function OptionSelector({
         return () => {
             window.removeEventListener('keydown', handleKeyDown)
         }
-    }, [options, onSelect, allowCustom, disabled, loading, showCustomInput])
+    }, [options, onSelect, allowCustom, disabled, loading, showCustomInput, freeTextOnly])
 
     const noDescriptions = options.every((o) => !o.description)
     const footerOpen = !!onSkip || showCustomInput
@@ -107,6 +110,10 @@ export function OptionSelector({
             // When not choosing a custom input, hide the input and show button again
             setUserWantsCustomMode(false)
 
+            return
+        }
+        if (freeTextOnly) {
+            onCustomSubmit?.(multiline ? customInput : customInput.trim())
             return
         }
         setUserWantsCustomMode(false)
@@ -161,7 +168,29 @@ export function OptionSelector({
                     ))}
                 </div>
 
-                {allowCustom && (
+                {freeTextOnly &&
+                    (multiline ? (
+                        <LemonTextArea
+                            placeholder={customPlaceholder}
+                            value={customInput}
+                            onChange={setCustomInput}
+                            onPressCmdEnter={handleCustomSubmit}
+                            minRows={3}
+                            maxRows={12}
+                            autoFocus
+                        />
+                    ) : (
+                        <LemonInput
+                            placeholder={customPlaceholder}
+                            fullWidth
+                            size="small"
+                            value={customInput}
+                            onChange={setCustomInput}
+                            onPressEnter={handleCustomSubmit}
+                            autoFocus
+                        />
+                    ))}
+                {allowCustom && !freeTextOnly && (
                     <label className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm font-medium cursor-pointer">
                         <input
                             type="radio"
