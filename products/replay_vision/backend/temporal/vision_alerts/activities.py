@@ -592,10 +592,11 @@ def _cleanup_history(inputs: CleanupAlertHistoryInput) -> int:
     """Bounded retention sweep, one small batch per tick: old check-history rows,
     delivered outbox rows past retention, and stale undelivered outbox rows
     (alerts disabled or deleted between insert and drain)."""
-    with bounded_queries(ACTIVITY_TIMEOUT):
-        now = datetime.now(UTC)
-        deleted = 0
+    now = datetime.now(UTC)
+    deleted = 0
 
+    # Separate transactions, so one table that times out does not undo the other's progress.
+    with bounded_queries(ACTIVITY_TIMEOUT / 2):
         event_ids = list(
             VisionAlertEvent.objects.filter(created_at__lt=now - timedelta(days=EVENT_RETENTION_DAYS)).values_list(
                 "id", flat=True
@@ -604,6 +605,7 @@ def _cleanup_history(inputs: CleanupAlertHistoryInput) -> int:
         if event_ids:
             deleted += VisionAlertEvent.objects.filter(id__in=event_ids).delete()[0]
 
+    with bounded_queries(ACTIVITY_TIMEOUT / 2):
         delivered_ids = list(
             VisionAlertMatch.all_teams.filter(
                 delivered_at__lt=now - timedelta(days=DELIVERED_MATCH_RETENTION_DAYS)
