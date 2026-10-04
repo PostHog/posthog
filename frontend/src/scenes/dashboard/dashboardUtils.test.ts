@@ -448,6 +448,37 @@ describe('getInsightWithRetry', () => {
             expect(Boolean(result?.query_status?.error)).toBe(hasError)
         })
     })
+
+    it('reads the cached result when the status of its async run expired while the tab was hidden', async () => {
+        const rateLimited = {
+            ...insight,
+            result: null,
+            query_status: { id: 'cache_1_abc', error: true, error_message: 'concurrency_limit_exceeded' },
+        }
+        jest.spyOn(api, 'getResponse').mockResolvedValue({ json: async () => rateLimited } as Response)
+        const getSpy = jest
+            .spyOn(api, 'get')
+            .mockResolvedValueOnce({ ...insight, result: null, query_status: { id: 'cache_1_abc', complete: false } })
+            .mockResolvedValueOnce({ ...insight, result: ['from the cache'], query_status: null })
+        jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(new ApiError('Query not found', 404))
+
+        await expect(
+            getInsightWithRetry(
+                1,
+                insight,
+                60,
+                'query-id',
+                'blocking',
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                1,
+                1
+            )
+        ).resolves.toMatchObject({ result: ['from the cache'] })
+        expect(getSpy.mock.calls[1][0]).toContain('refresh=async')
+    })
 })
 
 describe('shouldSharedDashboardAutoForceForStaleTime', () => {
