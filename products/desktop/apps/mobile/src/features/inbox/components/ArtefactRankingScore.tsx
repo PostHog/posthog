@@ -13,8 +13,18 @@ import { View } from "react-native";
 
 function RankingHeadRow({ head }: { head: RankingHead }) {
   const tone = head.readable ? "text-gray-12" : "text-gray-10";
+  const values = [
+    humanizeIdentifier(head.name),
+    head.lift !== null ? formatRankingLift(head.lift) : null,
+    formatRankingProbability(head.probability),
+    head.readable ? null : "no holdout read yet",
+  ];
   return (
-    <View className="flex-row items-center gap-2">
+    <View
+      className="flex-row items-center gap-2"
+      accessible
+      accessibilityLabel={values.filter(Boolean).join(", ")}
+    >
       <Text className={`w-24 text-[12px] ${tone}`} numberOfLines={1}>
         {humanizeIdentifier(head.name)}
       </Text>
@@ -27,10 +37,16 @@ function RankingHeadRow({ head }: { head: RankingHead }) {
         ) : null}
         <View className="absolute top-0 bottom-0 left-1/2 w-px bg-gray-9" />
       </View>
-      <Text className={`w-10 text-right text-[12px] ${tone}`}>
+      <Text
+        className={`min-w-10 text-right text-[12px] ${tone}`}
+        numberOfLines={1}
+      >
         {head.lift !== null ? formatRankingLift(head.lift) : ""}
       </Text>
-      <Text className="w-11 text-right text-[12px] text-gray-10">
+      <Text
+        className="min-w-11 text-right text-[12px] text-gray-10"
+        numberOfLines={1}
+      >
         {formatRankingProbability(head.probability)}
       </Text>
     </View>

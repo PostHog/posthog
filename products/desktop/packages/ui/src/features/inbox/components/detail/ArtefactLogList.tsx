@@ -280,7 +280,7 @@ function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
         const tone = head.readable ? "text-(--gray-12)" : "text-(--gray-10)";
         return (
           <Fragment key={head.name}>
-            <Text className={`truncate ${tone}`}>{prettify(head.name)}</Text>
+            <span className={`truncate ${tone}`}>{prettify(head.name)}</span>
             <RankingLiftBar head={head} />
             <span className={`text-right tabular-nums ${tone}`}>
               {head.lift !== null ? formatRankingLift(head.lift) : null}
