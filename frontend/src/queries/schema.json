@@ -50021,6 +50021,10 @@
                     "$ref": "#/definitions/QueryScanSummary"
                 },
                 "results": {},
+                "retry_after": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Minimum seconds to wait before retrying a failed query."
+                },
                 "start_time": {
                     "description": "When was query execution task enqueued.",
                     "format": "date-time",

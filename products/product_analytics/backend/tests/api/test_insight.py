@@ -4240,25 +4240,33 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+        self.assertIsNone(query_status.get("retry_after"))
 
     @parameterized.expand(
         [
-            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail),
+            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail, True),
             (
                 "org_concurrency_limit",
                 ConcurrencyLimitExceeded("internal limiter details"),
                 "concurrency_limit_exceeded",
+                False,
             ),
             (
                 "no_free_clickhouse_connection",
                 wrap_clickhouse_query_error(ServerException("no free connection", 203)),
                 ClickHouseAtCapacity.default_detail,
+                True,
             ),
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_retrieve_labels_every_capacity_failure_as_rate_limited(
-        self, _name: str, error: Exception, expected_message: str, mock_calculate: mock.MagicMock
+        self,
+        _name: str,
+        error: Exception,
+        expected_message: str,
+        expects_cooldown: bool,
+        mock_calculate: mock.MagicMock,
     ) -> None:
         mock_calculate.side_effect = error
 
@@ -4268,6 +4276,21 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertEqual(query_status["error_code"], "rate_limited")
         self.assertEqual(query_status["error_message"], expected_message)
+        if expects_cooldown:
+            self.assertGreaterEqual(query_status["retry_after"], 30)
+            self.assertLessEqual(query_status["retry_after"], 60)
+        else:
+            self.assertIsNone(query_status.get("retry_after"))
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_preserves_the_capacity_exceptions_retry_delay(self, mock_calculate: mock.MagicMock) -> None:
+        error = ClickHouseAtCapacity()
+        error.wait = 47
+        mock_calculate.side_effect = error
+
+        query_status = self._query_status_of_a_failed_refresh()
+
+        self.assertEqual(query_status["retry_after"], 47)
 
 
 class TestInsightQueryScan(APIBaseTest):

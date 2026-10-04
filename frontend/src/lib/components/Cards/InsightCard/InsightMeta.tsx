@@ -105,6 +105,7 @@ interface InsightMetaProps extends Pick<
     | 'refreshAfterDisplayOptionsChange'
     | 'loading'
     | 'loadingQueued'
+    | 'waitingForCapacity'
     | 'rename'
     | 'setOverride'
     | 'duplicate'
@@ -149,6 +150,7 @@ export function InsightMeta({
     refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
+    waitingForCapacity,
     rename,
     duplicate,
     setOverride,
@@ -363,6 +365,7 @@ export function InsightMeta({
                         description={undefined}
                         loading={loading}
                         loadingQueued={loadingQueued}
+                        waitingForCapacity={waitingForCapacity}
                         tags={[]}
                     />
                 }
@@ -482,6 +485,7 @@ export function InsightMeta({
                         description={insight.description}
                         loading={loading}
                         loadingQueued={loadingQueued}
+                        waitingForCapacity={waitingForCapacity}
                         tags={insight.tags}
                         compact={showCompactTile}
                         showDescription={tile?.show_description !== false}
@@ -843,6 +847,7 @@ export function InsightMetaContent({
     link,
     loading,
     loadingQueued,
+    waitingForCapacity,
     tags,
     compact,
     showDescription,
@@ -857,6 +862,7 @@ export function InsightMetaContent({
     link?: string
     loading?: boolean
     loadingQueued?: boolean
+    waitingForCapacity?: boolean
     tags?: string[]
     compact?: boolean
     showDescription?: boolean
@@ -895,7 +901,7 @@ export function InsightMetaContent({
             >
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
-            {(loading || loadingQueued) && (
+            {(loading || loadingQueued) && !waitingForCapacity && (
                 <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
                     <Spinner className="mr-1.5 text-base" textColored />
                     {loading ? 'Loading' : 'Waiting to load'}
@@ -929,6 +935,11 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
+            {waitingForCapacity && (
+                <div role="status" className="text-sm text-secondary mt-1 whitespace-normal">
+                    Temporarily busy. Retrying automatically.
+                </div>
+            )}
             {showDescription !== false && !!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}

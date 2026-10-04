@@ -327,6 +327,7 @@ export interface dashboardLogicValues {
     canRestrictDashboard: boolean
     canSaveProjectDashboardTemplate: boolean
     cancellingPreview: boolean
+    capacityRetryQueryIds: Record<string, string>
     changedFilterCount: number
     columns: number | null
     containerWidth: number | null
@@ -845,6 +846,15 @@ export interface dashboardLogicActions {
     }
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
+    }
+    setCapacityRetry: (
+        shortId: InsightShortId,
+        queryId: string,
+        waiting: boolean
+    ) => {
+        queryId: string
+        shortId: InsightShortId
+        waiting: boolean
     }
     setDashboardCustomizeMenuOpen: (open: boolean) => {
         open: boolean
@@ -1468,6 +1478,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
+        setCapacityRetry: (shortId: InsightShortId, queryId: string, waiting: boolean) => ({
+            shortId,
+            queryId,
+            waiting,
+        }),
         /** Number of insights enrolled in the current refresh cycle, captured up front. */
         setRefreshTilesTotal: (total: number) => ({ total }),
         abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
@@ -2350,6 +2365,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     responseBytes,
                 }),
+            },
+        ],
+        capacityRetryQueryIds: [
+            {} as Record<string, string>,
+            {
+                setCapacityRetry: (state, { shortId, queryId, waiting }) => {
+                    if (waiting) {
+                        return { ...state, [shortId]: queryId }
+                    }
+                    // A replaced request must not clear the new request's wait state.
+                    if (state[shortId] !== queryId) {
+                        return state
+                    }
+                    const { [shortId]: _finished, ...rest } = state
+                    return rest
+                },
+                refreshDashboardItem: (state, { tile }) => {
+                    if (!tile.insight) {
+                        return state
+                    }
+                    const { [tile.insight.short_id]: _replaced, ...rest } = state
+                    return rest
+                },
+                cancelDashboardRefresh: () => ({}),
             },
         ],
         refreshStatus: [
@@ -3568,7 +3607,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         beforeUnmount: () => {
             cache.widgetTileRefreshScheduler?.cancelAll()
-            actions.abortAnyRunningQuery()
         },
     })),
     sharedListeners(({ values, props, actions }) => ({
@@ -4188,6 +4226,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Cache values before the long-running await — the logic may unmount
             const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
             const urlVariables = settingsForRefresh.variables
+            const controllers: Map<string, AbortController> = (cache.manualRefreshControllers ??= new Map())
+            const controller = new AbortController()
+            controllers.get(insight.short_id)?.abort()
+            controllers.set(insight.short_id, controller)
+            const queryId = uuid()
+            const disposables = cache.disposables
+            disposables.add(
+                () => () => {
+                    controller.abort()
+                    if (controllers.get(insight.short_id) === controller) {
+                        controllers.delete(insight.short_id)
+                    }
+                },
+                queryId,
+                { pauseOnPageHidden: false }
+            )
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
@@ -4202,13 +4256,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     currentTeamId,
                     insight,
                     dashboardId,
-                    uuid(),
+                    queryId,
                     'force_blocking',
-                    undefined,
+                    {
+                        signal: controller.signal,
+                        onCapacityWaitChange: (waiting) => {
+                            if (!disposables.isDisposed) {
+                                actions.setCapacityRetry(insight.short_id, queryId, waiting)
+                            }
+                        },
+                    },
                     effectiveRefreshFilters,
                     urlVariables,
                     tile.filters_overrides
                 )
+
+                if (controller.signal.aborted || disposables.isDisposed) {
+                    return
+                }
 
                 reportDashboardTileRefreshed(
                     dashboardId,
@@ -4231,7 +4296,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setRefreshError(insight.short_id)
                 }
             } catch (e: any) {
-                actions.setRefreshError(insight.short_id, e)
+                if (!controller.signal.aborted && !disposables.isDisposed) {
+                    actions.setRefreshError(insight.short_id, e)
+                }
+            } finally {
+                disposables.dispose(queryId)
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
@@ -4283,8 +4352,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 await breakpoint()
 
                 actions.abortAnyRunningQuery()
-                cache.abortController = new AbortController()
-                const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
+                const manualControllers: Map<string, AbortController> | undefined = cache.manualRefreshControllers
+                for (const tile of sortedTilesToRefresh) {
+                    manualControllers?.get(tile.insight.short_id)?.abort()
+                }
+                const controller = new AbortController()
+                cache.abortController = controller
+                const methodOptions: ApiMethodOptions = { signal: controller.signal }
+                const disposables = cache.disposables
+                disposables.add(
+                    () => () => {
+                        controller.abort()
+                        if (cache.abortController === controller) {
+                            cache.abortController = null
+                        }
+                    },
+                    'dashboardRefresh',
+                    { pauseOnPageHidden: false }
+                )
 
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
@@ -4310,7 +4395,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardId,
                             queryId,
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-                            methodOptions,
+                            {
+                                ...methodOptions,
+                                onCapacityWaitChange: (waiting) => {
+                                    if (!disposables.isDisposed) {
+                                        actions.setCapacityRetry(insight.short_id, queryId, waiting)
+                                    }
+                                },
+                            },
                             effectiveRefreshFilters,
                             urlVariables,
                             tile.filters_overrides
@@ -4822,12 +4914,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
+            cache.disposables.dispose('dashboardRefresh')
         },
         cancelDashboardRefresh: () => {
+            const controllers: Map<string, AbortController> | undefined = cache.manualRefreshControllers
+            controllers?.forEach((controller) => controller.abort())
             actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
