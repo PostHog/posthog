@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -14,7 +15,7 @@ import * as heatmapApi from 'products/web_analytics/frontend/generated/api'
 import type { HeatmapScreenshotResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
-import { computeLockedWidth, heatmapLogic, resolveHeatmapExportUrl } from './heatmapLogic'
+import { computeLockedWidth, heatmapLogic, resolveHeatmapExportUrl, resolveScreenshotReadiness } from './heatmapLogic'
 
 function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     let resolve!: (value: T) => void
@@ -25,6 +26,31 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void
 }
 
 describe('heatmapLogic', () => {
+    const saved: HeatmapScreenshotResponseApi = {
+        id: 'heatmap-1',
+        short_id: 'hm_test',
+        name: 'Pricing page',
+        url: 'https://example.com/pricing',
+        data_url: null,
+        type: 'screenshot',
+        source: 'server',
+        status: 'completed',
+        has_content: true,
+        target_widths: [1440],
+        snapshots: [],
+        block_consent_modals: false,
+        created_by: {
+            id: MOCK_DEFAULT_USER.id,
+            uuid: MOCK_DEFAULT_USER.uuid,
+            email: 'test@example.com',
+            hedgehog_config: null,
+        },
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        exception: null,
+        user_access_level: 'editor',
+    }
+
     describe('computeLockedWidth', () => {
         it.each([
             ['toolbar', [1440], 1440],
@@ -68,31 +94,20 @@ describe('heatmapLogic', () => {
         )
     })
 
+    describe('resolveScreenshotReadiness', () => {
+        it.each([
+            ['completed', true, { outcome: 'ready' }],
+            ['completed', false, { outcome: 'error', message: expect.stringContaining('Generate it again') }],
+            ['failed', false, { outcome: 'error', message: 'boom' }],
+            ['failed', true, { outcome: 'error', message: 'boom' }],
+            ['processing', false, { outcome: 'pending' }],
+            [undefined, undefined, { outcome: 'pending' }],
+        ] as const)('resolveScreenshotReadiness(%s, %s)', (status, hasContent, expected) => {
+            expect(resolveScreenshotReadiness(status, hasContent, 'boom')).toEqual(expected)
+        })
+    })
+
     describe('saving', () => {
-        const saved: HeatmapScreenshotResponseApi = {
-            id: 'heatmap-1',
-            short_id: 'hm_test',
-            name: 'Pricing page',
-            url: 'https://example.com/pricing',
-            data_url: null,
-            type: 'screenshot',
-            source: 'server',
-            status: 'completed',
-            has_content: true,
-            target_widths: [1440],
-            snapshots: [],
-            block_consent_modals: false,
-            created_by: {
-                id: MOCK_DEFAULT_USER.id,
-                uuid: MOCK_DEFAULT_USER.uuid,
-                email: 'test@example.com',
-                hedgehog_config: null,
-            },
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z',
-            exception: null,
-            user_access_level: 'editor',
-        }
         let logic: ReturnType<typeof heatmapLogic>
         let stored: HeatmapScreenshotResponseApi
 
@@ -314,6 +329,50 @@ describe('heatmapLogic', () => {
             }
             expect(logic.values.urlEditDisabledReason).toBeTruthy()
             expect(logic.values.regenerateDisabledReason).toBeTruthy()
+        })
+    })
+
+    describe('screenshot readiness on load', () => {
+        let logic: ReturnType<typeof heatmapLogic>
+
+        const mountWith = async (overrides: Partial<HeatmapScreenshotResponseApi>): Promise<void> => {
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(heatmapApi, 'savedRetrieve').mockResolvedValue({ ...saved, ...overrides })
+            router.actions.push('/heatmaps/hm_test')
+            logic = heatmapLogic({ id: 'hm_test' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        })
+
+        afterEach(() => jest.restoreAllMocks())
+
+        it('reports a completed heatmap with nothing fetchable as an error instead of pointing an img at it', async () => {
+            await mountWith({ status: 'completed', has_content: false })
+            expect(logic.values.screenshotUrl).toBeNull()
+            expect(logic.values.screenshotError).toBeTruthy()
+            expect(logic.values.generatingScreenshot).toBe(false)
+        })
+
+        it('keeps the unavailable error when the viewport width changes', async () => {
+            await mountWith({ status: 'completed', has_content: false })
+            const error = logic.values.screenshotError
+            logic.actions.setWindowWidthOverride(768)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.screenshotError).toBe(error)
+            expect(logic.values.screenshotUrl).toBeNull()
+        })
+
+        it('holds the ready metric until the image decodes', async () => {
+            await mountWith({ status: 'completed', has_content: true })
+            expect(logic.values.screenshotUrl).not.toBeNull()
+            expect(posthog.capture).not.toHaveBeenCalledWith('in-app heatmap screenshot ready', expect.anything())
+            logic.actions.setScreenshotLoaded(true)
+            expect(posthog.capture).toHaveBeenCalledWith('in-app heatmap screenshot ready', expect.anything())
         })
     })
 })
