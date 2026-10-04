@@ -1398,10 +1398,31 @@ class TestAnalyticsSnapshotBackfill:
         assert [(row["processing_date"], row["_line"], row["sessions"]) for row in rows] == [(date(2026, 8, 1), 1, 7)]
         assert [payload["data"]["attributes"]["accessType"] for _, payload in api.posts] == ["ONE_TIME_SNAPSHOT"]
 
-    def test_no_new_snapshot_request_while_a_replacement_is_generating(self) -> None:
-        # An expired snapshot request next to one that is still generating must not trigger
-        # another create, or every sync during the generation window piles a request onto the
-        # customer's account.
+    @parameterized.expand(
+        [
+            (
+                "replacement_still_generating",
+                {f"{BASE_URL}/v1/analyticsReportRequests/REQS2/reports": _page([])},
+            ),
+            (
+                "replacement_also_fulfilled_empty",
+                {
+                    f"{BASE_URL}/v1/analyticsReportRequests/REQS2/reports": _page(
+                        [_resource("analyticsReports", "REPS2", name="App Sessions Standard", category="APP_USAGE")]
+                    ),
+                    f"{BASE_URL}/v1/analyticsReports/REPS2/instances": _page([]),
+                },
+            ),
+        ]
+    )
+    def test_a_second_snapshot_request_never_triggers_another_create(
+        self, _name: str, replacement_bodies: dict[str, dict[str, Any]]
+    ) -> None:
+        # An expired snapshot next to a replacement must not create a third request, whichever
+        # state the replacement is in. A replacement that comes back fulfilled with no instances
+        # looks identical to the expiry that prompted it, so acting on it again would add a report
+        # request to the customer's account on every scheduled run, forever, and lengthen the
+        # per-run report listing with each one.
         payload = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
         api = _analytics_api(
             instances=[_instance("I1", "2026-08-01")],
@@ -1414,7 +1435,7 @@ class TestAnalyticsSnapshotBackfill:
             segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", payload)]},
             segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
         )
-        api.bodies[f"{BASE_URL}/v1/analyticsReportRequests/REQS2/reports"] = _page([])
+        api.bodies.update(replacement_bodies)
 
         rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
 
