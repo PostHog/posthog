@@ -308,6 +308,9 @@ class SignalReport(UUIDModel):
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    triggering_signal_id = models.UUIDField(null=True, blank=True)
+    pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
+    researching_signal_count = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
@@ -2979,6 +2982,7 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    total_spend = models.DecimalField(max_digits=20, decimal_places=4, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
     # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable
@@ -3437,3 +3441,37 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         verbose_name = "Signal scout background band"
         verbose_name_plural = "Signal scout background bands"
         default_manager_name = "all_teams"
+
+
+class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """One absolute cost observation per gateway request or task run."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    signal_id = models.UUIDField(null=True, blank=True)
+    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
+    task_id = models.UUIDField(null=True, blank=True, db_index=True)
+    source_id = models.CharField(max_length=255)
+    is_task = models.BooleanField(default=False)
+    token_cost_microusd = models.BigIntegerField(null=True, blank=True)
+    needs_refresh = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
+                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
+                ),
+                name="signals_spend_one_owner",
+            ),
+            models.CheckConstraint(condition=models.Q(token_cost_microusd__gte=0), name="signals_spend_nonnegative"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(
+                fields=["updated_at"], condition=models.Q(needs_refresh=True), name="signals_spend_pending_idx"
+            ),
+        ]

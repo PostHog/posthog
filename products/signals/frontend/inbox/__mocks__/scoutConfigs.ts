@@ -96,6 +96,7 @@ export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSu
             const startedAt = MOCK_NOW_MS - (runIndex + 1) * HOUR_MS
             return {
                 run_id: `${config.skill_name}-run-${runIndex}`,
+                total_spend: null,
                 skill_name: config.skill_name,
                 skill_version: 1,
                 status: failed ? ('failed' as const) : ('completed' as const),
@@ -125,6 +126,7 @@ export function mockDailyQuietRuns(config: SignalScoutConfigApi): SignalScoutRun
         const startedAt = MOCK_NOW_MS - (runIndex + 2) * 24 * HOUR_MS
         return {
             run_id: `${config.skill_name}-daily-run-${runIndex}`,
+            total_spend: null,
             skill_name: config.skill_name,
             skill_version: 1,
             status: 'completed' as const,

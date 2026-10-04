@@ -69,6 +69,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     slack_api_error_code,
 )
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
+from products.signals.backend.spend_tasks import reconcile_signal_spend as reconcile_signal_spend
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 

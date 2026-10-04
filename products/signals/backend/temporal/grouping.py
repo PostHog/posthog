@@ -41,6 +41,7 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
+from products.signals.backend.spend import signal_spend_totals, track_signal_spend
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -178,6 +179,7 @@ class GenerateSearchQueriesInput:
     # Optional with a default so workflows mid-flight across a deploy (whose activity input was
     # serialized before this field existed) still deserialize; missing => gateway key owner's team.
     team_id: int | None = None
+    signal_id: str | None = None
 
 
 async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str]:
@@ -216,6 +218,7 @@ class GenerateSearchQueriesOutput:
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@track_signal_spend
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
@@ -438,6 +441,7 @@ class MatchSignalToReportInput:
     report_contexts: dict[str, ReportContext]
     # Optional with a default for deploy-time backward compatibility (see GenerateSearchQueriesInput).
     team_id: int | None = None
+    signal_id: str | None = None
 
 
 async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult:
@@ -504,6 +508,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@track_signal_spend
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
@@ -576,7 +581,7 @@ async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> Fet
         raise
 
 
-@dataclass
+@dataclass(frozen=False)
 class VerifyMatchSpecificityInput:
     team_id: int
     report_id: str
@@ -585,6 +590,7 @@ class VerifyMatchSpecificityInput:
     new_signal_source_product: str
     new_signal_source_type: str
     group_signals: list[SignalData]
+    signal_id: str | None = None
 
 
 @dataclass
@@ -632,6 +638,7 @@ async def verify_match_specificity(
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@track_signal_spend
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
@@ -894,10 +901,21 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # (e.g. CH wait raised before start_child_workflow)
                 elif report.status != SignalReport.Status.CANDIDATE:
                     updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                    report.save(update_fields=updated_fields)
+                    report.triggering_signal_id = input.signal_id
+                    report.save(update_fields=[*updated_fields, "triggering_signal_id"])
                     promoted = True
                 else:
                     promoted = True
+
+            pending_bucket = next_research_bucket(report.researching_signal_count or 0)
+            if (
+                report.status == SignalReport.Status.IN_PROGRESS
+                and report.pending_triggering_signal_id is None
+                and pending_bucket is not None
+                and report.signal_count >= pending_bucket
+            ):
+                report.pending_triggering_signal_id = input.signal_id
+                report.save(update_fields=["pending_triggering_signal_id"])
 
             report_id = str(report.id)
             _link_check_follow_up(
@@ -913,6 +931,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 "source_id": input.source_id,
                 "weight": input.weight,
                 "report_id": report_id,
+                "total_spend": signal_spend_totals(team_id=input.team_id, signal_ids=[input.signal_id]).get(
+                    input.signal_id, 0
+                ),
                 "extra": input.extra,
                 "remediation": input.remediation,
             }
@@ -1203,6 +1224,7 @@ async def _process_signal_batch(
                 workflow.execute_activity(
                     generate_search_queries_activity,
                     GenerateSearchQueriesInput(
+                        signal_id=s.signal_id,
                         team_id=team_id,
                         description=s.description,
                         source_product=s.source_product,
@@ -1317,7 +1339,7 @@ async def _process_signal_batch(
         emitted_signals = _par.emitted_signals
 
     for i, signal in enumerate(batch if not _use_parallel_sequential else []):
-        signal_id = str(uuid.uuid4())
+        signal_id = signal.signal_id or str(uuid.uuid4())
         try:
             # Augment CH candidates with earlier-in-batch signals
             augmented_results = _augment_candidates_with_batch(
@@ -1331,6 +1353,7 @@ async def _process_signal_batch(
             match_result = await workflow.execute_activity(
                 match_signal_to_report_activity,
                 MatchSignalToReportInput(
+                    signal_id=signal_id,
                     team_id=team_id,
                     description=signal.description,
                     source_product=signal.source_product,
@@ -1366,6 +1389,7 @@ async def _process_signal_batch(
                 specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
                     verify_match_specificity_activity,
                     VerifyMatchSpecificityInput(
+                        signal_id=signal_id,
                         team_id=team_id,
                         report_id=match_result.report_id,
                         report_title=report_title,

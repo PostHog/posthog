@@ -265,6 +265,7 @@ class BufferSignalsWorkflow:
                         workflow.execute_activity(
                             safety_filter_activity,
                             SafetyFilterInput(
+                                signal_id=s.signal_id,
                                 team_id=s.team_id,
                                 description=s.description,
                                 source_product=s.source_product,

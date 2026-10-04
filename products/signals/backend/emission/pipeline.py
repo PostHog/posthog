@@ -5,6 +5,7 @@ import asyncio
 import dataclasses
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from django.utils import timezone
 
@@ -30,6 +31,7 @@ from products.signals.backend.emission.registry import (
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.models import SignalEmissionRecord
+from products.signals.backend.spend import signal_id_for, signal_spend_scope
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -186,7 +188,7 @@ def build_emitter_outputs(
                     output,
                     extra={k: v.isoformat() if isinstance(v, datetime) else v for k, v in output.extra.items()},
                 )
-            outputs.append(output)
+            outputs.append(dataclasses.replace(output, signal_id=output.signal_id or str(uuid4())))
     return outputs, error_count
 
 
@@ -198,59 +200,65 @@ async def _summarize_description(
     threshold: int,
     gateway_mode: bool | None = None,
 ) -> SignalEmitterOutput:
-    messages: list[MessageParam] = [
-        {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
-    ]
-    extra_headers = _signals_extra_headers(output, stage="summarization", gateway_mode=gateway_mode, team_id=team_id)
-    for attempt in range(LLM_MAX_ATTEMPTS):
-        if attempt > 0:
-            await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
-        summary = ""
-        try:
-            response = await asyncio.wait_for(
-                client.messages.create(
-                    model=LLM_MODEL,
-                    messages=messages,
-                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                    metadata={"user_id": f"team-{team_id}"},
-                    extra_headers=extra_headers,
-                    **effort_kwargs(LLM_MODEL),
-                ),
-                timeout=LLM_CALL_TIMEOUT_SECONDS,
-            )
-            summary = _extract_text(response).strip()
-            if response.stop_reason == "max_tokens":
-                raise ValueError("LLM summary response was truncated due to token limit")
-            if not summary:
-                raise ValueError("Empty response from LLM when summarizing description")
-            if len(summary) > threshold:
-                raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
-            return dataclasses.replace(output, description=summary)
-        except Exception as e:
-            posthoganalytics.capture_exception(
-                e,
-                properties={
-                    "ai_product": "signals",
-                    "tag": "signals_import",
-                    "error_type": "summarization_failed",
-                    "source_type": output.source_type,
-                    "source_id": output.source_id,
-                    "attempt": attempt + 1,
-                },
-            )
-            # Anthropic requires user/assistant turns to alternate, so only feed the correction
-            # back when we actually got assistant text to pair it with; otherwise just retry the
-            # existing prompt.
-            if summary:
-                messages.append({"role": "assistant", "content": summary})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": f"Attempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output.",
-                    }
+    with signal_spend_scope(team_id, output.signal_id):
+        messages: list[MessageParam] = [
+            {
+                "role": "user",
+                "content": summarization_prompt.format(description=output.description, max_length=threshold),
+            }
+        ]
+        extra_headers = _signals_extra_headers(
+            output, stage="summarization", gateway_mode=gateway_mode, team_id=team_id
+        )
+        for attempt in range(LLM_MAX_ATTEMPTS):
+            if attempt > 0:
+                await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
+            summary = ""
+            try:
+                response = await asyncio.wait_for(
+                    client.messages.create(
+                        model=LLM_MODEL,
+                        messages=messages,
+                        max_tokens=LLM_MAX_OUTPUT_TOKENS,
+                        metadata={"user_id": f"team-{team_id}"},
+                        extra_headers=extra_headers,
+                        **effort_kwargs(LLM_MODEL),
+                    ),
+                    timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
-    # Hard-truncate the description to the threshold if all attempts failed
-    return dataclasses.replace(output, description=output.description[:threshold])
+                summary = _extract_text(response).strip()
+                if response.stop_reason == "max_tokens":
+                    raise ValueError("LLM summary response was truncated due to token limit")
+                if not summary:
+                    raise ValueError("Empty response from LLM when summarizing description")
+                if len(summary) > threshold:
+                    raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
+                return dataclasses.replace(output, description=summary)
+            except Exception as e:
+                posthoganalytics.capture_exception(
+                    e,
+                    properties={
+                        "ai_product": "signals",
+                        "tag": "signals_import",
+                        "error_type": "summarization_failed",
+                        "source_type": output.source_type,
+                        "source_id": output.source_id,
+                        "attempt": attempt + 1,
+                    },
+                )
+                # Anthropic requires user/assistant turns to alternate, so only feed the correction
+                # back when we actually got assistant text to pair it with; otherwise just retry the
+                # existing prompt.
+                if summary:
+                    messages.append({"role": "assistant", "content": summary})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": f"Attempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output.",
+                        }
+                    )
+        # Hard-truncate the description to the threshold if all attempts failed
+        return dataclasses.replace(output, description=output.description[:threshold])
 
 
 async def summarize_long_descriptions(
@@ -337,80 +345,83 @@ async def check_actionability(
     Shared with the direct-source gate in `direct_gate.py`, which judges a single signal that never
     entered this batch pipeline.
     """
-    description = output.description
-    # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
-    # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
-    # the keys its source declared, keeping every other source's prompt byte-identical.
-    declared = _declared_context(output.extra, context_fields)
-    # Declared keys lead the block so the length cap below trims the rest of `extra` first — a source
-    # that asked for a key shouldn't lose it to a record that happens to carry heavy labels.
-    metadata_fields = {**declared, **output.extra} if include_record_metadata else declared
-    if metadata_fields:
-        # Bounded, and substituted through the `{description}` placeholder so it is never
-        # format-processed.
-        metadata = json.dumps(metadata_fields, default=str)[:RECORD_METADATA_MAX_CHARS]
-        description = f"{description}\n\n<record_metadata>\n{metadata}\n</record_metadata>"
-    prompt = actionability_prompt.format(description=description)
-    if system_one_prompt is None:
-        system_one_prompt = bundled_prompt(
-            actionability_prompt_name(actionability_prompt, output.source_product, output.source_type),
-            actionability_prompt,
-            ACTIONABILITY_SYSTEM_ONE_QUESTION,
-            0.85,
-        )
+    with signal_spend_scope(team_id, output.signal_id):
+        description = output.description
+        # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
+        # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
+        # the keys its source declared, keeping every other source's prompt byte-identical.
+        declared = _declared_context(output.extra, context_fields)
+        # Declared keys lead the block so the length cap below trims the rest of `extra` first — a source
+        # that asked for a key shouldn't lose it to a record that happens to carry heavy labels.
+        metadata_fields = {**declared, **output.extra} if include_record_metadata else declared
+        if metadata_fields:
+            # Bounded, and substituted through the `{description}` placeholder so it is never
+            # format-processed.
+            metadata = json.dumps(metadata_fields, default=str)[:RECORD_METADATA_MAX_CHARS]
+            description = f"{description}\n\n<record_metadata>\n{metadata}\n</record_metadata>"
+        prompt = actionability_prompt.format(description=description)
+        if system_one_prompt is None:
+            system_one_prompt = bundled_prompt(
+                actionability_prompt_name(actionability_prompt, output.source_product, output.source_type),
+                actionability_prompt,
+                ACTIONABILITY_SYSTEM_ONE_QUESTION,
+                0.85,
+            )
 
-    async def sonnet_verdict(trace_id: str | None) -> bool:
-        extra_headers = _signals_extra_headers(
-            output,
-            stage="actionability",
-            gateway_mode=gateway_mode,
+        async def sonnet_verdict(trace_id: str | None) -> bool:
+            extra_headers = _signals_extra_headers(
+                output,
+                stage="actionability",
+                gateway_mode=gateway_mode,
+                team_id=team_id,
+                trace_id=trace_id,
+                prompt=system_one_prompt,
+            )
+            for attempt in range(LLM_MAX_ATTEMPTS):
+                if attempt > 0:
+                    await asyncio.sleep(
+                        LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1))
+                    )
+                try:
+                    response = await asyncio.wait_for(
+                        client.messages.create(
+                            model=LLM_MODEL,
+                            messages=[{"role": "user", "content": prompt}],
+                            max_tokens=LLM_MAX_OUTPUT_TOKENS,
+                            metadata={"user_id": f"team-{team_id}"},
+                            extra_headers=extra_headers,
+                            **effort_kwargs(LLM_MODEL),
+                        ),
+                        timeout=LLM_CALL_TIMEOUT_SECONDS,
+                    )
+                    response_text = _extract_text(response).strip().upper()
+                    return "NOT_ACTION" not in response_text
+                except Exception as e:
+                    posthoganalytics.capture_exception(
+                        e,
+                        properties={
+                            "ai_product": "signals",
+                            "tag": "signals_import",
+                            "error_type": "actionability_check_failed",
+                            "source_type": output.source_type,
+                            "source_id": output.source_id,
+                            "attempt": attempt + 1,
+                        },
+                    )
+            return True
+
+        return await run_model_decision(
             team_id=team_id,
-            trace_id=trace_id,
+            stage="actionability",
+            primary_model=LLM_MODEL,
+            source_id=output.source_id,
+            source_product=output.source_product,
+            state={"source": output.source_product, "policy_and_record": prompt},
             prompt=system_one_prompt,
+            traditional=sonnet_verdict,
+            verdict=lambda result: result,
+            system_one_result=lambda result, _category: result,
         )
-        for attempt in range(LLM_MAX_ATTEMPTS):
-            if attempt > 0:
-                await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
-            try:
-                response = await asyncio.wait_for(
-                    client.messages.create(
-                        model=LLM_MODEL,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                        metadata={"user_id": f"team-{team_id}"},
-                        extra_headers=extra_headers,
-                        **effort_kwargs(LLM_MODEL),
-                    ),
-                    timeout=LLM_CALL_TIMEOUT_SECONDS,
-                )
-                response_text = _extract_text(response).strip().upper()
-                return "NOT_ACTION" not in response_text
-            except Exception as e:
-                posthoganalytics.capture_exception(
-                    e,
-                    properties={
-                        "ai_product": "signals",
-                        "tag": "signals_import",
-                        "error_type": "actionability_check_failed",
-                        "source_type": output.source_type,
-                        "source_id": output.source_id,
-                        "attempt": attempt + 1,
-                    },
-                )
-        return True
-
-    return await run_model_decision(
-        team_id=team_id,
-        stage="actionability",
-        primary_model=LLM_MODEL,
-        source_id=output.source_id,
-        source_product=output.source_product,
-        state={"source": output.source_product, "policy_and_record": prompt},
-        prompt=system_one_prompt,
-        traditional=sonnet_verdict,
-        verdict=lambda result: result,
-        system_one_result=lambda result, _category: result,
-    )
 
 
 async def filter_actionable(
@@ -556,6 +567,7 @@ async def _emit_signals(
                     )
                     output = without_extra
                 await emit_signal(
+                    signal_id=output.signal_id,
                     team=team,
                     source_product=output.source_product,
                     source_type=output.source_type,
@@ -624,6 +636,19 @@ async def run_signal_pipeline(
         emitter=config.emitter,
         unloggable_fields=config.unloggable_fields,
     )
+    if config.record_processed_outputs:
+        outputs = [
+            dataclasses.replace(
+                output,
+                signal_id=signal_id_for(
+                    team_id=team.id,
+                    source_product=output.source_product,
+                    source_type=output.source_type,
+                    idempotency_key=output.source_id,
+                ),
+            )
+            for output in outputs
+        ]
     # Only fail if every record raised — emitters may return None as a benign skip,
     # so a mix of skips and errors should fall through to the no_actionable_records path.
     if error_count == len(records):

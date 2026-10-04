@@ -1,6 +1,7 @@
 import json
 import uuid
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -674,7 +675,7 @@ class TestSummarizeLongDescriptions:
 class TestEmitSignals:
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_emit_signal(self):
-        output = _make_output(source_id="42", description="bug report")
+        output = replace(_make_output(source_id="42", description="bug report"), signal_id=str(uuid.uuid4()))
         team = MagicMock()
 
         with (
@@ -693,6 +694,7 @@ class TestEmitSignals:
             weight=0.5,
             extra={},
             idempotency_key=None,
+            signal_id=output.signal_id,
         )
 
     @pytest.mark.asyncio

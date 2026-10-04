@@ -13,6 +13,7 @@ from posthog.llm.gateway_client import (
     resolve_ai_gateway_config,
     team_distinct_id,
 )
+from posthog.llm.usage import record_gateway_response
 from posthog.models import Team
 
 from ..facade.contracts import (
@@ -110,7 +111,12 @@ def decide(
     if request.privacy_mode:
         headers["X-PostHog-Privacy-Mode"] = "true"
     try:
-        with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
+        with httpx.Client(
+            trust_env=False,
+            timeout=timeout_seconds,
+            transport=transport,
+            event_hooks={"response": [record_gateway_response]},
+        ) as client:
             response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)
     except httpx.RequestError as error:
         raise DecisionGatewayUnreachableError(f"decision gateway unreachable: {error.__class__.__name__}") from error

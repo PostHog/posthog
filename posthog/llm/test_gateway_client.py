@@ -22,6 +22,7 @@ from posthog.llm.gateway_client import (
     resolve_ai_gateway_config,
     team_trace_id,
 )
+from posthog.llm.usage import record_async_gateway_response, record_gateway_response
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
 AI_GATEWAY_KEY = "phs_project_secret"
@@ -245,7 +246,7 @@ class TestBuildOpenAIClient:
     def test_gateway_mode_routes_to_slugless_go_gateway_with_ai_product(self, mock_openai, mock_httpx):
         result = build_openai_client("llma_summarization", ai_product="aio_summarization")
 
-        mock_httpx.assert_called_once_with(trust_env=False)
+        mock_httpx.assert_called_once_with(trust_env=False, event_hooks={"response": [record_gateway_response]})
         mock_openai.assert_called_once_with(
             api_key=AI_GATEWAY_KEY,
             base_url=AI_GATEWAY_URL,
@@ -273,7 +274,7 @@ class TestBuildAsyncOpenAIClient:
     def test_gateway_mode_routes_to_slugless_go_gateway_with_ai_product(self, mock_async_openai, mock_httpx):
         result = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
 
-        mock_httpx.assert_called_once_with(trust_env=False)
+        mock_httpx.assert_called_once_with(trust_env=False, event_hooks={"response": [record_async_gateway_response]})
         mock_async_openai.assert_called_once_with(
             api_key=AI_GATEWAY_KEY,
             base_url=AI_GATEWAY_URL,
@@ -364,7 +365,7 @@ class TestBuildAsyncAnthropicClient:
             "signals", ai_product="signals_grouping", ai_stage="match", team_id=42, use_bedrock_fallback=True
         )
 
-        mock_httpx.assert_called_once_with(trust_env=False)
+        mock_httpx.assert_called_once_with(trust_env=False, event_hooks={"response": [record_async_gateway_response]})
         mock_anthropic.assert_called_once()
         kwargs = mock_anthropic.call_args.kwargs
         assert kwargs["api_key"] == AI_GATEWAY_KEY

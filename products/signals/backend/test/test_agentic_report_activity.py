@@ -3,7 +3,7 @@ import random
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -601,7 +601,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
@@ -632,7 +632,7 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -661,7 +661,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -690,7 +690,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository is None
@@ -733,7 +733,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
