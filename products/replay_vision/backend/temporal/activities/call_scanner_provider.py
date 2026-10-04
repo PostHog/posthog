@@ -42,19 +42,6 @@ from products.replay_vision.backend.learned_rules import ScanRules, load_scan_ru
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.answer_checks import (
-    CONCLUSION,
-    FORMAT,
-    GROUNDED,
-    ON_QUESTION,
-    PII,
-    CheckContext,
-    CheckFailure,
-    check_answer,
-    failure_after_fix,
-    fix_instruction,
-    grounding_events,
-)
 from products.replay_vision.backend.temporal.conversation import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     function_calls,
@@ -85,6 +72,12 @@ from products.replay_vision.backend.temporal.network_tool import (
     build_network_index,
     dispatch_network_tool,
     network_tool,
+)
+from products.replay_vision.backend.temporal.pii_check import (
+    PII_FIX_INSTRUCTION,
+    PiiCheckContext,
+    has_unrequested_pii,
+    pii_failure,
 )
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
@@ -143,10 +136,6 @@ class _StepResult:
 
     output: BaseModel | None
     provider_refused: bool = False
-
-
-# Signals are a separate, best-effort report, so only the core answer is checked.
-_CHECKS_BY_STEP: dict[str, tuple[str, ...]] = {STEP_CORE: (PII, CONCLUSION, GROUNDED, FORMAT, ON_QUESTION)}
 
 
 @frozen
@@ -691,17 +680,16 @@ async def _run_mission(
     def on_round(calls: int) -> None:
         record_tool_round(scanner_type, snapshot.model, calls)
 
-    check_context = CheckContext(
+    pii_context = PiiCheckContext(
         team_id=team_id,
         question=getattr(scanner, "prompt", "") or "",
         scanner_type=scanner_type,
         trace_id=trace_id,
-        events=grounding_events(events_index.events),
     )
 
-    async def check(step_name: str, output: BaseModel) -> list[CheckFailure]:
-        checks = _CHECKS_BY_STEP.get(step_name)
-        return await check_answer(output, check_context, checks=checks) if checks else []
+    async def check(step_name: str, output: BaseModel) -> bool:
+        # Signals are a separate, best-effort report, so only the core answer is checked.
+        return step_name == STEP_CORE and await has_unrequested_pii(output, pii_context)
 
     run = functools.partial(
         _run_steps,
@@ -809,11 +797,12 @@ async def _run_steps(
     trace_id: str,
     tools: list[types.Tool],
     on_round: Callable[[int], None] | None = None,
-    check: Callable[[str, BaseModel], Awaitable[list[CheckFailure]]] | None = None,
+    check: Callable[[str, BaseModel], Awaitable[bool]] | None = None,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name.
 
-    A step's answer that fails `check` gets one more turn to fix it; an answer that fails again fails the scan.
+    A step's answer that `check` flags for personal data gets one more turn to remove it; an answer flagged again
+    fails the scan.
     """
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
     convo: list[Any] = [] if cache_name else [video_part, types.Part(text=preamble_text)]
@@ -858,12 +847,10 @@ async def _run_steps(
         output = await attempt(step, step.instruction)
         if output is None:
             continue
-        if check is not None and (failures := await check(step.name, output)):
-            fixed = await attempt(step, fix_instruction(failures))
-            if fixed is None:
-                raise failure_after_fix(failures)
-            if remaining := await check(step.name, fixed):
-                raise failure_after_fix(remaining)
+        if check is not None and await check(step.name, output):
+            fixed = await attempt(step, PII_FIX_INSTRUCTION)
+            if fixed is None or await check(step.name, fixed):
+                raise pii_failure()
             output = fixed
         step_outputs[step.name] = output
     return step_outputs

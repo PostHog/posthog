@@ -21,7 +21,6 @@ describe('scanner type helpers', () => {
             ['orphaned', true, false],
             ['internal_error', true, false],
             ['pii_detected', true, false],
-            ['answer_check_failed', true, false],
             ['provider_rejected', false, true],
             ['validation_failed', false, true],
         ]

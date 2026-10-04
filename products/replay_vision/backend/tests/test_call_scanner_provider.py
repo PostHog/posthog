@@ -20,9 +20,9 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _run_steps,
     _step_config,
 )
-from products.replay_vision.backend.temporal.answer_checks import CheckFailure
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import EventsIndex, events_tool
+from products.replay_vision.backend.temporal.pii_check import PII_FIX_INSTRUCTION
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_MAX_OUTPUT_TOKENS,
     MissionStep,
@@ -184,37 +184,29 @@ async def test_runs_each_step_and_keys_outputs_by_name() -> None:
 
 @parameterized.expand(
     [
-        ("fixed_on_the_second_answer", [["claims_match_events"], []], "no", None),
-        ("personal_data_kept", [["personal_data"], ["personal_data"]], None, FailureKind.PII_DETECTED),
-        (
-            "quality_check_failed_twice",
-            [["conclusion_matches_reasoning"], ["conclusion_matches_reasoning"]],
-            None,
-            FailureKind.ANSWER_CHECK_FAILED,
-        ),
+        ("removed_on_the_second_answer", [True, False], "no"),
+        ("still_there_after_the_fix_turn", [True, True], None),
     ]
 )
 @pytest.mark.asyncio
-async def test_a_failed_answer_check_gets_one_fix_turn(
-    _name: str, rounds: list[list[str]], verdict: str | None, failure: FailureKind | None
+async def test_personal_data_in_the_answer_gets_one_fix_turn(
+    _name: str, flags: list[bool], verdict: str | None
 ) -> None:
     steps = [MissionStep(name="core", instruction="do core", response_model=_Core)]
     client = _FakeClient([_Resp(text='{"verdict":"yes"}'), _Resp(text='{"verdict":"no"}')])
-    results = iter(rounds)
+    results = iter(flags)
 
-    async def check(step_name: str, output: BaseModel) -> list[CheckFailure]:
-        return [CheckFailure(check=name, fix=f"fix {name}") for name in next(results)]
+    async def check(step_name: str, output: BaseModel) -> bool:
+        return next(results)
 
-    if failure is None:
+    if verdict is not None:
         out = await _run(client, steps, check=check)
         assert out["core"].verdict == verdict
     else:
         with pytest.raises(ScannerFailureError) as raised:
             await _run(client, steps, check=check)
-        assert raised.value.kind == failure
-    # The fix turn continues the same conversation: the first answer, then the checks it failed.
-    fix_turn = client.models.calls[1]["contents"]
-    assert fix_turn[-1].text.startswith("Your answer did not pass these checks:")
+        assert raised.value.kind == FailureKind.PII_DETECTED
+    assert client.models.calls[1]["contents"][-1].text == PII_FIX_INSTRUCTION
     assert len(client.models.calls) == 2
 
 
