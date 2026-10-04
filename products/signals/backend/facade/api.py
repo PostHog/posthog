@@ -217,7 +217,12 @@ def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel
 
 
 def report_summary(*, team_id: int, report_id: str) -> str | None:
-    return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("summary", flat=True).first()
+    return (
+        SignalReport.objects.filter(team_id=team_id, id=report_id)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("summary", flat=True)
+        .first()
+    )
 
 
 def report_team_id_for_slack_thread(

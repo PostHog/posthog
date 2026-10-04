@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_page_source import report_artefact_texts, report_page_source
 
@@ -53,11 +54,12 @@ class TestReportPageSource(BaseTest):
         assert source is not None
         assert source.action_prompts == expected
 
-    def test_finds_no_page_for_a_deleted_or_foreign_report(self) -> None:
+    def test_finds_no_page_or_summary_for_a_deleted_or_foreign_report(self) -> None:
         deleted = self._report(status=SignalReport.Status.DELETED)
         foreign = self._report(team=Team.objects.create(organization=self.organization))
-        assert self._source(str(deleted.id)) is None
-        assert self._source(str(foreign.id)) is None
+        for report in (deleted, foreign):
+            assert self._source(str(report.id)) is None
+            assert signals.report_summary(team_id=self.team.id, report_id=str(report.id)) is None
 
 
 class TestReportArtefactTexts(BaseTest):
