@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -159,6 +159,14 @@ def tag_task_artifact(storage_path: str, *, ttl_days: str, team_id: int, raise_o
             raise
 
 
+def delete_task_artifact_files(storage_paths: Iterable[str]) -> None:
+    for storage_path in storage_paths:
+        try:
+            object_storage.delete(storage_path)
+        except Exception:
+            logger.exception("task_artifact.cleanup_failed", storage_path=storage_path)
+
+
 def upload_task_text_attachments(task: Task, attachments: Mapping[str, str]) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
     storage_paths: list[str] = []
@@ -184,10 +192,6 @@ def upload_task_text_attachments(task: Task, attachments: Mapping[str, str]) -> 
                 )
             )
     except Exception:
-        for storage_path in storage_paths:
-            try:
-                object_storage.delete(storage_path)
-            except Exception:
-                logger.exception("task_artifact.cleanup_failed", storage_path=storage_path)
+        delete_task_artifact_files(storage_paths)
         raise
     return artifacts
