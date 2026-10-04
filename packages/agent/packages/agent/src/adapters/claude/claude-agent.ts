@@ -123,7 +123,6 @@ import {
   type AssistantUsageLike,
   type BudgetSteerMode,
   type BudgetSteerStage,
-  type BudgetThresholdEvent,
   RunBudgetGuard,
 } from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
@@ -672,10 +671,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private deliverBudgetSteer(
     session: Session,
     sessionId: string,
-    event: BudgetThresholdEvent,
   ): Promise<void> {
     const run = this.budgetSteerTail.then(() =>
-      this.sendBudgetSteer(session, sessionId, event),
+      this.sendBudgetSteer(session, sessionId),
     );
     this.budgetSteerTail = run.catch(() => undefined);
     return run;
@@ -684,13 +682,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private async sendBudgetSteer(
     session: Session,
     sessionId: string,
-    event: BudgetThresholdEvent,
   ): Promise<void> {
     const guard = session.budgetGuard;
     if (!guard || this.session !== session) return;
     const stage = guard.takePendingSteer();
     if (!stage) return;
-    const summary = `[BudgetGuard] ${stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
+    const summary = `[BudgetGuard] ${stage}: $${guard.spentUsd.toFixed(2)} of $${guard.capUsd.toFixed(2)} spent, steering the turn`;
     this.logger.warn(summary);
     let delivered = false;
     try {
@@ -1886,8 +1883,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               const budgetEvent = session.budgetGuard?.recordAssistantMessage(
                 message.message as AssistantUsageLike,
               );
-              if (budgetEvent) {
-                void this.deliverBudgetSteer(session, sessionId, budgetEvent);
+              // A declined steer otherwise waits for the next user prompt,
+              // which a cloud run may never send while the model keeps working.
+              if (
+                budgetEvent ||
+                (message.parent_tool_use_id === null &&
+                  session.budgetGuard?.hasRetryableSteer())
+              ) {
+                void this.deliverBudgetSteer(session, sessionId);
               }
               this.stopForBudget(session, sessionId);
               if (message.parent_tool_use_id === null) {
@@ -2560,7 +2563,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             "side",
           );
           if (event) {
-            void this.deliverBudgetSteer(session, sessionId, event);
+            void this.deliverBudgetSteer(session, sessionId);
           }
           this.stopForBudget(session, sessionId);
         }),
