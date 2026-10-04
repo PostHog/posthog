@@ -56546,6 +56546,18 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    /**
+     * * `tickets` - Support tickets
+     * * `query-hours` - Database hours
+     */
+    export type ImpactNumberKeyEnum = typeof ImpactNumberKeyEnum[keyof typeof ImpactNumberKeyEnum];
+
+
+    export const ImpactNumberKeyEnum = {
+      Tickets: 'tickets',
+      QueryHours: 'query-hours',
+    } as const;
+
     export interface ImpactWorking {
       /** How the number is worked out, such as '120 ms × 30,000 calls'. */
       expression: string;
@@ -56554,8 +56566,11 @@ export namespace Schemas {
     }
 
     export interface ImpactNumber {
-      /** Which number this is: 'tickets' or 'query-hours'. */
-      key: string;
+      /** Which number this is: distinct support tickets or database hours a day.
+       *
+       * * `tickets` - Support tickets
+       * * `query-hours` - Database hours */
+      key: ImpactNumberKeyEnum;
       /** The number as shown, such as '2' or '1 hour'. */
       value: string;
       /** The sentence that follows the number. */
