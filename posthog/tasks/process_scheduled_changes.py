@@ -18,6 +18,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.scheduled_changes import apply_gated_scheduled_change, regate_recurring_scheduled_change
+from products.feature_flags.backend.exceptions import FlagDependencyConflict
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -58,6 +59,7 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     # Exception types that indicate permanent failures
     unrecoverable_types = (
         ValidationError,
+        FlagDependencyConflict,  # DRF ValidationError, so not covered by the Django one above
         ObjectDoesNotExist,
         IntegrityError,
         ValueError,  # Bad payload structure
@@ -383,13 +385,21 @@ def process_scheduled_changes() -> None:
                     # most commonly deleted after the change was scheduled, but also a record_id
                     # that never existed for this team. Either way it's expected drift, already
                     # handled via the row's failure_reason above, so reporting it to error tracking
-                    # is pure noise. Other unrecoverable errors — invalid payload, unsupported
-                    # operation, mismatched variant data, or a missing bound ChangeRequest —
-                    # indicate either a broken payload or a data integrity issue, and should stay
-                    # visible in error tracking.
+                    # is pure noise. A flag dependency conflict is the same shape: the product
+                    # refuses the change on purpose because another active flag depends on the
+                    # target, which the user resolves by editing their flags. Other unrecoverable
+                    # errors — invalid payload, unsupported operation, mismatched variant data, or
+                    # a missing bound ChangeRequest — indicate either a broken payload or a data
+                    # integrity issue, and should stay visible in error tracking.
+                    expected_failure = None
                     if orphaned_target:
+                        expected_failure = "Scheduled change skipped: target record not found"
+                    elif isinstance(e, FlagDependencyConflict):
+                        expected_failure = "Scheduled change refused: flag dependency conflict"
+
+                    if expected_failure:
                         logger.info(
-                            "Scheduled change skipped: target record not found",
+                            expected_failure,
                             scheduled_change_id=scheduled_change.id,
                             model_name=scheduled_change.model_name,
                             record_id=scheduled_change.record_id,
