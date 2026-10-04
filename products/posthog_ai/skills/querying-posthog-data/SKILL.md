@@ -56,7 +56,9 @@ Keep a valid existing query when it fits the task. Choose the method again when 
 
 ## Render query results
 
-Use the UI resource returned by the selected query tool. For example, `posthog:query-trends` returns the `query-results` UI resource. Do not call `posthog:render-ui` for the same result.
+Use the UI resource returned by the selected query tool. For example, `posthog:query-trends` returns the `query-results` UI resource. Do not add a second rendering step.
+
+The MCP server offers `posthog:render-ui` only to clients that can show UI apps. If your client does not list it, you do not need it. If your client lists it, do not call it for a query tool result. The query tool already renders that result.
 
 Keep a written summary with the visualization. If the query tool does not return a UI, follow the client's rendering instructions.
 
