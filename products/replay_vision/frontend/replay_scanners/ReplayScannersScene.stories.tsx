@@ -2185,25 +2185,37 @@ export const ObservationDetailTimeline: StoryObj = {
 }
 
 export const ExperimentVariants: StoryObj = {
-    parameters: { pageUrl: urls.replayVision(experimentScanner.id) },
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
     decorators: [variantsDecorator(variantsReadout())],
 }
 
 // No variant analysis scout yet: the counts show, and the comparison offers to set one up.
 export const ExperimentVariantsNoScout: StoryObj = {
-    parameters: { pageUrl: urls.replayVision(experimentScanner.id) },
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
     decorators: [variantsDecorator(withoutAnalysis(variantsReadout({ analysis: null })))],
 }
 
 export const ExperimentVariantsFirstRunPending: StoryObj = {
-    parameters: { pageUrl: urls.replayVision(experimentScanner.id) },
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
     ],
 }
 
 export const ExperimentVariantsThreeVariants: StoryObj = {
-    parameters: { pageUrl: urls.replayVision(experimentScanner.id) },
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
     decorators: [
         variantsDecorator(
             variantsReadout({
@@ -2230,6 +2242,7 @@ export const ExperimentVariantsThreeVariants: StoryObj = {
 export const ExperimentVariantsNarrow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
         testOptions: { viewport: { width: 560, height: 1800 } },
     },
     decorators: [variantsDecorator(variantsReadout())],

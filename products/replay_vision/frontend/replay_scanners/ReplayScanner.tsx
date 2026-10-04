@@ -4,6 +4,7 @@ import { Suspense, useEffect } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -60,7 +61,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     // `neverRated` already requires results to rate. A viewer who cannot rate is not nudged either,
     // because rating needs editor access, so nudging without it is a dead end.
     const shouldNudgeCalibration = neverRated && !getReplayVisionEditDisabledReason(scanner?.user_access_level)
-    const isExperimentScanner = scanner?.scanner_type === 'experiment'
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
+    const isExperimentScanner = experimentScanners && scanner?.scanner_type === 'experiment'
     const loadedScannerId = scanner?.id ?? null
 
     // The scene logic can't see the scanner's type, so the page tells it which tab this scanner lands on.
