@@ -196,6 +196,9 @@ enum DeletePersonsMode {
   // Keep the rows as tombstones and report the versions written. The caller
   // owns the prerequisite: ingestion must revive tombstones for the team.
   DELETE_PERSONS_MODE_TOMBSTONE = 2;
+  // TOMBSTONE, but a live person that owns a live distinct id under the lock is
+  // skipped and left out of the response. A replica without this value rejects it.
+  DELETE_PERSONS_MODE_TOMBSTONE_IF_NO_DISTINCT_IDS = 3;
 }
 
 // DeletePersonsRequest deletes persons from Postgres by UUID, together with

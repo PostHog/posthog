@@ -425,6 +425,9 @@ impl PersonHogReplica for PersonHogReplicaService {
             Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Hard,
             Ok(ProtoDeletePersonsMode::Hard) => DeletePersonsMode::Hard,
             Ok(ProtoDeletePersonsMode::Tombstone) => DeletePersonsMode::Tombstone,
+            Ok(ProtoDeletePersonsMode::TombstoneIfNoDistinctIds) => {
+                DeletePersonsMode::TombstoneIfNoDistinctIds
+            }
             Err(_) => {
                 return Err(Status::invalid_argument(format!(
                     "Unknown DeletePersonsMode {}",

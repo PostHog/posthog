@@ -22,6 +22,8 @@ pub struct DistinctIdWithVersion {
 pub enum DeletePersonsMode {
     Hard,
     Tombstone,
+    /// `Tombstone`, but skip a live person that owns a live distinct id under the lock.
+    TombstoneIfNoDistinctIds,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

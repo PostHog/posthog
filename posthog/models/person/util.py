@@ -721,12 +721,19 @@ def _to_tombstone(t: person_pb2.TombstonedPerson) -> PersonTombstone:
     )
 
 
-def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> list[PersonTombstone]:
-    """Tombstone Person rows via the personhog RPC and return the versions it wrote.
+def tombstone_persons_in_postgres(
+    team_id: int, person_uuids: list[UUID], *, skip_persons_with_distinct_ids: bool = False
+) -> list[PersonTombstone]:
+    """Tombstone Person rows via the personhog RPC, in batches of 1000, and return the versions it wrote.
 
-    Batches of 1000, the RPC maximum. An already tombstoned person comes back with the
-    versions it holds; one that no longer exists comes back with nothing.
+    A tombstoned person comes back with its versions; a missing person, or one spared by
+    skip_persons_with_distinct_ids, comes back with nothing.
     """
+    mode = (
+        DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE_IF_NO_DISTINCT_IDS
+        if skip_persons_with_distinct_ids
+        else DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE
+    )
 
     def personhog_fn() -> list[PersonTombstone]:
         tombstones: list[PersonTombstone] = []
@@ -734,9 +741,7 @@ def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> lis
         for i in range(0, len(uuids), 1000):
             batch = uuids[i : i + 1000]
             response = _get_client().delete_persons(
-                DeletePersonsRequest(
-                    team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE
-                )
+                DeletePersonsRequest(team_id=team_id, person_uuids=batch, mode=mode)
             )
             tombstones.extend(_to_tombstone(t) for t in response.tombstones)
         return tombstones

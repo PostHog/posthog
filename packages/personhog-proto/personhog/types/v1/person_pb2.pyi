@@ -26,6 +26,7 @@ class DeletePersonsMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DELETE_PERSONS_MODE_UNSPECIFIED: _ClassVar[DeletePersonsMode]
     DELETE_PERSONS_MODE_HARD: _ClassVar[DeletePersonsMode]
     DELETE_PERSONS_MODE_TOMBSTONE: _ClassVar[DeletePersonsMode]
+    DELETE_PERSONS_MODE_TOMBSTONE_IF_NO_DISTINCT_IDS: _ClassVar[DeletePersonsMode]
 
 class LifecycleOpType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -42,6 +43,7 @@ class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 DELETE_PERSONS_MODE_UNSPECIFIED: DeletePersonsMode
 DELETE_PERSONS_MODE_HARD: DeletePersonsMode
 DELETE_PERSONS_MODE_TOMBSTONE: DeletePersonsMode
+DELETE_PERSONS_MODE_TOMBSTONE_IF_NO_DISTINCT_IDS: DeletePersonsMode
 LIFECYCLE_OP_TYPE_UNSPECIFIED: LifecycleOpType
 LIFECYCLE_OP_TYPE_DELETE: LifecycleOpType
 LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType

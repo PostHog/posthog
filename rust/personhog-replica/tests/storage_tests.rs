@@ -679,6 +679,131 @@ async fn test_delete_persons_tombstone_mode_leaves_a_person_created_after_the_cl
     ctx.cleanup().await.ok();
 }
 
+async fn insert_person_without_live_distinct_ids(
+    ctx: &TestContext,
+    distinct_id: &str,
+    keep_tombstoned_mapping: bool,
+) -> common::TestPerson {
+    let person = ctx.insert_person(distinct_id, None).await.unwrap();
+    let sql = if keep_tombstoned_mapping {
+        "UPDATE posthog_persondistinctid SET is_deleted = true WHERE team_id = $1 AND person_id = $2"
+    } else {
+        "DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2"
+    };
+    sqlx::query(sql)
+        .bind(ctx.team_id)
+        .bind(person.id)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    person
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_if_no_distinct_ids_skips_persons_with_a_live_distinct_id() {
+    let ctx = TestContext::new().await;
+    let owned = ctx.insert_person("guard_owned", None).await.unwrap();
+    let orphan = insert_person_without_live_distinct_ids(&ctx, "guard_orphan", false).await;
+    let dead_mapping = insert_person_without_live_distinct_ids(&ctx, "guard_dead", true).await;
+
+    let outcome = ctx
+        .storage
+        .delete_persons(
+            ctx.team_id,
+            &[owned.uuid, orphan.uuid, dead_mapping.uuid],
+            DeletePersonsMode::TombstoneIfNoDistinctIds,
+        )
+        .await
+        .expect("delete persons");
+
+    assert_eq!(outcome.deleted, 2);
+    let mut tombstoned: Vec<Uuid> = outcome.tombstones.unwrap().iter().map(|t| t.uuid).collect();
+    tombstoned.sort();
+    let mut expected = vec![orphan.uuid, dead_mapping.uuid];
+    expected.sort();
+    assert_eq!(tombstoned, expected);
+    let (is_deleted, version, _, distinct_ids) =
+        tombstone_state(&ctx.pool, ctx.team_id, owned.id).await;
+    assert!(!is_deleted);
+    assert_eq!(version, 0);
+    assert_eq!(distinct_ids, vec![(false, 0)]);
+    let (is_deleted, _, _, distinct_ids) =
+        tombstone_state(&ctx.pool, ctx.team_id, dead_mapping.id).await;
+    assert!(is_deleted);
+    assert_eq!(distinct_ids, vec![(true, 0)]);
+    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_if_no_distinct_ids_skips_a_person_attached_during_the_lock_wait(
+) {
+    let ctx = TestContext::new().await;
+    let person = insert_person_without_live_distinct_ids(&ctx, "guard_race_a", false).await;
+
+    // No lifecycle mark, so only the person lock orders the attach and the delete.
+    let mut attach = ctx.pool.begin().await.unwrap();
+    let attach_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *attach)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ('guard_race_b', $1, $2, 0)",
+    )
+    .bind(person.id)
+    .bind(ctx.team_id)
+    .execute(&mut *attach)
+    .await
+    .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let uuid = person.uuid;
+    let delete = tokio::spawn(async move {
+        storage
+            .delete_persons(
+                team_id,
+                &[uuid],
+                DeletePersonsMode::TombstoneIfNoDistinctIds,
+            )
+            .await
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
+               AND query LIKE '%FOR UPDATE%'",
+        )
+        .bind(attach_pid)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the delete never waited on the attach's foreign-key lock"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    attach.commit().await.unwrap();
+
+    let outcome = delete.await.unwrap().expect("delete persons");
+    assert_eq!(outcome.deleted, 0);
+    assert_eq!(outcome.tombstones, Some(vec![]));
+    let (is_deleted, version, _, distinct_ids) =
+        tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert!(!is_deleted);
+    assert_eq!(version, 0);
+    assert_eq!(distinct_ids, vec![(false, 0)]);
+
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn test_delete_persons_tombstone_mode_fails_when_a_lifecycle_op_holds_the_person() {
     let ctx = TestContext::new().await;

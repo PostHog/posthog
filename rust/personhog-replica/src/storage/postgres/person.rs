@@ -437,8 +437,9 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        if mode == DeletePersonsMode::Tombstone {
-            return tombstone_persons_by_uuids(self, team_id, uuids, &client).await;
+        if mode != DeletePersonsMode::Hard {
+            let skip_owned = mode == DeletePersonsMode::TombstoneIfNoDistinctIds;
+            return tombstone_persons_by_uuids(self, team_id, uuids, &client, skip_owned).await;
         }
 
         // Resolve UUIDs to integer IDs in one query, then chunk and delete
@@ -1353,6 +1354,7 @@ async fn tombstone_persons_by_uuids(
     team_id: i64,
     uuids: &[Uuid],
     client: &str,
+    skip_owned: bool,
 ) -> StorageResult<DeletePersonsOutcome> {
     let mut tx = storage.bulk_primary_pool.begin().await?;
     // A held row means a merge or revival in flight: fail fast and let the
@@ -1401,8 +1403,10 @@ async fn tombstone_persons_by_uuids(
     );
     for chunk in &chunks {
         // Per-person delete: also clear cohort memberships (no DB cascade).
-        tombstones
-            .extend(tombstone_persons_by_ids_in_tx(&mut tx, team_id, chunk, client, true).await?);
+        tombstones.extend(
+            tombstone_persons_by_ids_in_tx(&mut tx, team_id, chunk, client, true, skip_owned)
+                .await?,
+        );
     }
     let deleted = tombstones.len() as i64;
 
@@ -1535,6 +1539,7 @@ async fn tombstone_persons_by_ids_in_tx(
     person_ids: &[i64],
     client: &str,
     delete_cohortpeople: bool,
+    skip_owned: bool,
 ) -> StorageResult<Vec<TombstonedPerson>> {
     if person_ids.is_empty() {
         return Ok(Vec::new());
@@ -1554,9 +1559,9 @@ async fn tombstone_persons_by_ids_in_tx(
     // updates below lock in whatever order the plan visits rows, and the
     // ingestion writer updates overlapping rows in sorted batches; sorted
     // acquisition on both sides rules out a deadlock cycle.
-    sqlx::query!(
+    let locked = sqlx::query!(
         r#"
-        SELECT id FROM posthog_persondistinctid
+        SELECT person_id, is_deleted FROM posthog_persondistinctid
         WHERE team_id = $1 AND person_id = ANY($2)
         ORDER BY id FOR UPDATE
         "#,
@@ -1565,6 +1570,27 @@ async fn tombstone_persons_by_ids_in_tx(
     )
     .fetch_all(&mut **tx)
     .await?;
+
+    // Complete under the caller's person locks: every insert or repoint onto a person waits on its FK check.
+    let unowned: Vec<i64>;
+    let person_ids = if skip_owned {
+        let owned: HashSet<i64> = locked
+            .iter()
+            .filter(|row| !row.is_deleted)
+            .map(|row| row.person_id)
+            .collect();
+        unowned = person_ids
+            .iter()
+            .copied()
+            .filter(|id| !owned.contains(id))
+            .collect();
+        if unowned.is_empty() {
+            return Ok(Vec::new());
+        }
+        &unowned[..]
+    } else {
+        person_ids
+    };
 
     let tombstoned_dids = sqlx::query!(
         r#"

@@ -643,11 +643,21 @@ class FakePersonHogClient:
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsResponse:
         self.calls.append(_Call("delete_persons", request))
-        tombstone = request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
+        skip_owned = request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE_IF_NO_DISTINCT_IDS
+        tombstone = skip_owned or request.mode == person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
         response = person_pb2.DeletePersonsResponse(tombstoned=tombstone)
         for uuid in request.person_uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
+                continue
+            if (
+                skip_owned
+                and not person.is_deleted
+                and any(
+                    (request.team_id, did.distinct_id) not in self._tombstoned_distinct_ids
+                    for did in self._distinct_ids.get((request.team_id, person.id), [])
+                )
+            ):
                 continue
             if not tombstone:
                 response.deleted_count += 1
