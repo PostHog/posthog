@@ -92,6 +92,7 @@ export const SavedMetricAttachmentSchema = z.looseObject({
         })
         .nullish(),
     query: z.unknown(),
+    effective_query: z.unknown().optional(),
 })
 
 export type SavedMetricAttachment = z.infer<typeof SavedMetricAttachmentSchema>
@@ -244,44 +245,6 @@ function toMetricSummary(
 }
 
 /**
- * The effective definition of a shared metric on one experiment: the saved query with the
- * per-experiment overrides from the link metadata applied. The backend calculates stored results
- * with `resolve_saved_metric_definition` in
- * products/experiments/backend/metric_resolution.py, so the two must apply the same
- * rules, or this tool reports a different metric than the experiment page shows.
- */
-export function resolveSharedMetric({ query, metadata }: SavedMetricAttachment): unknown {
-    if (query === null || typeof query !== 'object' || Array.isArray(query)) {
-        return query
-    }
-    const saved = query as Record<string, unknown>
-    const overrides: Record<string, unknown> = metadata ?? {}
-    const breakdowns = Array.isArray(overrides.breakdowns) ? overrides.breakdowns : []
-    const hasBreakdowns = breakdowns.length > 0
-    const savedBreakdownFilter =
-        saved.breakdownFilter !== null && typeof saved.breakdownFilter === 'object' ? saved.breakdownFilter : {}
-
-    const resolved: Record<string, unknown> = {
-        ...saved,
-        breakdownFilter: {
-            ...savedBreakdownFilter,
-            breakdowns,
-            ...(hasBreakdowns && overrides.breakdown_limit != null
-                ? { breakdown_limit: overrides.breakdown_limit }
-                : {}),
-        },
-    }
-    if (hasBreakdowns && saved.metric_type === 'funnel' && overrides.breakdownAttributionType != null) {
-        resolved.breakdownAttributionType = overrides.breakdownAttributionType
-        delete resolved.breakdownAttributionValue
-        if (overrides.breakdownAttributionValue != null) {
-            resolved.breakdownAttributionValue = overrides.breakdownAttributionValue
-        }
-    }
-    return resolved
-}
-
-/**
  * Build the per-position metric entries for a primary/secondary slot, merging the
  * inline metrics on the experiment with the shared metrics (saved_metrics), and
  * ordering them by `*_metrics_ordered_uuids` so the result rows match what users
@@ -294,7 +257,10 @@ export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'se
     const entries: ResolvedMetricEntry[] = [
         ...inline.map((metric) => ({ metric: metric as unknown, summary: toMetricSummary(metric, 'inline') })),
         ...shared.map((sm) => ({
-            metric: resolveSharedMetric(sm),
+            // The API applies the link overrides and serves the result as `effective_query`, so the tool
+            // queries the metric the experiment page shows. A legacy shared metric has none, and neither
+            // does a response from a PostHog server that predates the field. The saved query then applies.
+            metric: sm.effective_query ?? sm.query,
             summary: toMetricSummary(sm.query, 'shared', {
                 id: typeof sm.saved_metric === 'number' ? sm.saved_metric : null,
                 name: typeof sm.name === 'string' ? sm.name : null,

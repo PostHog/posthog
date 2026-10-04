@@ -673,6 +673,13 @@ describe('experimentLogic', () => {
                 source: { kind: NodeKind.EventsNode, event: '$pageview' },
             },
             metadata: { type: 'primary', breakdowns: [breakdown], breakdown_limit: 20 },
+            effective_query: {
+                uuid: 'shared-metric-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                breakdownFilter: { breakdowns: [breakdown], breakdown_limit: 20 },
+            },
             created_at: '2024-01-01T00:00:00Z',
         } as unknown as ExperimentSavedMetric
 
@@ -1350,6 +1357,13 @@ describe('experimentLogic', () => {
                             source: { kind: NodeKind.EventsNode, event: '$pageview' },
                         },
                         metadata: { type: 'primary' },
+                        effective_query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: { breakdowns: [] },
+                        },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
                 ],
@@ -1360,6 +1374,10 @@ describe('experimentLogic', () => {
             logic.actions.updateMetricBreakdown('shared-metric-uuid', breakdown)
 
             expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
+            // The metric shows the new breakdown before the save returns the server's effective query
+            expect(logic.values.experiment.saved_metrics[0].effective_query.breakdownFilter.breakdowns).toEqual([
+                breakdown,
+            ])
         })
 
         it('should remove breakdown from inline metric', () => {
@@ -1410,6 +1428,18 @@ describe('experimentLogic', () => {
                                 { property: '$os', type: 'event' } satisfies Breakdown,
                             ],
                         },
+                        effective_query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: {
+                                breakdowns: [
+                                    { property: '$browser', type: 'event' },
+                                    { property: '$os', type: 'event' },
+                                ],
+                            },
+                        },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
                 ],
@@ -1421,6 +1451,9 @@ describe('experimentLogic', () => {
             logic.actions.removeMetricBreakdown('shared-metric-uuid', 0, breakdownToRemove)
 
             expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([
+                { property: '$os', type: 'event' },
+            ])
+            expect(logic.values.experiment.saved_metrics[0].effective_query.breakdownFilter.breakdowns).toEqual([
                 { property: '$os', type: 'event' },
             ])
         })
@@ -1446,6 +1479,18 @@ describe('experimentLogic', () => {
                                 { property: '$browser', type: 'event' } satisfies Breakdown,
                                 { property: '$os', type: 'event' } satisfies Breakdown,
                             ],
+                        },
+                        effective_query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: {
+                                breakdowns: [
+                                    { property: '$browser', type: 'event' },
+                                    { property: '$os', type: 'event' },
+                                ],
+                            },
                         },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
@@ -1557,6 +1602,18 @@ describe('experimentLogic', () => {
                                 { property: '$os', type: 'event' } satisfies Breakdown,
                             ],
                         },
+                        effective_query: {
+                            uuid: 'secondary-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: {
+                                breakdowns: [
+                                    { property: '$browser', type: 'event' },
+                                    { property: '$os', type: 'event' },
+                                ],
+                            },
+                        },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
                 ],
@@ -1614,6 +1671,13 @@ describe('experimentLogic', () => {
                             source: { kind: NodeKind.EventsNode, event: '$pageview' },
                         },
                         metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
+                        effective_query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+                        },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
                 ],
@@ -1624,6 +1688,7 @@ describe('experimentLogic', () => {
             logic.actions.updateMetricBreakdownLimit('shared-metric-uuid', 10)
 
             expect(logic.values.experiment.saved_metrics[0].metadata.breakdown_limit).toEqual(10)
+            expect(logic.values.experiment.saved_metrics[0].effective_query.breakdownFilter.breakdown_limit).toEqual(10)
         })
     })
 

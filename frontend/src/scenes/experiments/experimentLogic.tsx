@@ -143,7 +143,7 @@ import {
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
-    resolveSharedMetric,
+    sharedMetricEffectiveQuery,
     sharedMetricsToExperimentMetrics,
     toConcurrencyPayload,
     toFlagVariantsInput,
@@ -289,6 +289,22 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
         ({ metadata }) => metadata?.type === (isSecondary ? 'secondary' : 'primary')
     )
     return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
+}
+
+/**
+ * The API resolves a link edit into a new `effective_query` only when the save returns. Applying the same
+ * edit to the current `effective_query` keeps the control the user changed in step until then.
+ */
+function editSharedMetricLink(
+    link: ExperimentSavedMetric,
+    metadata: Partial<ExperimentSavedMetric['metadata']>,
+    editMetric: (metric: ExperimentMetric) => ExperimentMetric
+): ExperimentSavedMetric {
+    return {
+        ...link,
+        metadata: { ...link.metadata, ...metadata },
+        effective_query: link.effective_query ? editMetric(link.effective_query) : link.effective_query,
+    }
 }
 
 // Max concurrent metric queries to avoid overwhelming the celery queue's
@@ -1817,7 +1833,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
                     const newMetric = {
-                        ...resolveSharedMetric(savedMetric),
+                        ...sharedMetricEffectiveQuery(savedMetric),
                         uuid: newUuid,
                         name,
                     }
@@ -1829,6 +1845,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 updateMetricBreakdown: (state, { uuid, breakdown }) => {
+                    const addBreakdown = (metric: ExperimentMetric): ExperimentMetric => ({
+                        ...metric,
+                        breakdownFilter: {
+                            ...metric.breakdownFilter,
+                            breakdowns: [...(metric.breakdownFilter?.breakdowns || []), breakdown],
+                        },
+                    })
+
                     /**
                      * Check if the UUID belongs to a shared metric
                      * Shared Metric types are confusing. The query property
@@ -1842,13 +1866,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (savedMetricIndex !== -1) {
                         // Handle shared metric - update saved_metrics metadata
                         const savedMetric = savedMetrics[savedMetricIndex]
-                        savedMetrics[savedMetricIndex] = {
-                            ...savedMetric,
-                            metadata: {
-                                ...savedMetric.metadata,
-                                breakdowns: [...(savedMetric.metadata?.breakdowns || []), breakdown],
-                            },
-                        }
+                        savedMetrics[savedMetricIndex] = editSharedMetricLink(
+                            savedMetric,
+                            { breakdowns: [...(savedMetric.metadata?.breakdowns || []), breakdown] },
+                            addBreakdown
+                        )
 
                         return {
                             ...state,
@@ -1868,16 +1890,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return state
                     }
 
-                    const metric = metrics[targetIndex] as ExperimentMetric
-                    const breakdownFilter = {
-                        ...metric.breakdownFilter,
-                        breakdowns: [...(metric.breakdownFilter?.breakdowns || []), breakdown],
-                    }
-
-                    metrics[targetIndex] = {
-                        ...metric,
-                        breakdownFilter,
-                    } as ExperimentMetric
+                    metrics[targetIndex] = addBreakdown(metrics[targetIndex] as ExperimentMetric)
 
                     return {
                         ...state,
@@ -1885,6 +1898,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 removeMetricBreakdown: (state, { uuid, index }) => {
+                    const removeBreakdown = (metric: ExperimentMetric): ExperimentMetric => ({
+                        ...metric,
+                        breakdownFilter: {
+                            ...metric.breakdownFilter,
+                            breakdowns: (metric.breakdownFilter?.breakdowns || []).filter((_, i) => i !== index),
+                        },
+                    })
+
                     /**
                      * Check if the UUID belongs to a shared metric
                      * Shared Metric types are confusing. The query property
@@ -1898,13 +1919,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (savedMetricIndex !== -1) {
                         // Handle shared metric - update saved_metrics metadata
                         const savedMetric = savedMetrics[savedMetricIndex]
-                        savedMetrics[savedMetricIndex] = {
-                            ...savedMetric,
-                            metadata: {
-                                ...savedMetric.metadata,
-                                breakdowns: (savedMetric.metadata?.breakdowns || []).filter((_, i) => i !== index),
-                            },
-                        }
+                        savedMetrics[savedMetricIndex] = editSharedMetricLink(
+                            savedMetric,
+                            { breakdowns: (savedMetric.metadata?.breakdowns || []).filter((_, i) => i !== index) },
+                            removeBreakdown
+                        )
 
                         return {
                             ...state,
@@ -1924,16 +1943,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return state
                     }
 
-                    const metric = metrics[targetIndex] as ExperimentMetric
-                    const breakdownFilter = {
-                        ...metric.breakdownFilter,
-                        breakdowns: (metric.breakdownFilter?.breakdowns || []).filter((_, i) => i !== index),
-                    }
-
-                    metrics[targetIndex] = {
-                        ...metric,
-                        breakdownFilter,
-                    } as ExperimentMetric
+                    metrics[targetIndex] = removeBreakdown(metrics[targetIndex] as ExperimentMetric)
 
                     return {
                         ...state,
@@ -1941,6 +1951,13 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 updateMetricBreakdownAttribution: (state, { uuid, attributionType, attributionValue }) => {
+                    const setAttribution = (metric: ExperimentMetric): ExperimentMetric =>
+                        ({
+                            ...metric,
+                            breakdownAttributionType: attributionType,
+                            breakdownAttributionValue: attributionValue,
+                        }) as ExperimentMetric
+
                     /**
                      * if the uuid is a shared metric, update saved_metrics metadata of the many to many
                      * relationship, so the breakdown limit is exclusive to this experiment
@@ -1954,15 +1971,11 @@ export const experimentLogic = kea<experimentLogicType>([
                      * if saved metric found...
                      */
                     if (savedMetricIndex !== -1) {
-                        const savedMetric = savedMetrics[savedMetricIndex]
-                        savedMetrics[savedMetricIndex] = {
-                            ...savedMetric,
-                            metadata: {
-                                ...savedMetric.metadata,
-                                breakdownAttributionType: attributionType,
-                                breakdownAttributionValue: attributionValue,
-                            },
-                        }
+                        savedMetrics[savedMetricIndex] = editSharedMetricLink(
+                            savedMetrics[savedMetricIndex],
+                            { breakdownAttributionType: attributionType, breakdownAttributionValue: attributionValue },
+                            setAttribution
+                        )
 
                         /**
                          * return the experiment state with the updated saved metrics.
@@ -1994,11 +2007,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     /**
                      * reconstruct the metric with the updated breakdown attribution
                      */
-                    metrics[targetIndex] = {
-                        ...metrics[targetIndex],
-                        breakdownAttributionType: attributionType,
-                        breakdownAttributionValue: attributionValue,
-                    } as ExperimentMetric
+                    metrics[targetIndex] = setAttribution(metrics[targetIndex] as ExperimentMetric)
 
                     /**
                      * return the updated experiment state
@@ -2009,6 +2018,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 updateMetricBreakdownLimit: (state, { uuid, breakdownLimit }) => {
+                    const setLimit = (metric: ExperimentMetric): ExperimentMetric => ({
+                        ...metric,
+                        breakdownFilter: {
+                            ...metric.breakdownFilter,
+                            breakdown_limit: breakdownLimit,
+                        },
+                    })
+
                     /**
                      * if the uuid is a shared metric, update saved_metrics metadata of the many to many
                      * relationship, so the breakdown limit is exclusive to this experiment
@@ -2025,14 +2042,11 @@ export const experimentLogic = kea<experimentLogicType>([
                         /**
                          * rebuild the saved metrics with the updated breakdown limit
                          */
-                        const savedMetric = savedMetrics[savedMetricIndex]
-                        savedMetrics[savedMetricIndex] = {
-                            ...savedMetric,
-                            metadata: {
-                                ...savedMetric.metadata,
-                                breakdown_limit: breakdownLimit,
-                            },
-                        }
+                        savedMetrics[savedMetricIndex] = editSharedMetricLink(
+                            savedMetrics[savedMetricIndex],
+                            { breakdown_limit: breakdownLimit },
+                            setLimit
+                        )
 
                         /**
                          * return the experiment state with the updated saved metrics.
@@ -2064,14 +2078,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     /**
                      * reconstruct the metric with the updated breakdown limit
                      */
-                    const metric = metrics[targetIndex] as ExperimentMetric
-                    metrics[targetIndex] = {
-                        ...metric,
-                        breakdownFilter: {
-                            ...metric.breakdownFilter,
-                            breakdown_limit: breakdownLimit,
-                        },
-                    } as ExperimentMetric
+                    metrics[targetIndex] = setLimit(metrics[targetIndex] as ExperimentMetric)
 
                     /**
                      * return the updated experiment state
@@ -3434,7 +3441,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 }))
             }
 
-            actions.updateExperiment(updatePayload)
+            // The reload reads the saved config and a shared metric's effective query from the save response.
+            await asyncActions.updateExperiment(updatePayload)
 
             // Adding a breakdown changes how the metric is computed, so re-run results. The recalculation
             // flow reuses the current window (metric_config_change), so this breakdown recomputes on its
@@ -3470,7 +3478,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 }))
             }
 
-            actions.updateExperiment(updatePayload)
+            // The reload reads the saved config and a shared metric's effective query from the save response.
+            await asyncActions.updateExperiment(updatePayload)
 
             // Removing a breakdown changes how the metric is computed, so re-run results. On the
             // recalculation flow this reuses the current window (metric_config_change), so this metric
