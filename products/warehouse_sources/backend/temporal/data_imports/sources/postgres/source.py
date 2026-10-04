@@ -226,6 +226,20 @@ PostgresErrors = {
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
     ),
+    # A server using `pam` auth in pg_hba.conf words a bad password this way, so the libpq
+    # password keys above don't match it.
+    "PAM authentication failed": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # A PgBouncer-style pooler (for example Supabase's on port 6543) rejects a username that isn't
+    # in its own user list before Postgres sees it.
+    "no such user": (
+        "Your connection pooler doesn't recognize this username. Use the username your pooler "
+        "expects, such as postgres.<project-ref> for Supabase, then try again."
+    ),
+    # The role exists but has NOLOGIN, which is the default for a role made with CREATE ROLE.
+    "is not permitted to log in": (
+        "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
+        "different user, then try again."
+    ),
     "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
