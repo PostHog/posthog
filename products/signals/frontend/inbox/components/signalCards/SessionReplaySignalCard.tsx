@@ -141,6 +141,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                             : undefined
                     }
                     alt={`Recording preview for ${extra.segment_title}`}
+                    source="session_problem"
                 />
             ) : (
                 <>
