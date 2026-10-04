@@ -989,25 +989,47 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "inputs_schema__0__type",
         }
 
-    def test_secret_inputs_not_returned(self, *args):
+    @parameterized.expand(
+        [
+            (
+                "string",
+                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+                "I AM SECRET",
+                {
+                    "bytecode": ["_H", 1, 32, "I AM SECRET"],
+                    "bytecode_contract": RUNTIME_CONTRACT,
+                    "value": "I AM SECRET",
+                    "order": 0,
+                },
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj",
+            ),
+            (
+                "dictionary_without_templating",
+                {
+                    "key": "secret_headers",
+                    "type": "dictionary",
+                    "label": "Secret headers",
+                    "secret": True,
+                    "required": False,
+                    "templating": False,
+                },
+                {"Authorization": "Bearer I AM SECRET"},
+                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0},
+                None,
+            ),
+        ]
+    )
+    def test_secret_inputs_not_returned(
+        self, _name, schema, secret_value, expected_encrypted_input, expected_ciphertext, *args
+    ):
         payload = {
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
-            "inputs_schema": [
-                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
-            ],
-            "inputs": {
-                "url": {
-                    "value": "I AM SECRET",
-                },
-            },
+            "inputs_schema": [schema],
+            "inputs": {schema["key"]: {"value": secret_value}},
             "type": "destination",
         }
-        expectation = {
-            "url": {
-                "secret": True,
-            }
-        }
+        expectation = {schema["key"]: {"secret": True}}
         # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
         with time_machine.travel("2024-01-01T00:01:00Z", tick=False):
             with patch("os.urandom", return_value=b"\x00" * 16):
@@ -1016,30 +1038,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert res.json()["inputs"] == expectation
         res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}")
         assert res.json()["inputs"] == expectation
+        assert "I AM SECRET" not in res.content.decode()
 
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])
         assert obj.inputs == {}
-        assert obj.encrypted_inputs == {
-            "url": {
-                "bytecode": [
-                    "_H",
-                    1,
-                    32,
-                    "I AM SECRET",
-                ],
-                "bytecode_contract": RUNTIME_CONTRACT,
-                "value": "I AM SECRET",
-                "order": 0,
-            },
-        }
+        assert obj.encrypted_inputs == {schema["key"]: expected_encrypted_input}
 
         raw_encrypted_inputs = get_db_field_value("encrypted_inputs", obj.id)
-
-        assert (
-            raw_encrypted_inputs
-            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj"
-        )
+        assert "I AM SECRET" not in raw_encrypted_inputs
+        if expected_ciphertext is not None:
+            assert raw_encrypted_inputs == expected_ciphertext
 
     def test_masked_secrets_lists_only_functions_storing_the_mask(self, *args):
         secret_schema = [{"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": True}]
