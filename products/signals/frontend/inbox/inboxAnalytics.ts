@@ -89,7 +89,13 @@ export type InboxReportActionSurface =
  * Affordance that put the first report into a multi-select. Tells us which ones people find, so
  * the ones nobody uses can go.
  */
-export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_click' | 'checkbox' | 'context_menu'
+export type InboxSelectionEntryMethod =
+    | 'long_press'
+    | 'meta_click'
+    | 'shift_click'
+    | 'checkbox'
+    | 'context_menu'
+    | 'select_all'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
