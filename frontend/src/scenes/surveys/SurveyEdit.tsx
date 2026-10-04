@@ -64,6 +64,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import { SurveyGlobalWaitPeriodNote } from 'products/surveys/frontend/components/SurveyGlobalWaitPeriodNote'
+
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
@@ -1752,6 +1754,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       </span>
                                                                                   </div>
                                                                               </div>
+                                                                              <SurveyGlobalWaitPeriodNote
+                                                                                  surveyDays={
+                                                                                      value?.seenSurveyWaitPeriodInDays
+                                                                                  }
+                                                                              />
                                                                           </LemonField.Pure>
                                                                       </>
                                                                   )}
