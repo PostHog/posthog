@@ -37,13 +37,19 @@ class HogQLHasMorePaginator:
     """
 
     def __init__(
-        self, *, limit: int | None = None, offset: int | None = None, limit_context: LimitContext | None = None
+        self,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+        limit_context: LimitContext | None = None,
+        wrap_set_query: bool = False,
     ):
         self.response: HogQLQueryResponse | None = None
         self.results: list[Any] = []
         self.limit = limit if limit and limit > 0 else DEFAULT_RETURNED_ROWS
         self.offset = offset if offset and offset > 0 else 0
         self.limit_context = limit_context
+        self.wrap_set_query = wrap_set_query
 
     @classmethod
     def from_limit_context(
@@ -58,7 +64,7 @@ class HogQLHasMorePaginator:
     def from_alert_query(
         cls, query: ast.SelectQuery | ast.SelectSetQuery, *, limit_context: LimitContext
     ) -> "HogQLHasMorePaginator | None":
-        if not isinstance(query, ast.SelectQuery) or query.limit_percent or query.limit_with_ties:
+        if query.limit_percent or query.limit_with_ties:
             return None
         limit = get_query_limit(query) if query.limit is not None else get_default_limit_for_context(limit_context)
         if limit is None or limit <= 0:
@@ -66,18 +72,30 @@ class HogQLHasMorePaginator:
         # The extra probe row must fit under the execution cap to prove completeness.
         if limit >= get_max_limit_for_context(limit_context):
             return None
+        wrap_set_query = isinstance(query, ast.SelectSetQuery)
         offset = query.offset
         if offset is None:
-            return cls(limit=limit, offset=None, limit_context=limit_context)
+            return cls(limit=limit, offset=None, limit_context=limit_context, wrap_set_query=wrap_set_query)
         if not isinstance(offset, ast.Constant) or type(offset.value) is not int or offset.value < 0:
             return None
-        return cls(limit=limit, offset=offset.value, limit_context=limit_context)
+        return cls(limit=limit, offset=offset.value, limit_context=limit_context, wrap_set_query=wrap_set_query)
 
     def paginate(self, query: Union[ast.SelectQuery, ast.SelectSetQuery]) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         if isinstance(query, ast.SelectQuery):
             query.limit = ast.Constant(value=self.limit + 1)
             query.offset = ast.Constant(value=self.offset)
             return query
+        elif isinstance(query, ast.SelectSetQuery) and self.wrap_set_query:
+            # Each branch keeps its own LIMIT, so the probe row goes on an outer SELECT that reads the
+            # whole set. The set's LIMIT and OFFSET are already in self.limit and self.offset.
+            query.limit = None
+            query.offset = None
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=query),
+                limit=ast.Constant(value=self.limit + 1),
+                offset=ast.Constant(value=self.offset),
+            )
         elif isinstance(query, ast.SelectSetQuery):
             # Doesn't really make sense to paginate a SelectSetQuery, but we can paginate each of the individual select queries
             # Note that simply dividing the limit by the number of queries doesn't work because the offset needs to be applied

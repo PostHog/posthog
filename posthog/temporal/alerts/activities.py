@@ -679,7 +679,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # behind must not write a check of its own.
             raise
         except AlertDataUnavailableError as err:
-            error = {"message": str(err)}
+            error = {"code": "data_unavailable", "message": str(err)}
         except LLMDetectorUnavailableError:
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
             # re-raise so the retry policy gets another attempt. Once the attempts run out the

@@ -1141,7 +1141,7 @@ class TestEvaluateAlert:
         assert result.new_state == AlertState.ERRORED
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.calculated_value is None
-        assert check.error == {"message": "SQL history is incomplete"}
+        assert check.error == {"code": "data_unavailable", "message": "SQL history is incomplete"}
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is True
         mock_capture.assert_not_called()
