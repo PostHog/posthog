@@ -22,7 +22,7 @@ import { useIntegrationManagementRestriction } from './integrationPermissions'
 export function getGrantedScopes(integration: IntegrationType): string[] {
     const candidates: string[][] = []
 
-    for (const raw of [integration.config.scope, integration.config.scopes]) {
+    for (const raw of [integration.config?.scope, integration.config?.scopes]) {
         if (typeof raw === 'string') {
             // Pick the delimiter explicitly. Pushing both comma- and space-split results and
             // letting "longest array wins" decide was a heuristic that silently mangled mixed
