@@ -32,6 +32,7 @@ from products.signals.backend.temporal.types import (
     MatchedMetadata,
     NewReportMatch,
     NoMatchMetadata,
+    SignalCandidate,
     next_research_bucket,
 )
 
@@ -720,6 +721,50 @@ async def test_matching_uses_current_recurrence_before_specificity(ateam, delete
     assert assigned.report_id == str(successor.id)
     await database_sync_to_async(intermediate.refresh_from_db)()
     assert intermediate.signal_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_matching_excludes_candidates_from_failed_reports(ateam):
+    failed = await database_sync_to_async(SignalReport.objects.create)(team=ateam, status=SignalReport.Status.FAILED)
+    live = await database_sync_to_async(SignalReport.objects.create)(team=ateam, status=SignalReport.Status.READY)
+    merged_into_live = await _suppressed_report(ateam, MERGE_DISMISSAL_REASON)
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(merged_into_live.id),
+        content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(live.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+    candidates = [
+        SignalCandidate(
+            signal_id=f"signal-{report.id}",
+            report_id=str(report.id),
+            content="The model picker fails to load",
+            source_product="test",
+            source_type="test",
+            distance=0.1,
+        )
+        for report in (failed, live, merged_into_live)
+    ]
+    llm = AsyncMock(return_value=_new_match())
+
+    with patch(f"{GROUPING_MODULE_PATH}.call_llm", new=llm):
+        await match_signal_to_report_activity(
+            MatchSignalToReportInput(
+                team_id=ateam.id,
+                description="The model picker fails to load",
+                source_product="test",
+                source_type="test",
+                queries=["model picker", "picker load failure"],
+                query_results=[candidates, candidates[:1]],
+                report_contexts={},
+            )
+        )
+
+    prompt = llm.call_args.kwargs["user_prompt"]
+    assert f"signal_id: signal-{failed.id}" not in prompt
+    assert f"signal_id: signal-{live.id}" in prompt
+    assert f"signal_id: signal-{merged_into_live.id}" in prompt
 
 
 @pytest.mark.parametrize(

@@ -3,7 +3,7 @@ import json
 import uuid
 import asyncio
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from typing import Literal, Optional, cast
 
@@ -501,12 +501,39 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
     )
 
 
+def _failed_target_report_ids(team_id: int, report_ids: set[str]) -> set[str]:
+    """Candidate reports whose matched signals would land on a failed report.
+
+    A failed report never promotes, so a signal it absorbs is never researched. A failed report
+    that a merge or recurrence link sends to another report stays eligible, because the signal
+    follows that link to the live report.
+    """
+    reports = SignalReport.objects.filter(team_id=team_id, id__in=report_ids).exclude(
+        status=SignalReport.Status.DELETED
+    )
+    return {str(report.id) for report in reports if signal_target_report(report).status == SignalReport.Status.FAILED}
+
+
+def _exclude_failed_report_candidates(input: MatchSignalToReportInput) -> MatchSignalToReportInput:
+    if input.team_id is None:
+        return input
+    report_ids = {c.report_id for candidates in input.query_results for c in candidates}
+    if not report_ids:
+        return input
+    failed = _failed_target_report_ids(input.team_id, report_ids)
+    return replace(
+        input,
+        query_results=[[c for c in candidates if c.report_id not in failed] for candidates in input.query_results],
+    )
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
+        input = await database_sync_to_async(_exclude_failed_report_candidates, thread_sensitive=False)(input)
         result = await match_signal_to_report(input)
         if isinstance(result, ExistingReportMatch) and input.team_id is not None:
             report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
