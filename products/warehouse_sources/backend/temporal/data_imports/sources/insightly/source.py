@@ -93,6 +93,16 @@ The API key inherits your Insightly user's permissions, so make sure your user c
 
         return CANONICAL_DESCRIPTIONS
 
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # A fan-out endpoint saves no checkpoint, so each retry re-requests every parent's children.
+        endpoint = INSIGHTLY_ENDPOINTS.get(schema_name or "")
+        return endpoint is None or endpoint.fanout_parent is None
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # An invalid or revoked key surfaces as an HTTPError when `fetch_page` calls

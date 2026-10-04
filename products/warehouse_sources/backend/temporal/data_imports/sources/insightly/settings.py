@@ -21,7 +21,7 @@ def _updated_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class InsightlyEndpointConfig:
     name: str
     path: str
