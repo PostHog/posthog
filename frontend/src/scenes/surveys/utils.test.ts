@@ -29,6 +29,7 @@ import {
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
+    doesSurveyShowOnEveryActivation,
     getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
@@ -1796,6 +1797,34 @@ describe('doesSurveyRepeatOnEveryEvent', () => {
     ])('%s -> %s', (_name, expected, events) => {
         const survey = { conditions: events ? { events } : null } as Pick<Survey, 'conditions'>
         expect(doesSurveyRepeatOnEveryEvent(survey)).toBe(expected)
+    })
+})
+
+describe('doesSurveyShowOnEveryActivation', () => {
+    it.each([
+        [
+            'always schedule with a trigger event that does not repeat',
+            true,
+            SurveySchedule.Always,
+            { values: [{ name: 'purchase' }], repeatedActivation: false },
+        ],
+        ['always schedule without trigger events', true, SurveySchedule.Always, null],
+        [
+            'once schedule with repeated activation',
+            true,
+            SurveySchedule.Once,
+            { values: [{ name: 'purchase' }], repeatedActivation: true },
+        ],
+        [
+            'once schedule with a trigger event that does not repeat',
+            false,
+            SurveySchedule.Once,
+            { values: [{ name: 'purchase' }], repeatedActivation: false },
+        ],
+        ['recurring schedule without trigger events', false, SurveySchedule.Recurring, null],
+    ])('%s -> %s', (_name, expected, schedule, events) => {
+        const survey = { schedule, conditions: events ? { events } : null } as Pick<Survey, 'conditions' | 'schedule'>
+        expect(doesSurveyShowOnEveryActivation(survey)).toBe(expected)
     })
 })
 
