@@ -12,16 +12,21 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.utils import UUID_REGEX
 
 from products.signals.backend.facade import api as signals
 
 from ..facade import api
-from .serializers import BriefingSerializer, CandidateListSerializer, TodayQuerySerializer
+from .serializers import BriefingSerializer, CandidateListSerializer, ReportPageSerializer, TodayQuerySerializer
 
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["briefing", "candidates"]
+    scope_object_read_actions = [
+        "briefing",
+        "candidates",
+        "report_page",
+    ]
     scope_object_write_actions = ["refresh"]
 
     def _user(self) -> User:
@@ -78,3 +83,17 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team=self.team, user=user, timezone_name=request.validated_query_data.get("timezone")
         )
         return Response(CandidateListSerializer(candidates).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=ReportPageSerializer)},
+        summary="Get a report's page",
+        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation.",
+    )
+    @action(detail=False, methods=["get"], url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page")
+    def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
+        if not api.is_enabled_for(cast(User, request.user), self.team):
+            raise NotFound()
+        page = api.report_page(team=self.team, report_id=report_id)
+        if page is None:
+            raise NotFound()
+        return Response(ReportPageSerializer(page).data)

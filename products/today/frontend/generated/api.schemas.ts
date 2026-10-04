@@ -359,6 +359,186 @@ export interface CandidateListApi {
     more_reports_count: number
 }
 
+export interface PullRequestLinkApi {
+    /** The pull request on GitHub. */
+    url: string
+    /** The pull request number. */
+    number: number
+}
+
+/**
+ * * `code` - Code
+ * * `slack` - Slack
+ */
+export type CitedSourceEnumApi = (typeof CitedSourceEnumApi)[keyof typeof CitedSourceEnumApi]
+
+export const CitedSourceEnumApi = {
+    Code: 'code',
+    Slack: 'slack',
+} as const
+
+export interface RecordingTargetApi {
+    /** The recording's session id. */
+    session_id: string
+    /**
+     * Where the player starts, a few seconds before the finding.
+     * @nullable
+     */
+    start_at: string | null
+    /**
+     * The finding's time in the recording, as MM:SS.
+     * @nullable
+     */
+    offset: string | null
+}
+
+export interface PageLinkApi {
+    /** Where the link goes, outside PostHog. */
+    url: string
+    /** The link text. */
+    text: string
+}
+
+export interface CodeFileApi {
+    /** The repository as owner/name. */
+    repo: string
+    /** The file path in the repository. */
+    path: string
+}
+
+export interface PreviewLineApi {
+    /** One line of the preview block. */
+    text: string
+    /** Whether the line is secondary, such as a stack frame. */
+    quiet: boolean
+}
+
+export interface SignalPreviewApi {
+    /** What expanding the signal shows, such as 'Show the stack trace'. */
+    hint: string
+    /** Repository files to quote, the finding's own file first. */
+    code: CodeFileApi[]
+    /** A preformatted block, such as a stack trace or a query. */
+    block: PreviewLineApi[]
+    /** The finding's text beyond its first sentence. */
+    text: string
+    /** Short facts about the source. */
+    facts: string[]
+    /** A link that replaces the signal's own destination. */
+    link: PageLinkApi | null
+    /**
+     * A label that replaces the label of the signal's own destination.
+     * @nullable
+     */
+    link_label: string | null
+}
+
+/**
+ * The emitter's extra fields, used to link to the source object.
+ */
+export type SignalViewApiExtra = { [key: string]: unknown }
+
+export interface SignalViewApi {
+    /** The signal's id. */
+    signal_id: string
+    /** The product that emitted the signal. */
+    source_product: string
+    /** The kind of signal within its product. */
+    source_type: string
+    /** The id of the source object, such as an issue or a ticket. */
+    source_id: string
+    /** The signal's text as emitted. */
+    content: string
+    /** When the signal happened. */
+    timestamp: string
+    /** The emitter's extra fields, used to link to the source object. */
+    extra: SignalViewApiExtra
+    /** The signal as one short line. */
+    headline: string
+    /** The signal's first sentence. */
+    lead: string
+    /** Identifiers such as a pull request or ticket number, joined by dots. */
+    meta: string
+    /** What a scout finding cites: code or a Slack thread.
+     *
+     * * `code` - Code
+     * * `slack` - Slack */
+    cited: CitedSourceEnumApi | null
+    /** The recording the signal plays, if any. */
+    recording: RecordingTargetApi | null
+    /** Where a scout finding links outside PostHog, if anywhere. */
+    link: PageLinkApi | null
+    /** What expanding the signal shows, if anything. */
+    preview: SignalPreviewApi | null
+}
+
+/**
+ * * `tickets` - Support tickets
+ * * `query-hours` - Database hours
+ */
+export type ImpactNumberKeyEnumApi = (typeof ImpactNumberKeyEnumApi)[keyof typeof ImpactNumberKeyEnumApi]
+
+export const ImpactNumberKeyEnumApi = {
+    Tickets: 'tickets',
+    QueryHours: 'query-hours',
+} as const
+
+export interface ImpactWorkingApi {
+    /** How the number is worked out, such as '120 ms × 30,000 calls'. */
+    expression: string
+    /** What the working comes to, such as '1.00 hours a day'. */
+    result: string
+}
+
+export interface ImpactNumberApi {
+    /** Which number this is: distinct support tickets or database hours a day.
+     *
+     * * `tickets` - Support tickets
+     * * `query-hours` - Database hours */
+    key: ImpactNumberKeyEnumApi
+    /** The number as shown, such as '2' or '1 hour'. */
+    value: string
+    /** The sentence that follows the number. */
+    sentence: string
+    /**
+     * The signal the number comes from, if one does.
+     * @nullable
+     */
+    signal_id: string | null
+    /** That signal as one short line. */
+    excerpt: string
+    /** The figures in the excerpt to mark. */
+    values: string[]
+    /** How the number is worked out, if it is. */
+    working: ImpactWorkingApi | null
+}
+
+export interface ReportPageApi {
+    /** The summary's opening paragraph, as markdown. */
+    lead: string
+    /** The proposed fix cut to whole sentences, as markdown. Empty when the report proposes none. */
+    proposal: string
+    /** The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise. */
+    impact_sentence: string
+    /** The pull request the proposal names, or else the summary, when it names exactly one. */
+    in_flight_pull_request: PullRequestLinkApi | null
+    /** Whether the proposal names any pull request. */
+    solution_names_pull_request: boolean
+    /** The report's signals, newest first, ready to show. */
+    signals: SignalViewApi[]
+    /** The ids of the signals to show as evidence, at most 3. */
+    evidence: string[]
+    /** How many distinct source objects the signals come from. */
+    evidence_count: number
+    /** Numbers the signals size the problem with, such as distinct support tickets. */
+    impact_numbers: ImpactNumberApi[]
+    /**
+     * When the newest session, ticket or alert behind the report happened.
+     * @nullable
+     */
+    last_seen: string | null
+}
+
 export type TodayBriefingRetrieveParams = {
     /**
      * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.

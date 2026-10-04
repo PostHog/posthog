@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class BriefingStatus(StrEnum):
     COLLECTING = "collecting"
@@ -57,3 +59,13 @@ class ItemState(StrEnum):
     DONE = "done"
     # Dismissed or deleted since the briefing was written.
     DISMISSED = "dismissed"
+
+
+class CitedSource(LabeledStrEnum):
+    CODE = "code", "Code"
+    SLACK = "slack", "Slack"
+
+
+class ImpactNumberKey(LabeledStrEnum):
+    TICKETS = "tickets", "Support tickets"
+    QUERY_HOURS = "query-hours", "Database hours"

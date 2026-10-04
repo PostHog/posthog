@@ -4,8 +4,14 @@ from posthog.models import Team, User
 
 from products.signals.backend.facade import api as signals
 
-from ..feature_flags import may_get_briefing as may_get_briefing
-from ..logic import briefings
+from ..feature_flags import (
+    is_enabled_for as is_enabled_for,
+    may_get_briefing as may_get_briefing,
+)
+from ..logic import (
+    briefings,
+    report_page as report_pages,
+)
 from . import contracts
 from .enums import BriefingStatus
 
@@ -43,3 +49,8 @@ def delete_briefings_for_teams(team_ids: list[int]) -> None:
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:
     """Today's ranked items with their facts and reasons, without the written text."""
     return briefings.list_candidates(team=team, user=user, timezone_name=timezone_name)
+
+
+def report_page(*, team: Team, report_id: str) -> contracts.ReportPage | None:
+    source = report_pages.page_source(team=team, report_id=report_id)
+    return report_pages.report_page(source) if source is not None else None
