@@ -368,17 +368,18 @@ class TestRunSignalPipelineEmitterFailures:
 class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "llm_response,expected",
+        "llm_response,stop_reason,expected",
         [
-            ("ACTIONABLE", True),
-            ("NOT_ACTIONABLE", False),
-            ("actionable", True),
-            ("This is NOT_ACTIONABLE as it is just a billing question.", False),
+            ("ACTIONABLE", "end_turn", True),
+            ("NOT_ACTIONABLE", "end_turn", False),
+            ("actionable", "end_turn", True),
+            ("This is NOT_ACTIONABLE as it is just a billing question.", "end_turn", False),
+            (None, "refusal", False),
         ],
     )
-    async def test_classifies_based_on_llm_response(self, llm_response, expected):
+    async def test_classifies_based_on_llm_response(self, llm_response, stop_reason, expected):
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(llm_response))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(llm_response, stop_reason))
 
         output = _make_output(description="test ticket")
         is_actionable = await check_actionability(mock_client, 1, output, "Is this actionable? {description}")
