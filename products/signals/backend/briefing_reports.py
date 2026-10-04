@@ -106,24 +106,24 @@ class BriefingReportDetails:
     charts: list[ReportChartSnapshot]
 
 
-def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
+def _latest_artefacts(team_id: int, report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
     """The newest artefact content of one type per report, by report id."""
     # Pick the newest id per report first, so Postgres reads `content` once per report, not once per row.
     latest_ids = (
-        SignalReportArtefact.objects.filter(report_id__in=report_ids, type=artefact_type)
+        SignalReportArtefact.objects.filter(team_id=team_id, report_id__in=report_ids, type=artefact_type)
         .order_by("report_id", "-created_at")
         .distinct("report_id")
         .values("id")
     )
-    rows = SignalReportArtefact.objects.filter(id__in=latest_ids).values_list("report_id", "content")
+    rows = SignalReportArtefact.objects.filter(team_id=team_id, id__in=latest_ids).values_list("report_id", "content")
     return {str(report_id): content for report_id, content in rows}
 
 
-def _priorities(report_ids: Sequence[str]) -> dict[str, str]:
+def _priorities(team_id: int, report_ids: Sequence[str]) -> dict[str, str]:
     """Latest priority judgment per report, read the same way the inbox serializer reads it."""
     latest: dict[str, str] = {}
     for report_id, content in _latest_artefacts(
-        report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        team_id, report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
     ).items():
         priority = priority_from_judgment(content)
         if priority is not None:
@@ -508,7 +508,7 @@ def report_details(
         )
     )
     found_ids = [str(report.id) for report in reports]
-    priorities = _priorities(found_ids)
+    priorities = _priorities(team_id, found_ids)
     pull_requests = fetch_implementation_pr_state_for_reports(found_ids, team_id=team_id)
     details = []
     for report in reports:

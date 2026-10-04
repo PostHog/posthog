@@ -116,9 +116,10 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         manifest: str = MANIFEST,
         hours_ago: int = 1,
         served_version: str = SERVED_VERSION,
+        team: Team | None = None,
     ) -> None:
         SignalReportArtefact.objects.create(
-            team=self.team,
+            team=team or self.team,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
             content=_score(
@@ -176,7 +177,16 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         wrong_team = self._report(team=other_team)
         self._vector(wrong_team, hours_ago=5, team_id=self.team.pk)
 
-        assert sorted(self._due()) == sorted([unscored, edited, other_manifest, other_served])
+        # A newer current score stored under another team must not count as this report's score.
+        cross_team_score = self._report()
+        cross_team_vector = self._vector(cross_team_score, hours_ago=5)
+        self._scored(cross_team_score, vector_at=cross_team_vector, manifest=OLD_MANIFEST, hours_ago=3)
+        self._scored(cross_team_score, vector_at=cross_team_vector, team=other_team)
+        SignalReportArtefact.objects.filter(team=other_team, report_id=cross_team_score).update(
+            created_at=self.now + datetime.timedelta(hours=1)
+        )
+
+        assert sorted(self._due()) == sorted([unscored, edited, other_manifest, other_served, cross_team_score])
 
     def test_the_cap_keeps_unscored_reports_first_then_the_oldest_scores(self) -> None:
         recently_scored, long_ago_scored, unscored = self._report(), self._report(), self._report()
