@@ -271,10 +271,14 @@ export interface todayReportLogicMeta {
             asksJev: boolean,
             keyClauses: Record<string, KeyClauseApi[]>
         ) => Record<string, KeyClauseApi[]>
-        leadMarks: (lead: string, figureMarks: FigureMarkApi[] | null, signals: SignalViewApi[]) => TodayMarkedFigure[]
+        leadMarks: (
+            lead: string,
+            shownFigureMarks: FigureMarkApi[] | null,
+            signals: SignalViewApi[]
+        ) => TodayMarkedFigure[]
         impactMarks: (
             impactText: string,
-            figureMarks: FigureMarkApi[] | null,
+            shownFigureMarks: FigureMarkApi[] | null,
             signals: SignalViewApi[]
         ) => TodayMarkedFigure[]
         staleFiguresDate: (leadMarks: TodayMarkedFigure[], impactMarks: TodayMarkedFigure[]) => string | null
