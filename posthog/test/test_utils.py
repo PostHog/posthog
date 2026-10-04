@@ -170,7 +170,7 @@ class TestAbsoluteUrls(TestCase):
                 absolute_uri(url)
 
 
-class TestFormatUrls(TestCase):
+class TestFormatUrls(SimpleTestCase):
     factory = RequestFactory()
 
     def test_format_query_params_absolute_url(self) -> None:
@@ -178,6 +178,7 @@ class TestFormatUrls(TestCase):
         build_req.META = {"HTTP_HOST": "www.testserver"}
 
         test_to_expected: list = [
+            ((0, None), "http://www.testserver?offset=0"),
             ((50, None), "http://www.testserver?offset=50"),
             ((50, None), "http://www.testserver?offset=50"),
             ((None, 50), "http://www.testserver?limit=50"),
@@ -187,6 +188,7 @@ class TestFormatUrls(TestCase):
             ((None, 50), "http://www.testserver?limit=50"),
             ((50, 50), "http://www.testserver?offset=50&limit=50"),
             # test with alias
+            ((0, None, "off2", "lim2"), "http://www.testserver?off2=0"),
             ((50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
             ((50, None, "off2", "lim2"), "http://www.testserver?off2=50"),
             ((None, 50, "off2", "lim2"), "http://www.testserver?lim2=50"),
@@ -202,6 +204,47 @@ class TestFormatUrls(TestCase):
                 expected,
                 format_query_params_absolute_url(Request(request=build_req), *params),
             )
+
+    @parameterized.expand(
+        [
+            (
+                "first_page",
+                "/?offset=50&limit=50",
+                0,
+                "offset",
+                "http://www.testserver/?offset=0&limit=50",
+            ),
+            ("missing_offset", "/?limit=50", 0, "offset", "http://www.testserver/?limit=50&offset=0"),
+            ("alias", "/?off2=50&limit=50", 0, "off2", "http://www.testserver/?off2=0&limit=50"),
+            ("missing_alias", "/?limit=50", 0, "off2", "http://www.testserver/?limit=50&off2=0"),
+            (
+                "preserve_filters",
+                "/api/projects/1/persons/?event=%24pageview&offset=50&limit=50",
+                0,
+                "offset",
+                "http://www.testserver/api/projects/1/persons/?event=%24pageview&offset=0&limit=50",
+            ),
+            (
+                "preserve_other_offset",
+                "/?other_offset=25&offset=50",
+                0,
+                "offset",
+                "http://www.testserver/?other_offset=25&offset=0",
+            ),
+            ("already_zero", "/?offset=0&limit=50", 0, "offset", "http://www.testserver/?offset=0&limit=50"),
+            ("omitted_offset", "/?offset=50&limit=50", None, "offset", "http://www.testserver/?offset=50&limit=50"),
+            ("next_page", "/?offset=50&limit=50", 100, "offset", "http://www.testserver/?offset=100&limit=50"),
+        ]
+    )
+    def test_format_query_params_absolute_url_with_query_params(
+        self, _name: str, path: str, offset: int | None, offset_alias: str, expected: str
+    ) -> None:
+        request = Request(self.factory.get(path, HTTP_HOST="www.testserver"))
+
+        self.assertEqual(
+            format_query_params_absolute_url(request, offset=offset, offset_alias=offset_alias),
+            expected,
+        )
 
     def test_format_query_params_absolute_url_with_https(self) -> None:
         with self.settings(SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https")):
