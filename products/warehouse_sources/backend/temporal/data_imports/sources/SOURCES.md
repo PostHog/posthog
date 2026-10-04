@@ -111,6 +111,7 @@ the row lists both.
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
 | aws_iam_access_analyzer          | HTTP                        | requests                                                        | ✅                          |
 | aws_inspector                    | HTTP                        | requests                                                        | ✅                          |
+| aws_macie                        | HTTP                        | requests                                                        | ✅                          |
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
 | aws_sagemaker                    | HTTP                        | requests                                                        | ✅                          |
 | aws_savings_plans                | HTTP                        | requests                                                        | ✅                          |
@@ -930,7 +931,6 @@ doesn't conflict with concurrent PRs.
 - aws_cost_and_usage_report
 - aws_guardduty
 - aws_health
-- aws_macie
 - aws_rds_performance_insights
 - aws_support
 - aws_trusted_advisor
