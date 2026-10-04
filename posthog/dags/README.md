@@ -253,6 +253,41 @@ export DAGSTER_HOME=$(pwd)/.dagster_home && DAGSTER_WEB_PREAGGREGATED_MAX_PARTIT
 For production deployments, configure similar concurrency settings in your `dagster.yaml`.
 For PostHog employees, it is on our charts repo: https://github.com/PostHog/charts/tree/master/argocd/dagster
 
+## Manual maintenance jobs
+
+### `eventproperty_cleanup_job` (team-ingestion)
+
+Shrinks `posthog_eventproperty` on the cloud primary in paced, vacuumed batches.
+It has no schedule and no sensor; launch it from the launchpad, once per region.
+The default config is a dry run: it discovers and scores, and issues no `DELETE` or `VACUUM`.
+Modes, all gated by config in `posthog/dags/eventproperty_cleanup/config.py`:
+
+- `pollution_enabled` (default on): rows whose property has no EVENT-type `posthog_propertydefinition` in the project. These rows assert a property appeared on an event when it never did, so `skip_paying_orgs` does not apply to this mode.
+  A unit is one project plus a page of its event names (`pollution_event_batch`) plus that project's polluted property names. Every statement is driven by `posthog_event_property_unique_proj_event_property`, which covers all three predicates and backs a UNIQUE constraint, so the job depends on no index that can be dropped. Event names are read from `posthog_eventproperty` itself rather than `posthog_eventdefinition`: about 0.1% of rows have no definition row, and driving discovery from there would leave them unreachable.
+- `retention_days` (default off): rows for events whose `posthog_eventdefinition.last_seen_at` is older than the window.
+- `dormant_discovery_enabled` (default off): scores the largest tenants on cloud DB, persons DB and ClickHouse signals and reports a scorecard. Rows are deleted only for teams that are both eligible now and listed in `dormant_approved_team_ids`.
+
+Every unit re-checks its predicate inside the `DELETE`, so a failed run is resumed by launching the same config again.
+Pollution discovery records a resume point as an asset materialization (`eventproperty_cleanup/discovery_cursor/pollution`), so a relaunch starts where the last run stopped instead of re-walking work it already did. The point has two parts, because one project can be bigger than a whole range: the top of the last fully finished `team_id` range, plus the project and event name that were mid-flight. `start_after_team_id` overrides it for one run and `reset_cursor_after_run` sends it back to the start. A dry run never advances it, and an unreadable point falls back to the beginning rather than failing the run.
+Retention never records one: one of its units covers a set of event names, and the per-row re-check can end a batch while rows for the other names are still eligible, so treating that range as finished would skip them for good.
+Run pods are independent Kubernetes Jobs, so a Dagster agent or code deploy does not interrupt a run in flight. They carry `karpenter.sh/do-not-disrupt`, and their Job sets `backoffLimit: 0`, so a pod that does die is not retried: relaunch the same config and the resume point picks up where it stopped. Confirm a relaunched run actually scheduled -- the run pod pins an instance type, and an unschedulable run sits `Pending` indefinitely.
+The job runs as five sequential ops in a single process (`in_process_executor`); nothing is parallelized because the table lives on the shared cloud primary.
+Discovery and scoring read the Django `replica` connection when Dagster has one configured (`POSTHOG_POSTGRES_READ_HOST`), else the primary with a warning. Discovery walks `team_id` ranges (`discovery_team_chunk`) so no statement scans a whole table.
+First runs, in order. Step 2 is the smallest launch that exercises the resume point end to end: it walks a range, deletes one
+unit's rows, and records a point, so it proves the write path in Dagster+ before a long run depends on it.
+
+1. `dry_run: true`, `team_ids: [<one team>]` -- proves discovery and the predicates against real data, deletes nothing.
+2. `dry_run: false`, `max_units: 1` and no `team_ids` -- one unit, then check the run's asset materializations for a resume point.
+3. `dry_run: false`, `max_runtime_minutes: <a few hours>` -- a bounded pass. Relaunch the same config to continue.
+
+Before the first non-dry run on US, check `pg_replication_slots` on the primary: preflight refuses to run while a slot exists.
+As of the last check, CloudWatch reported `OldestReplicationSlotLag` at 0 for six hours straight on both writers, so nothing is retaining WAL and the gate should pass.
+If it does fire, look at whether the slot is active before overriding: an active slot that is caught up retains nothing, while an inactive one would hold every byte this job writes. That gate matters more on US than EU, because `posthog_eventproperty` is a member of the `big_tables` publication there, so an active slot would ship every delete downstream.
+Bound an exploratory run with `max_units` or `max_runtime_minutes`; both apply to discovery, not just deletion.
+At the default `sleep_seconds` the job clears roughly 9,800 rows/s, so a full pass over prod-US pollution takes on the order of two days rather than one sitting.
+That pace adds about 0.7 MB/s of WAL, against a measured 24-hour average of 8.4 MB/s on the prod-US writer, so it is a single-digit percentage on top of existing write load.
+Lowering `sleep_seconds` scales both together: 0.1 would clear roughly 85,000 rows/s and add about 6 MB/s, which is most of another writer's worth of traffic.
+
 ## Additional Resources
 
 - [Dagster Documentation](https://docs.dagster.io/)
