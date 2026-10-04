@@ -485,6 +485,9 @@ class TestPostgresSourceNonRetryableErrors:
             # Distinct from the transient "not yet accepting connections" startup refusal above (which
             # reads "not yet", not "not currently"). Host/db are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections',
+            # A serverless provider refuses every connect while the branch is hibernated, until the
+            # customer reactivates it. Host and IP are invented, not real values.
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  branch is hibernated, reactivate it to continue',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
