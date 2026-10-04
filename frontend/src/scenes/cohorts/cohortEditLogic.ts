@@ -64,7 +64,10 @@ import {
     PropertyType,
 } from '~/types'
 
-import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import {
+    cohortsRemovePersonsFromStaticCohortPartialUpdate,
+    cohortsUsedInRetrieve,
+} from 'products/cohorts/frontend/generated/api'
 import type {
     CohortRealtimeReadinessApi,
     CohortRealtimeStateEnumApi,
@@ -144,8 +147,10 @@ export interface cohortEditLogicValues {
     isPendingCalculation: boolean
     persistedColumns: string[] | null
     personsToCreateStaticCohort: Record<string, string | null>
+    personsToRemoveFromCohort: Record<string, true>
     pollTimeout: number | null
     query: DataTableNode
+    removingPersonsFromCohort: boolean
     showCohortErrors: boolean
     staticCohortMode: StaticCohortMode
     usedIn: CohortUsedInResponseApi | null
@@ -291,10 +296,19 @@ export interface cohortEditLogicActions {
     removePersonFromCreateStaticCohort: (personId: string) => {
         personId: string
     }
+    removeSelectedPersonsFromCohort: () => {
+        value: true
+    }
+    removeSelectedPersonsFromCohortDone: () => {
+        value: true
+    }
     resetCohort: (values?: CohortType) => {
         values?: CohortType
     }
     resetPersonsToCreateStaticCohort: () => {
+        value: true
+    }
+    resetPersonsToRemoveFromCohort: () => {
         value: true
     }
     restoreCohort: () => {
@@ -434,6 +448,9 @@ export interface cohortEditLogicActions {
     }
     submitCohortSuccess: (cohort: CohortType) => {
         cohort: CohortType
+    }
+    togglePersonToRemoveFromCohort: (personId: string) => {
+        personId: string
     }
     touchCohortField: (key: string) => {
         key: string
@@ -575,6 +592,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         addPersonToCreateStaticCohort: (personId: string, displayName: string | null) => ({ personId, displayName }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
+        togglePersonToRemoveFromCohort: (personId: string) => ({ personId }),
+        resetPersonsToRemoveFromCohort: true,
+        removeSelectedPersonsFromCohort: true,
+        removeSelectedPersonsFromCohortDone: true,
         resetPersonsToCreateStaticCohort: true,
         refreshPersonsData: true,
         setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
@@ -772,6 +793,30 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     return newState
                 },
                 resetPersonsToCreateStaticCohort: () => ({}),
+            },
+        ],
+        personsToRemoveFromCohort: [
+            {} as Record<string, true>,
+            {
+                togglePersonToRemoveFromCohort: (state, { personId }) => {
+                    const newState = { ...state }
+                    if (personId in newState) {
+                        delete newState[personId]
+                    } else {
+                        newState[personId] = true
+                    }
+                    return newState
+                },
+                resetPersonsToRemoveFromCohort: () => ({}),
+                // A new search or filter can hide selected rows, so drop the selection before the user removes them.
+                setQuery: () => ({}),
+            },
+        ],
+        removingPersonsFromCohort: [
+            false,
+            {
+                removeSelectedPersonsFromCohort: () => true,
+                removeSelectedPersonsFromCohortDone: () => false,
             },
         ],
         staticCohortMode: [
@@ -1160,8 +1205,40 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return
             }
 
+            posthog.capture('cohort persons removed', { cohort_id: values.cohort.id, count: 1, bulk: false })
+            if (personId in values.personsToRemoveFromCohort) {
+                actions.togglePersonToRemoveFromCohort(personId)
+            }
             lemonToast.success('Person removed from cohort')
             // Refresh cohort data + count
+            actions.refreshPersonsData()
+            actions.updateCohortCount()
+        },
+        removeSelectedPersonsFromCohort: async () => {
+            const cohortId = values.cohort.id
+            const personIds = Object.keys(values.personsToRemoveFromCohort)
+            if (cohortId === 'new' || personIds.length === 0) {
+                actions.removeSelectedPersonsFromCohortDone()
+                return
+            }
+
+            try {
+                const { removed_count } = await cohortsRemovePersonsFromStaticCohortPartialUpdate(
+                    String(values.currentProjectId),
+                    cohortId,
+                    { person_ids: personIds }
+                )
+                posthog.capture('cohort persons removed', { cohort_id: cohortId, count: removed_count, bulk: true })
+                lemonToast.success(`Removed ${removed_count} ${removed_count === 1 ? 'person' : 'people'} from cohort`)
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to remove people from cohort')
+                posthog.captureException(error, { feature: 'cohort-remove-persons' })
+                return
+            } finally {
+                actions.removeSelectedPersonsFromCohortDone()
+            }
+
+            actions.resetPersonsToRemoveFromCohort()
             actions.refreshPersonsData()
             actions.updateCohortCount()
         },

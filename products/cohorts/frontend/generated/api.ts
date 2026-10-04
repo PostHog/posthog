@@ -19,6 +19,8 @@ import type {
     PatchedAddPersonsToStaticCohortRequestApi,
     PatchedCohortApi,
     PatchedRemovePersonRequestApi,
+    PatchedRemovePersonsFromStaticCohortRequestApi,
+    RemovePersonsFromStaticCohortResponseApi,
     StaffCohortLookupResponseApi,
     StaffCohortRecalculateApi,
     StaffCohortRecalculateResponseApi,
@@ -322,6 +324,27 @@ export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedRemovePersonRequestApi),
     })
+}
+
+export const getCohortsRemovePersonsFromStaticCohortPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/remove_persons_from_static_cohort/`
+}
+
+export const cohortsRemovePersonsFromStaticCohortPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedRemovePersonsFromStaticCohortRequestApi?: PatchedRemovePersonsFromStaticCohortRequestApi,
+    options?: RequestInit
+): Promise<RemovePersonsFromStaticCohortResponseApi> => {
+    return apiMutator<RemovePersonsFromStaticCohortResponseApi>(
+        getCohortsRemovePersonsFromStaticCohortPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedRemovePersonsFromStaticCohortRequestApi),
+        }
+    )
 }
 
 export const getCohortsUsedInRetrieveUrl = (projectId: string, id: number) => {
