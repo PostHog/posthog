@@ -344,6 +344,26 @@ ACTIVE_CUSTOMERS_METRIC_DEFINITION: dict = {
     ),
 }
 
+NEW_PAYING_CUSTOMERS_METRIC_NAME = "new_paying_customers_monthly"
+NEW_PAYING_CUSTOMERS_METRIC_DISPLAY_NAME = "New paying customers (monthly)"
+NEW_PAYING_CUSTOMERS_METRIC_DESCRIPTION = (
+    "Count of Hedgebox accounts whose first-ever paid bill fell in the last full calendar month. A flow, "
+    "not a level: it counts the accounts that arrived in the month, not every account that paid."
+)
+NEW_PAYING_CUSTOMERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT distinct_id) AS new_paying_customers\n"
+        "FROM (\n"
+        "    SELECT distinct_id, min(timestamp) AS first_bill_at\n"
+        "    FROM paid_bills\n"
+        "    GROUP BY distinct_id\n"
+        ")\n"
+        "WHERE first_bill_at >= toStartOfMonth(now() - INTERVAL 1 MONTH)\n"
+        "  AND first_bill_at < toStartOfMonth(now())"
+    ),
+}
+
 YOY_MRR_GROWTH_METRIC_NAME = "yoy_mrr_growth"
 YOY_MRR_GROWTH_METRIC_DISPLAY_NAME = "Year-over-year MRR growth"
 YOY_MRR_GROWTH_METRIC_DESCRIPTION = (
