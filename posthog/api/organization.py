@@ -31,6 +31,7 @@ from posthog.event_usage import (
     groups,
     report_organization_action,
     report_organization_deleted,
+    report_organization_deletion_blocked,
     report_organization_deletion_initiated,
 )
 from posthog.exceptions_capture import capture_exception
@@ -568,9 +569,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, organization: Organization):
         from ee.billing.billing_manager import BillingManager
 
+        user = cast(User, self.request.user)
+
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
         if settings.DISABLE_BULK_DELETES:
+            report_organization_deletion_blocked(user, organization, "bulk_deletes_disabled", "api")
             raise exceptions.ValidationError(
                 "Organization deletion is temporarily disabled during database migration. Please try again later."
             )
@@ -582,15 +586,16 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_manager = BillingManager(license)
                 billing = billing_manager.get_billing(organization)
                 if billing.get("has_active_subscription"):
+                    report_organization_deletion_blocked(user, organization, "active_subscription", "api")
                     raise exceptions.ValidationError(
                         "Cannot delete organization with an active subscription. "
                         "Please cancel your subscription first in the billing page."
                     )
 
         if organization.is_pending_deletion:
+            report_organization_deletion_blocked(user, organization, "already_pending_deletion", "api")
             raise exceptions.ValidationError("This organization is already being deleted.")
 
-        user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         report_organization_deletion_initiated(user, organization)
         teams = list(organization.teams.only("id", "name").all())
