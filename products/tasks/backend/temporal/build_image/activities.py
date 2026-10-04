@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 if TYPE_CHECKING:
     import modal
@@ -349,6 +350,9 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
         try:
             with redirect_stdout(log_stream), redirect_stderr(log_stream), modal.enable_output():
                 built = modal_image.build(app)
+        except modal.exception.ImageBuildError as e:
+            # A spec that fails to build fails the same way on every attempt, so a retry only repeats the build.
+            raise ApplicationError(str(e) or "Image build failed", type="ImageBuildError", non_retryable=True) from e
         finally:
             stop_flusher.set()
             flusher.join(timeout=10)
