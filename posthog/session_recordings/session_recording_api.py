@@ -64,6 +64,7 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
@@ -189,6 +190,21 @@ def _request_auth_type(request) -> str:
     if isinstance(authenticator, JwtAuthentication):
         return "jwt"
     return "logged_in"
+
+
+# The replay asset proxy exists only for the player, so API clients such as personal API keys and OAuth get no token.
+_PLAYER_AUTHENTICATION_CLASSES = (
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+    ExportRendererAuthentication,
+)
+
+
+def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
+    if not isinstance(getattr(request, "successful_authenticator", None), _PLAYER_AUTHENTICATION_CLASSES):
+        return None
+    return mint_replay_proxy_token(team_id)
 
 
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
@@ -1544,7 +1560,7 @@ class SessionRecordingViewSet(
                 serializer = SessionRecordingSourcesSerializer(
                     {
                         "sources": sorted(sources, key=lambda x: x.get("start_timestamp", -1)),
-                        "replay_proxy_token": mint_replay_proxy_token(self.team_id),
+                        "replay_proxy_token": _replay_proxy_token_for_player(self.request, self.team_id),
                     }
                 )
 

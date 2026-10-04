@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -140,6 +142,43 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert call_args_list[0].kwargs.get("decompress") is True
         assert call_args_list[1].args == ("key1", 101, 200, session_id, self.team.id)
         assert call_args_list[1].kwargs.get("decompress") is True
+
+    @parameterized.expand([("logged_in", True), ("personal_api_key", False)])
+    @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks", return_value=[])
+    def test_sources_listing_gives_a_replay_proxy_token_only_to_the_player(
+        self,
+        auth: str,
+        expects_token: bool,
+        _mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        headers = {}
+        if auth == "personal_api_key":
+            personal_api_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Test Key",
+                user=self.user,
+                secure_value=hash_key_value(personal_api_key),
+                scopes=["session_recording:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers = {"authorization": f"Bearer {personal_api_key}"}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/", headers=headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (response.json()["replay_proxy_token"] is not None) == expects_token
 
     @parameterized.expand(
         [
