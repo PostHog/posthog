@@ -1125,6 +1125,104 @@ class TrainingRunHistorySerializer(serializers.Serializer):
     )
 
 
+class OnlinePerformanceQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=api.ONLINE_PERFORMANCE_DATES_DEFAULT,
+        min_value=1,
+        max_value=api.ONLINE_PERFORMANCE_DATES_MAX,
+        help_text=(
+            f"Maximum number of validated prediction dates to return, newest first "
+            f"(default {api.ONLINE_PERFORMANCE_DATES_DEFAULT}, at most {api.ONLINE_PERFORMANCE_DATES_MAX}). "
+            "Each date returns one row per model that emitted predictions on it."
+        ),
+    )
+
+
+class CalibrationBinSerializer(serializers.Serializer):
+    n = serializers.IntegerField(help_text="Number of scored users in this bin.")
+    mean_p_y = serializers.FloatField(help_text="Mean predicted probability of the users in this bin.")
+    positive_rate = serializers.FloatField(
+        help_text="Fraction of the users in this bin who did the target event within the horizon."
+    )
+
+
+class OnlinePerformanceRowSerializer(serializers.Serializer):
+    validation_run_id = serializers.UUIDField(help_text="UUID of the validation run that recorded these metrics.")
+    prediction_date = serializers.DateField(help_text="Date the predictions were made for (UTC).")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon, in days, the predictions were made under.")
+    weekday = serializers.IntegerField(
+        help_text="ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects."
+    )
+    model_id = serializers.UUIDField(help_text="UUID of the model that emitted the predictions.")
+    emitted_role = serializers.CharField(
+        help_text="Role the model had when it emitted the predictions: 'champion' or 'challenger'."
+    )
+    current_role = serializers.CharField(
+        help_text=(
+            "Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. "
+            "A former champion that a promotion archived keeps its rows."
+        )
+    )
+    n_scored = serializers.IntegerField(help_text="Number of users the model scored on this date.")
+    n_positive = serializers.IntegerField(help_text="Number of scored users who did the target event in the horizon.")
+    base_rate = serializers.FloatField(
+        help_text="Fraction of scored users who did the target event (n_positive / n_scored)."
+    )
+    mean_p_y = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Mean predicted probability. Compare it with base_rate: a higher value means the model "
+            "over-predicts. Null for dates validated before this metric existed."
+        ),
+    )
+    realized_auc = serializers.FloatField(
+        allow_null=True, help_text="Realized ROC AUC against actual outcomes. Null when the date has one class only."
+    )
+    realized_auc_ci_low = serializers.FloatField(
+        allow_null=True,
+        help_text="Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+    )
+    realized_auc_ci_high = serializers.FloatField(
+        allow_null=True,
+        help_text="Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+    )
+    brier_score = serializers.FloatField(allow_null=True, help_text="Brier score. Lower is better.")
+    calibration_error = serializers.FloatField(
+        allow_null=True, help_text="Expected calibration error over 10 equal-width bins. Lower is better."
+    )
+    lift_at_10 = serializers.FloatField(
+        allow_null=True, help_text="Positives in the top 10% by score, relative to a random 10%."
+    )
+    lift_at_20 = serializers.FloatField(
+        allow_null=True, help_text="Positives in the top 20% by score, relative to a random 20%."
+    )
+    calibration_bins = CalibrationBinSerializer(
+        many=True,
+        allow_null=True,
+        help_text=(
+            "Calibration table with up to 10 bins cut at score quantiles, lowest scores first. "
+            "Users with equal scores share a bin, so heavy ties give fewer bins. "
+            "Null for dates validated before this metric existed."
+        ),
+    )
+    warning = serializers.CharField(
+        allow_null=True,
+        help_text="'single_class_no_auc' when every scored user had the same outcome, otherwise null.",
+    )
+    validated_at = serializers.DateTimeField(allow_null=True, help_text="When the validation run completed.")
+
+
+class OnlinePerformanceSerializer(serializers.Serializer):
+    rows = OnlinePerformanceRowSerializer(
+        many=True,
+        help_text=(
+            "One row per model per validated prediction date, newest date first. "
+            "Empty until a prediction horizon has elapsed and online validation has run."
+        ),
+    )
+
+
 @extend_schema_serializer(component_name="AutoresearchRun")
 class AutoresearchRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this run.")

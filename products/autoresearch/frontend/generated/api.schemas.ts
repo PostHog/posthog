@@ -1319,6 +1319,98 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface CalibrationBinApi {
+    /** Number of scored users in this bin. */
+    n: number
+    /** Mean predicted probability of the users in this bin. */
+    mean_p_y: number
+    /** Fraction of the users in this bin who did the target event within the horizon. */
+    positive_rate: number
+}
+
+export interface OnlinePerformanceRowApi {
+    /** UUID of the validation run that recorded these metrics. */
+    validation_run_id: string
+    /** Date the predictions were made for (UTC). */
+    prediction_date: string
+    /** Prediction horizon, in days, the predictions were made under. */
+    horizon_days: number
+    /** ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects. */
+    weekday: number
+    /** UUID of the model that emitted the predictions. */
+    model_id: string
+    /** Role the model had when it emitted the predictions: 'champion' or 'challenger'. */
+    emitted_role: string
+    /** Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows. */
+    current_role: string
+    /** Number of users the model scored on this date. */
+    n_scored: number
+    /** Number of scored users who did the target event in the horizon. */
+    n_positive: number
+    /** Fraction of scored users who did the target event (n_positive / n_scored). */
+    base_rate: number
+    /**
+     * Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    mean_p_y: number | null
+    /**
+     * Realized ROC AUC against actual outcomes. Null when the date has one class only.
+     * @nullable
+     */
+    realized_auc: number | null
+    /**
+     * Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_low: number | null
+    /**
+     * Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_high: number | null
+    /**
+     * Brier score. Lower is better.
+     * @nullable
+     */
+    brier_score: number | null
+    /**
+     * Expected calibration error over 10 equal-width bins. Lower is better.
+     * @nullable
+     */
+    calibration_error: number | null
+    /**
+     * Positives in the top 10% by score, relative to a random 10%.
+     * @nullable
+     */
+    lift_at_10: number | null
+    /**
+     * Positives in the top 20% by score, relative to a random 20%.
+     * @nullable
+     */
+    lift_at_20: number | null
+    /**
+     * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    calibration_bins: CalibrationBinApi[] | null
+    /**
+     * 'single_class_no_auc' when every scored user had the same outcome, otherwise null.
+     * @nullable
+     */
+    warning: string | null
+    /**
+     * When the validation run completed.
+     * @nullable
+     */
+    validated_at: string | null
+}
+
+export interface OnlinePerformanceApi {
+    /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
+    rows: OnlinePerformanceRowApi[]
+}
+
 export interface StartTrainingRequestApi {
     /**
      * Override the pipeline iteration budget for this training run.
@@ -1610,6 +1702,15 @@ export type AutoresearchTrainingRunsHistoryRetrieveParams = {
      * Maximum number of prior runs to return (default 5, at most 20).
      * @minimum 1
      * @maximum 20
+     */
+    limit?: number
+}
+
+export type AutoresearchOnlinePerformanceRetrieveParams = {
+    /**
+     * Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.
+     * @minimum 1
+     * @maximum 180
      */
     limit?: number
 }

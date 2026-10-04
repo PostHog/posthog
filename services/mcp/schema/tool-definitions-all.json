@@ -1179,6 +1179,21 @@
         },
         "feature_flag": "autoresearch"
     },
+    "autoresearch-online-performance-retrieve": {
+        "description": "Read how a pipeline's models performed against real outcomes, one row per model per validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean_p_y against base_rate (mean_p_y above base_rate means the model over-predicts), lift at 10% and 20%, the ISO weekday, and the model's role when it emitted and now. Use it to see trends across dates and to judge a champion right after a promotion: the archived former champion keeps its rows, while the new champion has none until its first horizon elapses. A wide AUC interval means the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has run. Use limit to bound the number of dates (default 60).",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Read realized performance history",
+        "title": "Read realized performance history",
+        "required_scopes": ["autoresearch:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "autoresearch"
+    },
     "autoresearch-resolve-template-create": {
         "description": "Start here to create a pipeline from a template. Resolve a template key and optional overrides into a ready-to-use pipeline config. An unknown key returns 400. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and 'repeat_key_behavior', supply target_event (required). After resolving: (1) call autoresearch-validate-create with the resolved target_event, horizon_days, training_lookback_days, training_population and inference_population, so validation counts the same window the pipeline will use; (2) if can_proceed is true, call autoresearch-create with name set to suggested_name and the same five fields plus output_person_property. For an action target, pass the same target_definition to both calls; target_event then only labels it, and both calls need the action:read scope.",
         "category": "Autoresearch",
