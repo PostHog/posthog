@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import date
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
@@ -49,6 +50,9 @@ class DataForSEOEndpointConfig:
     localized: bool = True
     # Static extra payload fields sent on every request for this endpoint.
     extra_payload: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # The earliest date_from that DataForSEO documents for a history endpoint. The transport sends
+    # it as date_from, and moves to a recent start date if the API rejects it.
+    min_date_from: date | None = None
     # A stable date column used for datetime partitioning. Only set where rows carry a
     # never-changing date (historical months); snapshot tables hold few rows per target.
     partition_key: str | None = None
@@ -71,7 +75,7 @@ DATAFORSEO_ENDPOINTS: dict[str, DataForSEOEndpointConfig] = {
         primary_keys=["target", "year", "month"],
         # DataForSEO's documented minimum for date_from; without it the API returns only the
         # trailing 6 months, which is too little history for a warehouse.
-        extra_payload={"date_from": "2020-10-01"},
+        min_date_from=date(2020, 10, 1),
         partition_key="date",
         description="Monthly history of organic and paid ranking metrics per target domain since October 2020 (one row per target per month). Full refresh.",
     ),
@@ -138,7 +142,8 @@ DATAFORSEO_ENDPOINTS: dict[str, DataForSEOEndpointConfig] = {
         localized=False,
         # Unlike /backlinks/history/live, this endpoint does not default date_from to its documented
         # minimum, so ask for the full range explicitly.
-        extra_payload={"date_from": "2019-01-30", "group_range": "month", "include_subdomains": True},
+        extra_payload={"group_range": "month", "include_subdomains": True},
+        min_date_from=date(2019, 1, 30),
         partition_key="date",
         description="Monthly trend of each target domain's link profile since January 2019: backlinks, referring domains, pages, IPs, and subnets, with nofollow splits. Requires an active DataForSEO Backlinks API subscription. Full refresh.",
         should_sync_default=False,
