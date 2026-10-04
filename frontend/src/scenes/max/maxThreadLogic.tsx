@@ -1730,7 +1730,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
-                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+                const conversationAgentMode = conversation.agent_mode as AgentMode
+                // Older conversations can carry a retired mode (e.g. user interviews) that no longer
+                // has a MODE_DEFINITIONS entry. Fall back to the default mode, matching the backend's
+                // own fallback in ee/hogai/chat_agent/mode_manager.py, so the selector doesn't render
+                // the raw stored value.
+                actions.syncAgentModeFromConversation(
+                    conversationAgentMode in MODE_DEFINITIONS ? conversationAgentMode : AgentMode.ProductAnalytics
+                )
             }
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)
