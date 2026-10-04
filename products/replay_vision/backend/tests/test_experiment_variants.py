@@ -1,5 +1,8 @@
+import uuid
 from datetime import timedelta
 from typing import Any
+
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -14,8 +17,10 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+from products.signals.backend.facade.api import ScoutStructuredRecord, SourceScout
 
 _UNSET = object()
+_SIGNALS = "products.replay_vision.backend.variant_analysis.signals_facade"
 
 
 class TestExperimentVariants(_VisionAPITestCase):
@@ -91,6 +96,74 @@ class TestExperimentVariants(_VisionAPITestCase):
         assert body["window"]["total_observations"] == 6
         assert body["experiment"]["id"] == self.experiment.id
         assert body["experiment"]["current_day"] >= 1
+        assert body["analysis"] is None and body["differences"] is None
+
+    @parameterized.expand([("current_version", True), ("older_version", False)])
+    def test_readout_shows_the_variant_analysis_for_the_current_version(self, _name: str, current: bool) -> None:
+        control = self._observation("control")
+        test = self._observation("test")
+        payload = {
+            # A prompt edit bumps the version, and a record from before it compared differently focused summaries.
+            "scanner_version": self.scanner.scanner_version if current else self.scanner.scanner_version - 1,
+            "observations_read": {"control": 30, "test": 28},
+            "variants": {
+                # The scout cites ids itself, so one from another variant or one that isn't an observation of
+                # this scanner must not be shown as evidence.
+                "control": [
+                    {
+                        "theme": "Hesitates at checkout",
+                        "statement": "Waits on the payment step.",
+                        "count": 9,
+                        "example_observation_ids": [str(control.id), str(test.id)],
+                    }
+                ],
+                "test": [
+                    {
+                        "theme": "Hesitates at checkout",
+                        "statement": "Rarely waits.",
+                        "count": 2,
+                        "example_observation_ids": [str(uuid.uuid4()), "not-an-id"],
+                    }
+                ],
+            },
+            "differences": [
+                {
+                    "theme": "Hesitates at checkout",
+                    "statement": "Control waits more.",
+                    "counts": {"control": 9, "test": 2},
+                }
+            ],
+        }
+        scout = SourceScout(config_id="config-1", skill_name="signals-scout-x", enabled=True, created_at=timezone.now())
+        record = ScoutStructuredRecord(
+            payload=payload, recorded_at=timezone.now(), skill_name="signals-scout-x", run_id="r"
+        )
+
+        with (
+            patch(f"{_SIGNALS}.scouts_for_source", return_value=[scout]),
+            patch(f"{_SIGNALS}.latest_structured_output_for_source", return_value=record),
+        ):
+            body = self.client.get(self.variants_url).json()
+
+        by_key = {v["key"]: v for v in body["variants"]}
+        assert body["analysis"]["scout_config_id"] == "config-1"
+        assert body["analysis"]["current"] is current
+        if not current:
+            assert body["differences"] is None
+            assert all(v["digest"] is None and v["analysis_observations"] is None for v in body["variants"])
+            return
+        assert by_key["control"]["digest"] == [
+            {
+                "theme": "Hesitates at checkout",
+                "statement": "Waits on the payment step.",
+                "count": 9,
+                "example_observation_ids": [str(control.id)],
+            }
+        ]
+        assert by_key["test"]["digest"][0]["example_observation_ids"] == []
+        assert by_key["control"]["analysis_observations"] == 30
+        assert by_key["beta"]["digest"] == [] and by_key["beta"]["analysis_observations"] == 0
+        assert body["differences"] == payload["differences"]
 
     def test_a_non_experiment_scanner_has_no_variants(self) -> None:
         monitor = self._create_scanner(name="monitor")

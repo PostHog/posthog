@@ -216,13 +216,19 @@ class TestFindScannerCandidatesActivity:
             experiment.deleted = True
         experiment.save()
 
-        with _patched_queries() as (fast_query, deep_query):
+        with (
+            _patched_queries() as (fast_query, deep_query),
+            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+        ):
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
         assert result.candidates == []
         assert not fast_query.called and not deep_query.called
+        # Once the data stops changing, the variant analysis scout would only re-read it on the
+        # customer's bill. A pause resumes, so its scout sits the pause out.
+        assert pause_scouts.called is (state != "paused")
         scanner.refresh_from_db()
         assert scanner.enabled is (state != "deleted")
         if state != "deleted":

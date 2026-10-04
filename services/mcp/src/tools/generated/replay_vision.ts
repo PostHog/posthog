@@ -1703,6 +1703,9 @@ const visionScannersScoutsCreate = (): ToolBase<
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.variant_analysis !== undefined) {
+            body['variant_analysis'] = params.variant_analysis
+        }
         const result = await context.api.request<Schemas.ScannerScoutCreateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/scouts/`,
@@ -1840,6 +1843,30 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
     },
 })
 
+const VisionScannersVariantsListSchema = () => {
+    const VisionScannersVariantsListParams = orvalSchemas.VisionScannersVariantsListParams()
+    return VisionScannersVariantsListParams.omit({ project_id: true })
+}
+
+const visionScannersVariantsList = (): ToolBase<
+    ReturnType<typeof VisionScannersVariantsListSchema>,
+    WithAgentNote<Schemas.ExperimentVariantsReadout[]>
+> => ({
+    name: 'vision-scanners-variants-list',
+    schema: VisionScannersVariantsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersVariantsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentVariantsReadout[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/variants/`,
+        })
+        return withAgentNote(
+            result,
+            "The observation, people and session counts are counted live and are the numbers to trust. Digest and difference counts come from the variant analysis scout, so read them as shares of each variant's `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call `vision-scanners-observations-list` with `variant` set to its key.\n"
+        )
+    },
+})
+
 const VisionScannersWatchFeedSchema = () => {
     const VisionScannersWatchFeedRetrieveQueryParams = orvalSchemas.VisionScannersWatchFeedRetrieveQueryParams()
     return VisionScannersWatchFeedRetrieveQueryParams
@@ -1938,5 +1965,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-self-driving-stats': visionScannersSelfDrivingStats,
     'vision-scanners-suggest-tags': visionScannersSuggestTags,
     'vision-scanners-update': visionScannersUpdate,
+    'vision-scanners-variants-list': visionScannersVariantsList,
     'vision-scanners-watch-feed': visionScannersWatchFeed,
 }
