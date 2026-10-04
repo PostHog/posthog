@@ -1748,8 +1748,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.54.1
-        version: 5.54.1(rxjs@7.8.1)
+        specifier: 5.55.0
+        version: 5.55.0(rxjs@7.8.1)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -5526,7 +5526,7 @@ importers:
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.21.2
-        version: '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
+        version: '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -5564,8 +5564,8 @@ importers:
         specifier: 4.12.1
         version: 4.12.1
       posthog-node:
-        specifier: ^5.54.1
-        version: 5.54.1(rxjs@7.8.1)
+        specifier: ^5.55.0
+        version: 5.55.0(rxjs@7.8.1)
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
@@ -20388,8 +20388,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.54.1:
-    resolution: {integrity: sha512-3+tg86gLKRaR+MjQOdALGUJQDAXHWVyDUJI2h3EJa0c4GWTQu3+R62C3t49dz1T3QWyJq1msq5Qa+B55/ZEHxg==}
+  posthog-node@5.55.0:
+    resolution: {integrity: sha512-8dFtlDTqs0CKGZ8t4mUnk4NdShAgzru3B9D0MfM/NTBzlRyAjctivzWINLtMLRQxYjvgBohxy7RTwiQf4mPycQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       rxjs: ^7.0.0
@@ -30358,10 +30358,10 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
+  '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))':
     dependencies:
       '@posthog/core': 1.55.2
-      posthog-node: 5.54.1(rxjs@7.8.1)
+      posthog-node: 5.55.0(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
 
@@ -42613,7 +42613,7 @@ snapshots:
       '@types/react': 18.3.27
       react: 18.3.1
 
-  posthog-node@5.54.1(rxjs@7.8.1):
+  posthog-node@5.55.0(rxjs@7.8.1):
     dependencies:
       '@posthog/core': 1.55.2
     optionalDependencies:
