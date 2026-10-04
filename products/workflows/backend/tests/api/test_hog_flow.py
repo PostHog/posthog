@@ -6868,6 +6868,16 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert activated.status_code == status.HTTP_400_BAD_REQUEST, activated.json()
         assert "AI decisions aren't available" in str(activated.json()), activated.json()
 
+    def test_a_programmatic_edit_that_sends_only_edges_still_needs_every_answer_edge(self) -> None:
+        flow = _ai_decision_flow({})
+        flow_id = self._post(flow).json()["id"]
+        without_last_answer = [edge for edge in flow["edges"] if not (edge["type"] == "branch" and edge["index"] == 1)]
+
+        response = self._patch(flow_id, {"edges": without_last_answer}, flag_enabled=True)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "graph" in response.json()["attr"], response.json()
+
     def test_a_stored_decision_does_not_unlock_a_flag_gated_template(self) -> None:
         template = deepcopy(webhook_template)
         template["id"] = "template-posthog-run-scout"

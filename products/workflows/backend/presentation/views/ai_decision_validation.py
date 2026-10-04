@@ -44,8 +44,8 @@ class AIDecisionConfigSerializer(serializers.Serializer):
         child=AIDecisionOptionSerializer(),
         required=False,
         default=list,
-        max_length=MAX_OPTIONS_PER_QUESTION,
-        help_text=f"pick_one only: {MIN_OPTIONS} to {MAX_OPTIONS_PER_QUESTION} options with unique names, in output order.",
+        max_length=MAX_OPTIONS,
+        help_text=f"pick_one only: {MIN_OPTIONS} to {MAX_OPTIONS} options with unique names, in output order.",
     )
     yes_means = serializers.CharField(
         max_length=500,
@@ -87,7 +87,7 @@ class AIDecisionConfigSerializer(serializers.Serializer):
             names = [option["name"] for option in attrs["options"]]
             if len(names) < MIN_OPTIONS:
                 raise serializers.ValidationError(
-                    {"options": f"Enter between {MIN_OPTIONS} and {MAX_OPTIONS_PER_QUESTION} options."}
+                    {"options": f"Enter between {MIN_OPTIONS} and {MAX_OPTIONS} options."}
                 )
             if len(set(names)) != len(names):
                 raise serializers.ValidationError({"options": "Give each option a different name."})

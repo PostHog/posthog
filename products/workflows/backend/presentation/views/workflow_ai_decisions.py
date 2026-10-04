@@ -17,6 +17,7 @@ from products.workflows.backend.facade.contracts import (
     AIDecisionAnswered,
     AIDecisionCall,
     AIDecisionFailed,
+    AIDecisionFailureReason,
     AIDecisionOutcome,
     AIDecisionQuestion,
     AIDecisionThrottled,
@@ -179,7 +180,7 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             )
 
 
-def _fails_every_decision(code: AIDecisionErrorCode, reason: str | None) -> bool:
+def _fails_every_decision(code: AIDecisionErrorCode, reason: AIDecisionFailureReason | None) -> bool:
     # An answer that does not fit its question is a gateway contract break, not one bad input.
     return code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE or reason in (
         "region_without_decisions",

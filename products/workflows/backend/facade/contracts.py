@@ -277,20 +277,20 @@ class AIDecisionAnswered:
     input_tokens: int
 
 
+AIDecisionFailureReason = Literal[
+    "gateway_status",
+    "gateway_not_configured",
+    "region_without_decisions",
+    "unreadable_state",
+    "answer_does_not_fit_question",
+]
+
+
 @frozen
 class AIDecisionFailed:
     code: AIDecisionErrorCode
     # A cause for logs only, never a state value or a gateway body.
-    reason: (
-        Literal[
-            "gateway_status",
-            "gateway_not_configured",
-            "region_without_decisions",
-            "unreadable_state",
-            "answer_does_not_fit_question",
-        ]
-        | None
-    ) = None
+    reason: AIDecisionFailureReason | None = None
     status_code: int | None = None
 
 

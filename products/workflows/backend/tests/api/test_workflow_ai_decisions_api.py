@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from structlog.processors import format_exc_info
 from structlog.testing import capture_logs
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -404,7 +405,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
     )
     def test_logs_never_carry_the_state_or_a_gateway_body(self, _name: str, error: Exception | None) -> None:
         reply: Any = json.loads("[" * 300 + '"state-secret"' + "]" * 300) if error is None else "state-secret"
-        with capture_logs() as logs, patch(_DECIDE, side_effect=error):
+        with capture_logs(processors=[format_exc_info]) as logs, patch(_DECIDE, side_effect=error):
             response = self._post({"state": {"reply": reply}})
 
         assert logs
