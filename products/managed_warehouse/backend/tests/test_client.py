@@ -4,20 +4,30 @@ from unittest import mock
 from django.apps import apps
 
 from parameterized import parameterized
-from psycopg import sql as psql
+from prometheus_client import REGISTRY
+from psycopg import (
+    InterfaceError,
+    OperationalError,
+    errors as psycopg_errors,
+    sql as psql,
+)
 
 from posthog.schema import HogQLQuery, HogQLVariable
 
 from products.managed_warehouse.backend.client import (
     _SEARCH_PATH_SCHEMAS,
     _configure_s3_secrets,
+    _connection_failure_reason,
     _s3_secrets_for_database,
     compile_hogql_to_ducklake_sql,
     execute_ducklake_create_table,
     execute_ducklake_query,
     make_duckgres_conninfo,
 )
-from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeCompiledQuery,
+    ManagedWarehouseQueryConnectionError,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -305,6 +315,87 @@ class TestManagedWarehouseShadowCompilation:
         # Userless shadow materialization: no actor is threaded through.
         assert kwargs.get("team") is None
         assert kwargs.get("user") is None
+
+
+class TestExecuteDuckLakeQueryConnectionFailures:
+    # The duckgres driver message names internal hosts, shard poolers and per-tenant
+    # metadata databases, and callers put it in front of a user.
+    LEAKY_DRIVER_MESSAGE = (
+        "connection failed: host=10.4.7.19 port=6432 dbname=__ducklake_metadata_tenant_9142: "
+        "activate tenant: DuckLake configured but attachment failed"
+    )
+
+    @staticmethod
+    def _mock_connection(mock_psycopg, execute_error: Exception):
+        mock_cursor = mock.MagicMock()
+        mock_cursor.execute.side_effect = execute_error
+        mock_conn = mock.MagicMock()
+        mock_conn.cursor.return_value.__enter__ = mock.Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+        mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
+        mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
+
+    @staticmethod
+    def _failure_count(phase: str, reason: str) -> float:
+        value = REGISTRY.get_sample_value(
+            "managed_warehouse_ducklake_query_connection_failure_total",
+            {"phase": phase, "reason": reason},
+        )
+        return value or 0.0
+
+    @parameterized.expand(["connect", "execute"])
+    @mock.patch("products.managed_warehouse.backend.client.psycopg")
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)
+    def test_connection_failure_hides_topology(self, phase, _mock_dev_mode, mock_psycopg):
+        error = OperationalError(self.LEAKY_DRIVER_MESSAGE)
+        if phase == "connect":
+            mock_psycopg.connect.side_effect = error
+        else:
+            self._mock_connection(mock_psycopg, error)
+        before = self._failure_count(phase, "tenant_activation")
+
+        with pytest.raises(ManagedWarehouseQueryConnectionError) as excinfo:
+            execute_ducklake_query(1, sql="SELECT 1")
+
+        message = str(excinfo.value)
+        assert "10.4.7.19" not in message
+        assert "6432" not in message
+        assert "__ducklake_metadata_tenant_9142" not in message
+        assert "activate tenant" not in message
+        assert self._failure_count(phase, "tenant_activation") == before + 1
+
+    @mock.patch("products.managed_warehouse.backend.client.psycopg")
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)
+    def test_dropped_connection_is_caught_too(self, _mock_dev_mode, mock_psycopg):
+        self._mock_connection(mock_psycopg, InterfaceError("connection is closed"))
+
+        with pytest.raises(ManagedWarehouseQueryConnectionError):
+            execute_ducklake_query(1, sql="SELECT 1")
+
+    @mock.patch("products.managed_warehouse.backend.client.psycopg")
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)
+    def test_query_error_still_reaches_the_caller(self, _mock_dev_mode, mock_psycopg):
+        self._mock_connection(mock_psycopg, psycopg_errors.SyntaxError("syntax error at or near FROM"))
+
+        with pytest.raises(psycopg_errors.SyntaxError, match="syntax error"):
+            execute_ducklake_query(1, sql="SELECT FROM")
+
+    @parameterized.expand(
+        [
+            ("tenant_activation", "activate tenant: DuckLake configured but attachment failed", "tenant_activation"),
+            ("timeout", "catalog attachment timed out after 60 seconds", "timeout"),
+            ("capacity", "FATAL: sorry, too many clients already", "capacity"),
+            ("unreachable", "connection refused: is the server running?", "unreachable"),
+            ("unclassified", "something the pooler has never said before", "unknown"),
+        ]
+    )
+    def test_classifies_failure_reason(self, _name, driver_message, expected_reason):
+        assert _connection_failure_reason(OperationalError(driver_message)) == expected_reason
+
+    def test_prefers_sqlstate_over_the_message(self):
+        # "terminating connection due to administrator command" matches no message pattern,
+        # so without the SQLSTATE this lands in the unknown bucket the counter exists to shrink.
+        assert _connection_failure_reason(psycopg_errors.AdminShutdown()) == "connection_lost"
 
 
 class TestMakeDuckgresConninfoApplicationName:
