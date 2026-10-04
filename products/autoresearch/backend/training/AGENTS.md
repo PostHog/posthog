@@ -38,7 +38,8 @@ The other half is `../inference/`, which consumes what this package produces and
   After the fit, `check_scorability()` runs the bundle's `features.sql` against today's inference anchors under `BATCH_QUERY` and records `scorability_elapsed_s`, `scorability_rows_read` and `scorability_bytes_read` in the model metrics.
   A failed fit, a failed check, or a check above `SCORABILITY_TIME_BUDGET_S` (half the batch query limit) rolls the promotion back under the pipeline lock: the candidate becomes a challenger with `not_promoted_reason` in its metrics, and the champion it archived comes back. A first champion that rolls back puts the pipeline back in the status it had before promotion.
   The rollback changes nothing when the candidate is no longer the champion. A scoring run that started with the candidate fails in `_require_still_champion()` before it emits.
-  A champion that is already unscorable is not repaired here, and a recipe-only champion is not checked.
+  A recipe-only champion is not checked.
+  A champion whose scheduled scoring runs failed with a repeatable `failure_kind` on the last two prediction dates, with no success after the first of them, is unscorable (`find_unscorable_champion()` in `../inference/failures.py`). Any candidate replaces it whatever the margin, with `promotion_reason` `replaced_unscorable` in the model metrics, and the fit and the scorability check still roll back a candidate that cannot score either. The brief tells the agent the failure kind and the onset date.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.
