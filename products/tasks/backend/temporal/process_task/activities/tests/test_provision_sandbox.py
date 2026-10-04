@@ -680,7 +680,6 @@ def test_blocked_organization_creates_no_sandbox(
     [
         ("get_connect_credentials", False),
         ("get_connect_credentials", True),
-        ("start_cpu_billing_sampler", False),
     ],
 )
 def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
@@ -747,6 +746,7 @@ def _create_and_record_agent_version(
     context: TaskProcessingContext | None = None,
     prepared: PrepareSandboxForRepositoryOutput | None = None,
     snapshot_restored: bool = False,
+    cpu_billing_sampler_error: Exception | None = None,
 ) -> tuple[MagicMock, list[dict[str, str]]]:
     context = context or _context_for_desktop_bootstrap()
     context.state = {"await_user_message": True}
@@ -755,6 +755,7 @@ def _create_and_record_agent_version(
     sandbox.config.snapshot_restored = snapshot_restored
     sandbox.config.ttl_seconds = 60
     sandbox.start_cpu_billing_sampler.return_value = True
+    sandbox.start_cpu_billing_sampler.side_effect = cpu_billing_sampler_error
     sandbox.launch_dev_stack_bootstrap.return_value = False
     if isinstance(manifest_result, Exception):
         sandbox.execute.side_effect = manifest_result
@@ -791,6 +792,15 @@ def _create_and_record_agent_version(
         if call.args[0] == "Sandbox agent version differs from the pinned version"
     ]
     return update_state, mismatch_extras
+
+
+def test_a_cpu_billing_sampler_error_does_not_fail_the_launch(mocker) -> None:
+    _create_and_record_agent_version(
+        mocker,
+        _MANIFEST_1_2_3,
+        "1.2.3",
+        cpu_billing_sampler_error=RuntimeError("read access could not be authorized"),
+    )
 
 
 @pytest.mark.parametrize(
