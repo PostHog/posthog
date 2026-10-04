@@ -13,7 +13,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
-from products.replay_vision.backend.variant_analysis import variant_analysis_config
+from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG, variant_analysis_config
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigSerializer, SignalScoutCreateSerializer
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission, scout_config_context
@@ -113,6 +113,20 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if validated["variant_analysis"]:
             if scanner.scanner_type != ScannerType.EXPERIMENT:
                 raise ValidationError({"variant_analysis": "Variant analysis needs an experiment scanner."})
+            existing = signals_facade.scouts_for_source(
+                scanner.team_id, SCOUT_SOURCE_PRODUCT, str(scanner.id), tag=VARIANT_ANALYSIS_TAG
+            )
+            # One per scanner, paused ones included: the variants readout shows one scout's records.
+            # The same name again adopts that scout (a retried create), so it isn't a second one.
+            if any(scout.skill_name != validated.get("name") for scout in existing):
+                raise ValidationError(
+                    {
+                        "variant_analysis": (
+                            "This scanner already has a variant analysis scout. "
+                            "Turn that one back on or edit it instead."
+                        )
+                    }
+                )
             # Attached here, not taken from the body, so the record the readout reads always has the
             # shape it expects.
             config_options = variant_analysis_config(config_options)

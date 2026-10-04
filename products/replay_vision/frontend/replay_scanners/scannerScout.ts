@@ -13,6 +13,15 @@ import { SIGNALS_SCOUT_SKILL_PREFIX } from 'products/signals/frontend/inbox/util
 // agree or a scanner stops finding its own scouts.
 const SCOUT_SOURCE_PRODUCT = 'replay_vision'
 
+// pinned: the tag the backend's `VARIANT_ANALYSIS_TAG` puts on a variant analysis scout's config. The
+// two must agree, or the template card offers a second scout the API then refuses.
+const VARIANT_ANALYSIS_TAG = 'replay-vision-variant-analysis'
+
+/** The scanner's variant analysis scout, if it has one. The API allows one per scanner. */
+export function variantAnalysisScout(configs: SignalScoutConfigApi[]): SignalScoutConfigApi | undefined {
+    return configs.find((config) => config.tags?.includes(VARIANT_ANALYSIS_TAG))
+}
+
 /** Whether this scout was stood up for this scanner. The pair is recorded on the config when the
  * scout is created and is not user-editable, so it cannot be lost the way a label could. */
 export function isScannerScoutConfig(config: SignalScoutConfigApi, scannerId: string): boolean {

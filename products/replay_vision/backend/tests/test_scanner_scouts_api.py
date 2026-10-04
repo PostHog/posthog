@@ -68,12 +68,25 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         validate_structured_output_schema(config.structured_output_schema)
         assert VARIANT_ANALYSIS_TAG in config.tag_list
 
+        # A retried create adopts the same scout, but a second one would split the readout's records.
+        retry = self.client.post(
+            url, data=self._payload(name="signals-scout-variant-analysis", variant_analysis=True), format="json"
+        )
+        assert retry.status_code == 200, retry.json()
+
         assert pause_variant_analysis_scouts(scanner) == 1
         with team_scope(self.team.id):
             enabled = dict(
                 SignalScoutConfig.objects.filter(source_id=str(scanner.id)).values_list("skill_name", "enabled")
             )
         assert enabled == {"signals-scout-variant-analysis": False, "signals-scout-daily-digest": True}
+
+        # Paused still counts: the way back is to turn it on, not to add another.
+        second = self.client.post(
+            url, data=self._payload(name="signals-scout-variant-analysis-2", variant_analysis=True), format="json"
+        )
+        assert second.status_code == 400, second.json()
+        assert second.json()["attr"] == "variant_analysis"
 
     def test_variant_analysis_needs_an_experiment_scanner(self) -> None:
         response = self.client.post(
