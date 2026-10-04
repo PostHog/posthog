@@ -5226,6 +5226,7 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
+    run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null

@@ -73,5 +73,6 @@ Hence the explicit separation between the data and view layers.
   - Write [logic tests](https://keajs.org/docs/intro/testing) for all logic files.
   - [react testing library](https://testing-library.com/docs/react-testing-library/intro/) tests are particularly useful for components with complex interactions or to guide future humans or agents when they're changing components without full context of the uses and edge cases
   - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally.
+  - In web Storybook play functions, import `within` and `waitFor` from `@testing-library/dom`. The preview configures their async timeout; `storybook/test` uses a separate default.
 
 > Sync note: This file is also copied to posthog/posthog/.claude/commands/conventions.md for Claude Code. When updating this file, please also update the copy there.

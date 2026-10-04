@@ -658,32 +658,11 @@ export interface ScannerSnapshotApi {
     emits_signals: boolean
     /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
     scanner_config: unknown
-    /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
-    verify_positives: string
     /**
      * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
      * @nullable
      */
     variant_sampling_rates?: ScannerSnapshotApiVariantSamplingRates
-}
-
-/**
- * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
- */
-export interface VerificationRecordApi {
-    /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
-    mode: string
-    /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
-    draws: string[]
-    /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
-    resolved_verdict: string
-    /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
-    served_verdict: string
-    /**
-     * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
-     * @nullable
-     */
-    skipped_reason: string | null
 }
 
 /**
@@ -697,8 +676,6 @@ export interface ScannerResultApi {
      * @minimum 0
      */
     signals_count: number
-    /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
-    verification: VerificationRecordApi | null
     /**
      * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
      * @nullable
@@ -952,7 +929,7 @@ export interface VisionQuotaApi {
     readonly credits_used: number
     /** Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these. */
     readonly credits_settled: number
-    /** Credits held by in-flight observations and running prompt tests across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
+    /** Credits held by in-flight observations across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
     readonly credits_reserved: number
     /**
      * `credit_limit - credits_used`, floored at 0. Null when uncapped.
@@ -1057,33 +1034,6 @@ export interface ScannerExperimentTargetingApi {
      * @nullable
      */
     variant?: string | null
-}
-
-export interface FeedbackThemeSessionApi {
-    /** Observation whose feedback comment backs this theme. */
-    observation_id: string
-    /** Session recording the feedback comment was about. */
-    session_id: string
-}
-
-export interface FeedbackThemeApi {
-    /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
-    theme: string
-    /** How many feedback comments describe this failure mode. */
-    count: number
-    /** Up to two short representative quotes from the feedback comments. */
-    examples: string[]
-    /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
-    sessions: FeedbackThemeSessionApi[]
-}
-
-export interface FeedbackThemesApi {
-    /** Recurring failure modes, most frequent first. */
-    themes: FeedbackThemeApi[]
-    /** Number of thumbs-down feedback comments the summary was generated from. */
-    feedback_count: number
-    /** When the summary was generated. */
-    generated_at: string
 }
 
 /**
@@ -1191,7 +1141,7 @@ export interface ReplayScannerApi {
     readonly credits_this_month: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month: number
-    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
     readonly credits_used_against_limit: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached: boolean
@@ -1203,8 +1153,6 @@ export interface ReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
     readonly updated_at: string
-    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-    readonly feedback_themes: FeedbackThemesApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1326,7 +1274,7 @@ export interface PatchedReplayScannerApi {
     readonly credits_this_month?: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month?: number
-    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
     readonly credits_used_against_limit?: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached?: boolean
@@ -1338,8 +1286,6 @@ export interface PatchedReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
-    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-    readonly feedback_themes?: FeedbackThemesApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1808,158 +1754,6 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
-}
-
-/**
- * * `pending` - Pending
- * * `applied` - Applied
- * * `dismissed` - Dismissed
- * * `superseded` - Superseded
- * * `no_change` - No change
- */
-export type PromptSuggestionStatusEnumApi =
-    (typeof PromptSuggestionStatusEnumApi)[keyof typeof PromptSuggestionStatusEnumApi]
-
-export const PromptSuggestionStatusEnumApi = {
-    Pending: 'pending',
-    Applied: 'applied',
-    Dismissed: 'dismissed',
-    Superseded: 'superseded',
-    NoChange: 'no_change',
-} as const
-
-export interface PromptEvaluationResultApi {
-    /** The rated session that was re-run with the suggested prompt. */
-    session_id: string
-    /** The original rated observation the comparison is against. */
-    observation_id: string
-    /** The team's rating of the original output (thumbs up = true). */
-    rated_correct: boolean
-    /**
-     * The original output's primary outcome.
-     * @nullable
-     */
-    before: string | null
-    /**
-     * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
-     * @nullable
-     */
-    after: string | null
-    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
-    outcome: string
-    /**
-     * Why this session's re-run failed, when it did.
-     * @nullable
-     */
-    error: string | null
-}
-
-export interface PromptEvaluationSummaryApi {
-    /** Thumbs-up sessions whose output is unchanged. */
-    kept: number
-    /** Thumbs-up sessions whose output changed. */
-    regressed: number
-    /** Thumbs-down sessions whose output changed. */
-    fixed: number
-    /** Thumbs-down sessions whose output is unchanged. */
-    still_wrong: number
-    /** Sessions whose re-run failed. */
-    errors: number
-}
-
-export interface PromptSuggestionEvaluationApi {
-    /** running, succeeded, or failed. */
-    status: string
-    /** When the evaluation started. */
-    started_at: string
-    /**
-     * When the evaluation finished, if it has.
-     * @nullable
-     */
-    finished_at: string | null
-    /** How many rated sessions are being re-run. */
-    total: number
-    /** The rated set the evaluation ran against. */
-    labels_fingerprint: string
-    /** Per-session outcomes, in completion order. */
-    results: PromptEvaluationResultApi[]
-    /** Outcome counts. Null while the evaluation is running. */
-    summary: PromptEvaluationSummaryApi | null
-}
-
-export interface ReplayScannerPromptSuggestionApi {
-    readonly id: string
-    /** pending (current), applied, dismissed, or superseded by a newer suggestion.
-     *
-     * * `pending` - Pending
-     * * `applied` - Applied
-     * * `dismissed` - Dismissed
-     * * `superseded` - Superseded
-     * * `no_change` - No change */
-    readonly status: PromptSuggestionStatusEnumApi
-    /** The full rewritten prompt, ready to apply to the scanner. */
-    readonly suggested_prompt: string
-    /** The scanner prompt this suggestion was generated against, for diffing. */
-    readonly base_prompt: string
-    /** The scanner config this suggestion was generated against. */
-    readonly base_config: unknown
-    /** The full proposed scanner config, ready to apply. */
-    readonly suggested_config: unknown
-    /** Typed per-field diff entries driving the change cards. */
-    readonly changes: unknown
-    /** What the rewrite changed and why, grounded in the ratings. */
-    readonly rationale: string
-    /** Thumbs-up ratings the suggestion was based on. */
-    readonly based_on_up: number
-    /** Thumbs-down ratings the suggestion was based on. */
-    readonly based_on_down: number
-    /** The scanner version whose prompt this suggestion was generated against. */
-    readonly scanner_version: number
-    readonly created_at: string
-    /** User who requested this suggestion; null for automatic refreshes. */
-    readonly created_by: UserBasicApi | null
-    /** @nullable */
-    readonly applied_at: string | null
-    /** User who applied this suggestion to the scanner; null unless applied. */
-    readonly applied_by: UserBasicApi | null
-    /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
-    readonly evaluation: PromptSuggestionEvaluationApi | null
-}
-
-export interface PaginatedReplayScannerPromptSuggestionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ReplayScannerPromptSuggestionApi[]
-}
-
-export interface ApplyPromptSuggestionRequestApi {
-    /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
-    config?: unknown
-}
-
-export interface EvaluatePromptSuggestionRequestApi {
-    /**
-     * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
-     * @minimum 1
-     * @maximum 100
-     */
-    session_limit?: number
-    /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
-    config?: unknown
-}
-
-export interface CurrentPromptSuggestionApi {
-    /** The newest suggestion for this scanner, or null when none has been generated yet. */
-    suggestion: ReplayScannerPromptSuggestionApi | null
-    /** True when the team's ratings changed since the newest suggestion was generated. */
-    stale: boolean
-    /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
-    rated_count: number
-    /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
-    evaluation_session_cap: number
 }
 
 /**
@@ -3423,17 +3217,6 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
-}
-
-export type VisionScannersPromptSuggestionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type VisionScannersWatchFeedRetrieveParams = {

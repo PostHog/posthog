@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 52 enabled ops
+ * PostHog API - MCP 48 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1606,65 +1606,6 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
-})
-
-/**
- * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
- */
-export const VisionScannersPromptSuggestionsApplyCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
-})
-
-export const VisionScannersPromptSuggestionsApplyCreateBody = () => zod.object({
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged."
-        ),
-})
-
-/**
- * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires editor access to the scanner.
- */
-export const VisionScannersPromptSuggestionsDismissCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
-})
-
-/**
- * The scanner's newest prompt suggestion plus whether it is stale (the ratings changed since it was generated) and how many rated observations are available.
- */
-export const VisionScannersPromptSuggestionsCurrentRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
-})
-
-/**
- * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and editor access to the scanner.
- */
-export const VisionScannersPromptSuggestionsGenerateCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
 })
 
 /**
