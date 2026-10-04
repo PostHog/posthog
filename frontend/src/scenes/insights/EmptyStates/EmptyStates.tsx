@@ -30,7 +30,6 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
@@ -42,8 +41,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { EventsNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
-import { isFunnelsDataWarehouseNode, setLatestVersionsOnQuery } from '~/queries/utils'
+import { Node, QueryStatus } from '~/queries/schema/schema-general'
+import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -54,6 +53,7 @@ import {
 } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { getDefaultFunnelStep } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -933,12 +933,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { reportInsightFilterAdded } = useActions(eventUsageLogic)
 
     const addFunnelStep = (): void => {
-        const defaultStep: EventsNode = setLatestVersionsOnQuery({
-            kind: NodeKind.EventsNode,
-            event: getDefaultEventName(),
-            name: getDefaultEventLabel(),
-        })
-        const nextSeries = [...(series ?? []), defaultStep]
+        const nextSeries = [...(series ?? []), getDefaultFunnelStep()]
         updateQuerySource({ series: nextSeries })
         reportInsightFilterAdded(nextSeries.length, GraphSeriesAddedSource.Default)
     }

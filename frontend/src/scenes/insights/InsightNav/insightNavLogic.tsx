@@ -1,3 +1,4 @@
+import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
@@ -80,6 +81,10 @@ import {
 } from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
+import {
+    MIN_FUNNEL_STEPS,
+    getDefaultFunnelStep,
+} from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
@@ -236,6 +241,27 @@ const cleanSeries = (
     dataWarehouseNodeKind: DataWarehouseNodeKind
 ): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] => {
     return cleanSeriesMath(cleanDataWarehouseNodes(series, dataWarehouseNodeKind), mathAvailability)
+}
+
+// A carried-over single series would leave the funnels tab on the "Add another step!" empty state
+// with no chart, so pad it out to what a funnel needs to calculate.
+const seedMissingFunnelSteps = (source: InsightQueryNode): InsightQueryNode => {
+    if (!isFunnelsQuery(source) || source.series.length >= MIN_FUNNEL_STEPS) {
+        return source
+    }
+    const seededSteps = Array.from({ length: MIN_FUNNEL_STEPS - source.series.length }, getDefaultFunnelStep)
+    return { ...source, series: [...source.series, ...seededSteps] }
+}
+
+// A seeded step is nothing the user chose, so keep it out of the cache that feeds the next switch.
+// A step the user edited no longer matches the default, so it does survive.
+const dropSeededFunnelSteps = (series: SeriesArray, cachedSeries: SeriesArray): SeriesArray => {
+    const defaultStep = getDefaultFunnelStep()
+    let kept = series.length
+    while (kept > cachedSeries.length && equal(series[kept - 1], defaultStep)) {
+        kept--
+    }
+    return series.slice(0, kept)
 }
 
 // --- Field capability map ---
@@ -682,9 +708,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
             if (isDataVisualizationNode(query)) {
                 router.actions.push(urls.sqlEditor({ query: query.source.query }))
             } else if (isInsightVizNode(query)) {
-                const source = values.queryPropertyCache
-                    ? mergeCachedProperties(query.source, values.queryPropertyCache)
-                    : query.source
+                const source = seedMissingFunnelSteps(
+                    values.queryPropertyCache
+                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                        : query.source
+                )
                 actions.setQuery({
                     ...query,
                     source: { ...source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
@@ -787,6 +815,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     }
     if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
         newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
+    }
+    if (isFunnelsQuery(query) && cache?.series && newCache.series) {
+        newCache.series = dropSeededFunnelSteps(newCache.series, cache.series)
     }
     // Retention has no series field, so mirror its target entity into the shared series cache.
     // This keeps the configured event when switching from Retention to a series-based type.
