@@ -1,13 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCalendar, IconOpenSidebar, IconPlus } from '@posthog/icons'
+import { IconCalendar, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -51,20 +48,7 @@ function SavedReportRow({ report }: { report: SubscriptionApi }): JSX.Element {
 
 // `mayExist` covers a cut list too: a match may sit past the page limit, so the row must not push
 // a primary "Set up" that creates a duplicate.
-function reportAction(report: MCPRecurringReport, mayExist: boolean, aiSubscriptionsEnabled: boolean): JSX.Element {
-    if (!aiSubscriptionsEnabled) {
-        return (
-            <LemonButton
-                type="secondary"
-                size="small"
-                sideIcon={<IconOpenSidebar />}
-                to={urls.featurePreview(FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT)}
-                data-attr="mcp-analytics-recurring-report-early-access"
-            >
-                Turn on early access
-            </LemonButton>
-        )
-    }
+function reportAction(report: MCPRecurringReport, mayExist: boolean): JSX.Element {
     return (
         <LemonButton
             type={mayExist ? 'secondary' : 'primary'}
@@ -92,23 +76,15 @@ export interface RecurringReportRows {
  * they stay useful on a quiet server and can't flood a channel the way a per-event alert can.
  */
 export function useRecurringReportRows(): RecurringReportRows {
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
-    const { receivedFeatureFlags } = useValues(featureFlagLogic)
     const { reportsByTemplateTitle, otherReports, reportsLoaded, reportsFailed, reportsTruncated } =
         useValues(mcpRecurringReportsLogic)
     const { loadReports } = useActions(mcpRecurringReportsLogic)
-    // An unresolved flag reads as off, so the row would offer "Turn on early access" to someone who
-    // already has it until the flags land.
-    const ready = reportsLoaded && receivedFeatureFlags
-
-    // Loaded even without the feature flag: a project can hold reports created before the flag was
-    // turned off, and hiding them would repeat the problem this list exists to fix.
     useEffect(() => {
         loadReports()
     }, [loadReports])
 
     const rows: NotificationTypeRow[] = MCP_RECURRING_REPORTS.map((report) => {
-        const saved = ready ? (reportsByTemplateTitle[report.title] ?? []) : []
+        const saved = reportsLoaded ? (reportsByTemplateTitle[report.title] ?? []) : []
         return {
             key: `report-${report.key}`,
             icon: <IconCalendar />,
@@ -120,8 +96,8 @@ export function useRecurringReportRows(): RecurringReportRows {
                 </LemonTag>
             ),
             cadence: report.frequency,
-            saved: ready ? countSaved(saved, reportsTruncated) : undefined,
-            action: reportAction(report, saved.length > 0 || reportsTruncated, aiSubscriptionsEnabled),
+            saved: reportsLoaded ? countSaved(saved, reportsTruncated) : undefined,
+            action: reportAction(report, saved.length > 0 || reportsTruncated),
             preview: <RecurringReportDetails covers={report.covers} prompt={report.prompt} />,
             savedRows: saved.map((report) => <SavedReportRow key={report.id} report={report} />),
         }

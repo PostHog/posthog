@@ -17,7 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.integration import Integration
@@ -2840,7 +2840,6 @@ class TestSubscriptionFreeTierAccess(APILicensedTest):
 
 
 @patch("ee.api.subscription.sync_connect")
-@patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.api.subscription.is_cloud", return_value=True)
 class TestAISubscriptionAPI(APILicensedTest):
     def _enable_ai(self):
@@ -2908,7 +2907,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_scoped_key_create_requires_query_read_only_for_ai(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, scopes, expected_status
+        self, mock_is_cloud, mock_sync, _name, resource_kind, scopes, expected_status
     ):
         self._mock_temporal(mock_sync)
         if resource_kind == "ai_prompt":
@@ -2941,7 +2940,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_scoped_key_existing_subscription_requires_query_read_only_for_ai(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, action, scopes, expected_status
+        self, mock_is_cloud, mock_sync, _name, resource_kind, action, scopes, expected_status
     ):
         self._mock_temporal(mock_sync)
         cache.clear()  # avoid test-delivery throttle state leaking across parameterized cases
@@ -3003,7 +3002,6 @@ class TestAISubscriptionAPI(APILicensedTest):
     def test_retrieve_exposes_query_plan_status(
         self,
         mock_is_cloud: MagicMock,
-        mock_flag: MagicMock,
         mock_sync: MagicMock,
         _name: str,
         stored: object,
@@ -3045,7 +3043,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_edits_that_require_replanning_invalidate_frozen_query_plan(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, delivery_config, body, plan_survives, expected_status
+        self, mock_is_cloud, mock_sync, _name, delivery_config, body, plan_survives, expected_status
     ):
         self._mock_temporal(mock_sync)
         frozen = {
@@ -3061,7 +3059,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert Subscription.objects.get(id=sub_id).ai_query_plan == (frozen if plan_survives else None)
         assert response.json()["ai_query_plan_status"] == expected_status
 
-    def test_orm_prompt_edit_also_invalidates_frozen_query_plan(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_orm_prompt_edit_also_invalidates_frozen_query_plan(self, mock_is_cloud, mock_sync):
         # The invalidation lives on Subscription.save() (not the serializer), so ORM-path edits —
         # management commands, future code — can't leave a plan answering the old prompt.
         self._mock_temporal(mock_sync)
@@ -3109,7 +3107,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_session_query_restricted_member(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, flow, expected_status
+        self, mock_is_cloud, mock_sync, _name, resource_kind, flow, expected_status
     ):
         self._mock_temporal(mock_sync)
         if flow == "create":
@@ -3138,7 +3136,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_scoped_key_query_restricted_member(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, flow, expected_status
+        self, mock_is_cloud, mock_sync, _name, resource_kind, flow, expected_status
     ):
         self._mock_temporal(mock_sync)
         cache.clear()  # avoid test-delivery throttle state leaking across parameterized cases
@@ -3167,7 +3165,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ("member_without_query_restriction", True),
         ]
     )
-    def test_session_unrestricted_user_can_create_ai(self, mock_is_cloud, mock_flag, mock_sync, _name, as_member):
+    def test_session_unrestricted_user_can_create_ai(self, mock_is_cloud, mock_sync, _name, as_member):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         if as_member:
@@ -3181,7 +3179,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_creates_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_creates_ai_subscription(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         response = self.client.post(
@@ -3197,7 +3195,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert data["dashboard"] is None
 
     @parameterized.expand([("project", False), ("legacy_environment", True)])
-    def test_create_and_read_mixed_contexts(self, mock_is_cloud, mock_flag, mock_sync, _name, through_environment):
+    def test_create_and_read_mixed_contexts(self, mock_is_cloud, mock_sync, _name, through_environment):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         request_team = (
@@ -3255,9 +3253,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ),
         ]
     )
-    def test_read_omits_a_malformed_cross_team_context(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, context_factory
-    ):
+    def test_read_omits_a_malformed_cross_team_context(self, mock_is_cloud, mock_sync, _name, context_factory):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         created = self.client.post(
@@ -3303,9 +3299,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ),
         ]
     )
-    def test_patch_empty_contexts_clears_a_soft_deleted_context(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, target_factory
-    ):
+    def test_patch_empty_contexts_clears_a_soft_deleted_context(self, mock_is_cloud, mock_sync, _name, target_factory):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         target = target_factory(self)
@@ -3334,7 +3328,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
         assert retrieved.json()["contexts"] == []
 
-    def test_patch_omitting_contexts_preserves_them(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_patch_omitting_contexts_preserves_them(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
@@ -3359,7 +3353,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
         assert retrieved.json()["contexts"] == [{"dashboard_id": dashboard.id, "dashboard_name": "Growth"}]
 
-    def test_patch_empty_contexts_clears_them(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_patch_empty_contexts_clears_them(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
@@ -3379,7 +3373,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             not SubscriptionContext.objects.for_team(self.team.id).filter(subscription_id=created.json()["id"]).exists()
         )
 
-    def test_patch_contexts_replaces_the_complete_collection(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_patch_contexts_replaces_the_complete_collection(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         old_dashboard = Dashboard.objects.create(team=self.team, name="Old", created_by=self.user)
@@ -3433,7 +3427,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ("deleted", lambda self: [{"dashboard_id": self._context_dashboard(deleted=True).id}]),
         ]
     )
-    def test_rejects_invalid_contexts(self, mock_is_cloud, mock_flag, mock_sync, _name, contexts_factory):
+    def test_rejects_invalid_contexts(self, mock_is_cloud, mock_sync, _name, contexts_factory):
         self._enable_ai()
         self._mock_temporal(mock_sync)
 
@@ -3448,7 +3442,7 @@ class TestAISubscriptionAPI(APILicensedTest):
     def _context_dashboard(self, **kwargs) -> Dashboard:
         return Dashboard.objects.create(team=self.team, name="Context dashboard", created_by=self.user, **kwargs)
 
-    def test_rejects_contexts_on_traditional_subscriptions(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_rejects_contexts_on_traditional_subscriptions(self, mock_is_cloud, mock_sync):
         self._mock_temporal(mock_sync)
         context = self._context_dashboard()
         insight = Insight.objects.create(team=self.team, created_by=self.user)
@@ -3465,7 +3459,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "contexts"
 
-    def test_accepts_an_empty_contexts_list_on_a_traditional_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_accepts_an_empty_contexts_list_on_a_traditional_subscription(self, mock_is_cloud, mock_sync):
         self._mock_temporal(mock_sync)
         created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._insight_payload())
         assert created.status_code == status.HTTP_201_CREATED, created.json()
@@ -3478,7 +3472,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["title"] == "Renamed"
 
-    def test_context_replacement_rolls_back_subscription_and_rows(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_context_replacement_rolls_back_subscription_and_rows(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         old_dashboard = self._context_dashboard()
@@ -3528,7 +3522,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_context_set_change_drives_redelivery_without_touching_the_stored_plan(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, same_set, expects_delivery
+        self, mock_is_cloud, mock_sync, _name, same_set, expects_delivery
     ):
         self._enable_ai()
         mock_client = self._mock_temporal(mock_sync)
@@ -3560,7 +3554,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert subscription.ai_query_plan == frozen_plan
         assert mock_client.start_workflow.call_count == int(expects_delivery)
 
-    def test_traditional_resource_type_ignores_context_rows(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_traditional_resource_type_ignores_context_rows(self, mock_is_cloud, mock_sync):
         self._mock_temporal(mock_sync)
         root_insight = Insight.objects.create(team=self.team, created_by=self.user)
         root_dashboard = Dashboard.objects.create(team=self.team, name="Root", created_by=self.user)
@@ -3598,7 +3592,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert [response["resource_type"] for response in responses] == ["insight", "dashboard"]
         assert [response["contexts"] for response in responses] == [[], []]
 
-    def test_context_serialization_prefetches_targets(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_context_serialization_prefetches_targets(self, mock_is_cloud, mock_sync):
         self._mock_temporal(mock_sync)
         dashboard = self._context_dashboard()
         insight = Insight.objects.create(team=self.team, created_by=self.user, name="Context insight")
@@ -3630,7 +3624,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert dashboard_target_queries == []
         assert insight_target_queries == []
 
-    def test_create_ai_subscription_persists_trimmed_prompt(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_create_ai_subscription_persists_trimmed_prompt(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         response = self.client.post(
@@ -3640,7 +3634,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["prompt"] == "Weekly growth recap"
 
-    def test_create_includes_resource_type_in_slo_properties(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_create_includes_resource_type_in_slo_properties(self, mock_is_cloud, mock_sync):
         # resource_type telemetry rides on the existing subscription-create SLO rather than
         # a separate capture, so the content-kind split lives in one metric/dashboard.
         self._enable_ai()
@@ -3657,7 +3651,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert properties["target_type"] == "email"
         assert properties["subscription_id"] == response.json()["id"]
 
-    def test_list_filter_by_resource_type_ai_prompt(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_list_filter_by_resource_type_ai_prompt(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         ai_res = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_ai_payload())
@@ -3683,7 +3677,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert ai_id in ids
         assert insight_sub.id not in ids
 
-    def test_rejects_without_ai_consent(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_rejects_without_ai_consent(self, mock_is_cloud, mock_sync):
         self._mock_temporal(mock_sync)
         # Orgs are AI-approved by default, so opt out explicitly to exercise the consent gate.
         self.organization.is_ai_data_processing_approved = False
@@ -3695,24 +3689,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "AI data processing" in str(response.json())
 
-    def test_create_gate_evaluates_flag_per_user_without_org_group(self, mock_is_cloud, mock_flag, mock_sync):
-        # Early-access gate is person-based so users self-enable via feature previews — the flag
-        # must be evaluated for the requesting user's distinct_id, never overridden to the org group.
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(),
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        gate_calls = [
-            c for c in mock_flag.call_args_list if c.args and c.args[0] == SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
-        ]
-        assert gate_calls, "ai-subscriptions flag was never evaluated on create"
-        assert gate_calls[-1].args[1] == str(self.user.distinct_id)
-        assert gate_calls[-1].kwargs.get("groups") is None
-
-    def test_rejects_when_not_cloud_or_debug(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_rejects_when_not_cloud_or_debug(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         mock_is_cloud.return_value = False
         self._mock_temporal(mock_sync)
@@ -3724,17 +3701,6 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "PostHog Cloud" in str(response.json())
 
-    def test_rejects_when_flag_off(self, mock_is_cloud, mock_flag, mock_sync):
-        self._enable_ai()
-        mock_flag.return_value = False
-        self._mock_temporal(mock_sync)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(),
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled for your account" in str(response.json())
-
     @parameterized.expand(
         [
             # blank prompt → no derivable target → non-field "must target" error
@@ -3744,7 +3710,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ("dashboard_set_too", {"prompt": "ok", "dashboard": -1}, "dashboard"),
         ]
     )
-    def test_rejects_invalid_ai_payloads(self, mock_is_cloud, mock_flag, mock_sync, name, overrides, expected_attr):
+    def test_rejects_invalid_ai_payloads(self, mock_is_cloud, mock_sync, name, overrides, expected_attr):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         if overrides.get("insight") == -1:
@@ -3764,7 +3730,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         # non-field error (attr None) when nothing valid was provided.
         assert response.json()["attr"] == expected_attr, response.json()
 
-    def test_can_update_ai_subscription_prompt(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_can_update_ai_subscription_prompt(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         mock_client = self._mock_temporal(mock_sync)
         create_resp = self.client.post(
@@ -3783,7 +3749,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         # send_test_now on the edit fires the confirmation delivery so recipients see the updated report.
         mock_client.start_workflow.assert_called_once()
 
-    def test_resource_type_is_derived_and_read_only(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_resource_type_is_derived_and_read_only(self, mock_is_cloud, mock_sync):
         # resource_type is derived from the populated target and read-only — a client can
         # neither set it on create nor change it on update.
         self._enable_ai()
@@ -3821,9 +3787,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ("none_prompt", None),
         ]
     )
-    def test_re_enabling_ai_sub_with_invalid_prompt_is_rejected(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, stored_prompt
-    ):
+    def test_re_enabling_ai_sub_with_invalid_prompt_is_rejected(self, mock_is_cloud, mock_sync, _name, stored_prompt):
         # An auto-disabled AI sub re-enabled via plain PATCH {enabled:true} would
         # just re-disable on the next tick (burning LLM tokens).
         self._enable_ai()
@@ -3854,9 +3818,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             ("unknown_mode", {"mode": "calendar_week"}, "mode"),
         ]
     )
-    def test_invalid_ai_window_config_is_rejected(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, window, expected_error_field
-    ):
+    def test_invalid_ai_window_config_is_rejected(self, mock_is_cloud, mock_sync, _name, window, expected_error_field):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         response = self.client.post(
@@ -3866,7 +3828,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert expected_error_field in str(response.json()), response.json()
 
-    def test_ai_window_round_trips_and_mode_switch_clears_day_bounds(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_ai_window_round_trips_and_mode_switch_clears_day_bounds(self, mock_is_cloud, mock_sync):
         # Stale day bounds surviving a switch back to since_last_sent would silently pin the window
         # to old day values if the row is ever read without mode dispatch.
         self._enable_ai()
@@ -3889,7 +3851,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert window["mode"] == "since_last_sent"
         assert window["start_days_ago"] is None
 
-    def test_garbage_ai_prompt_config_still_serializes_on_read(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_garbage_ai_prompt_config_still_serializes_on_read(self, mock_is_cloud, mock_sync):
         # The read path routes through the fail-soft normalizer; without it, DRF's
         # IntegerField.to_representation (int(value)) 500s the detail GET and the team's whole
         # subscription list on an out-of-band row. Guards against removing the override.
@@ -3910,7 +3872,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             "end_days_ago": None,
         }
 
-    def test_ai_prompt_config_rejected_on_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_ai_prompt_config_rejected_on_insight_subscription(self, mock_is_cloud, mock_sync):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()
         payload["ai_prompt_config"] = {"window": {"mode": "last_n_days", "start_days_ago": 7}}
@@ -3918,7 +3880,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "ai_prompt_config" in str(response.json()), response.json()
 
-    def test_ai_delivery_display_flags_round_trip_independently(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_ai_delivery_display_flags_round_trip_independently(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         display_flags = {
@@ -3946,7 +3908,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_patch_merges_ai_delivery_display_flags(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, include_images, expected_redelivery_count
+        self, mock_is_cloud, mock_sync, _name, include_images, expected_redelivery_count
     ):
         self._enable_ai()
         mock_client = self._mock_temporal(mock_sync)
@@ -3979,7 +3941,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert subscription.delivery_config == expected_config
         assert mock_client.start_workflow.call_count == expected_redelivery_count
 
-    def test_patch_replaces_malformed_existing_ai_delivery_config(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_patch_replaces_malformed_existing_ai_delivery_config(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         create_response = self.client.post(
@@ -4008,7 +3970,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_stored_gallery_option_does_not_block_other_prompt_edits(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, extra_scope, patch_body
+        self, mock_is_cloud, mock_sync, _name, extra_scope, patch_body
     ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
@@ -4042,7 +4004,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_gallery_option_is_rejected_on_prompt_create(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, target_type, target_value
+        self, mock_is_cloud, mock_sync, _name, target_type, target_value
     ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
@@ -4061,7 +4023,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
 
-    def test_gallery_option_is_rejected_on_prompt_patch(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_gallery_option_is_rejected_on_prompt_patch(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         integration = Integration.objects.create(
@@ -4085,7 +4047,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
         assert patch_response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
 
-    def test_gallery_option_is_accepted_as_false_on_a_prompt_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_gallery_option_is_accepted_as_false_on_a_prompt_subscription(self, mock_is_cloud, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
 
@@ -4119,7 +4081,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         ]
     )
     def test_ai_delivery_display_flags_are_rejected_for_insight_subscriptions(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, delivery_config, expected_detail
+        self, mock_is_cloud, mock_sync, _name, delivery_config, expected_detail
     ):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()
@@ -4203,10 +4165,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
 
-        with (
-            patch("ee.api.subscription.is_cloud", return_value=True),
-            patch("ee.api.subscription.posthoganalytics.feature_enabled", return_value=True),
-        ):
+        with patch("ee.api.subscription.is_cloud", return_value=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/subscriptions",
                 self._payload(

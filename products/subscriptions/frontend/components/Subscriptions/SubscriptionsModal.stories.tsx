@@ -3,7 +3,6 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { Meta, StoryObj } from '@storybook/react'
 import { useRef, useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { uuid } from 'lib/utils/dom'
 
@@ -178,12 +177,6 @@ const LONG_AI_PROMPT_SUBSCRIPTION = createMockSubscription({
     created_by: mockBasicUser,
 })
 
-const AI_PROMPT_PARAMETERS = {
-    featureFlags: {
-        [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
-    },
-}
-
 const meta: Meta<StoryArgs> = {
     title: 'Products/Subscriptions/Subscriptions modal',
     component: SubscriptionsModal,
@@ -297,7 +290,6 @@ export const SubscriptionsNew: Story = {
 
 export const LongAiPrompt: Story = {
     parameters: {
-        ...AI_PROMPT_PARAMETERS,
         pageUrl: '/subscriptions/21/edit',
         testOptions: {
             viewport: { width: 1032, height: 900 },
@@ -308,11 +300,6 @@ export const LongAiPrompt: Story = {
 
 // Tabbed overview, dashboard context: This dashboard / Insights / AI prompt reports tabs.
 export const SubscriptionsTabbed: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
-        },
-    },
     args: {
         subscriptionId: null,
         dashboard: DASHBOARD,
@@ -320,11 +307,9 @@ export const SubscriptionsTabbed: Story = {
 }
 
 export const DashboardWithSubscriptions: Story = {
-    parameters: AI_PROMPT_PARAMETERS,
     args: { subscriptionId: null, dashboard: DASHBOARD },
 }
 
 export const InsightWithSubscriptions: Story = {
-    parameters: AI_PROMPT_PARAMETERS,
     args: { subscriptionId: null, insightShortId: 'ins11' as InsightShortId },
 }

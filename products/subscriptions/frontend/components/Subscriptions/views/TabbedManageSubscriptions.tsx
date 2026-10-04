@@ -5,7 +5,6 @@ import type { ReactNode } from 'react'
 import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -139,8 +138,7 @@ export function TabbedManageSubscriptions({
         subscriptionsLogic(logicProps)
     )
     const { currentOrganization } = useValues(organizationLogic)
-    const aiPromptReportsAvailable =
-        useFeatureFlag('SUBSCRIPTION_AI_PROMPT') && !!currentOrganization?.is_ai_data_processing_approved
+    const aiPromptReportsAvailable = !!currentOrganization?.is_ai_data_processing_approved
 
     const isInsightContext = !!insightShortId
 

@@ -26,7 +26,6 @@ const meta: Meta = {
         mockDate: '2023-05-25',
         featureFlags: {
             [FEATURE_FLAGS.ONBOARDING_AI_REPORTS]: 'test',
-            [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
         },
         testOptions: { waitForSelector: '[data-attr="onboarding-ai-report-subscribe"]' },
     },
