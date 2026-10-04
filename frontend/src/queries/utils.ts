@@ -778,8 +778,16 @@ export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined =>
     return undefined
 }
 
+/** A share of a total needs at least two contributors — with one, every band is the whole total and
+ *  renders as a flat 100%. A breakdown splits into one series per value, so it always qualifies; a
+ *  formula collapses the series it reads into a single result series. */
+const stacksMultipleSeries = (query: TrendsQuery): boolean =>
+    hasBreakdownFilter(getBreakdown(query)) || (getFormulaNodes(query)?.length || query.series?.length || 0) > 1
+
 export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
-    isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph)
+    isTrendsQuery(q) &&
+    PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph) &&
+    stacksMultipleSeries(q)
 
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView

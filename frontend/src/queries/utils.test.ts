@@ -23,6 +23,7 @@ import {
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
     supportsBarValueStacking,
+    supportsPercentStackView,
     taxonomicSessionFilterToHogQL,
 } from './utils'
 
@@ -280,6 +281,68 @@ describe('supportsBarValueStacking', () => {
         { name: 'null query', query: null, expected: false },
     ])('returns $expected for $name', ({ query, expected }) => {
         expect(supportsBarValueStacking(query)).toBe(expected)
+    })
+})
+
+describe('supportsPercentStackView', () => {
+    const breakdown = { breakdown: '$browser', breakdown_type: 'event' as const }
+    const trends = (
+        display: ChartDisplayType,
+        seriesCount: number,
+        extra: Record<string, unknown> = {}
+    ): InsightQueryNode =>
+        ({
+            kind: NodeKind.TrendsQuery,
+            series: Array.from({ length: seriesCount }, () => ({ kind: NodeKind.EventsNode, event: '$pageview' })),
+            trendsFilter: { display },
+            ...extra,
+        }) as InsightQueryNode
+
+    it.each([
+        {
+            name: 'bar chart with two series',
+            query: trends(ChartDisplayType.ActionsBar, 2),
+            expected: true,
+        },
+        {
+            name: 'bar chart with one series',
+            query: trends(ChartDisplayType.ActionsBar, 1),
+            expected: false,
+        },
+        {
+            name: 'bar chart with one series and a breakdown',
+            query: trends(ChartDisplayType.ActionsBar, 1, { breakdownFilter: breakdown }),
+            expected: true,
+        },
+        {
+            name: 'bar chart whose two series collapse into a single formula',
+            query: trends(ChartDisplayType.ActionsBar, 2, {
+                trendsFilter: { display: ChartDisplayType.ActionsBar, formulaNodes: [{ formula: 'A/B' }] },
+            }),
+            expected: false,
+        },
+        {
+            // `formulaNodes: []` is a reachable shape, and an empty list collapses nothing, so the
+            // series count still decides.
+            name: 'bar chart with two series and an empty formula list',
+            query: trends(ChartDisplayType.ActionsBar, 2, {
+                trendsFilter: { display: ChartDisplayType.ActionsBar, formulaNodes: [] },
+            }),
+            expected: true,
+        },
+        {
+            name: 'pie chart with one series',
+            query: trends(ChartDisplayType.ActionsPie, 1),
+            expected: false,
+        },
+        {
+            name: 'line chart with two series',
+            query: trends(ChartDisplayType.ActionsLineGraph, 2),
+            expected: false,
+        },
+        { name: 'null query', query: null, expected: false },
+    ])('returns $expected for $name', ({ query, expected }) => {
+        expect(supportsPercentStackView(query)).toBe(expected)
     })
 })
 

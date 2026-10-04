@@ -20,7 +20,12 @@ const insightProps = { dashboardItemId: '123' as InsightShortId }
 function makeQuery(trendsFilter: TrendsFilter, display = ChartDisplayType.ActionsLineGraph): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
-        series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+        // Two series, because percent stacking is only offered once a band has more than one
+        // contributor — with one, every band would be a flat 100%.
+        series: [
+            { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount },
+            { kind: NodeKind.EventsNode, event: '$autocapture', math: BaseMathType.TotalCount },
+        ],
         trendsFilter: { display, ...trendsFilter },
     }
 }

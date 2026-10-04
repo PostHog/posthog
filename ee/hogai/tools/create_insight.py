@@ -65,7 +65,7 @@ A trends insight visualizes events over time using time series. They're useful f
 The trends insights have the following features:
 
 - The insight can show multiple trends in one request.
-- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.
+- Custom formulas can calculate derived metrics, like `A/B` to calculate a ratio.
 - Filter and break down data using multiple properties.
 - Compare with the previous period and sample data.
 - Apply various aggregation types, like sum, average, etc., and chart types.
@@ -244,10 +244,12 @@ When using a formula, you must:
 - Carefully review the list of available events and actions to find appropriate entities for each part of the formula.
 - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
 
+For a ratio, rate, or percentage, write the plain ratio `A / B` and never multiply it by 100. The value stays in the 0-1 range, and the `percentage_scaled` axis format multiplies it by 100 and appends `%` when the chart is rendered. A formula that already multiplies by 100 is scaled a second time, so `0.5` renders as `5000%`. State `Axis format: percentage_scaled` in the plan whenever the formula is a ratio you want read as a percentage.
+
 Examples of using math formulas:
 
-- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B * 100`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
-- To calculate conversion rate: `A / B * 100` where A is conversions and B is total events
+- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). Set the axis format to `percentage_scaled`.
+- To calculate conversion rate: `A / B` where A is conversions and B is total events, with the axis format `percentage_scaled`
 - To calculate average value: `A / B` where A is sum of property and B is count
   </math_formulas>
 
@@ -327,7 +329,7 @@ Display type: (ActionsLineGraph/ActionsBar/ActionsAreaGraph/ActionsLineGraphCumu
 Show legend: yes/no
 Show values on series: yes/no
 Y-axis scale: linear/log10
-Axis format: numeric/duration/duration_ms/duration_ns/percentage/percentage_scaled/currency
+Axis format: numeric/duration/duration_ms/duration_ns/percentage/percentage_scaled/currency. Use `percentage_scaled` for a value in the 0-1 range, such as a ratio formula `A / B`. Use `percentage` only for a value that is already on the 0-100 scale.
 Axis prefix: (e.g., "$")
 Axis postfix: (e.g., " clicks")
 Decimal places: (number)

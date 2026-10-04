@@ -493,6 +493,25 @@ export const PercentStackBreakdown: Story = {
     render: () => renderTrendsBarChart(PERCENT_STACK_BREAKDOWN_INSIGHT),
 }
 
+// A saved insight that turned 100% mode on with a single series and no breakdown. Each band has
+// one contributor, so the share is always the whole band: pre-fix every bar was full height and
+// labeled "100%". The option no longer applies here, so the bars show their counts again.
+const PERCENT_STACK_SINGLE_SERIES_INSIGHT = {
+    ...PERCENT_STACK_BREAKDOWN_INSIGHT,
+    id: 203,
+    short_id: 'barPercentStackSingle',
+    name: 'Pageviews (100% stacked, one series)',
+    result: [{ ...PERCENT_STACK_BREAKDOWN_INSIGHT.result[0], label: '$pageview', breakdown_value: undefined }],
+    query: {
+        ...PERCENT_STACK_BREAKDOWN_INSIGHT.query,
+        source: { ...PERCENT_STACK_BREAKDOWN_INSIGHT.query.source, breakdownFilter: undefined },
+    },
+}
+
+export const PercentStackSingleSeries: Story = {
+    render: () => renderTrendsBarChart(PERCENT_STACK_SINGLE_SERIES_INSIGHT),
+}
+
 // 50 breakdown rows — verifies all bars are visible and the container grows rather than clipping.
 // If TrendsInsight--ActionsBarValue loses its max-height:none override, only ~20 rows show up.
 const BAR_VALUE_50_BREAKDOWNS = Array.from({ length: 50 }, (_, i) => ({
