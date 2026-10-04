@@ -3703,6 +3703,22 @@ importers:
         specifier: ^14.3.1
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
+  products/games/services/club-hoguin:
+    dependencies:
+      '@posthog/hedgehog-mode':
+        specifier: ^0.0.60
+        version: 0.0.60(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      three:
+        specifier: ^0.180.0
+        version: 0.180.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   products/groups:
     dependencies:
       '@posthog/icons':
@@ -22544,6 +22560,9 @@ packages:
 
   thread-stream@2.3.0:
     resolution: {integrity: sha512-kaDqm1DET9pp3NXwR8382WHbnpXnRkN9xGN9dQt3B2+dmXiW8X1SOwmFOxAErEQ47ObhZ96J6yhZNXuyCOL7KA==}
+
+  three@0.180.0:
+    resolution: {integrity: sha512-o+qycAMZrh+TsE01GqWUxUIKR1AL0S8pq7zDkYOQw8GqfX8b8VoCKYUoHbhiX5j+7hr8XsuHDVU6+gkQJQKg9w==}
 
   thrift@0.21.0:
     resolution: {integrity: sha512-AW8rwHYjeqXisS8B1iwko2gkNMFwSRJ+bO/W0xTGqRspTD3lGHwZx438+pHdOJ3GwpRAnK7TKbjqPOrHAa7ZwQ==}
@@ -45351,6 +45370,8 @@ snapshots:
   thread-stream@2.3.0:
     dependencies:
       real-require: 0.2.0
+
+  three@0.180.0: {}
 
   thrift@0.21.0:
     dependencies:
