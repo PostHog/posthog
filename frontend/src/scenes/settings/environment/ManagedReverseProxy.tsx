@@ -24,6 +24,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { isKeyOf } from 'lib/utils/guards'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -116,6 +117,18 @@ export function ManagedReverseProxy(): JSX.Element {
         {
             title: 'Domain',
             dataIndex: 'domain',
+            render: function RenderDomain(domain, { is_legacy }) {
+                return (
+                    <div className="flex items-center gap-2">
+                        <span>{domain}</span>
+                        {is_legacy && (
+                            <Tooltip title="This proxy runs on an older setup with no IPv6 address, so events sent through it always record an IPv4 client IP.">
+                                <LemonTag>Legacy</LemonTag>
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Status',
@@ -207,8 +220,10 @@ export function ManagedReverseProxy(): JSX.Element {
         },
     ]
 
-    // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
-    if (cloudflareProxyEnabled && shouldShowCloudflareOptIn) {
+    // Orgs whose proxies are all legacy have never agreed to these terms, so the banner sits above
+    // their records instead of replacing them.
+    const showCloudflareOptIn = !!cloudflareProxyEnabled && shouldShowCloudflareOptIn
+    if (showCloudflareOptIn && proxyRecords.length === 0) {
         return (
             <CloudflareOptInBanner onAcknowledge={acknowledgeCloudflareOptIn} restrictionReason={restrictionReason} />
         )
@@ -216,6 +231,12 @@ export function ManagedReverseProxy(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
+            {showCloudflareOptIn && (
+                <CloudflareOptInBanner
+                    onAcknowledge={acknowledgeCloudflareOptIn}
+                    restrictionReason={restrictionReason}
+                />
+            )}
             {recordsWithMessages.map((r) => (
                 <LemonBanner type="warning" key={r.id}>
                     <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
@@ -253,7 +274,14 @@ export function ManagedReverseProxy(): JSX.Element {
                     </LemonBanner>
                 ) : (
                     <div className="flex">
-                        <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>
+                        <LemonButton
+                            onClick={showForm}
+                            type="primary"
+                            disabledReason={
+                                restrictionReason ||
+                                (showCloudflareOptIn ? 'Agree to the terms above to add a proxy' : undefined)
+                            }
+                        >
                             Add managed proxy
                         </LemonButton>
                     </div>
@@ -419,6 +447,16 @@ const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
 
     return (
         <div className="pb-4 pr-4 space-y-2">
+            {record.is_legacy && (
+                <LemonBanner type="info">
+                    <p className="font-semibold mb-1">This proxy records IPv4 addresses only</p>
+                    <p className="mb-0">
+                        Visitors always reach this domain over IPv4, because the older setup it runs on has no IPv6
+                        address. Events sent through it record an IPv4 client IP even for visitors on IPv6 networks. To
+                        record IPv6 addresses, delete this proxy and add it again. New proxies support both.
+                    </p>
+                </LemonBanner>
+            )}
             <LemonTabs
                 size="small"
                 activeKey={activeKey}

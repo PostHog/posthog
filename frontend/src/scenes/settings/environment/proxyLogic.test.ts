@@ -23,6 +23,7 @@ const mockProxyRecord = (overrides: Partial<ProxyRecord> = {}): ProxyRecord => (
     target_cname: 'proxy.posthog.com',
     root_redirect_url: null,
     root_redirect_supported: true,
+    is_legacy: false,
     message: null,
     created_at: '2026-08-24T00:00:00Z',
     updated_at: '2026-08-24T00:00:00Z',
@@ -74,7 +75,7 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
         })
     })
 
-    it('returns false when the organization already has proxy records', async () => {
+    it('returns false when the organization already has a proxy on the current ingress', async () => {
         useMocks({
             get: {
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([mockProxyRecord()]),
@@ -86,6 +87,22 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
             shouldShowCloudflareOptIn: false,
         })
         expect(logic.values.proxyRecords.length).toBeGreaterThan(0)
+    })
+
+    it('returns true when every proxy the organization has is legacy', async () => {
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([
+                    mockProxyRecord({ is_legacy: true, root_redirect_supported: false }),
+                ]),
+            },
+        })
+        await mountLogic()
+
+        await expectLogic(logic).toMatchValues({
+            cloudflareOptInAcknowledged: false,
+            shouldShowCloudflareOptIn: true,
+        })
     })
 
     it('returns true for a first-time non-impersonating user with no records and no acknowledgment', async () => {
@@ -123,7 +140,7 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
         expect(logic.values.shouldShowCloudflareOptIn).toBe(false)
     })
 
-    it('auto-persists acknowledgment when loadRecordsSuccess returns existing records', async () => {
+    it('auto-persists acknowledgment when loadRecordsSuccess returns a proxy on the current ingress', async () => {
         useMocks({
             get: {
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([mockProxyRecord()]),
@@ -145,7 +162,7 @@ describe('proxyLogic — root redirect', () => {
     it.each<[string, ProxyRecord, boolean]>([
         ['supported valid proxy', mockProxyRecord(), true],
         ['supported warning proxy', mockProxyRecord({ status: 'warning' }), true],
-        ['legacy proxy', mockProxyRecord({ root_redirect_supported: false }), false],
+        ['legacy proxy', mockProxyRecord({ root_redirect_supported: false, is_legacy: true }), false],
         ['proxy that is not ready', mockProxyRecord({ status: 'waiting' }), false],
     ])('allows configuration for a %s when expected', (_name, record, expected) => {
         expect(canConfigureRootRedirect(record)).toBe(expected)
