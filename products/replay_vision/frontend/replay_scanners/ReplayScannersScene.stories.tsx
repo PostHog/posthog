@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,6 +14,8 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
+
+import { expect } from 'storybook/test'
 
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
 import type {
@@ -1317,7 +1319,12 @@ const failedObservationDetail = observation({
     scanner_result: null,
 })
 
-export const ObservationDetailFailed: StoryObj = observationDetailStory(failedObservationDetail)
+export const ObservationDetailFailed: StoryObj = {
+    ...observationDetailStory(failedObservationDetail),
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).toBeVisible())
+    },
+}
 
 // The session had no screen data to watch, so no model ran and a later retry may still succeed.
 const notScannedObservationDetail = observation({
