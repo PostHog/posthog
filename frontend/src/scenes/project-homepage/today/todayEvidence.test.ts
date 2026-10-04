@@ -4,6 +4,14 @@ import { signal } from './todayTestFixtures'
 describe('todayEvidence', () => {
     test.each([
         [
+            'a recording without a start time, to its replay at the finding',
+            signal({
+                source_product: 'replay_vision',
+                recording: { session_id: 's1', start_at: null, offset: '01:48' },
+            }),
+            { kind: 'link', to: '/replay/s1?t=103', external: false, label: 'Play at 01:48' },
+        ],
+        [
             'a recording, just before the finding',
             signal({
                 source_product: 'replay_vision',

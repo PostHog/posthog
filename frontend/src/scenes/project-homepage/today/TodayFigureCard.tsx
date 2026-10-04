@@ -204,7 +204,12 @@ function MetricCard({ content }: { content: MetricContent }): JSX.Element {
             )}
             {content.trend && content.trend.length > 1 && (
                 <div className="flex items-center gap-2 pt-4 pb-1 [&>span]:h-8 [&>span]:w-full [&>svg]:h-8 [&>svg]:w-full">
-                    <TodayInlineTrend values={content.trend} type="bar" detailed partialLast={!!content.range} />
+                    <TodayInlineTrend
+                        values={content.trend}
+                        type={content.chartType}
+                        detailed
+                        partialLast={!!content.range}
+                    />
                 </div>
             )}
             {content.range && (

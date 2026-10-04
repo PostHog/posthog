@@ -4,10 +4,6 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 
 const BARE_GITHUB_LINK = /(?<![(<[])https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues)\/(\d+)(?![\w/])/g
 
-export function shortenGitHubLinks(markdown: string): string {
-    return markdown.replace(BARE_GITHUB_LINK, (url, number) => `[#${number}](${url})`)
-}
-
 export function shortDate(date: string | number | Dayjs): string {
     return dayjs(date).format('D MMM')
 }
@@ -16,10 +12,9 @@ const ISO_DATE = /\b(\d{4}-\d{2}-\d{2})\b/g
 
 function readableDate(match: string): string {
     const [year, month, day] = match.split('-').map(Number)
-    if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) {
-        return match
-    }
-    return shortDate(dayjs(`${match.slice(0, 8)}01`).add(day - 1, 'day'))
+    const date = new Date(Date.UTC(year, month - 1, day))
+    const exists = year >= 1 && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    return exists ? shortDate(dayjs(match)) : match
 }
 
 function readableDates(text: string): string {
@@ -56,12 +51,33 @@ function nodeText(node: MarkdownNode): string {
     return node.value ?? node.alt ?? (node.children ?? []).map(nodeText).join('')
 }
 
+function proseSegments(text: string): TodayInlineSegment[] {
+    const segments: TodayInlineSegment[] = []
+    let last = 0
+    for (const match of text.matchAll(BARE_GITHUB_LINK)) {
+        segments.push({ kind: 'text', text: readableDates(text.slice(last, match.index)) })
+        segments.push({ kind: 'link', text: `#${match[1]}`, href: match[0] })
+        last = match.index + match[0].length
+    }
+    segments.push({ kind: 'text', text: readableDates(text.slice(last)) })
+    return segments
+}
+
+function labelText(node: MarkdownNode): string {
+    if (node.type === 'text') {
+        return readableDates(node.value ?? '')
+    }
+    return node.children ? node.children.map(labelText).join('') : nodeText(node)
+}
+
 function nodeSegments(node: MarkdownNode): TodayInlineSegment[] {
     switch (node.type) {
+        case 'text':
+            return proseSegments(node.value ?? '')
         case 'inlineCode':
             return [{ kind: 'code', text: node.value ?? '' }]
         case 'link':
-            return [{ kind: 'link', text: nodeText(node), href: node.url ?? '' }]
+            return [{ kind: 'link', text: labelText(node), href: node.url ?? '' }]
         case 'break':
             return [{ kind: 'text', text: ' ' }]
         default:
@@ -82,8 +98,7 @@ function joinedText(segments: TodayInlineSegment[]): TodayInlineSegment[] {
 }
 
 export function inlineSegments(markdown: string): TodayInlineSegment[] {
-    const text = readableDates(shortenGitHubLinks(markdown).replace(/\s+/g, ' ').trim())
-    const tree: MarkdownNode = fromMarkdown(text, { extensions: [INLINE_ONLY] })
+    const tree: MarkdownNode = fromMarkdown(markdown.replace(/\s+/g, ' ').trim(), { extensions: [INLINE_ONLY] })
     return joinedText(nodeSegments(tree)).filter((segment) => segment.text)
 }
 

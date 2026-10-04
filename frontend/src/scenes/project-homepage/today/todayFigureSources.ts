@@ -23,6 +23,7 @@ export type TodayFigureCardContent =
           caption: string | null
           window: string | null
           trend: number[] | null
+          chartType: 'bar' | 'line'
           link: { url: string; label: string } | null
       }
     | { kind: 'none' }

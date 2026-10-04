@@ -20,27 +20,36 @@ function numberPattern(value: string): RegExp {
     return new RegExp(`(?<![\\d.,/:-])${numberBody(value)}(?![\\d/:-]|[.,]\\d)`)
 }
 
+function firstMatch(text: string, value: string): { start: number; end: number } | null {
+    const pattern = new RegExp(
+        `(?:[$€£])?${numberPattern(value).source}(?:\\s?(?:ms|K|M)\\b|%|\\s(?:seconds?|minutes?|hours?)\\b)?`,
+        'g'
+    )
+    for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+        const end = match.index + match[0].length
+        if (!MONTH_AFTER.test(text.slice(end))) {
+            return { start: match.index, end }
+        }
+    }
+    return null
+}
+
 export function highlightSegments(text: string, values: string[]): TodayQuoteSegment[] {
+    const matches = values
+        .map((value) => firstMatch(text, value))
+        .filter((match): match is { start: number; end: number } => match !== null)
+        .sort((first, second) => first.start - second.start)
     const segments: TodayQuoteSegment[] = []
     let last = 0
-    for (const value of values) {
-        const pattern = new RegExp(
-            `(?:[$€£])?${numberPattern(value).source}(?:\\s?(?:ms|K|M)\\b|%|\\s(?:seconds?|minutes?|hours?)\\b)?`,
-            'g'
-        )
-        pattern.lastIndex = last
-        let match = pattern.exec(text)
-        while (match && MONTH_AFTER.test(text.slice(match.index + match[0].length))) {
-            match = pattern.exec(text)
-        }
-        if (!match) {
+    for (const match of matches) {
+        if (match.start < last) {
             continue
         }
-        if (match.index > last) {
-            segments.push({ text: text.slice(last, match.index), marked: false })
+        if (match.start > last) {
+            segments.push({ text: text.slice(last, match.start), marked: false })
         }
-        segments.push({ text: match[0], marked: true })
-        last = match.index + match[0].length
+        segments.push({ text: text.slice(match.start, match.end), marked: true })
+        last = match.end
     }
     if (last < text.length) {
         segments.push({ text: text.slice(last), marked: false })

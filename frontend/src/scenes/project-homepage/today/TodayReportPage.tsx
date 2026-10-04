@@ -12,6 +12,7 @@ import { TodaySampleBanner } from './TodaySampleBanner'
 
 function ReportFailed({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
+    const { fullReportLoading, pageLoading } = useValues(logic)
     const { loadFullReport, loadPage } = useActions(logic)
     return (
         <div className="flex max-w-150 flex-col gap-3">
@@ -28,6 +29,7 @@ function ReportFailed({ reportId }: { reportId: string }): JSX.Element {
                         loadFullReport()
                         loadPage()
                     }}
+                    loading={fullReportLoading || pageLoading}
                     data-attr="today-report-retry"
                 >
                     Try again

@@ -32,6 +32,9 @@ function TrendBar({
     detailed: boolean
 }): JSX.Element {
     const peak = value === max && value > 0
+    if (value <= 0) {
+        return <span className={cn('flex-1 rounded-t-[1px]', detailed && 'h-px bg-current opacity-30')} />
+    }
     if (partial) {
         return (
             <span
@@ -57,9 +60,6 @@ function TrendBar({
             </span>
         )
     }
-    if (value <= 0) {
-        return <span className={cn('flex-1 rounded-t-[1px]', detailed && 'h-px bg-current opacity-30')} />
-    }
     return (
         <span
             className={cn(
@@ -82,7 +82,7 @@ export function TodayInlineTrend({
     detailed?: boolean
     partialLast?: boolean
 }): JSX.Element {
-    if (type === 'line') {
+    if (type === 'line' || values.some((value) => value < 0)) {
         return (
             <svg
                 className="h-4 w-16 overflow-visible text-muted-foreground opacity-60"
