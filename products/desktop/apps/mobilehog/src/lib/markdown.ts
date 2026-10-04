@@ -1,5 +1,6 @@
 import { isSafeExternalUrl } from "@posthog/shared";
-import type { Token, Tokens } from "marked";
+import { Marked, type Token, type Tokens } from "marked";
+import { objectTagExtensions } from "@/lib/objectTags";
 
 export type InlineRun =
   | { kind: "text"; tokens: Token[] }
@@ -79,4 +80,9 @@ export function splitImageRuns(tokens: Token[]): InlineRun[] {
   }
   flush();
   return runs;
+}
+
+export function lexMarkdown(text: string): Token[] {
+  const markdown = new Marked({ extensions: objectTagExtensions() });
+  return markdown.Lexer.lex(text, markdown.defaults);
 }
