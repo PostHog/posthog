@@ -2138,9 +2138,10 @@ class TestDraftWithoutJson:
             return await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
 
     @staticmethod
-    def _session(followup: object) -> MagicMock:
+    def _session(followup: object, *, run_is_terminal: bool = False) -> MagicMock:
         session = MagicMock()
         session.end = AsyncMock()
+        session.run_is_terminal = AsyncMock(return_value=run_is_terminal)
         if isinstance(followup, Exception):
             session.send_followup_raw = AsyncMock(side_effect=followup)
         else:
@@ -2184,6 +2185,18 @@ class TestDraftWithoutJson:
 
         output = await self._draft(attempt=2, start_raw=AsyncMock(return_value=(self._session(followup), first_text)))
         assert (output.reply, output.verdict, output.confidence) == ("", "blocked_on_knowledge", 0.0)
+
+    @pytest.mark.asyncio
+    async def test_terminal_run_skips_nudge_then_blocks(self) -> None:
+        sessions = [self._session(_OK_DRAFT_JSON, run_is_terminal=True) for _ in range(2)]
+
+        with pytest.raises(DraftNotProducedError):
+            await self._draft(attempt=1, start_raw=AsyncMock(return_value=(sessions[0], "Here is my answer")))
+
+        output = await self._draft(attempt=2, start_raw=AsyncMock(return_value=(sessions[1], "Here is my answer")))
+        assert (output.reply, output.verdict, output.confidence) == ("", "blocked_on_knowledge", 0.0)
+        for session in sessions:
+            session.send_followup_raw.assert_not_awaited()
 
     @parameterized.expand(
         [
