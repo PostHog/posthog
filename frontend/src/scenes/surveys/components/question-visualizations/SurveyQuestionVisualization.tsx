@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -195,6 +195,28 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
     }
 }
 
+function QuestionLoadingState({
+    question,
+    questionIndex,
+    isRefreshingResults,
+}: Props & { isRefreshingResults: boolean }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <QuestionTitle question={question} questionIndex={questionIndex} />
+            {isRefreshingResults && (
+                <div className="flex items-center gap-2 text-sm text-secondary">
+                    <Spinner textColored />
+                    Loading results…
+                </div>
+            )}
+
+            <div className="flex flex-col gap-4">
+                <QuestionLoadingSkeleton question={question} />
+            </div>
+        </div>
+    )
+}
+
 export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
     const { enrichedConsolidatedSurveyResults, isAnyResultsLoading, resultsRequeryInProgress } = useValues(surveyLogic)
 
@@ -248,27 +270,17 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
 
     if (!processedData) {
         return (
-            <div className="flex flex-col gap-2">
-                <QuestionTitle question={question} questionIndex={questionIndex} />
-
-                <div className="flex flex-col gap-4">
-                    <QuestionLoadingSkeleton question={question} />
-                </div>
-            </div>
+            <QuestionLoadingState
+                question={question}
+                questionIndex={questionIndex}
+                isRefreshingResults={isRefreshingResults}
+            />
         )
     }
 
     if (processedData.totalResponses === 0 || processedData.data.length === 0) {
         if (isRefreshingResults) {
-            return (
-                <div className="flex flex-col gap-2">
-                    <QuestionTitle question={question} questionIndex={questionIndex} />
-
-                    <div className="flex flex-col gap-4">
-                        <QuestionLoadingSkeleton question={question} />
-                    </div>
-                </div>
-            )
+            return <QuestionLoadingState question={question} questionIndex={questionIndex} isRefreshingResults />
         }
 
         const skipCount = 'noResponseCount' in processedData ? processedData.noResponseCount : 0

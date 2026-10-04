@@ -2388,6 +2388,18 @@ describe('surveyLogic archived response refresh', () => {
 
         expect(api.surveys.archiveResponse).toHaveBeenCalledWith('test-survey', 'response-1')
     })
+
+    it('loads consolidated results without waiting for base stats', async () => {
+        jest.spyOn(api, 'queryHogQL').mockImplementation(((query: string) =>
+            query.includes('QUERYING BASE STATS') ? new Promise(() => {}) : Promise.resolve({ results: [] })) as any)
+        await expectLogic(logic).clearHistory()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadArchivedResponseUuidsSuccess(new Set())
+        })
+            .toDispatchActions(['loadSurveyBaseStats', 'loadConsolidatedSurveyResultsSuccess'])
+            .toNotHaveDispatchedActions(['loadSurveyBaseStatsSuccess'])
+    })
 })
 
 describe('processResultsForSurveyQuestions', () => {

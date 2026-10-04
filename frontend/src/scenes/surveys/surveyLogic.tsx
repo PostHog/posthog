@@ -790,13 +790,15 @@ export interface surveyLogicActions {
         queryDurations: {
             aggregate: number
             openEnded: number
-        }
+        },
+        timeToFirstResultsMs?: number
     ) => {
         queryDurations: {
             aggregate: number
             openEnded: number
         }
         survey: Survey
+        timeToFirstResultsMs: number | undefined
         totalDurationMs: number
     } // eventUsageLogic
     reportSurveyCreated: (
@@ -1627,7 +1629,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setAiGeneratedTranslationFields: (paths: string[]) => ({ paths }),
         clearAiGeneratedTranslationField: (path: string) => ({ path }),
     }),
-    loaders(({ props, actions, values }) => ({
+    loaders(({ props, actions, values, cache }) => ({
         surveyHeadline: [
             null as { headline: string; responses_sampled: number; has_more: boolean } | null,
             {
@@ -1814,7 +1816,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
                 const results = (response.results as SurveyBaseStatsResult | undefined) ?? null
                 actions.setBaseStatsResults(results)
-                actions.loadConsolidatedSurveyResults()
                 return results
             },
         },
@@ -1902,11 +1903,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 ])
 
                 const endMs = performance.now()
+                const timeToFirstResultsMs = cache.mountedAtMs !== undefined ? endMs - cache.mountedAtMs : undefined
+                cache.mountedAtMs = undefined
 
-                actions.reportSurveyConsolidatedResultsQuery(survey, endMs - startMs, {
-                    aggregate: aggregateDuration,
-                    openEnded: openEndedDuration,
-                })
+                actions.reportSurveyConsolidatedResultsQuery(
+                    survey,
+                    endMs - startMs,
+                    {
+                        aggregate: aggregateDuration,
+                        openEnded: openEndedDuration,
+                    },
+                    timeToFirstResultsMs
+                )
 
                 const aggregate = processResultsForSurveyQuestions(survey.questions, aggregateResponse.results)
                 const openEnded = openEndedResult
@@ -2010,6 +2018,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 mountedLogic.actions.markResultsRequeryCompleted()
             }, 0)
         }
+        // The results queries need the archived response UUIDs for their filters, but not each other's output
+        const loadSurveyResults = (): void => {
+            actions.loadSurveyBaseStats()
+            actions.loadSurveyDismissedAndSentCount()
+            actions.loadConsolidatedSurveyResults()
+        }
         const reloadAllSurveyResults = (): void => {
             if (cache.reloadDebounceTimer) {
                 clearTimeout(cache.reloadDebounceTimer)
@@ -2019,10 +2033,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.startResultsRequery()
             }
 
-            cache.reloadDebounceTimer = setTimeout(() => {
-                actions.loadSurveyBaseStats()
-                actions.loadSurveyDismissedAndSentCount()
-            }, 300)
+            cache.reloadDebounceTimer = setTimeout(loadSurveyResults, 300)
         }
 
         return {
@@ -2089,8 +2100,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     values.survey.start_date &&
                     !values.resultsRequeryInProgress
                 ) {
-                    actions.loadSurveyBaseStats()
-                    actions.loadSurveyDismissedAndSentCount()
+                    loadSurveyResults()
                 }
             },
             loadConsolidatedSurveyResultsSuccess: async ({ consolidatedSurveyResults }) => {
@@ -2146,6 +2156,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 maybeCompleteResultsRequery()
             },
             loadConsolidatedSurveyResultsFailure: () => {
+                cache.mountedAtMs = undefined
                 maybeCompleteResultsRequery()
             },
             loadSurveyBaseStatsSuccess: () => {
@@ -2332,8 +2343,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
                     updatedUuids.add(responseUuid)
                     actions.loadArchivedResponseUuidsSuccess(updatedUuids)
-                    actions.loadSurveyBaseStats()
-                    actions.loadSurveyDismissedAndSentCount()
+                    loadSurveyResults()
 
                     lemonToast.success('Response archived')
                 } catch (error) {
@@ -2355,8 +2365,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
                     updatedUuids.delete(responseUuid)
                     actions.loadArchivedResponseUuidsSuccess(updatedUuids)
-                    actions.loadSurveyBaseStats()
-                    actions.loadSurveyDismissedAndSentCount()
+                    loadSurveyResults()
 
                     lemonToast.success('Response unarchived')
                 } catch (error) {
@@ -4181,13 +4190,14 @@ export const surveyLogic = kea<surveyLogicType>([
             { replace: true },
         ],
     })),
-    afterMount(({ props, actions, values }) => {
+    afterMount(({ props, actions, values, cache }) => {
         // Preserve any in-memory edits when re-mounting on the same survey id (e.g.
         // navigating between the guided wizard and the full editor). No URL flag —
         // surveyChanged is in-memory only, so a fresh session can never trigger this.
         const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === props.id
 
         if (props.id !== 'new' && !shouldPreserveLocalChanges) {
+            cache.mountedAtMs = performance.now()
             actions.loadSurvey()
             actions.loadSurveyNotifications()
             actions.loadReusableSurveyNotifications()
