@@ -108,6 +108,7 @@ LLMPromptLabel
 LLMProviderKey
 LLMSkill
 LLMTraceSummary
+Link
 LiveDebuggerBreakpoint
 LogsAlertConfiguration
 LogsExclusionRule

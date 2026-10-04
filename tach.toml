@@ -516,8 +516,8 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-# Vestigial app — only retains the migration history under the links
-# Django app label. The product is retired and its table waits for a drop.
+# Retired product. The app keeps its model and migration history so that Django keeps
+# cascading deletes into its table until a later migration drops it.
 path = "products.links"
 depends_on = ["posthog"]
 layer = "modules"
