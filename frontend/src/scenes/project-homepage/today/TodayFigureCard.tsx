@@ -25,17 +25,20 @@ import { signalSourceLabel } from './todaySignalText'
 const PEN_DELAY_MS = 180
 const PEN_STAGGER_MS = 140
 
-type QuotedContent = Extract<TodayFigureCardContent, { kind: 'signal' }>
+type QuotedContent = Extract<TodayFigureCardContent, { kind: 'signal' | 'research' }>
 type MetricContent = Extract<TodayFigureCardContent, { kind: 'metric' }>
 
 interface QuoteSource {
     icon: TodayReportIcon
     label: string
     date: string
-    signal: SignalViewApi
+    signal: SignalViewApi | null
 }
 
 function quoteSource(content: QuotedContent): QuoteSource {
+    if (content.kind === 'research') {
+        return { icon: 'scout', label: 'Agent’s research', date: content.at, signal: null }
+    }
     return {
         icon: sourceStyle(content.signal.source_product).icon,
         label: signalSourceLabel(content.signal),
@@ -110,10 +113,10 @@ function FullReportLink({ reportId, children }: { reportId: string; children: st
     )
 }
 
-function SignalAction({ signal, reportId }: { signal: SignalViewApi; reportId: string }): JSX.Element | null {
+function SignalAction({ signal, reportId }: { signal: SignalViewApi | null; reportId: string }): JSX.Element | null {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const destination = signalDestination(signal)
-    if (destination.kind === 'recording') {
+    const destination = signal ? signalDestination(signal) : null
+    if (destination?.kind === 'recording') {
         return (
             <Button
                 variant="link"
@@ -127,7 +130,7 @@ function SignalAction({ signal, reportId }: { signal: SignalViewApi; reportId: s
             </Button>
         )
     }
-    if (destination.kind === 'link') {
+    if (destination?.kind === 'link') {
         return (
             <CardLink to={destination.to} external={destination.external} dataAttr="today-report-figure-open">
                 {destination.label}
@@ -168,7 +171,7 @@ function QuoteCard({
     reportId: string
 }): JSX.Element {
     const source = quoteSource(content)
-    const { working } = content
+    const working = content.kind === 'signal' ? content.working : undefined
     const segments = quoteSegments(content, figure).map((segment) =>
         source.date && !segment.marked ? { ...segment, text: anchorToday(segment.text, source.date) } : segment
     )

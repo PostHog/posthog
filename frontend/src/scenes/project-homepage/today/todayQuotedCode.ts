@@ -114,10 +114,14 @@ export function codeExcerptCandidates(
     return excerpts
 }
 
-export interface TodayCodeQuote {
+export interface TodayCodeCandidate {
     file: CodeFileApi
     read: RepositoryFileApi
     excerpt: TodayCodeWindow
+}
+
+export interface TodayCodeQuote extends TodayCodeCandidate {
+    candidates: TodayCodeCandidate[]
 }
 
 function distinctMarked(excerpt: TodayCodeWindow): number {
@@ -129,15 +133,22 @@ export function findCodeQuote(
     reads: (RepositoryFileApi | null)[],
     identifiers: string[]
 ): TodayCodeQuote | null {
-    let best: TodayCodeQuote | null = null
-    for (const [index, file] of files.entries()) {
-        const read = reads[index]
-        const candidates = read ? codeExcerptCandidates(read.content, identifiers) : []
-        const excerpt = candidates[0]
-        const marksMore = !best || (excerpt && distinctMarked(excerpt) > distinctMarked(best.excerpt))
-        if (read && excerpt && marksMore) {
-            best = { file, read, excerpt }
-        }
+    const perFile = files
+        .map((file, index): TodayCodeCandidate[] => {
+            const read = reads[index]
+            return read
+                ? codeExcerptCandidates(read.content, identifiers).map((excerpt) => ({ file, read, excerpt }))
+                : []
+        })
+        .filter((candidates) => candidates.length > 0)
+    if (!perFile.length) {
+        return null
     }
-    return best
+    const best = perFile.reduce((chosen, candidates) =>
+        distinctMarked(candidates[0].excerpt) > distinctMarked(chosen[0].excerpt) ? candidates : chosen
+    )
+    const ordered = [best, ...perFile.filter((own) => own !== best)]
+    const depth = Math.max(...ordered.map((own) => own.length))
+    const candidates = Array.from({ length: depth }, (_, rank) => ordered.flatMap((own) => own[rank] ?? []))
+    return { ...best[0], candidates: candidates.flat() }
 }

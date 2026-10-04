@@ -65,6 +65,10 @@ def _sentences_at(text: str, breaks: list[int]) -> list[tuple[int, str]]:
     return [(start, text[start:end]) for start, end in zip(edges, edges[1:]) if start < end]
 
 
+def split_sentences(text: str) -> list[tuple[int, str]]:
+    return _sentences_at(text, _sentence_breaks(text, _CLOSE))
+
+
 def _backtick_run_end(text: str, start: int) -> int:
     end = start
     while end < len(text) and text[end] == _BACKTICK:

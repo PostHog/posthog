@@ -5,10 +5,14 @@ from posthog.models import Team
 from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
-from . import evidence, impact, samples
-from .formats import digits_end, github_links, is_word_char
+from ..facade.enums import FigureSourceKind, FigureText, KeyClauseRole
+from . import evidence, figure_sources, impact, samples
+from .formats import digits_end, github_links, is_word_char, utf16_offset
+from .jev import JevClient
+from .key_clauses import KeyClauseRequest, find_key_clauses
 from .prose import concise_text
-from .report_text import MARKDOWN
+from .report_text import MARKDOWN, rendered_prose, rendered_text
+from .signal_text import SignalInput
 
 _PROPOSAL_CHARS = 260
 _IMPACT_CHARS = 180
@@ -86,3 +90,50 @@ def page_source(*, team: Team, report_id: str) -> signals.ReportPageSource | Non
         return signals.report_page_source(team=team, report_id=report_id)
     sample = samples.sample_report(report_id)
     return samples.sample_page_source(sample) if sample is not None else None
+
+
+_PROBLEM_AND_CAUSE = [KeyClauseRole.PROBLEM, KeyClauseRole.CAUSE]
+
+
+def key_clauses(page: signals.ReportPageSource, include_impact: bool, jev: JevClient) -> contracts.ReportKeyClauses:
+    impact = impact_sentence(page.sections.impact) if include_impact else ""
+    requests = [
+        KeyClauseRequest(text=rendered_text(page.sections.lead), roles=_PROBLEM_AND_CAUSE),
+        KeyClauseRequest(text=rendered_text(impact), roles=_PROBLEM_AND_CAUSE),
+        KeyClauseRequest(text=rendered_text(proposal(page)), roles=[KeyClauseRole.FIX]),
+    ]
+    lead, impact_clauses, proposal_clauses = find_key_clauses(requests, page.summary, jev)
+    return contracts.ReportKeyClauses(lead=lead, impact=impact_clauses, proposal=proposal_clauses)
+
+
+def _figure_quote(candidate: figure_sources.Candidate, report_signals: list[SignalInput]) -> contracts.FigureQuote:
+    source = candidate.source
+    signal = next((own for own in report_signals if own.signal_id == source.source_id), None)
+    return contracts.FigureQuote(
+        kind=source.kind,
+        signal=evidence.signal_view(signal) if signal and source.kind == FigureSourceKind.SIGNAL else None,
+        at=source.at,
+        sentence=source.sentence,
+        start=utf16_offset(source.sentence, candidate.number.start),
+        end=utf16_offset(source.sentence, candidate.number.end),
+    )
+
+
+def figure_marks(
+    page: signals.ReportPageSource, artefacts: list[signals.ReportArtefactText], jev: JevClient
+) -> list[contracts.FigureMark]:
+    markdowns = {FigureText.LEAD: page.sections.lead, FigureText.IMPACT: impact_sentence(page.sections.impact)}
+    texts = {name: rendered_text(markdown) for name, markdown in markdowns.items()}
+    prose = {name: rendered_prose(markdown) for name, markdown in markdowns.items()}
+    notes = figure_sources.research_notes(artefacts)
+    matches = figure_sources.match_figures(texts, page.signals, notes, jev, prose)
+    return [
+        contracts.FigureMark(
+            text=match.claim.text_name,
+            start=utf16_offset(texts[match.claim.text_name], match.claim.figure.start),
+            end=utf16_offset(texts[match.claim.text_name], match.claim.figure.end),
+            figure=match.claim.figure.text,
+            quote=_figure_quote(match.source, page.signals),
+        )
+        for match in matches
+    ]

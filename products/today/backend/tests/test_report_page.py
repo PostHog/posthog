@@ -6,8 +6,8 @@ from parameterized import parameterized
 
 from products.signals.backend.facade import api as signals
 from products.today.backend.logic.prose import concise_text
-from products.today.backend.logic.report_page import report_page
-from products.today.backend.tests.factories import page_source
+from products.today.backend.logic.report_page import figure_marks, report_page
+from products.today.backend.tests.factories import AGREEING, SameAnswerJev, page_source, signal
 
 SOLUTION_PR = "Reuse draft https://github.com/example/web/pull/9."
 
@@ -124,3 +124,13 @@ class TestReportPage(SimpleTestCase):
     def test_sees_a_bare_reference_without_a_repository(self) -> None:
         page = report_page(replace(page_source(solution="PR #5 already fixes this."), repo_slug=None))
         assert (page.named_pull_request, page.solution_names_pull_request) == (None, True)
+
+    def test_marks_numbers_in_prose_but_not_in_code(self) -> None:
+        source = signal(content="The export failed for 212 users.")
+        page = replace(
+            page_source(),
+            sections=signals.ReportSections(lead="`limit=212` stops 212 users.", impact=None, solution=None),
+            signals=[source],
+        )
+        marks = figure_marks(page, [], SameAnswerJev(AGREEING))
+        assert [(mark.start, mark.figure) for mark in marks] == [(16, "212")]
