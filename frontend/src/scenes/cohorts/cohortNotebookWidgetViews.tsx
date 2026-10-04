@@ -16,7 +16,7 @@ export type CohortNotebookWidgetAttributes = {
 
 function CohortSummary({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): JSX.Element {
     const { id } = attributes
-    const { cohort, cohortLoading, cohortMissing } = useValues(cohortEditLogic({ id }))
+    const { cohort, cohortLoading, cohortMissing } = useValues(cohortEditLogic({ id, embedded: true }))
 
     if (cohortMissing) {
         return <NotFound object="cohort" />

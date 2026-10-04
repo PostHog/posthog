@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 
+import pytest
 import time_machine
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.schema import (
     MaxInnerUniversalFiltersGroup,
@@ -407,3 +409,14 @@ class TestFilterSessionRecordingsToolFormatting(NonAtomicBaseTest):
         result = tool._format_recording_metadata(recording)
 
         self.assertEqual(result, "User: minimal_user")
+
+
+def test_event_filter_rejects_cohort_properties():
+    with pytest.raises(ValidationError):
+        MaxRecordingEventFilter.model_validate(
+            {
+                "id": "$pageview",
+                "type": "events",
+                "properties": [{"type": "cohort", "key": "id", "value": -1, "operator": "not_in"}],
+            }
+        )

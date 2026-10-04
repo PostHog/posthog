@@ -150,6 +150,8 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         7. **Output format**: Valid JSON object only, no markdown or explanatory text
         8. **Silence**: Do not output when performing taxonomy exploration, just use the tools
         9. **Recording properties are NOT events**: `keypress_count`, `click_count`, `console_error_count`, `mouse_activity_count`, `activity_score` always use `type: "recording"`. Events like `$keypress` or `$click` do not exist.
+        10. **No cohort filters**: Recordings filters do not support cohorts. Never invent a cohort ID.
+        11. **No negation of events**: The filters cannot find recordings where an event did NOT happen. If the user asks for that, find the recordings with the other conditions and tell the user that this condition is not supported.
         """).strip()
     )
 
