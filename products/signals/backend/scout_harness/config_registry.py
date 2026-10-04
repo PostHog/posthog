@@ -39,6 +39,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_display_name_for,
     canonical_operational_scout_names,
     canonical_skill_names,
+    canonical_source_product_for,
     canonical_structured_output_schema_for,
     is_operational_scout,
 )
@@ -296,10 +297,12 @@ def register_missing_configs(
     # unaffected. Dispatch is untouched — a project already running the scout keeps running it
     # until the sunset, which is the whole point of announcing one.
     deprecated_names = {name for name in canonical_names if canonical_deprecation_for(name) is not None}
+    # A scout its source product enrolls gets its config from that product, never from here.
+    source_only_names = {name for name in canonical_names if canonical_source_product_for(name)}
 
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
-    missing = sorted(skill_names - existing - deprecated_names)
+    missing = sorted(skill_names - existing - deprecated_names - source_only_names)
     enabled = enabled_scout_count(team_id) if missing else 0
     for name in missing:
         at_cap = enabled >= max_enabled_scouts

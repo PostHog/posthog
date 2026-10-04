@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_config_tags_for,
     canonical_display_name_for,
     canonical_skill_names,
+    canonical_source_product_for,
     discover_canonical_skills,
     sync_canonical_skills,
 )
@@ -440,6 +441,8 @@ def _collect_planned_runs(
         for config in SignalScoutConfig.all_teams.filter(
             team_id=team.id, enabled=True, skill_name__in=live_skills
         ).exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND):
+            if not _enrolled_by_its_source(config):
+                continue
             overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
@@ -663,6 +666,15 @@ def _breaker_paused_configs_by_team() -> dict[int, list[SignalScoutConfig]]:
     return paused_by_team
 
 
+def _enrolled_by_its_source(config: SignalScoutConfig) -> bool:
+    """False for a scout that declares a source product, on a config that product did not create.
+
+    A person can still create or enable such a config by hand, and this keeps it from running.
+    """
+    source_product = canonical_source_product_for(config.skill_name)
+    return not source_product or config.source_product == source_product
+
+
 def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: set[str], now: datetime) -> list[_DueRun]:
     """The half-open side of the failure-streak breaker: one probe per cooldown for paused lanes.
 
@@ -680,7 +692,7 @@ def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: se
     """
     probes: list[_DueRun] = []
     for config in paused_configs:
-        if config.skill_name not in live_skills:
+        if config.skill_name not in live_skills or not _enrolled_by_its_source(config):
             continue
         # The cooldown runs from the later of the lane's last dispatch and the moment it was
         # paused. `last_run_at` alone is not enough: the run that trips the breaker was dispatched

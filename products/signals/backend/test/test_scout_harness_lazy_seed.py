@@ -429,6 +429,30 @@ class TestDiscoverCanonicalSkills:
         with pytest.raises(CanonicalSkillParseError, match="'scout-role' must be one of"):
             discover_canonical_skills(tmp_path)
 
+    @pytest.mark.parametrize(
+        "source_yaml,expected",
+        [
+            ("", ""),
+            ("scout-source-product: workflows", "workflows"),
+            ("scout-source-product:", None),
+            ("scout-source-product: Workflows", None),
+            ("scout-source-product:\n  - workflows", None),
+        ],
+    )
+    def test_parses_scout_source_product(self, tmp_path: Path, source_yaml: str, expected: str | None) -> None:
+        # An owner lost to a typo would let the scout seed onto every enrolled project.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{source_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        if expected is None:
+            with pytest.raises(CanonicalSkillParseError, match="'scout-source-product' must be"):
+                discover_canonical_skills(tmp_path)
+        else:
+            assert discover_canonical_skills(tmp_path)[0].source_product == expected
+
     def test_rejects_scout_role_on_companion_skill(self, tmp_path: Path) -> None:
         # A companion skill never gets a config, so there is no posture for a role to shape.
         _write_canonical_skill(

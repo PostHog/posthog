@@ -155,6 +155,7 @@ from products.workflows.backend.facade.tasks import (
     poll_ses_account_reputation,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
+    rotate_workflow_idea_cohort,
     sweep_workflow_email_deliverability,
 )
 
@@ -492,6 +493,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         reconcile_loop_trigger_schedules_task.s(),
         name="reconcile loop trigger schedules",
+    )
+
+    # Rotates the workflow ideas scout's cohort. Daily, because a cohort ends on its own date and the
+    # next one starts on the first run after that.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="17"),
+        rotate_workflow_idea_cohort.s(),
+        name="rotate workflow ideas scout cohort",
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)

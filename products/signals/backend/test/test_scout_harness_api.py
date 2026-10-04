@@ -3607,7 +3607,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 
     def test_sync_materializes_fleet_for_fresh_team(self) -> None:
-        canonical_names = {c.name for c in discover_canonical_skills()}
+        # A scout its source product enrolls is not part of the fleet a project materializes.
+        canonical_names = {c.name for c in discover_canonical_skills() if not c.source_product}
         scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
@@ -3711,7 +3712,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert properties["team_id"] == self.team.id
         # The rescue metric: this project had nothing and now has its fleet.
         assert properties["was_empty"] is True
-        assert properties["created_count"] == len(discover_canonical_skills())
+        assert properties["created_count"] == len([c for c in discover_canonical_skills() if not c.source_product])
         assert properties["configs_registered_count"] == len(response.json())
         assert properties["fleet_size"] == len(response.json())
         assert properties["pruned_count"] == 0
