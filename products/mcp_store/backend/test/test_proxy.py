@@ -250,6 +250,77 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert forwarded["x-posthog-custom-future-header"] == "anything"
         assert "x-not-posthog-namespace" not in forwarded
 
+    @parameterized.expand(
+        [
+            (
+                "server_discover",
+                {"jsonrpc": "2.0", "id": 1, "method": "server/discover"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover"},
+            ),
+            (
+                "tools_call_with_matching_name",
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "search"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "search"},
+            ),
+            (
+                "prompts_get_with_matching_name",
+                {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": "summarize"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "prompts/get", "mcp-name": "summarize"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "prompts/get", "mcp-name": "summarize"},
+            ),
+            (
+                "resources_read_with_matching_uri",
+                {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "file:///notes.txt"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "resources/read", "mcp-name": "file:///notes.txt"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "resources/read", "mcp-name": "file:///notes.txt"},
+            ),
+            (
+                "name_that_does_not_match_body",
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "delete_all"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call"},
+            ),
+            (
+                "base64_encoded_name_that_matches_body",
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "=?base64?c2VhcmNo?="},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "=?base64?c2VhcmNo?="},
+            ),
+            (
+                "base64_encoded_name_that_does_not_match_body",
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search"}},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "=?base64?ZGVsZXRl?="},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call"},
+            ),
+            (
+                "method_that_does_not_match_body",
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                {"mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover"},
+                {"mcp-protocol-version": "2026-07-28"},
+            ),
+        ]
+    )
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_proxy_forwards_mcp_protocol_headers(self, _name, body, request_headers, expected_headers, mock_client_cls):
+        installation = self._create_installation(sensitive_configuration={"api_key": "sk-test-key"})
+        MCPServerInstallationTool.objects.create(
+            installation=installation, tool_name="search", approval_state="approved", last_seen_at=timezone.now()
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(self._proxy_url(installation.id), data=body, format="json", headers=request_headers)
+
+        assert response.status_code == 200
+        _, kwargs = mock_client.build_request.call_args
+        forwarded = {k.lower(): v for k, v in kwargs["headers"].items() if k.lower().startswith("mcp-")}
+        assert forwarded == expected_headers
+
     @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_proxy_refreshes_expired_oauth_token(self, mock_client_cls, mock_refresh):

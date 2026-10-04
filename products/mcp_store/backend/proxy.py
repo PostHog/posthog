@@ -1,4 +1,6 @@
 import json
+import base64
+import binascii
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -39,6 +41,17 @@ TOOL_NEEDS_APPROVAL_CODE = -32001
 TOOL_DISABLED_CODE = -32002
 BATCH_REJECTED_CODE = -32000
 METHOD_NOT_FOUND_CODE = -32601
+
+# SEP-2243 operation headers. Modern MCP clients send them on every request, and
+# servers that implement the spec reject a request without them.
+PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+MCP_METHOD_HEADER = "Mcp-Method"
+MCP_NAME_HEADER = "Mcp-Name"
+# Methods whose `Mcp-Name` header mirrors a params field.
+NAME_HEADER_PARAM = {"tools/call": "name", "prompts/get": "name", "resources/read": "uri"}
+# Clients wrap a value that is not header-safe in this Base64 sentinel.
+BASE64_HEADER_PREFIX = "=?base64?"
+BASE64_HEADER_SUFFIX = "?="
 
 
 def _normalized_origin(url: str) -> tuple[str, str, int | None] | None:
@@ -482,6 +495,45 @@ def enforce_tool_approval(
     return HttpResponse(json.dumps(blocked), content_type="application/json", status=200)
 
 
+def _decode_mcp_header_value(value: str) -> str | None:
+    if not (value.startswith(BASE64_HEADER_PREFIX) and value.endswith(BASE64_HEADER_SUFFIX)):
+        return value
+    encoded = value[len(BASE64_HEADER_PREFIX) : -len(BASE64_HEADER_SUFFIX)]
+    try:
+        return base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+
+
+def _mcp_protocol_headers(request_headers: Any, data: dict[str, Any] | list[Any]) -> dict[str, str]:
+    """The client's MCP protocol headers that are safe to send upstream.
+
+    Tool policy reads the body, so `Mcp-Method` and `Mcp-Name` go upstream only
+    when they match the body. A header that names a different tool could
+    otherwise route a lax upstream around the policy check. When a header does
+    not match, the proxy drops it and a conforming upstream rejects the request.
+    """
+    headers: dict[str, str] = {}
+    protocol_version = request_headers.get(PROTOCOL_VERSION_HEADER)
+    if protocol_version:
+        headers[PROTOCOL_VERSION_HEADER] = protocol_version
+
+    if not isinstance(data, dict):
+        return headers
+    method = data.get("method")
+    if not isinstance(method, str) or request_headers.get(MCP_METHOD_HEADER) != method:
+        return headers
+    headers[MCP_METHOD_HEADER] = method
+
+    name_param = NAME_HEADER_PARAM.get(method)
+    params = data.get("params")
+    name = params.get(name_param) if name_param and isinstance(params, dict) else None
+    name_header = request_headers.get(MCP_NAME_HEADER)
+    if isinstance(name, str) and name_header and _decode_mcp_header_value(name_header) == name:
+        headers[MCP_NAME_HEADER] = name_header
+    return headers
+
+
 def _write_audit_events(
     installation: MCPServerInstallation,
     gateway_server: MCPGatewayServer,
@@ -589,6 +641,7 @@ def proxy_mcp_request(
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
+        **_mcp_protocol_headers(request.headers, data),
         **auth_headers,
     }
 
