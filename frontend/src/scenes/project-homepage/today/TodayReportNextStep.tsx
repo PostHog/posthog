@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { IconClock, IconPullRequest, IconSparkles } from '@posthog/icons'
 import { Text } from '@posthog/quill'
@@ -87,10 +87,8 @@ export function TodayReportNextStep({
 }): JSX.Element | null {
     const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const logic = todayReportLogic({ reportId: report.id })
-    const { reportState, reportUrl, isSample, page, askingAi } = useValues(logic)
-    const { askAboutReport } = useActions(logic)
-    const [composerOpen, setComposerOpen] = useState(false)
-    const [draft, setDraft] = useState('')
+    const { reportState, reportUrl, isSample, page, askingAi, composerOpen, draft } = useValues(logic)
+    const { askAboutReport, openComposer, setDraft } = useActions(logic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const task = reportTaskToOpen?.task
     const { primary, note, pickedUp } = todayNextStep(report, {
@@ -108,13 +106,12 @@ export function TodayReportNextStep({
         ? 'Sample reports can’t start a chat. Turn off sample reports to ask about a real one.'
         : null
 
-    const openComposer = (text: string): void => {
-        setComposerOpen(true)
-        setDraft(text)
+    const focusComposer = (text: string | null): void => {
+        openComposer(text)
         requestAnimationFrame(() => {
             const textArea = textAreaRef.current
             textArea?.focus({ preventScroll: true })
-            textArea?.setSelectionRange(text.length, text.length)
+            textArea?.setSelectionRange(textArea.value.length, textArea.value.length)
         })
     }
 
@@ -128,12 +125,12 @@ export function TodayReportNextStep({
                         reportUrl={reportUrl}
                         isSample={isSample}
                         startReason={startDisabledReason(report, pickedUp, createPrDisabledReason)}
-                        onStartWithPostHog={openComposer}
+                        onStartWithPostHog={focusComposer}
                     />
                 )}
                 <TodayActionButton
                     className={primary ? undefined : '-ms-2'}
-                    onClick={() => openComposer(composerOpen ? draft : '')}
+                    onClick={() => focusComposer(null)}
                     disabledReason={askDisabledReason}
                     data-attr="today-report-ask"
                 >
@@ -151,10 +148,7 @@ export function TodayReportNextStep({
                 <Composer.Root
                     value={draft}
                     onChange={setDraft}
-                    onSubmit={() => {
-                        askAboutReport(draft.trim())
-                        setDraft('')
-                    }}
+                    onSubmit={() => askAboutReport(draft.trim())}
                     textAreaRef={textAreaRef}
                     loading={askingAi}
                     disabled={askingAi}

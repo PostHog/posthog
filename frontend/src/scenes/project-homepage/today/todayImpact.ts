@@ -40,11 +40,15 @@ export function dailyTrend(metric: Pick<ReportMetricApi, 'series' | 'value_at' |
     }
     const query = isObject(metric.query) ? (metric.query as { source?: { interval?: unknown } }) : {}
     const first = series.findIndex((point) => point > 0)
-    if (query.source?.interval !== 'day' || !metric.value_at || first <= 0) {
+    if (query.source?.interval !== 'day' || !metric.value_at || first < 0) {
         return { data: series, since: null, start: null }
     }
     const start = dayjs(metric.value_at).subtract(series.length - 1 - first, 'day')
-    return { data: series.slice(first), since: shortDate(start), start: start.format('YYYY-MM-DD') }
+    return {
+        data: series.slice(first),
+        since: first > 0 ? shortDate(start) : null,
+        start: start.format('YYYY-MM-DD'),
+    }
 }
 
 function asSentence(label: string): string {
@@ -53,20 +57,34 @@ function asSentence(label: string): string {
 }
 
 function trendRange(trend: TodayDailyTrend | null): { from: string; to: string } | null {
-    if (!trend?.since || !trend.start) {
+    if (!trend?.start) {
         return null
     }
     const lastDay = dayjs(trend.start).add(trend.data.length - 1, 'day')
-    return { from: trend.since, to: `${shortDate(lastDay)} (partial)` }
+    return { from: shortDate(trend.start), to: `${shortDate(lastDay)} (partial)` }
 }
 
 function trendWindow(trend: TodayDailyTrend | null): string | null {
-    if (!trend?.since || !trend.start) {
+    if (!trend?.start) {
         return null
     }
     const peak = Math.max(...trend.data)
     const peakDay = shortDate(dayjs(trend.start).add(trend.data.indexOf(peak), 'day'))
     return peak > 0 ? `in total · peak ${peak.toLocaleString('en-US')} on ${peakDay}` : 'in total'
+}
+
+function metricChart(metric: ReportMetricApi, trend: TodayDailyTrend | null): TodayImpactNumber['chart'] {
+    if (!trend || trend.data.length < 2) {
+        return null
+    }
+    return { data: trend.data, type: reportMetricChartType(metric), partialLast: !!trend.start }
+}
+
+function shownWindow(trend: TodayDailyTrend | null, window: string | null): string | null {
+    if (trend?.since) {
+        return `First seen ${trend.since}`
+    }
+    return window && capitalizeFirstLetter(window)
 }
 
 function metricNumber(report: Pick<SignalReport, 'metrics'>): TodayImpactNumber | null {
@@ -82,11 +100,8 @@ function metricNumber(report: Pick<SignalReport, 'metrics'>): TodayImpactNumber 
         key: 'metric',
         value: parts.value,
         label: asSentence(metric.title.trim()),
-        window: trend?.since ? `First seen ${trend.since}` : window && capitalizeFirstLetter(window),
-        chart:
-            trend && trend.data.length > 1
-                ? { data: trend.data, type: reportMetricChartType(metric), partialLast: !!trend.start }
-                : null,
+        window: shownWindow(trend, window),
+        chart: metricChart(metric, trend),
         content: {
             kind: 'metric',
             total: parts.value,

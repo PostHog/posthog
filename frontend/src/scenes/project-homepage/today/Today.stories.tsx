@@ -540,28 +540,25 @@ function clearTodayStorage(
 
 function mockReportPage(reportId: string): ReportPageApi {
     const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
-    // Error tracking signals fetch their issue, which these stories do not mock.
-    const signals = mockSignals(reportId, 6)
-        .filter((signal) => signal.source_product !== 'error_tracking')
-        .map((signal) => {
-            const firstLine = signal.content.split('\n')[0]
-            return {
-                signal_id: signal.signal_id,
-                content: signal.content,
-                source_product: signal.source_product,
-                source_type: signal.source_type,
-                source_id: signal.source_id,
-                timestamp: signal.timestamp,
-                extra: { ...signal.extra },
-                headline: firstLine,
-                lead: firstLine,
-                meta: '',
-                cited: null,
-                recording: null,
-                link: null,
-                preview: null,
-            }
-        })
+    const signals = mockSignals(reportId, 6).map((signal) => {
+        const firstLine = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            content: signal.content,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline: firstLine,
+            lead: firstLine,
+            meta: '',
+            cited: null,
+            recording: null,
+            link: null,
+            preview: null,
+        }
+    })
     return {
         lead: report.summary_lead ?? '',
         proposal: '',

@@ -5,7 +5,7 @@ import type { FigureMarkApi, FigureQuoteApi, SignalViewApi } from 'products/toda
 
 import { inlineSegments, shortDate } from './todayProse'
 
-export interface TodayTextSpan {
+interface TodayTextSpan {
     start: number
     end: number
 }

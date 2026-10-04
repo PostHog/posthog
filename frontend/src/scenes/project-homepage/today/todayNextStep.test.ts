@@ -32,6 +32,16 @@ describe('todayNextStep', () => {
             },
         ],
         [
+            'a merged pull request',
+            report({
+                pull_requests: [
+                    { url: 'https://github.com/example/web/pull/1', state: 'closed', merged: true },
+                ] as unknown as SignalReport['pull_requests'],
+            }),
+            null,
+            { primary: null, note: 'The fix is merged. Resolve the report once it is live.' },
+        ],
+        [
             'a task that claimed the report and has no run yet',
             CLAIMED_BY_TASK,
             null,

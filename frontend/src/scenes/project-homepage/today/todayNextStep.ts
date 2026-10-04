@@ -67,25 +67,33 @@ function alreadyAddressed(context: TodayNextStepContext): TodayNextStep {
     }
 }
 
-export function todayNextStep(report: SignalReport, context: TodayNextStepContext): TodayNextStep {
+function pullRequestStep(report: SignalReport): TodayNextStep | null {
     const pullRequest = primaryReportPullRequest(report)
     const url = safeHttpUrl(pullRequest.url ?? '')
-    if (url && pullRequest.merged) {
+    if (!url) {
+        return null
+    }
+    if (pullRequest.merged) {
         return { primary: null, note: 'The fix is merged. Resolve the report once it is live.', pickedUp: false }
     }
-    if (url && pullRequest.state !== 'closed') {
-        return {
-            primary: { kind: 'review', url, label: reviewLabel(url, pullRequest.state === 'draft') },
-            note: REVIEW_NOTES[pullRequest.review_decision ?? ''] ?? null,
-            pickedUp: false,
-        }
+    if (pullRequest.state === 'closed') {
+        return null
     }
+    return {
+        primary: { kind: 'review', url, label: reviewLabel(url, pullRequest.state === 'draft') },
+        note: REVIEW_NOTES[pullRequest.review_decision ?? ''] ?? null,
+        pickedUp: false,
+    }
+}
+
+function pickedUpStep(report: SignalReport, context: TodayNextStepContext): TodayNextStep | null {
     const assignee = report.assignee ?? null
-    if (context.slotClaimed || assignee?.kind === 'task') {
-        if (context.runningTask) {
-            const primary = { kind: 'open_task' as const, label: 'Open the running task', ...context.runningTask }
-            return { primary, note: null, pickedUp: true }
-        }
+    const taskPickedUp = context.slotClaimed || assignee?.kind === 'task'
+    if (taskPickedUp && context.runningTask) {
+        const primary = { kind: 'open_task' as const, label: 'Open the running task', ...context.runningTask }
+        return { primary, note: null, pickedUp: true }
+    }
+    if (taskPickedUp) {
         return {
             primary: inFlightReview(context) ?? START,
             note: `A PostHog task picked this up${pickedUpOn(assignee?.claimed_at)}.`,
@@ -98,6 +106,14 @@ export function todayNextStep(report: SignalReport, context: TodayNextStepContex
             note: `${claimant(assignee)} picked this up${pickedUpOn(assignee.claimed_at)}.`,
             pickedUp: true,
         }
+    }
+    return null
+}
+
+export function todayNextStep(report: SignalReport, context: TodayNextStepContext): TodayNextStep {
+    const step = pullRequestStep(report) ?? pickedUpStep(report, context)
+    if (step) {
+        return step
     }
     if (report.already_addressed) {
         return alreadyAddressed(context)

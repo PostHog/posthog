@@ -1,5 +1,5 @@
-import { useActions } from 'kea'
-import { useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconChevronDown, IconExternal, IconPlay } from '@posthog/icons'
 import { Item, ItemActions, ItemContent, ItemTitle, Text, cn } from '@posthog/quill'
@@ -77,9 +77,11 @@ function RowTrailer({
 }
 
 export function TodayReportSignalRow({ reportId, signal }: { reportId: string; signal: SignalViewApi }): JSX.Element {
-    const { evidenceOpened, readCode } = useActions(todayReportLogic({ reportId }))
+    const logic = todayReportLogic({ reportId })
+    const { expandedEvidence } = useValues(logic)
+    const { evidenceOpened, readCode, expandEvidence, collapseEvidence } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const [expanded, setExpanded] = useState(false)
+    const expanded = !!expandedEvidence[signal.signal_id]
     const destination = useMemo(() => signalDestination(signal), [signal])
     const open = previewOpen(signal, destination)
     const preview = shownPreview(signal, open)
@@ -93,7 +95,7 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
             return
         }
         if (expanded) {
-            setExpanded(false)
+            collapseEvidence(signal.signal_id)
             return
         }
         evidenceOpened(signal, signal.cited ?? action.kind)
@@ -106,7 +108,7 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
         if (preview?.code.length) {
             readCode(signal, preview.code)
         }
-        setExpanded(true)
+        expandEvidence(signal.signal_id)
     }
 
     return (
