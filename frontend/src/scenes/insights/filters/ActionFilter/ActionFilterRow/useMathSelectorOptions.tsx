@@ -488,18 +488,21 @@ export function useMathSelectorOptions({
             }
         }
 
-        addFirstOccurrenceActorPicker(
-            BaseMathType.FirstTimeForUser,
-            firstTimeForGroupMathDefinitions,
-            firstTimeActorsShown,
-            setFirstTimeActorsShown
-        )
-        addFirstOccurrenceActorPicker(
-            BaseMathType.FirstMatchingEventForUser,
-            firstMatchingEventForGroupMathDefinitions,
-            firstMatchingActorsShown,
-            setFirstMatchingActorsShown
-        )
+        // funnels have no group-scoped first-occurrence math, so the picker would discard the choice
+        if (mathAvailability !== MathAvailability.FunnelsOnly) {
+            addFirstOccurrenceActorPicker(
+                BaseMathType.FirstTimeForUser,
+                firstTimeForGroupMathDefinitions,
+                firstTimeActorsShown,
+                setFirstTimeActorsShown
+            )
+            addFirstOccurrenceActorPicker(
+                BaseMathType.FirstMatchingEventForUser,
+                firstMatchingEventForGroupMathDefinitions,
+                firstMatchingActorsShown,
+                setFirstMatchingActorsShown
+            )
+        }
     }
 
     if (
