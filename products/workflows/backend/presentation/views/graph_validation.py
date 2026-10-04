@@ -24,7 +24,12 @@ def _branch_slot_count(action: dict) -> int:
     if action_type == "wait_until_condition":
         return 1
     if action_type == "ai_decision":
-        answers = len(config.get("options") or []) if config.get("answer_type") == AIDecisionAnswerType.PICK_ONE else 2
+        if config.get("answer_type") != AIDecisionAnswerType.PICK_ONE:
+            answers = 2
+        elif isinstance(config.get("options"), list):
+            answers = len(config["options"])
+        else:
+            return 0
         return answers + (1 if config.get("unsure_enabled") else 0)
     return 0
 

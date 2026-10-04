@@ -275,15 +275,19 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             ("nested_deeper_than_the_model_reads", {"t": json.loads("[" * 300 + "]" * 300)}, "model_refused"),
         ]
     )
-    def test_refuses_a_state_the_model_cannot_take_without_asking_it(
+    @override_settings(WORKFLOWS_AI_DECISION_TEAM_BURST=1, WORKFLOWS_AI_DECISION_TEAM_PER_HOUR=1)
+    def test_refuses_a_state_the_model_cannot_take_without_asking_it_or_spending_admission(
         self, _name: str, state: dict[str, Any], expected_code: str
     ) -> None:
         with patch(_DECIDE) as decide:
             response = self._post({"state": state})
+        decide.assert_not_called()
+        with patch(_DECIDE, return_value=_pick_one_result()):
+            next_valid = self._post()
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["error"]["code"] == expected_code
-        decide.assert_not_called()
+        assert next_valid.json()["status"] == "succeeded", next_valid.json()
 
     @parameterized.expand(
         [

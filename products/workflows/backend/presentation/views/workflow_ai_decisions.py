@@ -87,7 +87,9 @@ class WorkflowAIDecisionResponseSerializer(serializers.Serializer):
 
 
 class WorkflowAIDecisionRetrySerializer(serializers.Serializer):
-    detail = serializers.CharField(help_text="Why the decision has to wait. Retry after the Retry-After header.")
+    detail = serializers.CharField(
+        help_text="Why the decision has to wait. A 429 says when to retry in Retry-After; a 503 leaves the wait to the caller's backoff."
+    )
 
 
 class WorkflowAIDecisionViewSet(viewsets.GenericViewSet):
@@ -103,13 +105,14 @@ class WorkflowAIDecisionViewSet(viewsets.GenericViewSet):
         request=WorkflowAIDecisionRequestSerializer,
         responses={
             200: WorkflowAIDecisionResponseSerializer,
+            400: OpenApiResponse(description="The request does not pass the step's config validation."),
             429: OpenApiResponse(
                 response=WorkflowAIDecisionRetrySerializer,
                 description="Too many decisions right now. Retry after the Retry-After header.",
             ),
             503: OpenApiResponse(
                 response=WorkflowAIDecisionRetrySerializer,
-                description="The decision model or the admission store is unavailable. Retry later.",
+                description="The decision model or the admission store is unavailable. Retry with backoff; no Retry-After is sent.",
             ),
         },
         summary="Answer a workflow AI decision",
@@ -150,12 +153,12 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
                 "input_tokens": input_tokens,
             }
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
-        case AIDecisionFailed(code=code, reason=reason):
+        case AIDecisionFailed(code=code, reason=reason, status_code=status_code):
             AI_DECISION_OUTCOMES.labels("failed", code.value).inc()
             # Causes about one organization or one input repeat for every person a batch run sends, so the
             # counter carries their rate. Causes that fail every decision on this deployment stay visible.
             log = logger.warning if _fails_every_decision(code, reason) else logger.debug
-            log("workflow_ai_decision_failed", team_id=team_id, code=code.value, reason=reason)
+            log("workflow_ai_decision_failed", team_id=team_id, code=code.value, reason=reason, status_code=status_code)
             body = {"status": AIDecisionStatus.FAILED, "error": {"code": code, "message": ERROR_MESSAGES[code]}}
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
         case AIDecisionThrottled(retry_after_seconds=retry_after_seconds, source=source):
@@ -176,9 +179,9 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             )
 
 
-def _fails_every_decision(code: AIDecisionErrorCode, reason: str) -> bool:
-    return (
-        code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE
-        or reason.startswith("gateway_")
-        or reason == "region_without_decisions"
+def _fails_every_decision(code: AIDecisionErrorCode, reason: str | None) -> bool:
+    # An answer that does not fit its question is a gateway contract break, not one bad input.
+    return code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE or reason in (
+        "region_without_decisions",
+        "answer_does_not_fit_question",
     )

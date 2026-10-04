@@ -178,11 +178,11 @@ def consume(
     )
 
 
-def refund(key: str, budget: Budget, cost: int = 1) -> int | BucketUnavailable:
+def refund(key: str, budget: Budget, cost: int = 1, *, client: Redis | None = None) -> int | BucketUnavailable:
     """Give ``cost`` tokens back, capped at capacity. Returns the new whole-token count."""
     if cost < 1:
         raise ValueError(f"cost must be >= 1, got {cost}")
-    refund_script = _scripts().refund
+    refund_script = client.register_script(_REFUND_LUA) if client is not None else _scripts().refund
     try:
         return int(refund_script(keys=[key], args=[budget.burst, cost]))
     except RedisError as e:

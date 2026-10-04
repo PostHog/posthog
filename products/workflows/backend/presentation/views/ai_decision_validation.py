@@ -6,6 +6,7 @@ from products.ml_inference.backend.facade.contracts import MAX_OPTIONS_PER_QUEST
 from products.workflows.backend.facade.enums import AIDecisionAnswerType
 
 MIN_OPTIONS = 2
+MAX_OPTIONS = MAX_OPTIONS_PER_QUESTION
 MAX_CONTEXT_FIELD_NAME_LENGTH = 100
 
 # The step's only templated input. Fixed here rather than read from a template, so no saved config can
@@ -28,8 +29,8 @@ class AIDecisionOptionSerializer(serializers.Serializer):
 
 
 class AIDecisionConfigSerializer(serializers.Serializer):
-    """The question an AI decision step asks. A workflow save and the decide route validate it alike,
-    so a step that saves never fails at run time on its own config."""
+    """The question an AI decision step asks. A strict workflow save and the decide route validate it
+    alike, so a step that saves strictly never fails at run time on its own config."""
 
     question = serializers.CharField(
         max_length=2000,

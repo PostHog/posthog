@@ -145,11 +145,11 @@ def _admit(team_id: int) -> AIDecisionThrottled | AIDecisionUnavailable | None:
         return AIDecisionThrottled(retry_after_seconds=_spread_retry(team_decision, team_budget), source="team")
     global_decision = consume(_ADMISSION_KEY, global_budget, client=client)
     if isinstance(global_decision, BucketUnavailable):
-        # No refund: it would wait on the default Redis timeouts against a store that just failed.
+        # No refund against a store that just failed.
         return AIDecisionUnavailable(reason="redis_unavailable")
     if not global_decision.allowed:
         # No decision ran, so the team keeps its token for the retry.
-        refund(team_key, team_budget)
+        refund(team_key, team_budget, client=client)
         return AIDecisionThrottled(retry_after_seconds=_spread_retry(global_decision, global_budget), source="global")
     return None
 
@@ -211,14 +211,19 @@ def _gateway_error_outcome(status_code: int) -> AIDecisionOutcome:
         return AIDecisionThrottled(retry_after_seconds=retry_after, source="gateway")
     if status_code >= 500:
         return AIDecisionUnavailable(reason="gateway_error", status_code=status_code)
-    reason = f"gateway_{status_code}"
     if status_code == 402:
-        return AIDecisionFailed(code=AIDecisionErrorCode.QUOTA_EXCEEDED, reason=reason)
+        return AIDecisionFailed(
+            code=AIDecisionErrorCode.QUOTA_EXCEEDED, reason="gateway_status", status_code=status_code
+        )
     # 200 is an answer the facade could not read. The model ran, so a retry would pay for the same failure again.
     if status_code in (200, 400, 413, 422):
-        return AIDecisionFailed(code=AIDecisionErrorCode.MODEL_REFUSED, reason=reason)
+        return AIDecisionFailed(
+            code=AIDecisionErrorCode.MODEL_REFUSED, reason="gateway_status", status_code=status_code
+        )
     # Any other 4xx means the gateway credential or route is wrong for every decision, which a retry cannot fix.
-    return AIDecisionFailed(code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE, reason=reason)
+    return AIDecisionFailed(
+        code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE, reason="gateway_status", status_code=status_code
+    )
 
 
 def _probabilities(result: DecisionResult, question: AIDecisionQuestion) -> dict[str, float] | None:

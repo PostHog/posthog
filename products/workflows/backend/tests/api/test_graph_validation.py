@@ -132,6 +132,12 @@ class TestValidateGraph(TestCase):
         aborting = {**decision, "on_error": "abort"}
         assert validate_graph([TRIGGER, aborting, EXIT], [_edge("t", "d"), *answer_edges]) == []
 
+    def test_ai_decision_with_malformed_options_has_no_answer_slots(self):
+        decision = {"id": "d", "name": "d", "type": "ai_decision", "config": {"answer_type": "pick_one", "options": 3}}
+        assert "does not support branch edges" in _graph_errors(
+            [TRIGGER, decision, EXIT], [_edge("t", "d"), _edge("d", "x", "branch", index=0), _edge("d", "x")]
+        )
+
     def test_unreachable_node_returns_warning_not_error(self):
         actions = [TRIGGER, _fn("a"), _fn("orphan"), EXIT]
         edges = [_edge("t", "a"), _edge("a", "x")]

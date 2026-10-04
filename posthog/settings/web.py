@@ -1109,8 +1109,8 @@ if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
 # Admission budgets for the workflow AI decision step, a token bucket per team and then one shared by
 # every team. They bound the rate of decisions a batch workflow can start. Each decision holds a web
-# worker for at least the gateway timeout, which applies to each phase of the call, so the workers in
-# use are at least the rate times that timeout.
+# worker for up to the gateway timeout per phase of the call, so the workers in use are at most about
+# the rate times that timeout times the phases.
 # The gateway's own limits are not visible from here, so the defaults are a starting point, not a measured limit.
 WORKFLOWS_AI_DECISION_TEAM_BURST = int(get_from_env("WORKFLOWS_AI_DECISION_TEAM_BURST", 20))
 WORKFLOWS_AI_DECISION_TEAM_PER_HOUR = int(get_from_env("WORKFLOWS_AI_DECISION_TEAM_PER_HOUR", 18_000))

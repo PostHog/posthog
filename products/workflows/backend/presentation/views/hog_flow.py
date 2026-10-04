@@ -113,7 +113,6 @@ from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
-from products.ml_inference.backend.facade.contracts import MAX_OPTIONS_PER_QUESTION
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -188,6 +187,7 @@ from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
 from products.workflows.backend.presentation.views.ai_decision_validation import (
     AI_DECISION_INPUTS_SCHEMA,
+    MAX_OPTIONS,
     MIN_OPTIONS,
     AIDecisionConfigSerializer,
     ai_decision_context_error,
@@ -1231,7 +1231,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             "falls through the 'continue' edge. "
             "ai_decision: asks a hosted AI model a question about the run and branches on the answer. "
             "{question, answer_type: 'yes_no'|'pick_one', options?: [{name, description?}] "
-            f"(pick_one, {MIN_OPTIONS} to {MAX_OPTIONS_PER_QUESTION}, unique names), yes_means?, no_means?, "
+            f"(pick_one, {MIN_OPTIONS} to {MAX_OPTIONS}, unique names), yes_means?, no_means?, "
             "yes_threshold? (percent), unsure_enabled?, min_pick_probability? (percent), no_threshold? (percent, "
             "below yes_threshold), inputs: {context: {value: {<field name>: '<hog template>'}}}}. "
             "question and options are plain text; "

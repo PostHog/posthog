@@ -6713,7 +6713,7 @@ def _ai_decision_flag(enabled: bool | None) -> Any:
     )
 
 
-def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None) -> dict:
+def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None, failure_edge: bool = True) -> dict:
     config = {
         "question": "Which onboarding track fits this signup?",
         "answer_type": "pick_one",
@@ -6746,9 +6746,9 @@ def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None) -
             {"from": "trigger_node", "to": "decide", "type": "continue"},
             *(
                 {"from": "decide", "to": "exit_node", "type": "branch", "index": index}
-                for index in range(slots if answer_edges is None or answer_edges < 0 else answer_edges)
+                for index in range(slots if answer_edges is None else answer_edges)
             ),
-            *([] if answer_edges == -1 else [{"from": "decide", "to": "exit_node", "type": "continue"}]),
+            *([{"from": "decide", "to": "exit_node", "type": "continue"}] if failure_edge else []),
         ],
     }
 
@@ -6791,7 +6791,6 @@ class TestAIDecisionActionValidation(APIBaseTest):
             ("long_context_name", {"inputs": {"context": {"value": {"n" * 101: "{event.event}"}}}}, None, "context"),
             ("missing_answer_edge", {}, 1, "graph"),
             ("missing_unsure_edge", {"unsure_enabled": True}, 2, "graph"),
-            ("missing_failure_edge", {}, -1, "graph"),
         ]
     )
     def test_rejects_a_decision_that_cannot_run(
@@ -6801,6 +6800,17 @@ class TestAIDecisionActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert error_field in response.json()["attr"], response.json()
+
+    @parameterized.expand([("continue_on_error", None, 400), ("abort_on_error", "abort", 201)])
+    def test_a_decision_needs_its_failure_edge_unless_it_aborts(
+        self, _name: str, on_error: str | None, expected_status: int
+    ) -> None:
+        flow = _ai_decision_flow({}, failure_edge=False)
+        flow["actions"][1]["on_error"] = on_error
+
+        response = self._post(flow)
+
+        assert response.status_code == expected_status, response.json()
 
     def test_only_the_context_is_templated(self) -> None:
         flow = _ai_decision_flow(
