@@ -261,7 +261,7 @@ jobs:
               # SHA, skip: the newer run is the real gate (and always runs, since the tip
               # is never stale against itself). Single pushes just pay the short wait.
               id: debounce
-              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
                   REPO: ${{ github.repository }}
