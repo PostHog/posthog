@@ -3,6 +3,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -944,6 +946,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
                 logic.actions.setSelectedRecordingsIds(['abc', 'def'])
                 logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
+                // A list reload prunes the selection while the dialog is open.
+                logic.actions.setSelectedRecordingsIds(['abc'])
+                await expectLogic(logic).toMatchValues({ recordingIdsToDelete: ['abc', 'def'] })
 
                 await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
                     .toDispatchActions(['addDeletedRecordings', 'setSelectedRecordingsIds'])
@@ -1022,6 +1027,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toMatchValues({ otherRecordings: [aRecording, bRecording] })
 
                 logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
 
                 await expectLogic(logic, () => logic.actions.handleDeleteSelectedRecordings(undefined))
                     .toDispatchActions(['addDeletedRecordings'])
@@ -1061,6 +1067,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toMatchValues({ otherRecordings: [aRecording, bRecording] })
 
                 logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
 
                 logic.actions.handleDeleteSelectedRecordings(undefined)
                 logic.actions.handleDeleteSelectedRecordings(undefined)
@@ -1069,6 +1076,56 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toDispatchActions(['addDeletedRecordings'])
 
                 expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledTimes(1)
+            })
+
+            it('does not send a delete request when the dialog opened with nothing selected', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings')
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
+                logic.actions.setSelectedRecordingsIds(['abc'])
+                await expectLogic(logic, () =>
+                    logic.actions.handleDeleteSelectedRecordings(undefined)
+                ).toFinishAllListeners()
+
+                expect(api.recordings.bulkDeleteRecordings).not.toHaveBeenCalled()
+            })
+
+            it('counts only what the backend deleted when it skips some recordings', async () => {
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockResolvedValue({
+                    success: true,
+                    deleted_count: 1,
+                    total_requested: 2,
+                    failed_ids: [],
+                })
+                const warningSpy = jest.spyOn(lemonToast, 'warning')
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                logic.actions.setIsDeleteSelectedRecordingsDialogOpen(true)
+                await expectLogic(logic, () =>
+                    logic.actions.handleDeleteSelectedRecordings(undefined)
+                ).toFinishAllListeners()
+
+                expect(warningSpy).toHaveBeenCalledWith(
+                    expect.stringContaining('1 of 2 recordings deleted'),
+                    expect.anything()
+                )
+            })
+
+            it('reports a failed bulk mark as viewed instead of a success', async () => {
+                jest.spyOn(api.recordings, 'bulkViewedRecordings').mockRejectedValue(new Error('boom'))
+                const promiseSpy = jest.spyOn(lemonToast, 'promise')
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                logic.actions.setSelectedRecordingsIds(['abc'])
+                await expectLogic(logic, () => logic.actions.handleBulkMarkAsViewed(undefined)).toFinishAllListeners()
+
+                await expect(promiseSpy.mock.calls[0][0]).rejects.toThrow('boom')
+                expect(logic.values.selectedRecordingsIds).toEqual(['abc'])
             })
         })
     })
