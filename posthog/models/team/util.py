@@ -37,14 +37,8 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
-# Tables of retired products. They are out of Django state, so the Team cascade cannot reach them.
-# Remove an entry in the migration that drops its table.
-RETIRED_TEAM_TABLES = (
-    "ee_single_session_summary",
-    "user_interviews_intervieweecontext",
-    "user_interviews_userinterview",
-    "user_interviews_userinterviewtopic",
-)
+# Out of Django state since replay/0002, so the Team cascade cannot reach it. Delete with the table.
+RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
@@ -104,7 +98,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
-    _delete_retired_tables_for_teams(team_ids)
+    _delete_retired_session_summaries_for_teams(team_ids)
 
 
 def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
@@ -123,8 +117,8 @@ def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
     Evaluation.objects.filter(team_id__in=team_ids).delete()
 
 
-def _delete_retired_tables_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
-    """Batch-delete the teams' rows in the tables of retired products.
+def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    """Batch-delete the teams' rows in the retired session-summary tables.
 
     A table is skipped when it no longer exists, so team deletion keeps working once the migration
     that drops these tables lands.
@@ -133,7 +127,7 @@ def _delete_retired_tables_for_teams(team_ids: list[int], batch_size: int = 1000
         return
 
     db_connection = connections["default"]
-    for table in RETIRED_TEAM_TABLES:
+    for table in RETIRED_SESSION_SUMMARY_TABLES:
         # The table name is a module constant, never user input, so interpolating it is safe.
         statement = f'DELETE FROM "{table}" WHERE ctid IN (SELECT ctid FROM "{table}" WHERE team_id = ANY(%s) LIMIT %s)'
         with db_connection.cursor() as cursor:

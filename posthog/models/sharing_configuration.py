@@ -42,6 +42,13 @@ class SharingConfiguration(models.Model):
         null=True,
         blank=True,
     )
+    interviewee_context = models.ForeignKey(
+        "user_interviews.IntervieweeContext",
+        related_name="sharing_configurations",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
@@ -82,6 +89,7 @@ class SharingConfiguration(models.Model):
         insight: models.Model | None = None,
         recording: models.Model | None = None,
         notebook: models.Model | None = None,
+        interviewee_context: models.Model | None = None,
     ) -> dict[str, Any]:
         return {
             "team_id": team_id,
@@ -89,6 +97,7 @@ class SharingConfiguration(models.Model):
             "insight": insight,
             "recording": recording,
             "notebook": notebook,
+            "interviewee_context": interviewee_context,
         }
 
     @classmethod
@@ -148,7 +157,7 @@ class SharingConfiguration(models.Model):
     def _lock_resource_for_rotation(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports.
-        for field_name in ("dashboard", "insight", "notebook", "recording"):
+        for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:
                 continue
@@ -168,6 +177,7 @@ class SharingConfiguration(models.Model):
             insight=self.insight,
             recording=self.recording,
             notebook=self.notebook,
+            interviewee_context=self.interviewee_context,
         )
 
     def rotate_access_token(self) -> "SharingConfiguration":
@@ -206,6 +216,7 @@ class SharingConfiguration(models.Model):
                 insight=source.insight,
                 recording=source.recording,
                 notebook=source.notebook,
+                interviewee_context=source.interviewee_context,
                 enabled=source.enabled,
                 settings=source.settings,
                 password_required=source.password_required,
@@ -257,7 +268,7 @@ class SharingConfiguration(models.Model):
         if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [self.insight, self.dashboard, self.recording, self.notebook]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
             if comparison and comparison == obj:
                 return True
 

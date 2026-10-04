@@ -514,6 +514,9 @@ posthog.User replay.ExportedRecording.created_by reverse-accessor(exported_recor
 posthog.User signals.SignalUserAutonomyConfig.user reverse-accessor(signal_autonomy_config) 1
 posthog.User slack_app.SlackChannel.approved_by reverse-accessor(approved_slack_channels) 1
 posthog.User surveys.Survey.created_by reverse-accessor(surveys) 1
+posthog.User user_interviews.IntervieweeContext.created_by reverse-accessor(intervieweecontext_set) 1
+posthog.User user_interviews.UserInterview.created_by reverse-accessor(userinterview_set) 1
+posthog.User user_interviews.UserInterviewTopic.created_by reverse-accessor(userinterviewtopic_set) 1
 posthog.User warehouse_sources.DataWarehouseCredential.created_by reverse-accessor(datawarehousecredential_set) 1
 posthog.User warehouse_sources.DataWarehouseTable.created_by reverse-accessor(datawarehousetable_set) 1
 posthog.User warehouse_sources.ExternalDataJob.created_by reverse-accessor(externaldatajob_set) 1
@@ -736,6 +739,7 @@ typing.Any products.notebooks.backend.facade.content.filter_notebook_content_for
 typing.Any products.signals.backend.facade.api.create_scout_for_source facade-accepts(request) 1
 typing.Any products.signals.backend.facade.api.create_scout_for_source facade-accepts(user) 1
 typing.Any products.tasks.backend.facade.agents.extract_json_from_text facade-returns 1
+user_interviews.IntervieweeContext posthog.SharingConfiguration.interviewee_context reverse-accessor(sharing_configurations) 1
 warehouse_sources.DataWarehouseCredential posthog.hogql.database.database instance-many(filter) 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table drf-model-serializer 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table write(create) 1

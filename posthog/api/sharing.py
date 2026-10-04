@@ -229,6 +229,8 @@ SHARING_RESOURCE_ACCESS_CHECKS: dict[str, SharingResourceAccessCheck | None] = {
     "insight": _require_resource_access("insight", "insight"),
     "recording": _require_resource_access("session_recording", "recording"),
     "notebook": _require_resource_access("notebook", "notebook"),
+    # The user interviews product is retired. No flow creates these configs, and this viewset never edits them.
+    "interviewee_context": None,
 }
 
 

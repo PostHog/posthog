@@ -47,8 +47,3 @@ signals.0154_backfill_report_actionability
 # the child instead of all 14 tables at once. Re-running is a no-op: DropForeignKey reads what is left from pg_constraint.
 posthog.1383_taggeditem_untrack_legacy_keys
 ee.0064_split_identity_provider_config_scopes
-# Drop the retired interview tables' foreign keys one per transaction, so each drop locks one busy parent and
-# the child instead of posthog_team and posthog_user at once. Re-running is a no-op: DropForeignKey reads what is left from pg_constraint.
-user_interviews.0011_delete_intervieweecontext
-user_interviews.0012_delete_userinterview
-user_interviews.0013_delete_userinterviewtopic
