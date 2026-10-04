@@ -1,6 +1,25 @@
-import { trimRedundantTail } from './syncWarnings'
+import { DataWarehouseSyncWarning } from '~/queries/schema/schema-general'
+import { DashboardTile, InsightModel, InsightShortId } from '~/types'
 
-describe('syncWarnings', () => {
+import { trimRedundantTail, warehouseSyncDashboardEntries } from './warehouseSyncWarnings'
+
+function syncWarning(table: string): DataWarehouseSyncWarning {
+    return {
+        type: 'warehouse_sync',
+        message: `Last sync of \`${table}\` (from Stripe) failed.`,
+        schema_name: table,
+        source_id: 'source-1',
+        source_type: 'Stripe',
+        status: 'Failed',
+        table_name: `stripe_${table}`,
+    }
+}
+
+function tile(id: number, insight: Partial<InsightModel> | null): DashboardTile {
+    return { id, color: null, insight: insight ? (insight as InsightModel) : undefined }
+}
+
+describe('warehouseSyncWarnings', () => {
     describe('trimRedundantTail', () => {
         // Messages mirror those emitted by products/data_warehouse/backend/sync_status.py.
         test.each([
@@ -37,5 +56,37 @@ describe('syncWarnings', () => {
         ])('%s', (_name, input, expected) => {
             expect(trimRedundantTail(input)).toEqual(expected)
         })
+    })
+
+    it('groups the insights that read an out-of-date table, keeping tiles cached at different times apart', () => {
+        const invoices = syncWarning('invoices')
+        const entries = warehouseSyncDashboardEntries([
+            tile(1, { short_id: 'aaa' as InsightShortId, name: 'Revenue', warnings: [invoices] }),
+            tile(2, {
+                short_id: 'bbb' as InsightShortId,
+                derived_name: 'Revenue by day',
+                warnings: [invoices, syncWarning('charges')],
+            }),
+            tile(3, { short_id: 'ccc' as InsightShortId, name: 'Healthy', warnings: null }),
+            tile(4, { short_id: 'ddd' as InsightShortId, name: 'Deleted', warnings: [invoices], deleted: true }),
+            tile(5, {
+                short_id: 'eee' as InsightShortId,
+                name: 'Restricted',
+                warnings: [{ type: 'access_control', message: 'Some objects are hidden.', resources: ['insight'] }],
+            }),
+            tile(6, null),
+            // Cached a day earlier, so its message names a different age for the same table.
+            tile(7, {
+                short_id: 'fff' as InsightShortId,
+                name: 'Older cache',
+                warnings: [{ ...invoices, message: 'Last sync of `invoices` (from Stripe) failed a day ago.' }],
+            }),
+        ])
+
+        expect(entries.map(({ warning, insights }) => [warning.table_name, insights.map((i) => i.name)])).toEqual([
+            ['stripe_invoices', ['Revenue', 'Revenue by day']],
+            ['stripe_charges', ['Revenue by day']],
+            ['stripe_invoices', ['Older cache']],
+        ])
     })
 })

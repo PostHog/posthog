@@ -36,6 +36,7 @@ import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
+import { DashboardWarehouseSyncBanner } from './DashboardWarehouseSyncBanner'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -219,6 +220,7 @@ function DashboardScene({
                 >
                     <DashboardRetentionBanner />
                     <DashboardQueryScanBanner />
+                    <DashboardWarehouseSyncBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
