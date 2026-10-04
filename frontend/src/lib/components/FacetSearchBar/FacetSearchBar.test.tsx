@@ -404,7 +404,7 @@ describe('FacetSearchBar', () => {
             const user = setup()
             await user.click(input())
             await user.keyboard('"See sta')
-            expect(suggestions()).toEqual(['Search for ""See sta"'])
+            expect(suggestions()).toEqual(['Search for "See sta'])
 
             await user.keyboard('{Tab}')
             expect(input()).toHaveValue('"See sta')
@@ -853,6 +853,21 @@ describe('FacetSearchBar', () => {
             await user.keyboard('{Enter}')
             expect(pills()).toEqual(['Team: Platform'])
             expect(JSON.parse(shown('query')).facets).toEqual({ team: { include: ['t-2'], exclude: [] } })
+        })
+
+        it('starts no value load for a word inside a quoted phrase', async () => {
+            const loadValues = jest.fn<Promise<FacetValueOption[]>, [string]>().mockResolvedValue([])
+            render(<ServerConsumer facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('"See gro')
+            await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            })
+            expect(loadValues).not.toHaveBeenCalled()
+
+            await user.paste('" gro')
+            await waitFor(() => expect(loadValues).toHaveBeenCalledWith('gro'))
         })
 
         it('offers loaded values from a word typed without a facet', async () => {

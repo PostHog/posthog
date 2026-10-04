@@ -286,7 +286,9 @@ export function buildSuggestions(
     }
 
     const ordered = sortFacets(context.facets)
-    const searchRow: FacetSuggestion = { id: 'search', kind: 'search', label: `Search for "${input.trim()}"` }
+    const typed = input.trim()
+    const quotedForLabel = typed.startsWith('"') ? typed : `"${typed}"`
+    const searchRow: FacetSuggestion = { id: 'search', kind: 'search', label: `Search for ${quotedForLabel}` }
     const { rest, word: token, inPhrase } = typedWord(input)
     if (inPhrase) {
         return [searchRow]

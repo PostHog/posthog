@@ -32,6 +32,7 @@ Leave out `data`. Each facet lists its `values` up front, or loads them with `lo
 A word of two or more characters typed without a facet also calls every `loadValues`, so values from any facet can be picked straight away.
 A value shows a count only when you give one.
 Send `toFacetQuery(search)` to your API: `{ text, facets: { status: { include: ['open'], exclude: [] } } }`.
+`onChange` fires on every keystroke, so debounce the API call.
 
 ```tsx
 // Outside the component, so `loadValues` stays the same function between renders.
@@ -57,6 +58,6 @@ While that load runs, the pill shows the raw value with a spinner. If it fails, 
 
 ## Keyboard
 
-- ↑ and ↓ move through the suggestions. Enter picks the highlighted one. The search row starts highlighted, so Enter on a typed word runs the search.
+- ↑ and ↓ move through the suggestions. Enter picks the highlighted one. The search row starts highlighted, so Enter on a typed word closes the suggestions and keeps the typed search.
 - Tab and → pick the highlighted facet or value, or the first one while the search row is highlighted. They never run the plain search. Until the person types, Tab moves focus as usual.
 - Backspace on an empty input removes the last pill. Esc closes the suggestions.
