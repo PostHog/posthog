@@ -1,88 +1,79 @@
-# Replay Vision golden-dataset evals
+# Replay Vision evals
 
-Test scanner prompt changes against a fixed set of real, already-observed sessions instead of shipping and watching production.
-The suite re-runs the exact production scan pipeline (`run_scan`: same Jinja templates, response schemas, events tool) over collected videos, then scores the fresh output against the recorded output and its human thumbs label.
+## Labeling benchmark
 
-## The loop
+Test a core prompt change or a new Gemini model against recordings that human labelers answered questions about, instead of shipping and watching production.
+`eval_benchmark` asks Replay Vision each labeling question through the production scan pipeline (`run_scan`: same Jinja templates, response schemas, events tool) over the case's rendered video and production inputs.
+It then scores the answer against every labeler's answer, not a consensus.
 
-1. Collect a dataset once (and re-collect occasionally as labels accumulate).
-2. Run the suite to get a baseline.
-3. Edit prompt templates under `../backend/temporal/scanners/prompts/`.
-4. Re-run the suite and compare scores across runs (same experiment name accumulates history).
+### The loop
 
-## Collecting a dataset
+1. Build a benchmark version once in production (`build_replay_vision_benchmark`). A version never changes after it is built.
+2. Copy a tier of it to your machine or devbox.
+3. Run the suite to get a baseline.
+4. Edit the prompt templates under `../backend/temporal/scanners/prompts/`, or set a different model.
+5. Re-run and compare. Runs of one version and tier share an experiment name, so their history accumulates.
 
-Uses only the public API plus the dogfood warehouse, with a personal API key that can read the source project (scanner read + session recording read + query scopes):
+### Copying a version
 
 ```bash
-POSTHOG_API_KEY=... python -m products.replay_vision.evals.collect \
-    --project-id 2 --per-type 25 --output ~/.posthog/replay-vision-golden-dataset
+AWS_PROFILE=<a profile that can read the benchmark bucket> \
+python manage.py pull_replay_vision_benchmark v1 --tier fast --dest ~/.posthog/replay-vision-benchmark \
+    --bucket <the benchmark bucket>
 ```
 
-Selection is per scanner type: human-labeled observations first (thumbs up/down carry ground truth), then a seeded uniform sample of unlabeled ones.
-Only observations whose original rasterized MP4 still exists are collectable: the system assets expire after 90 days, a session re-rasterized after that is a different video than the one behind the recorded output (so those are skipped too), and the warehouse copy of the exports table lags up to a day, so very fresh observations are skipped.
-Each case also captures the prompt context the production scan carried: the project's product context (Max core memory needs a full-access personal key; otherwise the project description is used), the session's custom-event descriptions, and, for freeform classifiers, the known-tag vocabulary.
-Re-running the collector is idempotent per case: completed cases are reused as-is, half-written ones are re-collected, and the manifest is merged with previously collected cases that are still valid on disk.
-After a collector change that alters what a case captures, collect into a fresh directory so reused cases don't keep the old shape.
+`--tier fast` copies a fixed sample of 50 built cases, for iterating on a prompt.
+`--tier full` copies every built case, for a final check before a prompt or model change ships.
+The fast tier is chosen by hash, so it is the same 50 cases every time for a given version.
 
-## Running the suite
+### Running the suite
 
 ```bash
-REPLAY_VISION_EVAL_DATASET=~/.posthog/replay-vision-golden-dataset \
+REPLAY_VISION_BENCHMARK_DIR=~/.posthog/replay-vision-benchmark \
 GEMINI_API_KEY=... \
 LLM_GATEWAY_ANTHROPIC_API_KEY=... \
 BRAINTRUST_API_KEY=... \
-hogli evals eval_scanner_quality
+hogli evals eval_benchmark
 ```
 
-`GEMINI_API_KEY` runs the scans themselves.
-`LLM_GATEWAY_ANTHROPIC_API_KEY` satisfies the suite env preflight (judge models are routed through the internal LLM gateway).
-`BRAINTRUST_API_KEY` is required by the harness engine even though this private suite only logs locally.
-Without `REPLAY_VISION_EVAL_DATASET` the suite logs a warning and runs nothing, so it never breaks a full `hogli evals` run.
-Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substring>` for one case.
-Set `REPLAY_VISION_EVAL_VERIFY_POSITIVES=shadow` or `=enforce` to run monitor cases with verify-positives on.
-Only a first-pass `yes` is verified, so a case that answers `no` keeps `verification: null`, and a `yes` whose second draw cannot run (`no_cache`, `no_budget`, `draw_failed`) keeps the first verdict and records that reason.
-Both modes record the draw, but only `enforce` serves it, so `labeled_outcome` from a shadow run matches a run with the feature off.
-Compare `labeled_outcome` on the thumbs-downed `yes` cases against a run without it to see what the extra draws buy.
+`GEMINI_API_KEY` runs the scans.
+`LLM_GATEWAY_ANTHROPIC_API_KEY` and `BRAINTRUST_API_KEY` satisfy the harness preflight, although this suite calls no judge and sends nothing to Braintrust.
+Set `REPLAY_VISION_BENCHMARK_MODEL` to compare a model other than the default for new scanners.
+Without `REPLAY_VISION_BENCHMARK_DIR` the suite logs a warning and runs nothing, so it never breaks a full `hogli evals` run.
+Use `--trials N` for variance on Gemini nondeterminism and `--eval <recording-id>` for the questions about one recording.
+It runs the same way on a devbox as on a laptop.
 
-## Scorers
+### How a question is asked
 
-| Scorer              | Applies to                               | Meaning                                                                                                    |
-| ------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `scan_completed`    | all cases                                | The scan produced schema-valid, semantically-valid output.                                                 |
-| `labeled_outcome`   | labeled monitor/classifier               | kept/fixed = 1, regressed/still_wrong = 0 (same semantics as the in-product prompt-suggestion evaluation). |
-| `output_stability`  | unlabeled monitor/classifier             | Fresh outcome matches the recorded baseline; measures churn, not correctness.                              |
-| `score_alignment`   | scorer (reference not thumbs-downed)     | 1 minus the scale-normalized distance from the recorded score.                                             |
-| `summary_alignment` | summarizer (reference not thumbs-downed) | LLM judge: does the fresh summary tell the same story as the recorded one?                                 |
+Each case is one (recording, question) cell, asked with one scan per question:
 
-`output_stability` and `labeled_outcome` deliberately pull in opposite directions, so read them as a pair: a prompt change that only adds churn shows up as `labeled_outcome` flat or up while `output_stability` drops.
+| Labeling question                           | Scan                    | Answer compared                                   |
+| ------------------------------------------- | ----------------------- | ------------------------------------------------- |
+| Binary                                      | Monitor                 | The verdict                                       |
+| Timeline marking, itemized                  | Monitor                 | The verdict as presence, the citations as moments |
+| Multiple choice (single, ordinal, multiple) | Classifier over options | The chosen options                                |
+| Multiple choice with a rating scale         | One scorer per option   | Each option's rating                              |
+| Free text, ranking, correction              | Not asked               | Nothing comparable                                |
 
-Primary verdict agreement and signal counts do not measure recommendation precision.
-The label scorer compares primary outcomes; it does not check each signal's evidence or usefulness.
-Model confidence does not establish whether a signal supports a useful recommendation.
-Successful scans retain the complete structured `signals` list in the private per-case output alongside `signals_count`; no findings produces `signals: []`.
-Compare each finding's type, time range, URL, description, and confidence with the recording before using it as recommendation evidence.
-This suite does not calculate recommendation precision.
+The question's own prompt and description are the scan prompt, so the labeling questions stay unchanged.
 
-## Running it on a GitHub runner
+### Scorers
 
-`.github/workflows/ci-replay-vision-evals.yml` runs the same loop on an ephemeral runner, on manual dispatch only, with `per_type` and `trials` as inputs (GitHub only offers the dispatch once the workflow is on master).
-It is deliberately not attached to `pull_request`: Gemini is nondeterministic and the dataset is re-sampled per run, so the score is a directional signal rather than a merge gate, and spending secrets and LLM calls on every push buys nothing that a dispatch after a prompt change does not.
+| Scorer              | Meaning                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `answered`          | The scan gave a comparable answer. A failed scan, or a choice outside the question's options, scores 0.     |
+| `label_agreement`   | Mean agreement of Replay Vision's answer with each labeler's. No answer scores 0, so abstaining never pays. |
+| `labeler_agreement` | Each labeler scored against the others. This is the ceiling to read `label_agreement` against.              |
 
-It collects a fresh dataset on the runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the aggregate scores to the job's step summary.
-The summary also links the run's `/ai-evals` offline experiment, where the harness publishes the same scores.
-Only those allowlisted summary lines are public: collector and harness output stay in runner-local files, because they carry session and observation ids.
-The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets `ci-ai.yml` already uses; if any is missing the job skips green and warns which.
+Agreement is exact for binary and nominal questions, distance on the scale for ordinal and rating questions, Jaccard overlap for multiple selection, and presence plus a moment F1 for timeline and itemized questions.
+A moment matches when the two overlap or sit within two seconds of each other; a Replay Vision citation is a single point in time.
 
-## Data handling
+### Data handling
 
-The dataset contains real session recordings and event data.
+A copy contains session recordings and analytics events.
 
-- Keep it in a local or internal location only; never commit it, upload it, or reference its contents in PRs.
-- A dataset expires 30 days after its last collection: the suite refuses to run it, because the consent verification (and the recordings themselves) can lapse after collection. Re-running collect.py re-verifies consent and refreshes the manifest.
-- The suite is `OneShotPrivateEval`, so per-case logs stay in the local `eval_harness/logs/` directory and nothing goes to Braintrust.
-- The retained `signals` can contain session content. Keep these payloads private; never include them in public CI summaries, commits, or pull requests.
-- Dataset-derived content still leaves the machine on three paths. Two reach a model provider: the Gemini scans, which are the same provider call production already makes through `run_scan`, and the `summary_alignment` judge, which sends the recorded and fresh summaries to `gpt-5.4`. The third is the harness's `$ai_evaluation` capture, which stays inside PostHog.
-- The judge calls the OpenAI API directly with `OPENAI_API_KEY`. It does not go through the internal LLM gateway, which a one-shot suite never starts, so nothing sits in front of the provider on that path.
-- That capture posts every run's scores to project 2, keyed `<scanner_type>-<observation_id>`, with the scanner prompt as `$ai_input` and the recorded and fresh outcomes as `$ai_expected`/`$ai_output`. The scores land in that project's offline experiments view, which is where to compare runs over time.
-- Collecting from projects other than PostHog's own requires a data-governance decision first; see the product's consent gating (`backend/consent.py`) and note that customer-facing copy does not cover internal reuse today.
+- Keep it on your machine or devbox only; never commit it, upload it, or reference its contents in PRs.
+- A copy expires 30 days after it was pulled: the suite refuses an older copy. Pull again to refresh it.
+- The suite is `OneShotPrivateEval`, so per-case logs stay in the local `eval_harness/logs/` directory.
+- The only content that leaves the machine is the Gemini scan, the same provider call production makes through `run_scan`.
+- The build checked AI data-processing consent for every case before it copied anything.

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
 
-from products.replay_vision.backend.benchmark.consensus import CellConsensus, Question, cell_consensus
+from products.replay_vision.backend.benchmark.labels import Cell, Question, labeled_cell
 from products.replay_vision.backend.benchmark.layout import BenchmarkCase
 
 EXPORT_SCHEMA_VERSION = 1
@@ -36,7 +36,7 @@ _BUSY_BACKOFF_SECONDS = 5
 
 class ExportSnapshot(BaseModel, frozen=True):
     questions: list[Question]
-    cells: list[CellConsensus]
+    cells: list[Cell]
     cases: list[BenchmarkCase]
 
 
@@ -134,7 +134,7 @@ class LabelingExportClient:
 
 
 def build_snapshot(questions: list[dict[str, Any]], recordings: list[dict[str, Any]]) -> ExportSnapshot:
-    """Consensus per (question, recording) cell for the v2 recordings, from answers to the question's current wording.
+    """Every comparable answer per (question, recording) cell for the v2 recordings, to the question's current wording.
 
     An answer to an earlier version answered a different question, and one with no version predates the
     column, so neither can be pooled with the rest.
@@ -148,7 +148,7 @@ def build_snapshot(questions: list[dict[str, Any]], recordings: list[dict[str, A
         )
         for row in questions
     }
-    cells: list[CellConsensus] = []
+    cells: list[Cell] = []
     cases: list[BenchmarkCase] = []
     for recording in recordings:
         # A v1 recording's ids are pseudonyms, so no production inputs exist to scan it with.
@@ -160,16 +160,9 @@ def build_snapshot(questions: list[dict[str, Any]], recordings: list[dict[str, A
             if question is not None and label["questionVersion"] == question.version:
                 answers[label["questionId"]].append(label["label"])
         recording_cells = [
-            consensus
+            cell
             for question_id in sorted(answers)
-            if (
-                consensus := cell_consensus(
-                    parsed[question_id],
-                    recording["recordingId"],
-                    answers[question_id],
-                )
-            )
-            is not None
+            if (cell := labeled_cell(parsed[question_id], recording["recordingId"], answers[question_id])) is not None
         ]
         if not recording_cells:
             continue
