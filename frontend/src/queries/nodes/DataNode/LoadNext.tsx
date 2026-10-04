@@ -13,9 +13,18 @@ import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 interface LoadNextProps {
     query: DataNode
     nouns?: [string, string]
+    /** The table shows each result row as a column, so the count must not read as visible rows */
+    isTransposed?: boolean
 }
 
-export function LoadNext({ query, nouns = ['entry', 'entries'] }: LoadNextProps): JSX.Element {
+function showingAllText(numberOfRows: number, isTransposed: boolean): string {
+    if (numberOfRows === 1) {
+        return isTransposed ? 'Showing one row as a column' : 'Showing one entry'
+    }
+    return isTransposed ? `Showing all ${numberOfRows} rows as columns` : `Showing all ${numberOfRows} entries`
+}
+
+export function LoadNext({ query, nouns = ['entry', 'entries'], isTransposed = false }: LoadNextProps): JSX.Element {
     const { canLoadNextData, nextDataLoading, numberOfRows, hasMoreData, dataLimit } = useValues(dataNodeLogic)
     const { loadNextData } = useActions(dataNodeLogic)
 
@@ -25,17 +34,13 @@ export function LoadNext({ query, nouns = ['entry', 'entries'] }: LoadNextProps)
             // No data limit means the user is controlling the pagination
             if (!dataLimit) {
                 if (numberOfRows && numberOfRows <= DEFAULT_PAGE_SIZE) {
-                    return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
-                        numberOfRows === 1 ? 'entry' : 'entries'
-                    }`
+                    return showingAllText(numberOfRows, isTransposed)
                 }
                 // If the number of rows is greater than the default page size, it's handled by pagination component
                 return ''
             }
             if (numberOfRows && numberOfRows < dataLimit) {
-                return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
-                    numberOfRows === 1 ? 'entry' : 'entries'
-                }`
+                return showingAllText(numberOfRows, isTransposed)
             }
             return `Default limit of ${dataLimit} rows reached`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
@@ -51,7 +56,7 @@ export function LoadNext({ query, nouns = ['entry', 'entries'] }: LoadNextProps)
             result += ' – reached the end of results'
         }
         return result
-    }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData, nouns])
+    }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData, nouns, isTransposed])
 
     // pagination component exists
     if (
