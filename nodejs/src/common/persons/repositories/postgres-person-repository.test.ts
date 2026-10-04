@@ -551,6 +551,39 @@ describe('PostgresPersonRepository', () => {
             await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
         })
 
+        it('createPerson undone by a live mapping leaves a reattached stray tombstoned', async () => {
+            const liveOwner = await createTestPerson(team.id, 'mixed-contested-did')
+            const deadOwner = await createTestPerson(team.id, 'mixed-stray-owner-did')
+            await revivalRepository.addDistinctId(deadOwner, 'mixed-stray-did', 1)
+            await tombstonePerson(deadOwner)
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                { distinctId: 'mixed-stray-did' },
+                [{ distinctId: 'mixed-contested-did' }]
+            )
+
+            expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+            // Unpublished, but above the stray's ClickHouse row, which the sweep removes with its dead owner.
+            const strayRows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT is_deleted, version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [team.id, 'mixed-stray-did'],
+                'fetchMixedStray'
+            )
+            expect(strayRows.rows).toEqual([{ is_deleted: true, version: '4' }])
+            await expect(repository.fetchPerson(team.id, 'mixed-contested-did')).resolves.toMatchObject({
+                uuid: liveOwner.uuid,
+            })
+        })
+
         it.each([
             [
                 'createPerson',
