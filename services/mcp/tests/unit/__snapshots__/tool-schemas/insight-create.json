@@ -56,11 +56,14 @@
                     "type": "object"
                 },
                 {
+                    "additionalProperties": {},
                     "properties": {
                         "chartSettings": {
+                            "additionalProperties": {},
                             "description": "Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.",
                             "properties": {
                                 "boxPlot": {
+                                    "additionalProperties": {},
                                     "description": "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.",
                                     "properties": {
                                         "excludeOutliers": {
@@ -127,6 +130,7 @@
                                 "goalLines": {
                                     "description": "Horizontal goal lines drawn across the chart.",
                                     "items": {
+                                        "additionalProperties": {},
                                         "properties": {
                                             "label": {
                                                 "description": "Label rendered next to the goal line.",
@@ -143,6 +147,7 @@
                                     "type": "array"
                                 },
                                 "leftYAxisSettings": {
+                                    "additionalProperties": {},
                                     "description": "Settings for the left Y axis.",
                                     "properties": {
                                         "label": {
@@ -170,6 +175,7 @@
                                     "type": "object"
                                 },
                                 "rightYAxisSettings": {
+                                    "additionalProperties": {},
                                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`.",
                                     "properties": {
                                         "label": {
@@ -228,6 +234,7 @@
                                     "type": "boolean"
                                 },
                                 "xAxis": {
+                                    "additionalProperties": {},
                                     "description": "Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.",
                                     "properties": {
                                         "column": {
@@ -235,9 +242,11 @@
                                             "type": "string"
                                         },
                                         "settings": {
+                                            "additionalProperties": {},
                                             "description": "Optional series settings. Only applies to Y-axis series.",
                                             "properties": {
                                                 "display": {
+                                                    "additionalProperties": {},
                                                     "description": "Display settings for a plotted Y series.",
                                                     "properties": {
                                                         "color": {
@@ -266,6 +275,7 @@
                                                     "type": "object"
                                                 },
                                                 "formatting": {
+                                                    "additionalProperties": {},
                                                     "description": "Number-formatting settings for the values on this axis or series.",
                                                     "properties": {
                                                         "decimalPlaces": {
@@ -302,15 +312,18 @@
                                 "yAxis": {
                                     "description": "One or more numeric columns plotted as Y series.",
                                     "items": {
+                                        "additionalProperties": {},
                                         "properties": {
                                             "column": {
                                                 "description": "Name of a column returned by the SQL query to map onto this axis.",
                                                 "type": "string"
                                             },
                                             "settings": {
+                                                "additionalProperties": {},
                                                 "description": "Optional series settings. Only applies to Y-axis series.",
                                                 "properties": {
                                                     "display": {
+                                                        "additionalProperties": {},
                                                         "description": "Display settings for a plotted Y series.",
                                                         "properties": {
                                                             "color": {
@@ -339,6 +352,7 @@
                                                         "type": "object"
                                                     },
                                                     "formatting": {
+                                                        "additionalProperties": {},
                                                         "description": "Number-formatting settings for the values on this axis or series.",
                                                         "properties": {
                                                             "decimalPlaces": {
@@ -403,20 +417,24 @@
                             "type": "object"
                         },
                         "tableSettings": {
+                            "additionalProperties": {},
                             "description": "Table configuration. Only applies when `display` is `ActionsTable` or omitted.",
                             "properties": {
                                 "columns": {
                                     "description": "Columns to display and their order. Omit to show every column returned by the query.",
                                     "items": {
+                                        "additionalProperties": {},
                                         "properties": {
                                             "column": {
                                                 "description": "Name of a column returned by the SQL query to map onto this axis.",
                                                 "type": "string"
                                             },
                                             "settings": {
+                                                "additionalProperties": {},
                                                 "description": "Optional series settings. Only applies to Y-axis series.",
                                                 "properties": {
                                                     "display": {
+                                                        "additionalProperties": {},
                                                         "description": "Display settings for a plotted Y series.",
                                                         "properties": {
                                                             "color": {
@@ -445,6 +463,7 @@
                                                         "type": "object"
                                                     },
                                                     "formatting": {
+                                                        "additionalProperties": {},
                                                         "description": "Number-formatting settings for the values on this axis or series.",
                                                         "properties": {
                                                             "decimalPlaces": {

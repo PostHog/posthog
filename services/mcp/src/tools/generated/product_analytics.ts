@@ -23,141 +23,157 @@ const AssistantInsightVizNode = z.object({
         ),
 })
 
-const AssistantDataVisualizationBoxPlotSettings = z.object({
-    excludeOutliers: z.coerce
-        .boolean()
-        .describe('Clip whiskers to 1.5 times the interquartile range. Defaults to true.')
-        .optional(),
-    maxColumn: z.string().describe('Numeric column containing the maximum for each box.'),
-    meanColumn: z.string().describe('Numeric column containing the mean for each box.'),
-    medianColumn: z.string().describe('Numeric column containing the median for each box.'),
-    minColumn: z.string().describe('Numeric column containing the minimum for each box.'),
-    p25Column: z.string().describe('Numeric column containing the 25th percentile for each box.'),
-    p75Column: z.string().describe('Numeric column containing the 75th percentile for each box.'),
-    seriesColumn: z
-        .string()
-        .nullable()
-        .describe(
-            'Optional column that groups each X-axis value into separate colored series. Set to `null` for one series.'
-        )
-        .optional(),
-    xAxisColumn: z
-        .string()
-        .nullable()
-        .describe('X-axis category column. Set to `null` for one overall distribution or one box per series.')
-        .optional(),
-})
+const AssistantDataVisualizationBoxPlotSettings = z
+    .object({
+        excludeOutliers: z.coerce
+            .boolean()
+            .describe('Clip whiskers to 1.5 times the interquartile range. Defaults to true.')
+            .optional(),
+        maxColumn: z.string().describe('Numeric column containing the maximum for each box.'),
+        meanColumn: z.string().describe('Numeric column containing the mean for each box.'),
+        medianColumn: z.string().describe('Numeric column containing the median for each box.'),
+        minColumn: z.string().describe('Numeric column containing the minimum for each box.'),
+        p25Column: z.string().describe('Numeric column containing the 25th percentile for each box.'),
+        p75Column: z.string().describe('Numeric column containing the 75th percentile for each box.'),
+        seriesColumn: z
+            .string()
+            .nullable()
+            .describe(
+                'Optional column that groups each X-axis value into separate colored series. Set to `null` for one series.'
+            )
+            .optional(),
+        xAxisColumn: z
+            .string()
+            .nullable()
+            .describe('X-axis category column. Set to `null` for one overall distribution or one box per series.')
+            .optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationGoalLine = z.object({
-    label: z.string().describe('Label rendered next to the goal line.'),
-    value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
-})
+const AssistantDataVisualizationGoalLine = z
+    .object({
+        label: z.string().describe('Label rendered next to the goal line.'),
+        value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationYAxisSettings = z.object({
-    label: z.string().describe('Label rendered beside this Y axis.').optional(),
-    scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
-    showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
-    showTicks: z.coerce.boolean().describe('Show tick labels on this Y axis.').optional(),
-    startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
-})
+const AssistantDataVisualizationYAxisSettings = z
+    .object({
+        label: z.string().describe('Label rendered beside this Y axis.').optional(),
+        scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
+        showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
+        showTicks: z.coerce.boolean().describe('Show tick labels on this Y axis.').optional(),
+        startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationAxisDisplaySettings = z.object({
-    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    displayType: z
-        .enum(['auto', 'line', 'bar', 'area'])
-        .describe(
-            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
-        )
-        .optional(),
-    label: z
-        .string()
-        .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
-        .optional(),
-    trendLine: z.coerce
-        .boolean()
-        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
-        .optional(),
-    yAxisPosition: z
-        .enum(['left', 'right'])
-        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
-        .optional(),
-})
+const AssistantDataVisualizationAxisDisplaySettings = z
+    .object({
+        color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+        displayType: z
+            .enum(['auto', 'line', 'bar', 'area'])
+            .describe(
+                'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
+            )
+            .optional(),
+        label: z
+            .string()
+            .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
+            .optional(),
+        trendLine: z.coerce
+            .boolean()
+            .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+            .optional(),
+        yAxisPosition: z
+            .enum(['left', 'right'])
+            .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
+            .optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationAxisFormatting = z.object({
-    decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
-    prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
-    style: z
-        .enum(['none', 'number', 'short', 'percent'])
-        .describe(
-            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.'
-        )
-        .optional(),
-    suffix: z
-        .string()
-        .describe(
-            'Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.'
-        )
-        .optional(),
-})
+const AssistantDataVisualizationAxisFormatting = z
+    .object({
+        decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
+        prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
+        style: z
+            .enum(['none', 'number', 'short', 'percent'])
+            .describe(
+                'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.'
+            )
+            .optional(),
+        suffix: z
+            .string()
+            .describe(
+                'Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.'
+            )
+            .optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationAxisSettings = z.object({
-    display: AssistantDataVisualizationAxisDisplaySettings.describe(
-        'Display settings for a plotted Y series.'
-    ).optional(),
-    formatting: AssistantDataVisualizationAxisFormatting.describe(
-        'Number-formatting settings for the values on this axis or series.'
-    ).optional(),
-})
+const AssistantDataVisualizationAxisSettings = z
+    .object({
+        display: AssistantDataVisualizationAxisDisplaySettings.describe(
+            'Display settings for a plotted Y series.'
+        ).optional(),
+        formatting: AssistantDataVisualizationAxisFormatting.describe(
+            'Number-formatting settings for the values on this axis or series.'
+        ).optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationAxis = z.object({
-    column: z.string().describe('Name of a column returned by the SQL query to map onto this axis.'),
-    settings: AssistantDataVisualizationAxisSettings.describe(
-        'Optional series settings. Only applies to Y-axis series.'
-    ).optional(),
-})
+const AssistantDataVisualizationAxis = z
+    .object({
+        column: z.string().describe('Name of a column returned by the SQL query to map onto this axis.'),
+        settings: AssistantDataVisualizationAxisSettings.describe(
+            'Optional series settings. Only applies to Y-axis series.'
+        ).optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationChartSettings = z.object({
-    boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
-        'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
-    ).optional(),
-    goalLines: z
-        .array(AssistantDataVisualizationGoalLine)
-        .describe('Horizontal goal lines drawn across the chart.')
-        .optional(),
-    leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
-    rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
-        'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
-    ).optional(),
-    seriesBreakdownColumn: z
-        .string()
-        .nullable()
-        .describe(
-            'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
-        )
-        .optional(),
-    showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
-    showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
-    showTotalRow: z.coerce
-        .boolean()
-        .describe('Show a total summing all Y series. Applies to line, bar, and area charts.')
-        .optional(),
-    showValuesOnSeries: z.coerce
-        .boolean()
-        .describe("Render each data point's value as a label directly on the series.")
-        .optional(),
-    stackBars100: z.coerce
-        .boolean()
-        .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
-        .optional(),
-    xAxis: AssistantDataVisualizationAxis.describe(
-        'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
-    ).optional(),
-    xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
-    yAxis: z
-        .array(AssistantDataVisualizationAxis)
-        .describe('One or more numeric columns plotted as Y series.')
-        .optional(),
-})
+const AssistantDataVisualizationChartSettings = z
+    .object({
+        boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
+            'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
+        ).optional(),
+        goalLines: z
+            .array(AssistantDataVisualizationGoalLine)
+            .describe('Horizontal goal lines drawn across the chart.')
+            .optional(),
+        leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+        rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
+            'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
+        ).optional(),
+        seriesBreakdownColumn: z
+            .string()
+            .nullable()
+            .describe(
+                'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
+            )
+            .optional(),
+        showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
+        showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
+        showTotalRow: z.coerce
+            .boolean()
+            .describe('Show a total summing all Y series. Applies to line, bar, and area charts.')
+            .optional(),
+        showValuesOnSeries: z.coerce
+            .boolean()
+            .describe("Render each data point's value as a label directly on the series.")
+            .optional(),
+        stackBars100: z.coerce
+            .boolean()
+            .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
+            .optional(),
+        xAxis: AssistantDataVisualizationAxis.describe(
+            'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
+        ).optional(),
+        xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
+        yAxis: z
+            .array(AssistantDataVisualizationAxis)
+            .describe('One or more numeric columns plotted as Y series.')
+            .optional(),
+    })
+    .catchall(z.unknown())
 
 const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsTable',
@@ -172,28 +188,32 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoxPlot',
 ])
 
-const AssistantDataVisualizationTableSettings = z.object({
-    columns: z
-        .array(AssistantDataVisualizationAxis)
-        .describe('Columns to display and their order. Omit to show every column returned by the query.')
-        .optional(),
-    pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
-    transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
-})
+const AssistantDataVisualizationTableSettings = z
+    .object({
+        columns: z
+            .array(AssistantDataVisualizationAxis)
+            .describe('Columns to display and their order. Omit to show every column returned by the query.')
+            .optional(),
+        pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
+        transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationNode = z.object({
-    chartSettings: AssistantDataVisualizationChartSettings.describe(
-        'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
-    ).optional(),
-    display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
-    ).optional(),
-    kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
-    source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
-    tableSettings: AssistantDataVisualizationTableSettings.describe(
-        'Table configuration. Only applies when `display` is `ActionsTable` or omitted.'
-    ).optional(),
-})
+const AssistantDataVisualizationNode = z
+    .object({
+        chartSettings: AssistantDataVisualizationChartSettings.describe(
+            'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
+        ).optional(),
+        display: AssistantDataVisualizationDisplayType.describe(
+            'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
+        ).optional(),
+        kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
+        source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
+        tableSettings: AssistantDataVisualizationTableSettings.describe(
+            'Table configuration. Only applies when `display` is `ActionsTable` or omitted.'
+        ).optional(),
+    })
+    .catchall(z.unknown())
 
 const InsightNodeKind = z.enum([
     'TrendsQuery',

@@ -483,9 +483,6 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
 
 
 class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     color: str | None = Field(
         default=None,
         description="Custom color for this series as a hex string (e.g. `#1d4aff`).",
@@ -514,9 +511,6 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
 
 
 class AssistantDataVisualizationAxisFormatting(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     decimalPlaces: float | None = Field(default=None, description="Number of decimal places to display.")
     prefix: str | None = Field(default=None, description="Text prepended to each value (e.g. `$`).")
     style: Style | None = Field(
@@ -539,9 +533,6 @@ class AssistantDataVisualizationAxisFormatting(BaseModel):
 
 
 class AssistantDataVisualizationAxisSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     display: AssistantDataVisualizationAxisDisplaySettings | None = Field(
         default=None, description="Display settings for a plotted Y series."
     )
@@ -552,9 +543,6 @@ class AssistantDataVisualizationAxisSettings(BaseModel):
 
 
 class AssistantDataVisualizationBoxPlotSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     excludeOutliers: bool | None = Field(
         default=None,
         description=("Clip whiskers to 1.5 times the interquartile range. Defaults to true."),
@@ -578,17 +566,11 @@ class AssistantDataVisualizationBoxPlotSettings(BaseModel):
 
 
 class AssistantDataVisualizationGoalLine(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     label: str = Field(..., description="Label rendered next to the goal line.")
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
 
 
 class AssistantDataVisualizationYAxisSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     label: str | None = Field(default=None, description="Label rendered beside this Y axis.")
     scale: Scale | None = Field(default=None, description="Scale used for this Y axis.")
     showGridLines: bool | None = Field(default=None, description="Show grid lines for this Y axis.")
@@ -3607,9 +3589,6 @@ class AssistantCohortPropertyFilter(BaseModel):
 
 
 class AssistantDataVisualizationAxis(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     column: str = Field(
         ...,
         description="Name of a column returned by the SQL query to map onto this axis.",
@@ -3621,9 +3600,6 @@ class AssistantDataVisualizationAxis(BaseModel):
 
 
 class AssistantDataVisualizationChartSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     boxPlot: AssistantDataVisualizationBoxPlotSettings | None = Field(
         default=None,
         description=(
@@ -3681,9 +3657,6 @@ class AssistantDataVisualizationChartSettings(BaseModel):
 
 
 class AssistantDataVisualizationTableSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     columns: list[AssistantDataVisualizationAxis] | None = Field(
         default=None,
         description=("Columns to display and their order. Omit to show every column returned by the query."),
@@ -9710,9 +9683,6 @@ class AssistantBehavioralPropertyFilter(BaseModel):
 
 
 class AssistantDataVisualizationNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     chartSettings: AssistantDataVisualizationChartSettings | None = Field(
         default=None,
         description=("Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."),
