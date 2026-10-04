@@ -181,7 +181,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "custom_field_options": {
         "description": "An option that can be chosen for a single- or multi-select custom field in incident.io.",
-        "docs_url": "https://api-docs.incident.io/api-reference/custom-field-options-v1/list",
+        "docs_url": "https://docs.incident.io/api-reference/custom-field-options-v1/list",
         "columns": {
             "id": "Unique identifier for the custom field option.",
             "custom_field_id": "Identifier of the custom field this option belongs to.",
@@ -191,7 +191,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "incident_timestamps": {
         "description": "A named timestamp (e.g. impact started, reported, resolved) that incidents in incident.io can record.",
-        "docs_url": "https://api-docs.incident.io/api-reference/incident-timestamps-v2/list",
+        "docs_url": "https://docs.incident.io/api-reference/incident-timestamps-v2/list",
         "columns": {
             "id": "Unique identifier for the incident timestamp.",
             "name": "Unique name of the timestamp.",
@@ -200,7 +200,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "incident_alerts": {
         "description": "A link between an alert and the incident it is attached to in incident.io.",
-        "docs_url": "https://api-docs.incident.io/api-reference/incident-alerts-v2/list",
+        "docs_url": "https://docs.incident.io/api-reference/incident-alerts-v2/list",
         "columns": {
             "id": "Unique identifier for the incident alert link.",
             "alert": "The alert attached to the incident.",
@@ -210,7 +210,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "catalog_types": {
         "description": "A type of entry in the incident.io catalog, such as services or teams, with the schema of its attributes.",
-        "docs_url": "https://api-docs.incident.io/api-reference/catalog-types-v3/list-types",
+        "docs_url": "https://docs.incident.io/api-reference/catalog-types-v3/list-types",
         "columns": {
             "id": "Unique identifier for the catalog type.",
             "name": "Human-readable name of the catalog type.",
@@ -226,7 +226,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "catalog_entries": {
         "description": "An entry in the incident.io catalog, such as a single service or team, with its attribute values.",
-        "docs_url": "https://api-docs.incident.io/api-reference/catalog-entries-v3/list-entries",
+        "docs_url": "https://docs.incident.io/api-reference/catalog-entries-v3/list-entries",
         "columns": {
             "id": "Unique identifier for the catalog entry.",
             "catalog_type_id": "Identifier of the catalog type this entry belongs to.",

@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any, Optional, cast
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -31,7 +31,7 @@ INCIDENT_IO_BASE_URL = "https://api.incident.io"
 VALIDATION_TIMEOUT_SECONDS = 10
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class IncidentIoResumeConfig:
     next_url: Optional[str] = None
     # Framework fan-out resume state for the parent-scoped endpoints, opaque to this source and
@@ -108,25 +108,38 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
-def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
-    """Probe the API to confirm the key is genuine.
+def _probe_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
-    incident.io API keys carry granular per-resource view/list scopes, so a 403 from one
-    endpoint can just mean a missing scope rather than a bad key. At source-create
-    (``schema_name=None``) we accept 403 — the key authenticated, it's only missing a
-    scope the user may not need. When validating a specific schema, a 403 is an error.
+
+def _fanout_child_probe_url(api_key: str, config: IncidentIoEndpointConfig) -> Optional[str]:
+    """Build a one-row child request bound to a real parent id, or None when there is no parent row.
+
+    A fan-out child can have its own scope (catalog entries need `catalog_entries.view`, separate
+    from `catalog_types.view`), so probing only the parent can pass a key that can't sync the child.
     """
-    config = INCIDENT_IO_ENDPOINTS.get(schema_name or "", INCIDENT_IO_ENDPOINTS["incidents"])
-    if config.fanout is not None:
-        # A fan-out child can't be listed without a parent id, so probe the parent it is
-        # enumerated from. Both share one incident.io permission scope.
-        config = INCIDENT_IO_ENDPOINTS[config.fanout.parent_name]
-    params: dict[str, Any] = {"page_size": 1} if config.paginated else {}
+    assert config.fanout is not None
+    parent = INCIDENT_IO_ENDPOINTS[config.fanout.parent_name]
+    try:
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            _build_url(parent.path, {}), headers=_probe_headers(api_key), timeout=VALIDATION_TIMEOUT_SECONDS
+        )
+        response.raise_for_status()
+        rows = response.json().get(parent.data_key) or []
+    except Exception:
+        return None
+    if not rows:
+        return None
+    parent_id = quote(str(rows[0][config.fanout.resolve_field]), safe="")
+    path = config.path.replace(f"{{{config.fanout.resolve_param}}}", parent_id)
+    return f"{INCIDENT_IO_BASE_URL}{path}&{urlencode({'page_size': 1})}"
 
+
+def _probe_result(api_key: str, url: str, schema_name: Optional[str]) -> tuple[bool, str | None]:
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        _build_url(config.path, params),
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        url,
+        headers=_probe_headers(api_key),
         timeout=VALIDATION_TIMEOUT_SECONDS,
     )
 
@@ -148,6 +161,29 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
         return True, None
 
     return False, f"incident.io API returned an unexpected response (status {status})."
+
+
+def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
+    """Probe the API to confirm the key is genuine.
+
+    incident.io API keys carry granular per-resource view/list scopes, so a 403 from one
+    endpoint can just mean a missing scope rather than a bad key. At source-create
+    (``schema_name=None``) we accept 403 — the key authenticated, it's only missing a
+    scope the user may not need. When validating a specific schema, a 403 is an error.
+    """
+    config = INCIDENT_IO_ENDPOINTS.get(schema_name or "", INCIDENT_IO_ENDPOINTS["incidents"])
+    # A fan-out child can't be listed without a parent id, so the parent list is probed first.
+    probe_config = INCIDENT_IO_ENDPOINTS[config.fanout.parent_name] if config.fanout is not None else config
+    params: dict[str, Any] = {"page_size": 1} if probe_config.paginated else {}
+
+    is_valid, error = _probe_result(api_key, _build_url(probe_config.path, params), schema_name)
+    if not is_valid or config.fanout is None:
+        return is_valid, error
+
+    child_url = _fanout_child_probe_url(api_key, config)
+    if child_url is None:
+        return True, None
+    return _probe_result(api_key, child_url, schema_name)
 
 
 def _paginator(config: IncidentIoEndpointConfig) -> BasePaginator:

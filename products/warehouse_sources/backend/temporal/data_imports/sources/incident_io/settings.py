@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class IncidentIoEndpointConfig:
     name: str
     # Versioned path — incident.io mixes /v1, /v2 and /v3 across resources.

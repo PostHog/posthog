@@ -196,9 +196,6 @@ class TestValidateCredentials:
         "schema_name, expected_url",
         [
             ("severities", "https://api.incident.io/v1/severities"),
-            # Fan-out children need a parent id to list, so the probe hits the parent list.
-            ("catalog_entries", "https://api.incident.io/v3/catalog_types"),
-            ("custom_field_options", "https://api.incident.io/v2/custom_fields"),
         ],
     )
     @mock.patch(INCIDENT_IO_SESSION_PATCH)
@@ -209,6 +206,59 @@ class TestValidateCredentials:
 
         url = mock_session.return_value.get.call_args.args[0]
         assert url == expected_url
+
+    @pytest.mark.parametrize(
+        "schema_name, parent_key, parent_rows, child_status, expected_urls, expected_valid",
+        [
+            (
+                "catalog_entries",
+                "catalog_types",
+                [{"id": "T1"}],
+                403,
+                [
+                    "https://api.incident.io/v3/catalog_types",
+                    "https://api.incident.io/v3/catalog_types",
+                    "https://api.incident.io/v3/catalog_entries?catalog_type_id=T1&page_size=1",
+                ],
+                False,
+            ),
+            (
+                "custom_field_options",
+                "custom_fields",
+                [{"id": "F1"}],
+                200,
+                [
+                    "https://api.incident.io/v2/custom_fields",
+                    "https://api.incident.io/v2/custom_fields",
+                    "https://api.incident.io/v1/custom_field_options?custom_field_id=F1&page_size=1",
+                ],
+                True,
+            ),
+            # No parent row to bind, so the child scope can't be probed and the parent probe decides.
+            (
+                "catalog_entries",
+                "catalog_types",
+                [],
+                403,
+                ["https://api.incident.io/v3/catalog_types", "https://api.incident.io/v3/catalog_types"],
+                True,
+            ),
+        ],
+    )
+    @mock.patch(INCIDENT_IO_SESSION_PATCH)
+    def test_fanout_schema_probes_parent_then_child(
+        self, mock_session, schema_name, parent_key, parent_rows, child_status, expected_urls, expected_valid
+    ):
+        parent = mock.MagicMock(status_code=200)
+        parent.json.return_value = {parent_key: parent_rows}
+        mock_session.return_value.get.side_effect = [parent, parent, mock.MagicMock(status_code=child_status)]
+
+        is_valid, error = validate_credentials("key", schema_name=schema_name)
+
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list] == expected_urls
+        assert is_valid is expected_valid
+        if not expected_valid:
+            assert error is not None and schema_name in error
 
     @mock.patch(INCIDENT_IO_SESSION_PATCH)
     def test_sends_bearer_auth_header(self, mock_session):
