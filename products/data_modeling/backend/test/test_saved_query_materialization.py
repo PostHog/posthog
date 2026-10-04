@@ -3,8 +3,11 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
-from posthog.models import ActivityLog
+from posthog.constants import AvailableFeature
+from posthog.models import ActivityLog, User
+from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
 from products.data_modeling.backend.models.dag import DAG
@@ -35,11 +38,11 @@ class TestEnableSavedQueryMaterialization(BaseTest):
             team=self.team, dag=self.dag, name="event_view", saved_query=self.saved_query, type=NodeType.VIEW
         )
 
-    def _enable(self, sync_frequency_interval: timedelta) -> None:
+    def _enable(self, sync_frequency_interval: timedelta, user: User | None = None) -> None:
         api.enable_saved_query_materialization(
             self.team.id,
             self.saved_query.id,
-            user=self.user,
+            user=user or self.user,
             sync_frequency_interval=sync_frequency_interval,
             visible_blocker_names=_name_no_blockers,
             was_impersonated=False,
@@ -115,3 +118,27 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         self.node.refresh_from_db()
         assert self.node.type == NodeType.VIEW
         assert not ActivityLog.objects.filter(item_id=str(self.saved_query.id)).exists()
+
+    def test_a_user_who_can_only_view_the_saved_query_cannot_materialize_it(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(self.saved_query.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+        )
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization,
+            self.assertRaises(api.MaterializationForbiddenError),
+        ):
+            self._enable(timedelta(hours=1), user=viewer)
+
+        self.saved_query.refresh_from_db()
+        schedule_materialization.assert_not_called()
+        assert self.saved_query.is_materialized is False

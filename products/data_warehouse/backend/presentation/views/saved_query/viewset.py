@@ -29,6 +29,7 @@ from posthog.temporal.common.client import sync_connect
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_modeling.backend.facade.api import (
     MaterializationFailedError,
+    MaterializationForbiddenError,
     MaterializationRefusedError,
     SavedQueryNotFoundError,
     enable_saved_query_materialization,
@@ -448,6 +449,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             )
         except SavedQueryNotFoundError:
             raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
         except MaterializationRefusedError as e:
             raise serializers.ValidationError(str(e))
         except MaterializationFailedError as e:

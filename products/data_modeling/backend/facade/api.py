@@ -51,6 +51,7 @@ _LAZY = {
     "saved_query_node_ids": "logic.saved_query_reads",
     "upstream_table_refs": "logic.saved_query_reads",
     "MaterializationFailedError": "facade.contracts",
+    "MaterializationForbiddenError": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
     "saved_query_materialized_at": "logic.saved_query_freshness",

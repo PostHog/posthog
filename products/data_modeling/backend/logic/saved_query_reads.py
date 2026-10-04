@@ -252,10 +252,14 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
 
 def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
     """The DAG nodes that stand for this saved query, cross-DAG proxy table nodes included."""
+    return _node_ids_standing_for(team_id, {str(saved_query_id)})
+
+
+def _node_ids_standing_for(team_id: int, saved_query_ids: set[str]) -> set[str]:
     return {
         str(node_id)
         for node_id in Node.objects.filter(team_id=team_id)
-        .filter(Q(saved_query_id=saved_query_id) | Q(properties__saved_query_id=str(saved_query_id)))
+        .filter(Q(saved_query_id__in=saved_query_ids) | Q(properties__saved_query_id__in=saved_query_ids))
         .values_list("id", flat=True)
     }
 
@@ -285,20 +289,39 @@ def reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool
 
 
 def upstream_table_refs(team_id: int, saved_query_id: UUID | str) -> frozenset[UpstreamTableRef]:
-    """The tables this saved query reads from, directly or through other views."""
-    reached = reachable_node_ids(team_id, saved_query_node_ids(team_id, saved_query_id), upstream=True, max_depth=None)
-    table_nodes = Node.objects.filter(team_id=team_id, id__in=reached, type=NodeType.TABLE).values_list(
-        "name", "properties"
-    )
+    """The tables this saved query reads from, directly or through other views in any DAG."""
     return frozenset(
-        UpstreamTableRef(name=name, warehouse_table_id=_warehouse_table_id(properties or {}))
-        for name, properties in table_nodes
-        if not _stands_for_saved_query(properties or {})
+        UpstreamTableRef(name=name, warehouse_table_id=_warehouse_table_id(properties))
+        for name, properties in _upstream_table_nodes(team_id, str(saved_query_id))
+        if _proxied_saved_query_id(properties) is None
     )
 
 
-def _stands_for_saved_query(properties: dict[str, object]) -> bool:
-    return bool(properties.get(PROXY_SAVED_QUERY_ID_PROPERTY))
+def _upstream_table_nodes(team_id: int, saved_query_id: str) -> list[tuple[str, dict[str, object]]]:
+    tables_by_node_id: dict[str, tuple[str, dict[str, object]]] = {}
+    walked_saved_query_ids: set[str] = set()
+    pending_saved_query_ids = {saved_query_id}
+    while pending_saved_query_ids:
+        walked_saved_query_ids |= pending_saved_query_ids
+        start_node_ids = _node_ids_standing_for(team_id, pending_saved_query_ids)
+        reached = reachable_node_ids(team_id, start_node_ids, upstream=True, max_depth=None)
+        for node_id, name, properties in Node.objects.filter(
+            team_id=team_id, id__in=reached, type=NodeType.TABLE
+        ).values_list("id", "name", "properties"):
+            tables_by_node_id[str(node_id)] = (name, properties or {})
+        pending_saved_query_ids = _proxied_saved_query_ids(tables_by_node_id.values()) - walked_saved_query_ids
+    return list(tables_by_node_id.values())
+
+
+def _proxied_saved_query_ids(table_nodes: Iterable[tuple[str, dict[str, object]]]) -> set[str]:
+    return {
+        proxied_id for _, properties in table_nodes if (proxied_id := _proxied_saved_query_id(properties)) is not None
+    }
+
+
+def _proxied_saved_query_id(properties: dict[str, object]) -> str | None:
+    proxied_id = properties.get(PROXY_SAVED_QUERY_ID_PROPERTY)
+    return str(proxied_id) if proxied_id else None
 
 
 def _warehouse_table_id(properties: dict[str, object]) -> str | None:

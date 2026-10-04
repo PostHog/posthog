@@ -68,5 +68,9 @@ class MaterializationRefusedError(Exception):
     pass
 
 
+class MaterializationForbiddenError(Exception):
+    pass
+
+
 class MaterializationFailedError(Exception):
     pass

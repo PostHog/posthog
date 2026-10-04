@@ -9,7 +9,12 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.rbac.query_access import assert_user_can_read_query
 
-from products.data_modeling.backend.facade.contracts import MaterializationFailedError, MaterializationRefusedError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.contracts import (
+    MaterializationFailedError,
+    MaterializationForbiddenError,
+    MaterializationRefusedError,
+)
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import SavedQueryFrequencyBounds, saved_query_target_bounds
 from products.data_modeling.backend.logic.node_materialization import SavedQueryNotFoundError
@@ -23,6 +28,7 @@ logger = structlog.get_logger(__name__)
 VisibleBlockerNames = Callable[[SavedQueryFrequencyBounds], Mapping[str, str]]
 
 MANAGED_VIEWSET_REFUSAL = "Cannot materialize a query from a managed viewset."
+EDIT_ACCESS_REFUSAL = "You need edit access to this view to materialize it."
 LINEAGE_CHANGED_REFUSAL = "This view's lineage changed while we were setting it up. Reopen it and pick a cadence again."
 MATERIALIZATION_FAILED_MESSAGE = "Materialization failed. Please try again or contact support."
 MATERIALIZATION_ENABLED_ACTIVITY = "materialization_enabled"
@@ -64,6 +70,7 @@ def _enable_materialization(
     if saved_query.managed_viewset_id is not None:
         raise MaterializationRefusedError(MANAGED_VIEWSET_REFUSAL)
 
+    _require_edit_access(saved_query, user)
     assert_user_can_read_query(saved_query.query, saved_query.team_id, user)
 
     if sync_frequency_interval is not None:
@@ -105,6 +112,12 @@ def _enable_materialization(
         previous_interval=previous_interval,
         sync_frequency_interval=sync_frequency_interval,
     )
+
+
+def _require_edit_access(saved_query: DataWarehouseSavedQuery, user: User) -> None:
+    access = UserAccessControl(user=user, team=saved_query.team)
+    if not access.check_access_level_for_object(saved_query, "editor"):
+        raise MaterializationForbiddenError(EDIT_ACCESS_REFUSAL)
 
 
 def _refuse_a_cadence_the_lineage_forbids(
