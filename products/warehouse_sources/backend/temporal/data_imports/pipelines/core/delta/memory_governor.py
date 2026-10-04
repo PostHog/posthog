@@ -283,9 +283,9 @@ def rewrite_profile(
     """Upper bound on the existing files a merge of ``source`` rewrites, from the table's add actions.
 
     A file is a candidate when it is in a partition the batch touches and its PK range overlaps the
-    batch. Each source row replaces at most one existing row, so a partition rewrites at most as
-    many files as it has source rows; the largest candidates are counted. Every touched partition
-    gets an entry with its share of the source, also when it has no candidate files.
+    batch. Every candidate is counted because duplicate target keys can make one source row match
+    several files. Every touched partition gets an entry with its share of the source, also when it
+    has no candidate files.
     """
     if source.num_rows == 0:
         return RewriteProfile(partitions=(), table_files=add_actions.num_rows, target_file_size=target_file_size)
@@ -313,7 +313,7 @@ def rewrite_profile(
     bytes_per_row = source.nbytes / source.num_rows
     partitions = [
         PartitionShape.of(
-            heapq.nlargest(rows_per_partition[partition], sizes),
+            sizes,
             source_bytes=round(bytes_per_row * rows_per_partition[partition]),
         )
         for partition, sizes in sizes_by_partition.items()
@@ -360,16 +360,24 @@ class MemoryEstimate:
     rss_mb: float
 
 
-def _worker_terms(shape: PartitionShape, files_per_worker: int, target_mb: float) -> tuple[float, float, float]:
-    """(reader MB, writer MB, stored MB its readers hold) for one partition worker."""
+@frozen
+class WorkerTerms:
+    """Memory terms for one partition worker."""
+
+    reader_mb: float
+    writer_mb: float
+    held_mb: float
+
+
+def _worker_terms(shape: PartitionShape, files_per_worker: int, target_mb: float) -> WorkerTerms:
     row_groups_mb = [size / MB for size in shape.largest_file_bytes[:files_per_worker]]
     held = sum(row_groups_mb)
     pages = sum(min(_READER_PAGE_BUFFER_MB, _READER_PAGE_BUFFER_SHARE * rg) for rg in row_groups_mb)
     written = (shape.stored_bytes + shape.source_bytes) / MB
-    return (
-        _READER_BYTES_PER_ROW_GROUP_BYTE * held + pages,
-        _WRITER_BYTES_PER_TARGET_BYTE * min(target_mb, written),
-        held,
+    return WorkerTerms(
+        reader_mb=_READER_BYTES_PER_ROW_GROUP_BYTE * held + pages,
+        writer_mb=_WRITER_BYTES_PER_TARGET_BYTE * min(target_mb, written),
+        held_mb=held,
     )
 
 
@@ -385,13 +393,13 @@ def _unknown_shapes(n_partitions: int | None, source_mb: float, target_mb: float
     return (shape,) * count
 
 
-def _costliest_workers(profile: RewriteProfile, files_per_worker: int) -> list[tuple[float, float, float]]:
+def _costliest_workers(profile: RewriteProfile, files_per_worker: int) -> list[WorkerTerms]:
     """Worker terms of the ``_MAX_PARALLEL_PARTITIONS`` costliest partitions, costliest first."""
     target_mb = profile.target_file_size / MB
     return heapq.nlargest(
         _MAX_PARALLEL_PARTITIONS,
         (_worker_terms(shape, files_per_worker, target_mb) for shape in profile.partitions),
-        key=lambda terms: terms[0] + terms[1],
+        key=lambda terms: terms.reader_mb + terms.writer_mb,
     )
 
 
@@ -402,7 +410,7 @@ def predict_upsert_memory(
     files_per_worker: int,
     buffered_bytes: int = _DEFAULT_BUFFERED_BYTES,
     retention: float = _RSS_RETENTION_GLIBC_DEFAULT,
-    costliest: list[tuple[float, float, float]] | None = None,
+    costliest: list[WorkerTerms] | None = None,
 ) -> MemoryEstimate:
     """Peak memory of one upsert with ``mpp`` partition workers of ``files_per_worker`` readers.
 
@@ -412,9 +420,9 @@ def predict_upsert_memory(
     if costliest is None:
         costliest = _costliest_workers(profile, files_per_worker)
     workers = costliest[:mpp]
-    reader_mb = sum(w[0] for w in workers)
-    writer_mb = sum(w[1] for w in workers)
-    held_mb = sum(w[2] for w in workers)
+    reader_mb = sum(w.reader_mb for w in workers)
+    writer_mb = sum(w.writer_mb for w in workers)
+    held_mb = sum(w.held_mb for w in workers)
     decode_mb = _DECODE_BUDGET_FILL * min(buffered_bytes / MB, _DECODED_BYTES_PER_STORED_BYTE * held_mb)
     fixed_mb = (
         _BASE_INUSE_MB
@@ -495,7 +503,7 @@ def size_upsert(
         partition_cap = min(partition_cap, n_partitions)
 
     # One pass over the partitions per reader count, however many plans are tried.
-    costliest: dict[int, list[tuple[float, float, float]]] = {}
+    costliest: dict[int, list[WorkerTerms]] = {}
     for mpp in range(partition_cap, 0, -1):
         for files in _reader_options(mpp):
             if files not in costliest:

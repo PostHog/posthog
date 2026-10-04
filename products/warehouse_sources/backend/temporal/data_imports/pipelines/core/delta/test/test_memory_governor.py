@@ -168,10 +168,8 @@ class TestPredictUpsertMemory:
         low = predict_upsert_memory(_WIDE, 0.0, 1, 4, retention=1.4)
         high = predict_upsert_memory(_WIDE, 0.0, 1, 4, retention=2.0)
         assert low.inuse_mb == high.inuse_mb
-        assert (low.rss_mb, high.rss_mb) == (
-            pytest.approx(low.inuse_mb * 1.4, abs=0.2),
-            pytest.approx(high.inuse_mb * 2.0, abs=0.2),
-        )
+        assert low.rss_mb == pytest.approx(low.inuse_mb * 1.4, abs=0.2)
+        assert high.rss_mb == pytest.approx(high.inuse_mb * 2.0, abs=0.2)
 
 
 class TestSizeUpsert:
@@ -345,8 +343,11 @@ class TestGovernorSizing:
             pass
         async with tight.admit(source_bytes=MB, rewrite=profile) as narrow:
             pass
+        assert narrow.planned_mpp is not None and narrow.planned_mpf is not None
+        assert wide.planned_mpp is not None and wide.planned_mpf is not None
         assert narrow.planned_mpp * narrow.planned_mpf < wide.planned_mpp * wide.planned_mpf
-        assert narrow.capacity_exceeded is False and narrow.predicted_peak_mb <= 1_000.0
+        assert narrow.capacity_exceeded is False
+        assert narrow.predicted_peak_mb is not None and narrow.predicted_peak_mb <= 1_000.0
 
     async def test_source_too_big_still_runs_deltalite_with_the_smallest_plan(self):
         # 30000 / 15 = 2000 slice; a 2300 MB source alone is 2 x 0.73 x 2300 = 3358 MB of RSS.
@@ -520,12 +521,17 @@ class TestRewriteProfile:
                 ((400,), (50, 30)),
                 3,
             ),
-            # One source row can force at most one file rewrite, so only a's largest file counts.
-            ("one_row_counts_the_largest_file", _source([("a", 150)]), _PART, ((50,),), 1),
+            ("one_row_counts_its_candidate_file", _source([("a", 150)]), _PART, ((50,),), 1),
             # A partition with no files still runs a worker that writes the inserts.
             ("append_into_new_partition", _source([("d", 1), ("d", 2)]), _PART, ((),), 0),
             ("keys_beyond_every_file", _source([("a", 1000), ("a", 1001)]), _PART, ((),), 0),
-            ("unpartitioned_bounded_by_rows", _source([("x", 0), ("x", 950)]), None, ((400, 100),), 2),
+            (
+                "unpartitioned_counts_all_candidates",
+                _source([("x", 0), ("x", 950)]),
+                None,
+                ((400, 100, 70, 50, 30),),
+                5,
+            ),
         ]
     )
     def test_profile(self, _name, source, partition_col, expected_files, expected_count):
@@ -549,6 +555,11 @@ class TestRewriteProfile:
         source = source.append_column("other", pa.array([1, 2, 3], pa.int64()))
         profile = rewrite_profile(add_actions, source, _PART, primary_keys)
         assert [(p.largest_file_bytes, p.stored_bytes) for p in profile.partitions] == [((100, 50, 30), 180)]
+
+    def test_one_source_row_can_match_duplicate_keys_in_multiple_files(self):
+        files = [("a", 100, 100, 200), ("a", 50, 150, 250)]
+        profile = rewrite_profile(_add_actions(files), _source([("a", 175)]), _PART, ["id"])
+        assert (profile.partitions[0].largest_file_bytes, profile.files) == ((100, 50), 2)
 
     def test_string_keys_are_not_pruned(self):
         # Delta truncates long string stats, so a string max proves nothing.
