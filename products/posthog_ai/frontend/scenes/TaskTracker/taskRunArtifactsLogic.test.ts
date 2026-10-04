@@ -39,6 +39,18 @@ describe('taskRunArtifactsLogic', () => {
             if (url.includes('/artifacts/download/')) {
                 return Promise.resolve(new Response('# Report'))
             }
+            if (url.includes('/artifacts/') && url.includes('/preview/')) {
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            url: 'https://usercontent.example/canvas-artifacts/task-preview/token/index.html',
+                        }),
+                        {
+                            headers: { 'Content-Type': 'application/json' },
+                        }
+                    )
+                )
+            }
             const payload = /\/runs\/(\?.*)?$/.test(url)
                 ? { results: runArtifacts.length ? [{ id: RUN_ID }] : [] }
                 : url.includes('/living_artifacts/')
@@ -85,6 +97,73 @@ describe('taskRunArtifactsLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
+    })
+
+    it('loads the selected HTML preview once and retries failures only on request', async () => {
+        runArtifacts = ['interactive.html', 'second.html'].map((name, index) => ({
+            id: `html-${index + 1}`,
+            name,
+            type: 'output',
+            source: 'agent_output',
+            content_type: 'text/html',
+            storage_path: `tasks/artifacts/html-${index + 1}`,
+            uploaded_at: '2026-09-28T18:00:00Z',
+        }))
+        const fetch = global.fetch
+        const pending: Array<(response: Response) => void> = []
+        global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) =>
+            String(input).includes('/preview/')
+                ? new Promise<Response>((resolve) => pending.push(resolve))
+                : fetch(input, init)
+        )
+        const respond = (index: number, path: string, status = 200): void => {
+            pending[index](
+                new Response(
+                    JSON.stringify({
+                        url: `https://usercontent.example/canvas-artifacts/task-preview/${path}/index.html`,
+                    }),
+                    { status, headers: { 'Content-Type': 'application/json' } }
+                )
+            )
+        }
+        const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toMatchValues({ htmlPreviewLoading: true })
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(1)
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining(`/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/html-1/preview/`),
+            expect.anything()
+        )
+
+        logic.actions.selectArtifact('second.html')
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(2)
+        await expectLogic(logic, () => respond(1, 'second'))
+            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toMatchValues({
+                htmlPreviewLoading: false,
+                htmlPreview: expect.objectContaining({ artifactId: 'html-2' }),
+            })
+        respond(0, 'first')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.htmlPreview?.artifactId).toBe('html-2')
+        expect(logic.values.htmlPreview?.url).toContain('/task-preview/second/')
+
+        const secondArtifact = logic.values.selectedArtifact as RunArtifact
+        logic.actions.loadHtmlPreview(secondArtifact)
+        await expectLogic(logic, () => respond(2, 'failed', 503))
+            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toMatchValues({
+                htmlPreviewLoading: false,
+                htmlPreview: expect.objectContaining({ url: null, error: expect.any(String) }),
+            })
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(3)
+        logic.actions.loadHtmlPreview(secondArtifact)
+        await expectLogic(logic, () => respond(3, 'retry')).toFinishAllListeners()
+        expect(logic.values.htmlPreview?.url).toContain('/task-preview/retry/')
     })
 
     it.each([

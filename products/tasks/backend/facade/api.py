@@ -60,6 +60,11 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
+from products.canvas.backend.artifacts import (
+    ARTIFACT_PERMISSIONS_POLICY as ARTIFACT_PERMISSIONS_POLICY,
+    artifact_delivery_origin as artifact_delivery_origin,
+    require_artifact_host as require_artifact_host,
+)
 from products.canvas.backend.models import Canvas
 from products.cdp.backend.facade import api as cdp_facade
 from products.posthog_ai.backend.task_ownership import (
@@ -4669,6 +4674,28 @@ def presign_task_run_artifact_download(
     if not url:
         return None, "unavailable"
     return url, None
+
+
+def task_run_artifact_entry(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> dict[str, Any] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in run.artifacts or []
+            if entry.get("id") == artifact_id
+            and entry.get("storage_path")
+            and not entry.get("dismissed_at")
+            and (
+                (entry.get("type") == "output" and entry.get("uploaded_by") == "user")
+                or (entry.get("type") in ("output", "artifact") and entry.get("source") == "agent_output")
+            )
+        ),
+        None,
+    )
 
 
 def read_task_run_artifact(

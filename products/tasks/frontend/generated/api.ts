@@ -103,6 +103,7 @@ import type {
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactPreviewResponseApi,
     TaskRunArtifactsDismissRequestApi,
     TaskRunArtifactsDismissResponseApi,
     TaskRunArtifactsFinalizeUploadRequestApi,
@@ -156,6 +157,7 @@ import type {
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksReviewRetrieveParams,
+    TasksRunsArtifactsPreviewRetrieveParams,
     TasksRunsListParams,
     TasksRunsLivingArtifactsVersionContentParams,
     TasksRunsSessionLogsRetrieveParams,
@@ -1967,6 +1969,49 @@ export const tasksRunsArtifactsDownloadRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksRunsArtifactsPreviewRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    params?: TasksRunsArtifactsPreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/${artifactId}/preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/${artifactId}/preview/`
+}
+
+/**
+ * Returns a short-lived URL for one HTML artifact version on the artifact origin.
+ * @summary Open an isolated HTML artifact preview
+ */
+export const tasksRunsArtifactsPreviewRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    params?: TasksRunsArtifactsPreviewRetrieveParams,
+    options?: RequestInit
+): Promise<TaskRunArtifactPreviewResponseApi> => {
+    return apiMutator<TaskRunArtifactPreviewResponseApi>(
+        getTasksRunsArtifactsPreviewRetrieveUrl(projectId, taskId, id, artifactId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTasksRunsArtifactsDismissCreateUrl = (projectId: string, taskId: string, id: string) => {
