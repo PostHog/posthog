@@ -98,6 +98,24 @@ class TestInsightlySource:
         ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name)
         assert ok is expected_ok
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_path",
+        [
+            ("Leads", "/Leads"),
+            # The per-opportunity path has an `{id}` placeholder, so access is probed on its parent.
+            ("OpportunityStateHistory", "/Opportunities"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
+    )
+    def test_validate_credentials_probes_a_requestable_path(
+        self, mock_validate: mock.MagicMock, schema_name: str, expected_path: str
+    ) -> None:
+        mock_validate.return_value = 200
+        self.source.validate_credentials(self.config, self.team_id, schema_name)
+        assert mock_validate.call_args.args[2] == expected_path
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
     )

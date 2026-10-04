@@ -117,7 +117,7 @@ The API key inherits your Insightly user's permissions, so make sure your user c
                 supports_incremental=endpoint_config.supports_incremental,
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
-                detected_primary_keys=[endpoint_config.primary_key],
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
@@ -133,7 +133,7 @@ The API key inherits your Insightly user's permissions, so make sure your user c
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        path = INSIGHTLY_ENDPOINTS[schema_name].path if schema_name in INSIGHTLY_ENDPOINTS else "/Contacts"
+        path = INSIGHTLY_ENDPOINTS[schema_name].probe_path if schema_name in INSIGHTLY_ENDPOINTS else "/Contacts"
         try:
             status = validate_insightly_credentials(config.pod, config.api_key, path)
         except ValueError as e:

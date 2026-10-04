@@ -4312,10 +4312,10 @@ Today (11): `Contacts`, `Emails`, `Events`, `Leads`, `Notes`, `Opportunities`, `
 
 Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 
-- [ ] `/PipelineStages` — lookup resolving PIPELINE_STAGE_ID on Opportunities and Projects - Pipelines is synced but its stages are not, so no funnel breakdown is possible (high)
-- [ ] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
-- [ ] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
-- [ ] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
+- [x] `/PipelineStages` — lookup resolving PIPELINE_STAGE_ID on Opportunities and Projects - Pipelines is synced but its stages are not, so no funnel breakdown is possible (high)
+- [x] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
+- [x] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
+- [x] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
 - [ ] `/LeadStatuses` — lookup resolving LEAD_STATUS_ID on Leads, needed for any lead funnel (high)
 - [ ] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high)
 - [ ] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium)
