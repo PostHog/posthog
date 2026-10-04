@@ -507,7 +507,8 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
     // No await between submit and purge: run_scatter is queued but cannot run
     // until this current-thread task yields. The submission was accepted and
     // retained synchronously, then intentionally discarded by revocation.
-    dispatcher.purge_revoked(&[("test".to_string(), 0)]);
+    let flushed = dispatcher.purge_revoked_and_send(&[("test".to_string(), 0)], |sub| sub);
+    assert!(flushed.is_empty(), "nothing packed at a zero budget");
 
     match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {
         Err(_) => {}

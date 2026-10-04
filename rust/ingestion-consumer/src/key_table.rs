@@ -1,28 +1,33 @@
 //! The key-table scheduler: at most one request per key is in flight.
 //!
 //! The key table holds one FIFO queue per routing key, an outstanding flag,
-//! and a parked list. A key is runnable when it has queued work and no
-//! outstanding request. Arrival enqueues and dispatches a runnable key's
-//! queued run; a dispatch marks the key outstanding. A delivered settlement
-//! clears the flag and dispatches the key's next run. A failed settlement
-//! returns the run to the front of its queue, then clears the flag — requeue
-//! before release, in one seam call — and parks the key. The parked-retry
-//! deadline ([`Deadline::ParkedRetry`]) covers the keys no settlement can
-//! release: unroutable groups, and keys behind a failed send.
+//! and a parked list. A key's messages are in exactly one place: the
+//! packer's open batch, a request in flight, or the key's queue. A key with
+//! nothing in flight forwards its arrivals to the [`Packer`], which holds
+//! them per key until a batch reaches the target size or its latency
+//! budget expires; at a zero budget every key's messages leave at the end
+//! of the seam call that brought them. Releasing a batch marks its keys
+//! outstanding, and the batch is placed as it leaves: the configured
+//! router picks a worker against that moment's snapshot and load. A batch
+//! with no routable worker waits, unplaced, for the pack deadline.
+//!
+//! An outstanding or parked key queues its arrivals. A delivered settlement
+//! clears the flag and forwards the queue to the packer. A failed
+//! settlement returns the run to the front of its queue, then clears the
+//! flag — requeue before release, in one seam call — and parks the key. The
+//! parked-retry deadline ([`Deadline::ParkedRetry`]) resends parked keys
+//! directly, past the packer, with the replay flag.
 //!
 //! At most one outstanding request per key preserves per-key order. Nothing
-//! else does, and nothing else must: placement is stateless — the configured
-//! router picks a worker per dispatch, with no pins and no stash.
-//!
-//! Not selected by any production caller yet; the scheduler switch is the
-//! next change.
+//! else does, and nothing else must: placement carries no pins and no stash.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use metrics::{counter, gauge, histogram};
 
 use crate::order_sentinel::SendKind;
+use crate::packer::{Batch, PackTargets, Packer};
 use crate::routing::{Router, WorkerLoad};
 use crate::scheduler::{
     bump_load, working_load, Deadline, Dispatch, KeyRun, Scheduler, SchedulerEffects, Settlement,
@@ -31,15 +36,17 @@ use crate::scheduler::{
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
-/// Record the run's head-of-line wait: how long its oldest message sat
-/// queued behind the key's outstanding request, park, or epoch boundary.
-fn record_queue_wait(run: &Run, kind: SendKind) {
+/// Record a parked retry's head-of-line wait: how long its oldest message
+/// sat queued behind the park. The packer records the fresh kind at
+/// release, from the message's arrival, so that wait includes the pack
+/// hold.
+fn record_queue_wait(drained: &Drained, kind: SendKind) {
     let kind = match kind {
         SendKind::Fresh => "fresh",
         SendKind::Resend => "resend",
     };
     histogram!("ingestion_consumer_key_table_queue_wait_seconds", "kind" => kind)
-        .record(run.head_wait.as_secs_f64());
+        .record(drained.first_arrival.elapsed().as_secs_f64());
 }
 
 fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
@@ -58,12 +65,13 @@ struct QueuedMessage {
     message: SerializedKafkaMessage,
 }
 
-/// One drained run: the longest same-epoch prefix of a key's queue.
-struct Run {
+/// The longest same-epoch prefix drained from a key's queue.
+struct Drained {
     epoch: u64,
-    /// Age of the run's oldest message: the head-of-line wait.
-    head_wait: Duration,
+    /// When the oldest message was queued: the start of its wait.
+    first_arrival: Instant,
     messages: Vec<SerializedKafkaMessage>,
+    bytes: usize,
 }
 
 /// One key's scheduling state.
@@ -142,12 +150,13 @@ impl KeyTable {
         self.parked.len()
     }
 
-    /// Whether the key may dispatch now: queued work, nothing outstanding,
-    /// not waiting for the parked-retry deadline.
-    fn is_runnable(&self, key: &str) -> bool {
+    /// Whether the key's arrivals may go straight to the packer: nothing
+    /// in flight, not parked, and nothing queued ahead of them. An untracked
+    /// key is free.
+    fn is_free(&self, key: &str) -> bool {
         self.keys
             .get(key)
-            .is_some_and(|state| !state.queue.is_empty() && !state.outstanding && !state.parked)
+            .is_none_or(|state| !state.outstanding && !state.parked && state.queue.is_empty())
     }
 
     /// Append messages to the key's queue, creating the key when new.
@@ -202,11 +211,11 @@ impl KeyTable {
         }
     }
 
-    /// Drain the queue's longest same-epoch prefix into one run and mark the
-    /// key outstanding. A run never mixes epochs, so its completions carry
-    /// one valid stamp; later-epoch messages wait for the next settlement.
-    /// Returns None, with no state change, when there is nothing to dispatch.
-    fn take_run(&mut self, key: &str) -> Option<Run> {
+    /// Drain the queue's longest same-epoch prefix. A batch never mixes
+    /// epochs, so its completions carry one valid stamp; later-epoch
+    /// messages wait for the key's next settlement. Returns None, with no
+    /// state change, when the key is outstanding or has nothing queued.
+    fn drain_key(&mut self, key: &str) -> Option<Drained> {
         let state = self.keys.get_mut(key)?;
         debug_assert!(!state.outstanding, "at most one request per key");
         if state.outstanding || state.queue.is_empty() {
@@ -214,7 +223,7 @@ impl KeyTable {
         }
         let front = state.queue.front().expect("checked non-empty");
         let epoch = front.epoch;
-        let head_wait = front.enqueued_at.elapsed();
+        let first_arrival = front.enqueued_at;
         let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
         while state
             .queue
@@ -223,21 +232,34 @@ impl KeyTable {
         {
             messages.push(state.queue.pop_front().expect("front checked").message);
         }
+        let bytes = payload_bytes(&messages);
+        // Saturate so an accounting bug publishes zero to the gauges instead
+        // of a wrapped huge value.
+        debug_assert!(self.queued_messages >= messages.len());
+        self.queued_messages = self.queued_messages.saturating_sub(messages.len());
+        self.queued_bytes = self.queued_bytes.saturating_sub(bytes);
+        Some(Drained {
+            epoch,
+            first_arrival,
+            messages,
+            bytes,
+        })
+    }
+
+    /// Mark the key outstanding under `epoch`: its request is leaving. The
+    /// key is created when the packer held its messages before the table
+    /// ever saw it.
+    fn mark_outstanding(&mut self, key: &str, epoch: u64) {
+        let state = self
+            .keys
+            .entry(key.to_string())
+            .or_insert_with(KeyState::new);
+        debug_assert!(!state.outstanding, "at most one request per key");
         state.outstanding = true;
         state.outstanding_epoch = epoch;
         state.parked = false;
         state.redelivering = false;
         self.outstanding_keys += 1;
-        // Saturate so an accounting bug publishes zero to the gauges instead
-        // of a wrapped huge value.
-        debug_assert!(self.queued_messages >= messages.len());
-        self.queued_messages = self.queued_messages.saturating_sub(messages.len());
-        self.queued_bytes = self.queued_bytes.saturating_sub(payload_bytes(&messages));
-        Some(Run {
-            epoch,
-            head_wait,
-            messages,
-        })
     }
 
     /// Put the key on the parked list, to be retried at the parked-retry
@@ -273,6 +295,16 @@ impl KeyTable {
     /// Whether the key's next dispatch redelivers messages from a failed send.
     fn is_redelivering(&self, key: &str) -> bool {
         self.keys.get(key).is_some_and(|state| state.redelivering)
+    }
+
+    #[cfg(test)]
+    fn is_outstanding(&self, key: &str) -> bool {
+        self.keys.get(key).is_some_and(|state| state.outstanding)
+    }
+
+    #[cfg(test)]
+    fn is_parked(&self, key: &str) -> bool {
+        self.keys.get(key).is_some_and(|state| state.parked)
     }
 
     /// Clear the key's outstanding flag when its request settles. Returns
@@ -360,18 +392,39 @@ impl KeyTable {
     }
 }
 
-/// The target scheduler: the key table plus stateless placement via the
-/// configured routing strategy (P2C within the aperture slice, or bin-pack).
+/// A released batch that found no routable worker when it left the packer.
+/// Its keys are outstanding; the pack deadline retries the placement.
+struct UnplacedBatch {
+    epoch: u64,
+    runs: Vec<KeyRun>,
+}
+
+/// The target scheduler: the key table, the packer, and placement at
+/// release via the configured routing strategy (P2C within the aperture
+/// slice, or bin-pack).
 pub struct KeyTableScheduler {
     table: KeyTable,
     router: Router,
+    packer: Packer,
+    unplaced: VecDeque<UnplacedBatch>,
+    unplaced_messages: usize,
+    unplaced_keys: usize,
+    #[cfg(test)]
+    now_override: Option<Instant>,
 }
 
 impl KeyTableScheduler {
+    /// Starts with zero pack targets: send on arrival.
     pub fn new(router: Router) -> Self {
         Self {
             table: KeyTable::new(),
             router,
+            packer: Packer::new(PackTargets::default()),
+            unplaced: VecDeque::new(),
+            unplaced_messages: 0,
+            unplaced_keys: 0,
+            #[cfg(test)]
+            now_override: None,
         }
     }
 
@@ -379,38 +432,202 @@ impl KeyTableScheduler {
         &self.table
     }
 
-    /// Route the key's queued run to a worker, or park the key when no worker
-    /// is routable. `pool` is the candidate set for this dispatch kind.
-    fn dispatch_or_park(
+    pub fn pack_targets(&self) -> PackTargets {
+        self.packer.targets()
+    }
+
+    pub fn set_pack_targets(&mut self, targets: PackTargets) {
+        self.packer.set_targets(targets);
+    }
+
+    /// Messages not queued and not on the wire: in the packer's open batch,
+    /// or in a batch that found no worker.
+    pub fn held_messages(&self) -> usize {
+        self.packer.held_messages() + self.unplaced_messages
+    }
+
+    /// Keys of unplaced batches. They are outstanding in the table but
+    /// nothing of theirs is on the wire; a key in the open batch is not
+    /// outstanding at all.
+    pub fn unplaced_keys(&self) -> usize {
+        self.unplaced_keys
+    }
+
+    pub fn unplaced_batches(&self) -> usize {
+        self.unplaced.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_now(&mut self, now: Instant) {
+        self.now_override = Some(now);
+    }
+
+    fn now(&self) -> Instant {
+        #[cfg(test)]
+        if let Some(now) = self.now_override {
+            return now;
+        }
+        Instant::now()
+    }
+
+    /// Hand a free key's messages to the packer, and place the batch that
+    /// fills. The open batch spans one epoch: messages from a newer epoch
+    /// release it first. A cooperative assign bumps the epoch with no
+    /// revoke to flush the packer, and a batch stamped with the wrong
+    /// epoch would leave its poll's completions discarded as stale.
+    #[allow(clippy::too_many_arguments)]
+    fn forward(
+        &mut self,
+        candidates: &[WorkerId],
+        working_load: &mut WorkerLoad,
+        key: &str,
+        epoch: u64,
+        messages: Vec<SerializedKafkaMessage>,
+        bytes: usize,
+        arrived_at: Instant,
+        effects: &mut SchedulerEffects,
+    ) {
+        let now = self.now();
+        if self.packer.epoch().is_some_and(|held| held != epoch) {
+            if let Some(batch) = self.packer.flush(now) {
+                self.place(batch, candidates, working_load, effects);
+            }
+        }
+        if let Some(batch) = self
+            .packer
+            .push(key, epoch, messages, bytes, arrived_at, now)
+        {
+            self.place(batch, candidates, working_load, effects);
+        }
+    }
+
+    /// At a zero budget, every key's messages leave at the end of the seam
+    /// call that brought them, each key as its own batch, placed like the
+    /// runs the scheduler dispatched before the packer: largest first under
+    /// bin-packing, so heavy hitters drive the load distribution.
+    fn release_arrivals(
+        &mut self,
+        candidates: &[WorkerId],
+        working_load: &mut WorkerLoad,
+        effects: &mut SchedulerEffects,
+    ) {
+        let mut batches = self.packer.release_entries(self.now());
+        if self.router.prefers_largest_first() {
+            batches.sort_by_key(|batch| std::cmp::Reverse(batch.message_count()));
+        }
+        for batch in batches {
+            self.place(batch, candidates, working_load, effects);
+        }
+    }
+
+    /// Place a released batch: its keys go outstanding, the router picks a
+    /// worker against the current load, and the batch becomes one dispatch.
+    /// With no routable worker the batch waits for the pack deadline.
+    fn place(
+        &mut self,
+        batch: Batch,
+        candidates: &[WorkerId],
+        working_load: &mut WorkerLoad,
+        effects: &mut SchedulerEffects,
+    ) {
+        for run in &batch.runs {
+            self.table.mark_outstanding(&run.routing_key, batch.epoch);
+        }
+        match self.router.select(candidates, working_load) {
+            Some(worker) => {
+                bump_load(working_load, &worker, batch.message_count());
+                effects.dispatches.push(Dispatch {
+                    worker,
+                    runs: batch.runs,
+                    kind: SendKind::Fresh,
+                    assignment_epoch: Some(batch.epoch),
+                });
+            }
+            None => {
+                // Counted once, here: a retry that fails again does not
+                // re-count, so the counter tracks newly stranded messages.
+                // The unplaced gauges carry the backlog.
+                counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
+                    .increment(batch.message_count() as u64);
+                effects.deferred.unroutable += batch.runs.len() as u64;
+                self.unplaced_messages += batch.message_count();
+                self.unplaced_keys += batch.runs.len();
+                self.unplaced.push_back(UnplacedBatch {
+                    epoch: batch.epoch,
+                    runs: batch.runs,
+                });
+            }
+        }
+    }
+
+    /// Retry every unplaced batch over `pool`, oldest first. A batch that
+    /// still cannot route waits for the next deadline.
+    fn place_unplaced(
         &mut self,
         pool: &[WorkerId],
         working_load: &mut WorkerLoad,
-        key: &str,
-        kind: SendKind,
         effects: &mut SchedulerEffects,
     ) {
-        let Some(worker) = self.router.select(pool, working_load) else {
-            // Counted once, at the park: a repark and arrivals behind an
-            // already parked key do not re-count, so the counter tracks
-            // newly stranded messages. The queued gauges carry the backlog.
-            counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
-                .increment(self.table.queued_len(key) as u64);
-            self.table.park(key);
-            effects.deferred.unroutable += 1;
-            return;
-        };
-        let Some(run) = self.table.take_run(key) else {
-            return;
-        };
-        record_queue_wait(&run, kind);
-        bump_load(working_load, &worker, run.messages.len());
-        effects.dispatches.push(Dispatch {
-            worker,
-            routing_key: key.to_string(),
-            messages: run.messages,
-            kind,
-            assignment_epoch: Some(run.epoch),
-        });
+        while let Some(batch) = self.unplaced.pop_front() {
+            let Some(worker) = self.router.select(pool, working_load) else {
+                self.unplaced.push_front(batch);
+                break;
+            };
+            let message_count: usize = batch.runs.iter().map(|run| run.messages.len()).sum();
+            self.unplaced_messages = self.unplaced_messages.saturating_sub(message_count);
+            self.unplaced_keys = self.unplaced_keys.saturating_sub(batch.runs.len());
+            bump_load(working_load, &worker, message_count);
+            effects.dispatches.push(Dispatch {
+                worker,
+                runs: batch.runs,
+                kind: SendKind::Fresh,
+                assignment_epoch: Some(batch.epoch),
+            });
+        }
+    }
+
+    /// Resend every parked key that can route now, directly and past the
+    /// packer; the rest stay parked for the next deadline.
+    fn retry_parked(&mut self, snapshot: &WorkerSnapshot) -> SchedulerEffects {
+        let parked = self.table.take_parked();
+        let mut effects = SchedulerEffects::with_dispatch_capacity(parked.len());
+        let mut load = working_load(snapshot);
+
+        for key in parked {
+            // A retry escapes the aperture slice and routes over the whole
+            // healthy pool, like a deferred flush: the slice may be exactly
+            // what the key could not route into.
+            let Some(worker) = self.router.select(&snapshot.healthy, &load) else {
+                self.table.repark(key);
+                continue;
+            };
+            // A key parked only as unroutable has never been sent: its retry
+            // is a first send, checked strictly by the order sentinel.
+            let kind = if self.table.is_redelivering(&key) {
+                SendKind::Resend
+            } else {
+                SendKind::Fresh
+            };
+            let Some(drained) = self.table.drain_key(&key) else {
+                continue;
+            };
+            record_queue_wait(&drained, kind);
+            self.table.mark_outstanding(&key, drained.epoch);
+            bump_load(&mut load, &worker, drained.messages.len());
+            counter!("ingestion_consumer_parked_retries_total").increment(1);
+            effects.dispatches.push(Dispatch {
+                worker,
+                runs: vec![KeyRun {
+                    routing_key: key,
+                    messages: drained.messages,
+                }],
+                kind,
+                assignment_epoch: Some(drained.epoch),
+            });
+        }
+
+        self.record_gauges();
+        effects
     }
 
     fn record_gauges(&self) {
@@ -421,14 +638,17 @@ impl KeyTableScheduler {
         gauge!("ingestion_consumer_key_table_outstanding_keys")
             .set(self.table.outstanding_keys() as f64);
         gauge!("ingestion_consumer_key_table_parked_keys").set(self.table.parked_keys() as f64);
+        gauge!("ingestion_consumer_packer_held_messages").set(self.packer.held_messages() as f64);
+        gauge!("ingestion_consumer_packer_held_keys").set(self.packer.held_keys() as f64);
+        gauge!("ingestion_consumer_packer_unplaced_batches").set(self.unplaced.len() as f64);
+        gauge!("ingestion_consumer_packer_unplaced_messages").set(self.unplaced_messages as f64);
     }
 }
 
 impl Scheduler for KeyTableScheduler {
-    /// Enqueue each run, then dispatch every runnable key it touched. A key
-    /// that is outstanding or parked just queues the new messages — they go
-    /// out behind the earlier ones, when the request settles or the parked
-    /// retry fires.
+    /// Forward each free key's messages to the packer; an outstanding or
+    /// parked key queues them — they go out behind the earlier ones, when
+    /// the request settles or the parked retry fires.
     fn on_groups(
         &mut self,
         snapshot: &WorkerSnapshot,
@@ -438,58 +658,49 @@ impl Scheduler for KeyTableScheduler {
     ) -> SchedulerEffects {
         let mut effects = SchedulerEffects::with_dispatch_capacity(groups.len());
         let mut load = working_load(snapshot);
+        let now = self.now();
 
-        let mut touched: Vec<String> = Vec::with_capacity(groups.len());
         for group in groups {
-            self.table
-                .enqueue_back(&group.routing_key, assignment_epoch, group.messages);
-            // The group queues behind an outstanding request or a parked
-            // backlog: the "why is this key not moving" signal.
-            if !self.table.is_runnable(&group.routing_key) {
+            if self.table.is_free(&group.routing_key) {
+                let bytes = payload_bytes(&group.messages);
+                // Fresh work routes within the aperture slice, like an
+                // unpinned key in the pin-stash scheduler.
+                self.forward(
+                    &snapshot.candidates,
+                    &mut load,
+                    &group.routing_key,
+                    assignment_epoch,
+                    group.messages,
+                    bytes,
+                    now,
+                    &mut effects,
+                );
+            } else {
+                self.table
+                    .enqueue_back(&group.routing_key, assignment_epoch, group.messages);
+                // The group queues behind an outstanding request or a
+                // parked backlog: the "why is this key not moving" signal.
                 effects.deferred.queued_behind_deferral += 1;
             }
-            touched.push(group.routing_key);
         }
-
-        // Bin-packing wants the biggest runs placed first so heavy hitters
-        // drive the load distribution; P2C is per-run and order-independent.
-        if self.router.prefers_largest_first() {
-            touched.sort_by_key(|key| std::cmp::Reverse(self.table.queued_len(key)));
-        }
-
-        // Fresh work routes within the aperture slice, like an unpinned key
-        // in the pin-stash scheduler.
-        for key in touched {
-            if !self.table.is_runnable(&key) {
-                continue;
-            }
-            self.dispatch_or_park(
-                &snapshot.candidates,
-                &mut load,
-                &key,
-                SendKind::Fresh,
-                &mut effects,
-            );
-        }
+        self.release_arrivals(&snapshot.candidates, &mut load, &mut effects);
 
         self.record_gauges();
         effects
     }
 
-    /// Clear each settled key. Success dispatches the key's next run, or
-    /// evicts an emptied key. Failure requeues the failed runs at the front
-    /// of their queues, then clears the flags — requeue before release, so a
-    /// newer send can never overtake the failed messages — and parks the keys
-    /// for the parked-retry deadline.
+    /// Clear each settled key. Success forwards the key's queue to the
+    /// packer, or evicts an emptied key. Failure requeues the failed runs at
+    /// the front of their queues, then clears the flags — requeue before
+    /// release, so a newer send can never overtake the failed messages — and
+    /// parks the keys for the parked-retry deadline.
     fn on_settled(
         &mut self,
         snapshot: &WorkerSnapshot,
         settlement: Settlement,
     ) -> SchedulerEffects {
         let mut effects = SchedulerEffects::default();
-        // Built on the first dispatch: the evict path and the failed arm
-        // never read the load.
-        let mut load: Option<WorkerLoad> = None;
+        let mut load = working_load(snapshot);
 
         match settlement.outcome {
             SettlementOutcome::Delivered => {
@@ -497,18 +708,22 @@ impl Scheduler for KeyTableScheduler {
                     if !self.table.settle_key(key) {
                         continue;
                     }
-                    if self.table.is_runnable(key) {
-                        self.dispatch_or_park(
+                    if let Some(drained) = self.table.drain_key(key) {
+                        self.forward(
                             &snapshot.candidates,
-                            load.get_or_insert_with(|| working_load(snapshot)),
+                            &mut load,
                             key,
-                            SendKind::Fresh,
+                            drained.epoch,
+                            drained.messages,
+                            drained.bytes,
+                            drained.first_arrival,
                             &mut effects,
                         );
                     } else if self.table.evict_if_idle(key) {
                         effects.evicted_keys.push(key.clone());
                     }
                 }
+                self.release_arrivals(&snapshot.candidates, &mut load, &mut effects);
             }
             SettlementOutcome::Failed { runs, .. } => {
                 effects.deferred.send_failed = runs.len() as u64;
@@ -535,58 +750,51 @@ impl Scheduler for KeyTableScheduler {
         effects
     }
 
-    /// Retry every parked key: dispatch the ones that can route now, keep the
-    /// rest parked for the next deadline. The per-batch arm belongs to the
-    /// pin-stash scheduler and is a no-op here.
+    /// Parked retry: resend every parked key that can route now, keep the
+    /// rest parked for the next deadline. Pack: place every unplaced batch
+    /// that can route now, then release the open batch if its deadline
+    /// passed. The per-batch arm belongs to the pin-stash scheduler and is
+    /// a no-op here.
     fn on_deadline(
         &mut self,
         snapshot: &WorkerSnapshot,
         deadline: Deadline<'_>,
     ) -> SchedulerEffects {
-        let Deadline::ParkedRetry = deadline else {
-            return SchedulerEffects::default();
-        };
-
-        let parked = self.table.take_parked();
-        let mut effects = SchedulerEffects::with_dispatch_capacity(parked.len());
-        let mut load = working_load(snapshot);
-
-        for key in parked {
-            // A retry escapes the aperture slice and routes over the whole
-            // healthy pool, like a deferred flush: the slice may be exactly
-            // what the key could not route into.
-            let Some(worker) = self.router.select(&snapshot.healthy, &load) else {
-                self.table.repark(key);
-                continue;
-            };
-            // A key parked only as unroutable has never been sent: its retry
-            // is a first send, checked strictly by the order sentinel.
-            let kind = if self.table.is_redelivering(&key) {
-                SendKind::Resend
-            } else {
-                SendKind::Fresh
-            };
-            let Some(run) = self.table.take_run(&key) else {
-                continue;
-            };
-            record_queue_wait(&run, kind);
-            bump_load(&mut load, &worker, run.messages.len());
-            counter!("ingestion_consumer_parked_retries_total").increment(1);
-            effects.dispatches.push(Dispatch {
-                worker,
-                routing_key: key,
-                messages: run.messages,
-                kind,
-                assignment_epoch: Some(run.epoch),
-            });
+        match deadline {
+            Deadline::ParkedRetry => self.retry_parked(snapshot),
+            Deadline::Pack => {
+                let mut effects = SchedulerEffects::default();
+                let mut load = working_load(snapshot);
+                // An unplaced batch escapes the aperture slice, like a
+                // parked retry: the slice may be exactly what it could not
+                // route into.
+                self.place_unplaced(&snapshot.healthy, &mut load, &mut effects);
+                if let Some(batch) = self.packer.take_expired(self.now()) {
+                    self.place(batch, &snapshot.candidates, &mut load, &mut effects);
+                }
+                self.record_gauges();
+                effects
+            }
+            Deadline::Batch(_) => SchedulerEffects::default(),
         }
-
-        self.record_gauges();
-        effects
     }
 
-    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
+    /// Flush the packer before the purge, so the messages it held leave
+    /// under their own epoch before the new assignment replays their
+    /// partitions; a held key was not outstanding, so the purge would
+    /// otherwise have dropped queued messages behind messages still to be
+    /// sent.
+    fn on_partitions_revoked(
+        &mut self,
+        snapshot: &WorkerSnapshot,
+        partitions: &[(String, i32)],
+    ) -> SchedulerEffects {
         let mut effects = SchedulerEffects::default();
+        if let Some(batch) = self.packer.flush(self.now()) {
+            let mut load = working_load(snapshot);
+            self.place(batch, &snapshot.candidates, &mut load, &mut effects);
+        }
+        debug_assert!(self.packer.is_empty(), "a revoke leaves the packer empty");
         let (purged, evicted) = self.table.purge_partitions(partitions);
         if purged > 0 {
             counter!("ingestion_consumer_key_table_purged_messages_total").increment(purged as u64);
@@ -600,6 +808,9 @@ impl Scheduler for KeyTableScheduler {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::Duration;
+
+    use rstest::rstest;
 
     use super::*;
     use crate::routing::RoutingStrategy;
@@ -689,7 +900,33 @@ mod tests {
     }
 
     fn offsets_of(dispatch: &Dispatch) -> Vec<i64> {
-        dispatch.messages.iter().map(|m| m.offset).collect()
+        dispatch
+            .runs
+            .iter()
+            .flat_map(|run| run.messages.iter().map(|m| m.offset))
+            .collect()
+    }
+
+    const HOUR: Duration = Duration::from_secs(3600);
+
+    /// A scheduler that packs: a budget long enough that only the targets
+    /// and explicit deadlines release a batch.
+    fn packing_scheduler(events: usize, bytes: usize) -> KeyTableScheduler {
+        let mut sched = scheduler();
+        sched.set_pack_targets(PackTargets {
+            events,
+            bytes,
+            latency_budget: HOUR,
+        });
+        sched
+    }
+
+    fn keys_of(dispatch: &Dispatch) -> Vec<&str> {
+        dispatch
+            .runs
+            .iter()
+            .map(|run| run.routing_key.as_str())
+            .collect()
     }
 
     // ---- on_groups: arrival ----
@@ -755,7 +992,8 @@ mod tests {
         );
 
         assert_eq!(
-            effects.dispatches[0].routing_key, "t:big",
+            keys_of(&effects.dispatches[0]),
+            vec!["t:big"],
             "heavy hitters drive the load distribution"
         );
     }
@@ -791,33 +1029,47 @@ mod tests {
         assert_eq!(effects.dispatches[0].worker, wid(A));
     }
 
-    // ---- on_groups: parking ----
+    // ---- on_groups: unplaced ----
 
     #[test]
-    fn test_unroutable_arrival_parks_the_key() {
+    fn test_unroutable_arrival_holds_the_batch_unplaced() {
         let mut sched = scheduler();
 
         let effects = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1, 2])]);
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.unroutable, 1);
-        assert_eq!(sched.table().parked_keys(), 1);
-        assert_eq!(sched.table().queued_messages(), 2);
-        assert_eq!(sched.table().outstanding_keys(), 0);
+        assert_eq!(sched.unplaced_batches(), 1);
+        assert_eq!(sched.held_messages(), 2);
+        assert_eq!(sched.table().queued_messages(), 0);
+        assert_eq!(
+            sched.table().parked_keys(),
+            0,
+            "an unplaced batch parks no key"
+        );
+        assert_eq!(sched.table().outstanding_keys(), 1, "its key is taken");
     }
 
     #[test]
-    fn test_arrival_behind_a_parked_key_waits_for_the_deadline() {
+    fn test_arrival_behind_an_unplaced_batch_queues_until_it_is_placed() {
         let mut sched = scheduler();
         let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
 
-        // A worker is back, but the parked messages must go first, and only
-        // the parked-retry deadline releases them.
+        // A worker is back, but the unplaced batch must go first, and only
+        // the pack deadline places it.
         let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
-
         assert!(effects.dispatches.is_empty());
-        assert_eq!(sched.table().parked_keys(), 1);
-        assert_eq!(sched.table().queued_messages(), 2);
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
+        assert_eq!(sched.table().queued_messages(), 1);
+
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Pack);
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![1]);
+        assert_eq!(effects.dispatches[0].kind, SendKind::Fresh);
+        assert_eq!(sched.unplaced_batches(), 0);
+
+        let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![2]);
     }
 
     // ---- on_settled: delivered ----
@@ -852,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn test_settlement_parks_the_next_run_when_no_worker_is_routable() {
+    fn test_settlement_holds_the_next_run_unplaced_when_no_worker_is_routable() {
         let mut sched = scheduler();
         let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
         let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
@@ -862,8 +1114,9 @@ mod tests {
 
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.unroutable, 1);
-        assert_eq!(sched.table().parked_keys(), 1);
-        assert_eq!(sched.table().outstanding_keys(), 0);
+        assert_eq!(sched.unplaced_batches(), 1);
+        assert_eq!(sched.table().parked_keys(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 1);
     }
 
     #[test]
@@ -1010,10 +1263,20 @@ mod tests {
 
     // ---- on_deadline ----
 
+    /// Park two keys through the only path that parks: a failed send.
+    fn park_after_failure(sched: &mut KeyTableScheduler, keys: &[&str]) {
+        let groups = keys.iter().map(|key| run(key, &[1])).collect();
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, groups);
+        for key in keys {
+            let _ = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run(key, &[1])]));
+        }
+        assert_eq!(sched.table().parked_keys(), keys.len());
+    }
+
     #[test]
     fn test_batch_deadline_is_a_noop_for_the_key_table() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        park_after_failure(&mut sched, &["t:a"]);
 
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Batch("b1"));
 
@@ -1024,24 +1287,14 @@ mod tests {
     #[test]
     fn test_parked_retry_dispatches_in_park_order_and_unparks() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(
-            &snapshot(&[], &[]),
-            "b1",
-            0,
-            vec![run("t:a", &[1]), run("t:b", &[1])],
-        );
-        assert_eq!(sched.table().parked_keys(), 2);
+        park_after_failure(&mut sched, &["t:a", "t:b"]);
 
         let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
 
         assert_eq!(effects.dispatches.len(), 2);
-        assert_eq!(effects.dispatches[0].routing_key, "t:a");
-        assert_eq!(effects.dispatches[1].routing_key, "t:b");
-        assert_eq!(
-            effects.dispatches[0].kind,
-            SendKind::Fresh,
-            "an unroutable park was never sent, so its retry is a first send"
-        );
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a"]);
+        assert_eq!(keys_of(&effects.dispatches[1]), vec!["t:b"]);
+        assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
         assert_eq!(sched.table().parked_keys(), 0);
         assert_eq!(sched.table().outstanding_keys(), 2);
     }
@@ -1049,7 +1302,7 @@ mod tests {
     #[test]
     fn test_parked_retry_keeps_keys_parked_when_no_worker_is_healthy() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        park_after_failure(&mut sched, &["t:a"]);
 
         let effects = sched.on_deadline(&snapshot(&[], &[]), Deadline::ParkedRetry);
 
@@ -1066,7 +1319,7 @@ mod tests {
     #[test]
     fn test_parked_retry_routes_over_the_whole_healthy_pool() {
         let mut sched = scheduler();
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        park_after_failure(&mut sched, &["t:a"]);
 
         // The aperture slice is empty but a worker is healthy: the retry must
         // escape the slice, like a deferred flush.
@@ -1079,31 +1332,40 @@ mod tests {
     #[test]
     fn test_revoked_partitions_purge_queued_messages() {
         let mut sched = scheduler();
-        // Key a queues behind its outstanding request; key b parks unroutable.
+        // Key a queues behind its outstanding request; key b's batch finds
+        // no worker and waits unplaced.
         let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
         let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
         let _ = sched.on_groups(&snapshot(&[], &[]), "b3", 0, vec![run("t:b", &[1])]);
 
         // An unrelated partition purges nothing.
-        let effects = sched.on_partitions_revoked(&[("test".to_string(), 7)]);
+        let effects = sched.on_partitions_revoked(&snapshot(&[A], &[]), &[("test".to_string(), 7)]);
         assert!(effects.evicted_keys.is_empty());
-        assert_eq!(sched.table().queued_messages(), 2);
+        assert_eq!(sched.table().queued_messages(), 1);
 
-        let effects = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let effects = sched.on_partitions_revoked(&snapshot(&[A], &[]), &[("test".to_string(), 0)]);
 
         assert_eq!(sched.table().queued_messages(), 0);
         assert_eq!(sched.table().queued_bytes(), 0);
-        assert_eq!(sched.table().parked_keys(), 0);
-        assert_eq!(
-            effects.evicted_keys,
-            vec!["t:b".to_string()],
-            "the emptied parked key goes; the outstanding key stays"
+        assert!(
+            effects.evicted_keys.is_empty(),
+            "both keys are outstanding: one on the wire, one unplaced"
         );
-        assert_eq!(sched.table().outstanding_keys(), 1);
+        assert_eq!(sched.table().outstanding_keys(), 2);
+        assert_eq!(
+            sched.unplaced_batches(),
+            1,
+            "an unplaced batch survives the purge"
+        );
 
-        // The outstanding key's settlement finds nothing queued and evicts it.
+        // Both keys end clean: a's settlement finds nothing queued, and b's
+        // batch is placed at the next deadline like any released work.
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
         assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Pack);
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:b"]);
+        let _ = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:b"]));
         assert_eq!(sched.table().key_count(), 0);
     }
 
@@ -1115,7 +1377,7 @@ mod tests {
         assert_eq!(sent.dispatches.len(), 1);
 
         // No queued messages exist to identify the outstanding run during purge.
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
         let settled = sched.on_settled(&live, failed(A, vec![run("t:a", &[1])]));
         assert!(settled.dispatches.is_empty());
 
@@ -1145,8 +1407,8 @@ mod tests {
         let sent = sched.on_groups(&live, "b1", 5, vec![mixed_run()]);
         assert_eq!(sent.dispatches.len(), 1);
 
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 2)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 2)]);
         let _ = sched.on_settled(&live, failed(A, vec![mixed_run()]));
 
         let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
@@ -1168,7 +1430,7 @@ mod tests {
         let live = snapshot(&[A], &[]);
         let sent = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1])]);
         assert_eq!(sent.dispatches.len(), 1);
-        let _ = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        let _ = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
 
         // The same offset is polled again before the old send settles.
         let queued = sched.on_groups(&live, "b2", 6, vec![run("t:a", &[1, 2])]);
@@ -1201,8 +1463,8 @@ mod tests {
         let mut sent: Vec<i64> = Vec::new();
         let mut record = |effects: &SchedulerEffects| {
             for dispatch in &effects.dispatches {
-                assert_eq!(dispatch.routing_key, "t:a");
-                sent.extend(dispatch.messages.iter().map(|m| m.offset));
+                assert_eq!(keys_of(dispatch), vec!["t:a"]);
+                sent.extend(offsets_of(dispatch));
             }
             effects.dispatches.len()
         };
@@ -1253,7 +1515,426 @@ mod tests {
         let effects = sched.on_settled(&snapshot(&[A, B], &[]), delivered(A, &["t:a"]));
 
         assert_eq!(effects.dispatches.len(), 1);
-        assert_eq!(effects.dispatches[0].routing_key, "t:a");
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a"]);
         assert_eq!(sched.table().queued_messages(), 1, "t:b still queued");
+    }
+
+    // ---- packing ----
+
+    /// A key's messages are in exactly one place: the open batch, a request
+    /// in flight (or waiting unplaced), or the key's queue. The queue holds
+    /// messages only behind an outstanding or parked key.
+    fn assert_single_location(sched: &KeyTableScheduler, key: &str) {
+        let held = sched.packer.held_for(key);
+        let queued = sched.table().queued_len(key);
+        let outstanding = sched.table().is_outstanding(key);
+        let parked = sched.table().is_parked(key);
+        if held > 0 {
+            assert!(
+                !outstanding && !parked && queued == 0,
+                "{key}: held {held} while outstanding={outstanding} parked={parked} queued={queued}"
+            );
+        }
+        if queued > 0 {
+            assert!(
+                outstanding || parked,
+                "{key}: {queued} queued behind nothing"
+            );
+        }
+    }
+
+    /// Arrivals in one `on_groups` call per entry of `calls`, on one worker.
+    struct PackArrivals {
+        targets: PackTargets,
+        calls: &'static [&'static [(&'static str, &'static [i64])]],
+    }
+
+    struct ExpectedPacking {
+        /// Dispatches released by each call.
+        released: &'static [usize],
+        /// Keys of the last released batch, in first-arrival order; empty
+        /// when no call released one.
+        last_batch_keys: &'static [&'static str],
+        held_messages: usize,
+    }
+
+    #[rstest]
+    #[case::event_target_across_keys(
+        PackArrivals {
+            targets: PackTargets { events: 3, bytes: 0, latency_budget: HOUR },
+            calls: &[&[("t:a", &[1, 2])], &[("t:b", &[3])]],
+        },
+        ExpectedPacking { released: &[0, 1], last_batch_keys: &["t:a", "t:b"], held_messages: 0 },
+    )]
+    #[case::byte_target_across_keys(
+        // Every test message carries a 3-byte key and no value.
+        PackArrivals {
+            targets: PackTargets { events: 0, bytes: 9, latency_budget: HOUR },
+            calls: &[&[("t:a", &[1]), ("t:b", &[2])], &[("t:c", &[3])]],
+        },
+        ExpectedPacking { released: &[0, 1], last_batch_keys: &["t:a", "t:b", "t:c"], held_messages: 0 },
+    )]
+    #[case::one_key_past_the_target_releases_alone(
+        PackArrivals {
+            targets: PackTargets { events: 2, bytes: 0, latency_budget: HOUR },
+            calls: &[&[("t:a", &[1, 2, 3])]],
+        },
+        ExpectedPacking { released: &[1], last_batch_keys: &["t:a"], held_messages: 0 },
+    )]
+    #[case::short_of_both_targets_stays_held(
+        PackArrivals {
+            targets: PackTargets { events: 10, bytes: 100, latency_budget: HOUR },
+            calls: &[&[("t:a", &[1]), ("t:b", &[2])]],
+        },
+        ExpectedPacking { released: &[0], last_batch_keys: &[], held_messages: 2 },
+    )]
+    fn test_packing_releases_at_the_target(
+        #[case] arrivals: PackArrivals,
+        #[case] expected: ExpectedPacking,
+    ) {
+        let mut sched = scheduler();
+        sched.set_pack_targets(arrivals.targets);
+        let mut last_batch: Option<Dispatch> = None;
+
+        for (index, call) in arrivals.calls.iter().enumerate() {
+            let groups = call
+                .iter()
+                .map(|(key, offsets)| run(key, offsets))
+                .collect();
+            let mut effects = sched.on_groups(&snapshot(&[A], &[]), "b", 0, groups);
+            assert_eq!(
+                effects.dispatches.len(),
+                expected.released[index],
+                "call {index}"
+            );
+            if let Some(dispatch) = effects.dispatches.pop() {
+                last_batch = Some(dispatch);
+            }
+            for (key, _) in call.iter() {
+                assert_single_location(&sched, key);
+            }
+        }
+
+        let last_keys: Vec<&str> = last_batch.as_ref().map(keys_of).unwrap_or_default();
+        assert_eq!(last_keys, expected.last_batch_keys);
+        assert_eq!(sched.held_messages(), expected.held_messages);
+    }
+
+    #[test]
+    fn test_a_zero_budget_sends_each_key_at_the_end_of_the_seam_call() {
+        let mut sched = scheduler();
+
+        // Two keys in one poll leave as two batches, placed independently:
+        // bin-packing spreads them over both idle workers.
+        let effects = sched.on_groups(
+            &snapshot(&[A, B], &[]),
+            "b1",
+            0,
+            vec![run("t:a", &[1, 2]), run("t:b", &[3, 4])],
+        );
+
+        assert_eq!(effects.dispatches.len(), 2);
+        assert_ne!(effects.dispatches[0].worker, effects.dispatches[1].worker);
+        assert_eq!(sched.held_messages(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 2);
+    }
+
+    #[test]
+    fn test_a_hot_key_keeps_appending_until_release() {
+        let mut sched = packing_scheduler(4, 0);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
+        assert_eq!(sched.packer.held_for("t:a"), 2);
+        assert_eq!(
+            sched.table().queued_messages(),
+            0,
+            "nothing in flight, so nothing queues"
+        );
+        assert!(!sched.table().is_outstanding("t:a"));
+        assert_single_location(&sched, "t:a");
+
+        // The fourth message fills the batch: one run for the key, in order.
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b3", 0, vec![run("t:a", &[3, 4])]);
+
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a"]);
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2, 3, 4]);
+        assert!(
+            sched.table().is_outstanding("t:a"),
+            "outstanding only at release"
+        );
+        assert_single_location(&sched, "t:a");
+    }
+
+    #[test]
+    fn test_an_arrival_for_an_outstanding_key_queues_until_settlement_forwards_it() {
+        let mut sched = packing_scheduler(2, 0);
+        let effects = sched.on_groups(
+            &snapshot(&[A], &[]),
+            "b1",
+            0,
+            vec![run("t:a", &[1]), run("t:b", &[2])],
+        );
+        assert_eq!(effects.dispatches.len(), 1, "full");
+
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[3])]);
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.queued_behind_deferral, 1);
+        assert_eq!(sched.table().queued_len("t:a"), 1);
+        assert_eq!(
+            sched.packer.held_for("t:a"),
+            0,
+            "never in the batch while outstanding"
+        );
+        assert_single_location(&sched, "t:a");
+
+        // Settlement drains the queue into the packer, not into a dispatch.
+        let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a", "t:b"]));
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(sched.packer.held_for("t:a"), 1);
+        assert_eq!(sched.table().queued_len("t:a"), 0);
+        assert!(!sched.table().is_outstanding("t:a"));
+        assert_eq!(effects.evicted_keys, vec!["t:b".to_string()]);
+        assert_single_location(&sched, "t:a");
+
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b3", 0, vec![run("t:c", &[4])]);
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a", "t:c"]);
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![3, 4]);
+    }
+
+    #[test]
+    fn test_a_released_batch_is_placed_against_the_snapshot_at_release() {
+        let mut sched = packing_scheduler(2, 0);
+        // A is the lighter worker when the batch opens.
+        let _ = sched.on_groups(
+            &snapshot(&[A, B], &[(B, 100)]),
+            "b1",
+            0,
+            vec![run("t:a", &[1])],
+        );
+        assert_eq!(sched.held_messages(), 1);
+
+        // By the time the batch fills, B is the lighter one: the batch goes
+        // to B as one multi-key dispatch.
+        let effects = sched.on_groups(
+            &snapshot(&[A, B], &[(A, 100)]),
+            "b2",
+            0,
+            vec![run("t:b", &[2])],
+        );
+
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(effects.dispatches[0].worker, wid(B));
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a", "t:b"]);
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2]);
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(0));
+        assert_eq!(sched.held_messages(), 0);
+    }
+
+    #[test]
+    fn test_held_messages_do_not_appear_in_working_load() {
+        let mut sched = packing_scheduler(10, 0);
+        // Three messages held; they sit on no worker.
+        let _ = sched.on_groups(
+            &snapshot(&[A, B], &[]),
+            "b1",
+            0,
+            vec![run("t:a", &[1, 2, 3])],
+        );
+
+        // The pool's recorded load is A 1, B 2. Bin-packing must pick A: the
+        // held messages count for neither.
+        let effects = sched.on_groups(
+            &snapshot(&[A, B], &[(A, 1), (B, 2)]),
+            "b2",
+            0,
+            vec![run("t:b", &[4; 7])],
+        );
+
+        assert_eq!(effects.dispatches.len(), 1, "reached the target");
+        assert_eq!(effects.dispatches[0].worker, wid(A));
+    }
+
+    #[test]
+    fn test_an_unplaced_batch_is_placed_once_a_worker_appears() {
+        let mut sched = packing_scheduler(2, 0);
+        let _ = sched.on_groups(&snapshot(&[], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        let effects = sched.on_groups(&snapshot(&[], &[]), "b2", 0, vec![run("t:b", &[2])]);
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.unroutable, 2, "both keys of the batch");
+        assert_eq!(sched.unplaced_batches(), 1);
+        assert_eq!(sched.held_messages(), 2);
+        assert!(
+            sched.table().is_outstanding("t:a"),
+            "released, so outstanding"
+        );
+        assert_single_location(&sched, "t:a");
+
+        // Still nothing routable: the batch waits for the next tick.
+        let effects = sched.on_deadline(&snapshot(&[], &[]), Deadline::Pack);
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(sched.unplaced_batches(), 1);
+
+        // A worker outside the aperture slice is enough: the retry routes
+        // over the healthy pool.
+        let effects = sched.on_deadline(&snapshot_narrowed(&[B], &[], &[]), Deadline::Pack);
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(effects.dispatches[0].worker, wid(B));
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a", "t:b"]);
+        assert_eq!(sched.unplaced_batches(), 0);
+        assert_eq!(sched.held_messages(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 2);
+    }
+
+    #[test]
+    fn test_messages_from_a_newer_epoch_release_the_held_batch_first() {
+        let mut sched = packing_scheduler(10, 0);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 5, vec![run("t:a", &[1])]);
+
+        let effects = sched.on_groups(&snapshot(&[A], &[]), "b2", 6, vec![run("t:b", &[2])]);
+
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a"]);
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(5));
+        assert_eq!(sched.packer.epoch(), Some(6));
+        assert_eq!(sched.held_messages(), 1);
+    }
+
+    #[test]
+    fn test_the_pack_deadline_releases_the_batch_once_its_budget_expires() {
+        let mut sched = scheduler();
+        let budget = Duration::from_millis(50);
+        sched.set_pack_targets(PackTargets {
+            events: 100,
+            bytes: 0,
+            latency_budget: budget,
+        });
+        let t0 = Instant::now();
+        sched.set_now(t0);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
+        // The deadline is the first message's arrival plus the budget; a
+        // later key does not extend it.
+        sched.set_now(t0 + budget / 2);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:b", &[2])]);
+
+        sched.set_now(t0 + budget - Duration::from_millis(1));
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Pack);
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(sched.held_messages(), 2);
+
+        sched.set_now(t0 + budget);
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Pack);
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a", "t:b"]);
+        assert_eq!(effects.dispatches[0].kind, SendKind::Fresh);
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(0));
+        assert_eq!(sched.held_messages(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 2);
+    }
+
+    #[test]
+    fn test_the_pack_deadline_is_a_noop_at_a_zero_budget() {
+        let mut sched = scheduler();
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
+
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::Pack);
+
+        assert!(effects.dispatches.is_empty());
+        assert!(effects.evicted_keys.is_empty());
+    }
+
+    #[test]
+    fn test_a_revoke_flushes_the_packer_before_the_purge() {
+        let mut sched = packing_scheduler(100, 0);
+        let live = snapshot(&[A], &[]);
+        let _ = sched.on_groups(&live, "b1", 5, vec![run("t:a", &[1]), run("t:b", &[2])]);
+        assert_eq!(sched.held_messages(), 2);
+        assert_eq!(sched.table().queued_messages(), 0);
+
+        let effects = sched.on_partitions_revoked(&live, &[("test".to_string(), 0)]);
+
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(keys_of(&effects.dispatches[0]), vec!["t:a", "t:b"]);
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(5));
+        assert!(sched.packer.is_empty());
+        assert_eq!(sched.held_messages(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 2, "on the wire now");
+
+        // A failure after the revoke does not resurrect the flushed messages.
+        let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1]), run("t:b", &[2])]));
+        let retry = sched.on_deadline(&live, Deadline::ParkedRetry);
+        assert!(retry.dispatches.is_empty());
+        assert_eq!(sched.table().key_count(), 0);
+    }
+
+    #[test]
+    fn test_a_failed_send_resends_past_the_packer() {
+        let mut sched = packing_scheduler(100, 0);
+        let live = snapshot(&[A], &[]);
+        // Fill the target once so a batch is on the wire, then fail it.
+        sched.set_pack_targets(PackTargets {
+            events: 2,
+            bytes: 0,
+            latency_budget: HOUR,
+        });
+        let sent = sched.on_groups(&live, "b1", 0, vec![run("t:a", &[1]), run("t:b", &[2])]);
+        assert_eq!(sent.dispatches.len(), 1);
+        sched.set_pack_targets(PackTargets {
+            events: 100,
+            bytes: 0,
+            latency_budget: HOUR,
+        });
+        // Something else is held meanwhile.
+        let _ = sched.on_groups(&live, "b2", 0, vec![run("t:c", &[3])]);
+
+        let effects = sched.on_settled(&live, failed(A, vec![run("t:a", &[1]), run("t:b", &[2])]));
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(sched.table().parked_keys(), 2);
+        assert_single_location(&sched, "t:a");
+
+        let effects = sched.on_deadline(&live, Deadline::ParkedRetry);
+
+        assert_eq!(effects.dispatches.len(), 2, "one direct resend per key");
+        assert!(effects
+            .dispatches
+            .iter()
+            .all(|dispatch| dispatch.kind == SendKind::Resend));
+        assert_eq!(sched.packer.held_for("t:a"), 0);
+        assert_eq!(sched.held_messages(), 1, "t:c is still held");
+        assert_eq!(sched.table().outstanding_keys(), 2);
+        assert_single_location(&sched, "t:a");
+        assert_single_location(&sched, "t:c");
+    }
+
+    #[test]
+    fn test_a_key_lives_in_exactly_one_place_through_its_lifecycle() {
+        let mut sched = packing_scheduler(2, 0);
+        let live = snapshot(&[A], &[]);
+        let check = |sched: &KeyTableScheduler| {
+            for key in ["t:a", "t:b"] {
+                assert_single_location(sched, key);
+            }
+        };
+
+        let _ = sched.on_groups(&live, "b1", 0, vec![run("t:a", &[1])]);
+        check(&sched);
+        let _ = sched.on_groups(&live, "b2", 0, vec![run("t:b", &[2])]);
+        check(&sched);
+        let _ = sched.on_groups(&live, "b3", 0, vec![run("t:a", &[3]), run("t:b", &[4])]);
+        check(&sched);
+        let _ = sched.on_settled(&live, failed(A, vec![run("t:a", &[1]), run("t:b", &[2])]));
+        check(&sched);
+        let _ = sched.on_groups(&live, "b4", 0, vec![run("t:a", &[5])]);
+        check(&sched);
+        let _ = sched.on_deadline(&live, Deadline::ParkedRetry);
+        check(&sched);
+        let _ = sched.on_settled(&live, delivered(A, &["t:a", "t:b"]));
+        check(&sched);
+        let _ = sched.on_deadline(&live, Deadline::Pack);
+        check(&sched);
+        let _ = sched.on_settled(&live, delivered(A, &["t:a", "t:b"]));
+        check(&sched);
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.held_messages(), 0);
     }
 }

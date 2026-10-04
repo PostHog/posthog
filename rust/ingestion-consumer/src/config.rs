@@ -1,9 +1,12 @@
+use std::time::Duration;
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::discovery::DiscoveryMode;
+use crate::packer::PackTargets;
 use crate::routing::RoutingStrategy;
 use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
@@ -170,6 +173,27 @@ pub struct Config {
     /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
     pub parked_retry_interval_ms: u64,
+
+    /// Target request size T in events for the key-table packer. An open
+    /// request is sent once it holds this many events. `0` sets no event
+    /// target. Only read under `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_TARGET_EVENTS", default = "500")]
+    pub pack_target_events: usize,
+
+    /// Target request size T in payload bytes for the key-table packer. An
+    /// open request is sent once it holds this many key-plus-value bytes.
+    /// `0` (default) sets no byte target. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_TARGET_BYTES", default = "0")]
+    pub pack_target_bytes: usize,
+
+    /// How long the key-table packer may hold an open request for more runs
+    /// before it sends it short of the target (milliseconds). `0` (default)
+    /// sends every run in the seam call that released it, which keeps the
+    /// request shape the scheduler has without packing. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_LATENCY_BUDGET_MS", default = "0")]
+    pub pack_latency_budget_ms: u64,
 
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
@@ -401,6 +425,14 @@ fn parse_kafka_consumer_env_overrides() -> Vec<(String, String)> {
 impl Config {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
+    }
+
+    pub fn pack_targets(&self) -> PackTargets {
+        PackTargets {
+            events: self.pack_target_events,
+            bytes: self.pack_target_bytes,
+            latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
+        }
     }
 
     pub fn worker_urls(&self) -> Vec<String> {
