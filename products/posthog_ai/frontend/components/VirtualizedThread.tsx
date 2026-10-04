@@ -1,4 +1,4 @@
-import { elementScroll, useVirtualizer } from '@tanstack/react-virtual'
+import { elementScroll, measureElement as measureVirtualElement, useVirtualizer } from '@tanstack/react-virtual'
 import {
     createContext,
     CSSProperties,
@@ -356,6 +356,16 @@ function Root<T>({
         // The virtualizer writes container height + row offsets to the DOM itself, in the same tick as each
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
+        measureElement: (element, entry, instance) => {
+            if (instance.scrollElement?.clientHeight === 0) {
+                const index = instance.indexFromElement(element)
+                return (
+                    instance.itemSizeCache.get(instance.options.getItemKey(index)) ??
+                    instance.options.estimateSize(index)
+                )
+            }
+            return measureVirtualElement(element, entry, instance)
+        },
         // The default `elementScroll`, wrapped so every scroll write the core performs is recorded for
         // the scroll listener's programmatic-vs-reader test (see `programmaticScrollsRef`). Recorded
         // *after* the write, from the element — `scrollTo` applies synchronously, so this is the value

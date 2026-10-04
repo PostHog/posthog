@@ -1268,7 +1268,7 @@ export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversa
                         </TabsTrigger>
                     </TabsList>
                 </div>
-                <TabsContent value="conversation" className="flex min-h-0 flex-1 flex-col">
+                <TabsContent value="conversation" keepMounted className="flex min-h-0 flex-1 flex-col">
                     {conversation}
                 </TabsContent>
                 <TabsContent value="artifacts" className="flex min-h-0 flex-1 flex-col">
