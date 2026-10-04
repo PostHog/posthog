@@ -2,6 +2,7 @@ import json
 from typing import cast
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 import structlog
 import posthoganalytics
@@ -84,7 +85,8 @@ AIDecisionOutcome = Decided | Failed | Throttled | Unavailable
 
 
 def ai_decision_enabled(team: Team) -> bool:
-    """Read on every save and run, so local evaluation keeps the flag off the request path."""
+    # Evaluated locally because every workflow save and every decision reads it, and a remote
+    # evaluation would add a network call to each of them.
     if settings.DEBUG:
         return True
     organization_id = str(team.organization_id)
@@ -146,7 +148,7 @@ def _admit(team_id: int) -> Throttled | Unavailable | None:
     )
     try:
         client = get_client(socket_timeout=_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=_REDIS_TIMEOUT_SECONDS)
-    except RedisError:
+    except (RedisError, ImproperlyConfigured):
         return Unavailable()
     for key, budget in ((f"{_ADMISSION_KEY}:team:{team_id}", team_budget), (_ADMISSION_KEY, global_budget)):
         decision = consume(key, budget, client=client)
