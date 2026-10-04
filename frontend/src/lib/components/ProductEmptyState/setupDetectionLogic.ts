@@ -11,7 +11,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { isScopeNotFoundError } from 'lib/api-error'
+import { ApiError, isBrowserNetworkFailure, isScopeNotFoundError } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -182,7 +182,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             detectedStatus: {
                 __default: null as ProductSetupStatus | null,
                 detectStatus: async (_: void, breakpoint: BreakPointFunction): Promise<ProductSetupStatus | null> => {
-                    const status = await detect()
+                    const status = await detectOrNullOnOutage(detect)
                     breakpoint()
                     return status
                 },
@@ -267,6 +267,24 @@ async function detectOrNull(detect: () => Promise<ProductSetupStatus | null>): P
         return await detect()
     } catch {
         return null
+    }
+}
+
+// A 5xx or a dropped connection says nothing about setup, and the gate treats null as "cannot
+// answer". Throwing would file one error tracking issue per product for each backend blip.
+async function detectOrNullOnOutage(
+    detect: () => Promise<ProductSetupStatus | null>
+): Promise<ProductSetupStatus | null> {
+    try {
+        return await detect()
+    } catch (error) {
+        if (
+            (error instanceof ApiError && error.status !== undefined && error.status >= 500) ||
+            isBrowserNetworkFailure(error)
+        ) {
+            return null
+        }
+        throw error
     }
 }
 
