@@ -111,9 +111,13 @@ describe('taskRunArtifactsLogic', () => {
                 expect.objectContaining({ kind: 'markdown', source: 'click' })
             )
 
+            logic.actions.setCommentsOpen(true)
             logic.actions.closeArtifact()
             expect(logic.values.showArtifactList).toBe(true)
             expect(router.values.searchParams).toEqual({ task: TASK_ID })
+
+            logic.actions.selectArtifact('report.md')
+            expect(logic.values.commentsOpen).toBe(false)
         } finally {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
