@@ -286,8 +286,8 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         content,
                         emoji: emoji || null,
                         scope,
-                        // update to new insight we're saving from
-                        dashboard_item: dashboardItemId,
+                        // update to new insight we're saving from, or keep the stored one when not on an insight
+                        dashboard_item: dashboardItemId ?? values.existingModalAnnotation.dashboard_item,
                         // preserve existing dashboard id
                         dashboard_id: values.existingModalAnnotation.dashboard_id,
                     })

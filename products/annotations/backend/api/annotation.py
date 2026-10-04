@@ -146,6 +146,17 @@ class AnnotationSerializer(serializers.ModelSerializer):
         else:
             insight = getattr(self.instance, "dashboard_item", None)
 
+        # Only an explicit scope is checked. Rows created without a scope take the model default and
+        # have no insight, so checking the effective scope would block every later edit of them.
+        if scope == Annotation.Scope.INSIGHT.value and insight is None:
+            raise serializers.ValidationError(
+                {"dashboard_item": "Set `dashboard_item` to the insight ID when the scope is `dashboard_item`."}
+            )
+        if scope == Annotation.Scope.DASHBOARD.value and dashboard is None:
+            raise serializers.ValidationError(
+                {"dashboard_id": "Set `dashboard_id` to the dashboard ID when the scope is `dashboard`."}
+            )
+
         # AnnotationsViewSet.safely_get_queryset hides an annotation whose own scope points at a
         # soft-deleted parent, so accepting one here would strand a row that nothing can list, edit
         # or delete. Project- and organization-scoped rows keep their pointers, which are only used
