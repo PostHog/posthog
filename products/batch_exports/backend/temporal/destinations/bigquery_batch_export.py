@@ -98,6 +98,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "MissingRequiredPermissionsError",
     # Raised when a query takes too long to start (i.e. remains in "PENDING" state for too long).
     "StartQueryTimeoutError",
+    # Raised when BigQuery stops a query job at the job timeout of the destination project.
+    # A retry runs the same job against the same limit.
+    "BigQueryJobTimeoutError",
     # A service account we are supposed to impersonate does not exist.
     "ServiceAccountNotFoundError",
     # We could not verify that the service account we are meant to use belongs to the
@@ -731,6 +734,7 @@ class BigQueryClient:
         Raises:
             StartQueryTimeoutError: If the query took too long to start (i.e. remained in "PENDING" state for
                 longer than the timeout duration).
+            BigQueryJobTimeoutError: If BigQuery stopped the query job because it ran longer than the job timeout.
         """
         job_config = bigquery.QueryJobConfig()
         query_start_time = time.monotonic()
@@ -758,7 +762,12 @@ class BigQueryClient:
                 await asyncio.sleep(poll_interval)
 
         # wait for the query to complete and return the result
-        return await asyncio.to_thread(query_job.result)
+        try:
+            return await asyncio.to_thread(query_job.result)
+        except GoogleAPICallError as err:
+            if "Job timed out after" in str(err.message):
+                raise BigQueryJobTimeoutError(query_job.job_id, err.message) from err
+            raise
 
     async def check_for_query_permissions(
         self,
@@ -1198,6 +1207,19 @@ class StartQueryTimeoutError(TimeoutError):
         error_msg = f"Query still in 'PENDING' state after {timeout} seconds; timing out."
         if query_id is not None:
             error_msg += f" Query ID: {query_id}"
+        super().__init__(error_msg)
+
+
+class BigQueryJobTimeoutError(TimeoutError):
+    """Exception raised when BigQuery stops a query job because it ran longer than the job timeout."""
+
+    def __init__(self, job_id: str | None, message: str):
+        error_msg = (
+            f"BigQuery stopped the query job because it ran longer than the job timeout: {message}. "
+            "Increase the default query job timeout of the destination BigQuery project, then retry the batch export."
+        )
+        if job_id is not None:
+            error_msg += f" Job ID: {job_id}"
         super().__init__(error_msg)
 
 
