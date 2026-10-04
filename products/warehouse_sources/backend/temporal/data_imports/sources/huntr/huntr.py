@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.sett
 )
 
 HUNTR_BASE_URL = "https://api.huntr.co/org"
+# Bounds each request so a stalled connection cannot hold the worker, which matters most for the
+# one-request-per-candidate fan-out.
+REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an access token is genuine. The org access token is account-wide, so
 # one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/members"
@@ -67,6 +70,7 @@ def _client_config(access_token: str, paginator: JSONResponseCursorPaginator | S
         "headers": {"Accept": "application/json"},
         "auth": {"type": "bearer", "token": access_token},
         "paginator": paginator,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
@@ -117,6 +121,7 @@ def _fanout_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        supports_resume=False,
     )
 
 

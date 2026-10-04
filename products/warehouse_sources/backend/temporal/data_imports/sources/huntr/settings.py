@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class HuntrEndpointConfig:
     name: str
     path: str
