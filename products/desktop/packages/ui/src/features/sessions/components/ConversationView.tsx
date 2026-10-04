@@ -9,9 +9,10 @@ import {
 import type { AcpMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
-import type {
-  ConversationItem,
-  TurnContext,
+import {
+  type ConversationItem,
+  lastGenerationDurationMs,
+  type TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { ConversationSearchBar } from "@posthog/ui/features/sessions/components/ConversationSearchBar";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
@@ -467,11 +468,10 @@ export function ConversationView({
         task={task}
         isPromptPending={isPromptPending}
         promptStartedAt={promptStartedAt}
-        lastGenerationDuration={
-          lastTurnInfo?.isComplete
-            ? Math.max(0, lastTurnInfo.durationMs - pausedDurationMs)
-            : null
-        }
+        lastGenerationDuration={lastGenerationDurationMs(
+          lastTurnInfo,
+          pausedDurationMs,
+        )}
         lastStopReason={lastTurnInfo?.stopReason}
         queuedCount={queuedCount}
         hasPendingPermission={pendingPermissionsCount > 0}
