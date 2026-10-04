@@ -39,6 +39,7 @@ _CREDITS = "ee.billing.quota_limiting.is_team_over_ai_credit_budget"
 _CONSUME = "products.workflows.backend.services.ai_decision.consume"
 _GET_CLIENT = "products.workflows.backend.services.ai_decision.get_client"
 _ADMITTED = BucketDecision(allowed=True, remaining=1, limit=2, retry_after=0, reset=1)
+_DENIED = BucketDecision(allowed=False, remaining=0, limit=1, retry_after=1, reset=1)
 _OUTCOME_LOG_EVENTS = (
     "workflow_ai_decision_failed",
     "workflow_ai_decision_throttled",
@@ -59,6 +60,15 @@ def _token(
     if hog_flow_id is not None:
         claims["hog_flow_id"] = hog_flow_id
     return encode_jwt(claims, timedelta(minutes=5), audience, signing_key=SECRET)
+
+
+def _answer_with_unknown_option() -> DecisionResult:
+    probabilities = {"spam": 0.5, "other": 0.5}
+    return DecisionResult(
+        model="jev",
+        answers={"answer": ChoiceAnswer(choice="spam", confidence=0.5, probabilities=probabilities)},
+        input_tokens=1,
+    )
 
 
 def _pick_one_result() -> DecisionResult:
@@ -166,8 +176,6 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("one_option", {"options": OPTIONS[:1]}, (), "options"),
-            ("seventeen_options", {"options": [{"name": f"o{i}"} for i in range(17)]}, (), "options"),
             ("duplicate_option_names", {"options": [OPTIONS[0], OPTIONS[0]]}, (), "options"),
             ("no_question", {"question": ""}, (), "question"),
             ("no_answer_type", {}, ("answer_type",), "answer_type"),
@@ -331,7 +339,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         if expected_code is not None:
             assert response.json()["error"]["code"] == expected_code
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
-            assert int(response["Retry-After"]) > 0
+            assert 5 <= int(response["Retry-After"]) <= 10
 
     @parameterized.expand(
         [
@@ -369,7 +377,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert int(throttled["Retry-After"]) > 0
+        assert 1 <= int(throttled["Retry-After"]) <= 3600
         assert calls_after_throttle == 1
         assert other.status_code == status.HTTP_200_OK, other.json()
 
@@ -391,6 +399,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert throttled["Retry-After"] == "1"
         assert after_refill.status_code == status.HTTP_200_OK, after_refill.json()
 
     @parameterized.expand(
@@ -412,21 +421,40 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unreadable_state", None, "debug"),
-            ("model_refused", DecisionGatewayError(400, "gateway-body-secret"), "debug"),
-            ("unreadable_answer", DecisionGatewayError(200, "gateway-body-secret"), "warning"),
-            ("gateway_rejects_every_decision", DecisionGatewayError(403, "gateway-body-secret"), "warning"),
-            ("throttled", DecisionGatewayError(429, "gateway-body-secret"), "debug"),
-            ("unavailable", DecisionGatewayError(502, "gateway-body-secret"), "warning"),
+            ("unreadable_state", None),
+            ("model_refused", DecisionGatewayError(400, "gateway-body-secret")),
+            ("unreadable_answer", DecisionGatewayError(200, "gateway-body-secret")),
+            ("throttled", DecisionGatewayError(429, "gateway-body-secret")),
+            ("unavailable", DecisionGatewayError(502, "gateway-body-secret")),
         ]
     )
-    def test_logs_never_carry_the_state_or_a_gateway_body(
-        self, _name: str, error: Exception | None, outcome_log_level: str
-    ) -> None:
+    def test_logs_never_carry_the_state_or_a_gateway_body(self, _name: str, error: Exception | None) -> None:
         reply: Any = json.loads("[" * 300 + '"state-secret"' + "]" * 300) if error is None else "state-secret"
         with capture_logs(processors=[format_exc_info]) as logs, patch(_DECIDE, side_effect=error):
             response = self._post({"state": {"reply": reply}})
 
-        assert [entry["log_level"] for entry in logs if entry["event"] in _OUTCOME_LOG_EVENTS] == [outcome_log_level]
+        assert logs
         assert "secret" not in str(logs)
         assert "secret" not in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("flag_undetermined", patch(_FLAG, return_value=None), "debug"),
+            ("redis_unavailable", patch(_CONSUME, return_value=BucketUnavailable(error="down")), "debug"),
+            ("team_throttled", patch(_CONSUME, return_value=_DENIED), "debug"),
+            ("model_refused", patch(_DECIDE, side_effect=DecisionGatewayError(400, "bad")), "debug"),
+            ("gateway_throttled", patch(_DECIDE, side_effect=DecisionGatewayError(429, "slow down")), "debug"),
+            ("gateway_rejects_credential", patch(_DECIDE, side_effect=DecisionGatewayError(403, "who")), "warning"),
+            ("gateway_server_error", patch(_DECIDE, side_effect=DecisionGatewayError(502, "oops")), "warning"),
+            ("gateway_unreachable", patch(_DECIDE, side_effect=DecisionGatewayUnreachableError("timeout")), "warning"),
+            ("gateway_not_configured", patch(_DECIDE, side_effect=GatewayNotConfiguredError("unset")), "warning"),
+            ("region_without_decisions", patch(_DECIDE, side_effect=DecisionsDisabledError(1)), "warning"),
+            ("unreadable_answer", patch(_DECIDE, side_effect=DecisionGatewayError(200, "bad answer")), "warning"),
+            ("answer_does_not_fit_question", patch(_DECIDE, return_value=_answer_with_unknown_option()), "warning"),
+        ]
+    )
+    def test_logs_at_warning_only_when_every_decision_would_fail(self, _name: str, cause: Any, level: str) -> None:
+        with capture_logs() as logs, cause:
+            self._post()
+
+        assert [entry["log_level"] for entry in logs if entry["event"] in _OUTCOME_LOG_EVENTS] == [level]

@@ -6926,7 +6926,11 @@ class TestAIDecisionActionValidation(APIBaseTest):
 
     def test_a_builder_draft_saves_unwired_without_the_flag_and_keeps_only_the_context_input(self) -> None:
         flow = _ai_decision_flow(
-            {"inputs": {"context": {"value": {"a": "{event.event}"}}, "question": {"value": "{person.id}"}}},
+            {
+                "question": "",
+                "options": [{"name": "Only"}],
+                "inputs": {"context": {"value": {"a": "{event.event}"}}, "question": {"value": "{person.id}"}},
+            },
             answer_edges=0,
         )
 
@@ -6935,6 +6939,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         config = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]
         assert set(config["inputs"]) == {"context"}
+        assert (config["question"], config["options"]) == ("", [{"name": "Only"}])
 
     def test_an_unrelated_programmatic_edit_does_not_trip_over_an_unwired_draft_decision(self) -> None:
         flow_id = self._post({**_ai_decision_flow({}, answer_edges=0), "status": "draft"}).json()["id"]

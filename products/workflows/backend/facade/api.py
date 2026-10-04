@@ -22,7 +22,6 @@ from products.workflows.backend.facade.contracts import (
     WorkflowTaskDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
-from products.workflows.backend.services import ai_decision
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
@@ -324,8 +323,12 @@ def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccou
 
 
 def ai_decision_enabled(*, team_id: int) -> bool:
+    from products.workflows.backend.services import ai_decision  # noqa: PLC0415 — keeps the LLM SDKs off django.setup()
+
     return ai_decision.ai_decision_enabled(team_id)
 
 
 def decide_ai_decision(call: AIDecisionCall) -> AIDecisionOutcome:
+    from products.workflows.backend.services import ai_decision  # noqa: PLC0415 — keeps the LLM SDKs off django.setup()
+
     return ai_decision.decide(call)
