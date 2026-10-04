@@ -21,6 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.metrics import POST_LOAD_DURATION_SECONDS
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    note_post_load_phase,
+    post_load_phase,
+    recorded_phase,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     sync_engineering_analytics_views,
     sync_revenue_analytics_views,
@@ -270,6 +275,7 @@ async def _seed_cdc_companion_from_snapshot(
     )
 
 
+@recorded_phase("delta_maintenance")
 async def _run_delta_maintenance(
     schema: ExternalDataSchema,
     delta_table_ref: "DeltaTableRef",
@@ -306,6 +312,7 @@ def _stored_sync_type_config(schema_id: Any, team_id: int) -> Any:
     )
 
 
+@recorded_phase("publish")
 async def _publish_queryable_files(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -351,7 +358,9 @@ async def _publish_queryable_files(
 
     # File URIs are listed after delta maintenance so the queryable folder serves the compacted
     # layout rather than the pre-compaction small files.
-    file_uris = await delta_table_ref.get_file_uris()
+    with post_load_phase("list_live_files"):
+        file_uris = await delta_table_ref.get_file_uris()
+        note_post_load_phase(live_files=len(file_uris))
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
         folder = await prepare_s3_files_for_querying(
@@ -368,6 +377,7 @@ async def _publish_queryable_files(
     return folder
 
 
+@recorded_phase("sync_bookkeeping")
 async def _finalize_sync_bookkeeping(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -391,6 +401,7 @@ async def _finalize_sync_bookkeeping(
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
 
 
+@recorded_phase("register_table")
 async def _register_table(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -432,6 +443,7 @@ async def _register_table(
     logger.debug("Finished validating schema and updating table")
 
 
+@recorded_phase("cdc_post_load")
 async def _run_cdc_post_load(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -597,6 +609,11 @@ def _repartitioned_during_job(schema: ExternalDataSchema, job: ExternalDataJob) 
         return True
 
 
+def _post_load_step_phase_name(step: PostLoadStep) -> str:
+    name = getattr(step, "__name__", type(step).__name__)
+    return name.strip("_").removesuffix("_step")
+
+
 async def _run_post_load_steps(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -606,14 +623,15 @@ async def _run_post_load_steps(
     logger: FilteringBoundLogger,
 ) -> None:
     for step in POST_LOAD_STEPS:
-        await step(
-            job=job,
-            schema=schema,
-            source=source,
-            delta_table_ref=delta_table_ref,
-            is_cdc_companion=is_cdc_companion,
-            logger=logger,
-        )
+        with post_load_phase(_post_load_step_phase_name(step)):
+            await step(
+                job=job,
+                schema=schema,
+                source=source,
+                delta_table_ref=delta_table_ref,
+                is_cdc_companion=is_cdc_companion,
+                logger=logger,
+            )
 
 
 async def run_post_load_operations(

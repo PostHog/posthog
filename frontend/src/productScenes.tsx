@@ -183,9 +183,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/tracing/frontend/scenes/TracingRetentionNewScene/TracingRetentionNewScene'),
     TracingRetentionDetail: () =>
         import('../../products/tracing/frontend/scenes/TracingRetentionDetailScene/TracingRetentionDetailScene'),
-    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
-    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
-    UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),

@@ -247,8 +247,6 @@ task projects/{}/tasks/{}
 taskRun projects/{}/tasks/{}/runs/{}
 taskRuns projects/{}/tasks/{}/runs
 tasks projects/{}/tasks
-userInterview projects/{}/user_interviews/{}
-userInterviews projects/{}/user_interviews
 users users
 webAnalyticsFilterPreset projects/{}/web_analytics_filter_presets/{}
 webAnalyticsFilterPresets projects/{}/web_analytics_filter_presets

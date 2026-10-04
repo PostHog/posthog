@@ -20,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     update_job_row_count,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    SUMMARY_EVENT,
+    record_post_load_phases,
+)
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -198,6 +202,63 @@ class TestRegisterTableRowCount:
         validate.assert_awaited_once()
         assert validate.await_args is not None
         assert validate.await_args.kwargs["live_row_count"] == expected
+
+
+_STEP_PHASES = [
+    "notify_revenue_analytics",
+    "sync_revenue_analytics_views",
+    "sync_engineering_analytics_views",
+    "maybe_flag_repartition",
+]
+
+
+class TestPostLoadPhaseSummary:
+    @parameterized.expand(
+        [
+            (
+                "non_cdc",
+                False,
+                None,
+                ["delta_maintenance", "publish", "list_live_files", "sync_bookkeeping", "register_table"],
+            ),
+            (
+                "cdc",
+                True,
+                "incremental",
+                [
+                    "delta_maintenance",
+                    "publish",
+                    "list_live_files",
+                    "sync_bookkeeping",
+                    "register_table",
+                    "cdc_post_load",
+                ],
+            ),
+            (
+                "cdc_companion",
+                True,
+                "scd2_append",
+                ["delta_maintenance", "publish", "list_live_files", "sync_bookkeeping", "cdc_post_load"],
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_one_summary_line_names_every_post_load_phase(
+        self, _name: str, is_cdc: bool, cdc_write_mode: str | None, core_phases: list[str]
+    ) -> None:
+        logger = MagicMock()
+        schema = _make_schema(is_cdc=is_cdc)
+
+        with record_post_load_phases(logger, None, team_id=schema.team_id):
+            await _run_post_load(schema, _make_helper(file_uris=["a", "b"]), cdc_write_mode=cdc_write_mode)
+
+        logger.info.assert_called_once()
+        assert logger.info.call_args.args == (SUMMARY_EVENT,)
+        summary = logger.info.call_args.kwargs
+        assert summary["phase_names"] == [*core_phases, *_STEP_PHASES]
+        phases = {phase["name"]: phase for phase in summary["phases"]}
+        assert phases["list_live_files"]["parent"] == "publish"
+        assert phases["list_live_files"]["live_files"] == 2
 
 
 class TestPublishQueryableFilesDoubleBuffer:

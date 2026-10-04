@@ -22,7 +22,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             FEATURE_FLAGS.LIVE_DEBUGGER,
             FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
             FEATURE_FLAGS.PRODUCT_TOURS,
-            FEATURE_FLAGS.USER_INTERVIEWS,
         ],
     },
     render: (props: StoryProps) => {
