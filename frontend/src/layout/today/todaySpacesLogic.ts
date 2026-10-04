@@ -135,9 +135,9 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
-    phoneSection: TodayWorkSectionId
     lastSpaceId: string | null
     pendingSpaceIds: string[]
+    phoneSection: TodayWorkSectionId
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
     pinnedTasksLoading: boolean
@@ -308,6 +308,9 @@ export interface todaySpacesLogicActions {
         lower: TodayWorkSectionId
         upper: TodayWorkSectionId
     }
+    setPhoneSection: (section: TodayWorkSectionId) => {
+        section: TodayWorkSectionId
+    }
     setPullRequestStates: (states: Record<string, PrStateEnumApi>) => {
         states: Record<string, PrStateEnumApi>
     }
@@ -325,9 +328,6 @@ export interface todaySpacesLogicActions {
     }
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
-    }
-    setPhoneSection: (section: TodayWorkSectionId) => {
-        section: TodayWorkSectionId
     }
     spaceVisited: (spaceId: string) => {
         spaceId: string
