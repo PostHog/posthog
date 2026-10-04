@@ -275,9 +275,12 @@ tools:
             ```json
             { "name": "example", "query": { "kind": "HogQLQuery", "query": "SELECT 1" } }
             ```
+
+            To change the query of a view that already exists, first read the view with view-get and pass
+            its `latest_history_id` as `edited_history_id`. Without it, the upsert is refused.
         exclude_params:
             - deleted
-            - edited_history_id
+            - is_test
             - soft_update
             - is_materialized
             - origin
@@ -294,6 +297,10 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
+            edited_history_id:
+                description:
+                    Only for an upsert that changes the query of an existing view with the same name. Send the
+                    latest_history_id from view-get. Omit it when you create a new view.
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true

@@ -13430,7 +13430,7 @@
         }
     },
     "view-create": {
-        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be\nupdated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced\nby name in other HogQL queries. Set `description` to record what the view represents (a semantic description\nsurfaced to agents); per-column descriptions are set via the saved-query column annotation tools.\n\nPut the HogQL in `query`:\n\n```json\n{ \"name\": \"example\", \"query\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } }\n```",
+        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be\nupdated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced\nby name in other HogQL queries. Set `description` to record what the view represents (a semantic description\nsurfaced to agents); per-column descriptions are set via the saved-query column annotation tools.\n\nPut the HogQL in `query`:\n\n```json\n{ \"name\": \"example\", \"query\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } }\n```\n\nTo change the query of a view that already exists, first read the view with view-get and pass\nits `latest_history_id` as `edited_history_id`. Without it, the upsert is refused.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Create saved query",
