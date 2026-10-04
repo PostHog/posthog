@@ -29,7 +29,9 @@ LIMIT 20
 ```
 
 - Sort by absolute growth, not by ratio. A 2000x ratio on a few hundred events is noise. A 1.5x ratio on the project's biggest source can be most of the bill.
-- On a large project (tens of millions of events a week), add `SAMPLE 1/100` after `FROM events` and lower the `HAVING` floor to match. Counts are then sample counts, and the ratios still hold.
+- On a large project (tens of millions of events a week), add `SAMPLE 1/100` after `FROM events` and lower the `HAVING` floor to match. Counts are then sample counts.
+- `SAMPLE` keeps or drops whole distinct IDs, so a source with only a few IDs comes back all or nothing and its sampled ratio is noise. Treat a sampled result as a shortlist, and confirm every candidate with the unsampled query in step 2 before you read anything into its ratio.
+- The baseline is a 4-week average, so one heavy day in the latest week can carry a high ratio on its own. Step 2 is where that falls out.
 - Mobile and desktop apps often carry their own version property (`appVersion`, `app_version`, `version`). Check `read-data-schema` for a property ending in `version` and swap it into `origin` when `$app_version` is empty.
 - Run the same query without the `GROUP BY` to see whether the whole project stepped, or only one source.
 
@@ -76,16 +78,17 @@ LIMIT 20
 
 Add `properties.$lib_version`, `properties.$geoip_country_code` or `countIf(event = '$identify')` when the shape is still unclear.
 
-| What you see                                                                                                                      | Leans                                                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| A host on the team's own domain, or an app version that follows their release sequence, with identified users rising alongside it | Interesting: a launch, a new surface, real growth                                        |
-| A new SDK or `$lib` that matches the team's stack, with the same events as their other sources                                    | Interesting: a new integration                                                           |
-| A host the team does not own (not their domain, not their proxy)                                                                  | Suspicious: someone copied the snippet or the project token                              |
-| App version values the team never shipped, out of sequence, or in a different version scheme                                      | Suspicious: a fork or a modified build of their client                                   |
-| Events with no `$lib` rising, where the baseline came from an SDK                                                                 | Suspicious: a script or server posting straight to the capture API with the public token |
-| Many new distinct IDs with about one event each and no `$identify`                                                                | Suspicious: a bot or spoofed traffic                                                     |
-| One or a few distinct IDs with very high counts                                                                                   | A runaway client loop, often the team's own bug                                          |
-| A new country or region that dominates the new volume                                                                             | A hint toward bots or scrapers. Check it against the rest of the shape                   |
+| What you see                                                                                                                            | Leans                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| A host on the team's own domain, or an app version that follows their release sequence, with identified users rising alongside it       | Interesting: a launch, a new surface, real growth                                        |
+| A new SDK or `$lib` that matches the team's stack, with the same events as their other sources                                          | Interesting: a new integration                                                           |
+| A host the team does not own (not their domain, not their proxy)                                                                        | Suspicious: someone copied the snippet or the project token                              |
+| Hosts the team does not own, carrying the team's own embedded product (a widget, toolbar, embed or snippet built to run on other sites) | Expected: their product running where it is meant to. Record as `noise:`                 |
+| App version values the team never shipped, out of sequence, or in a different version scheme                                            | Suspicious: a fork or a modified build of their client                                   |
+| Events with no `$lib` rising, where the baseline came from an SDK                                                                       | Suspicious: a script or server posting straight to the capture API with the public token |
+| Many new distinct IDs with about one event each and no `$identify`                                                                      | Suspicious: a bot or spoofed traffic                                                     |
+| One or a few distinct IDs with very high counts                                                                                         | A runaway client loop, often the team's own bug                                          |
+| A new country or region that dominates the new volume                                                                                   | A hint toward bots or scrapers. Check it against the rest of the shape                   |
 
 Hosts like `localhost`, staging or preview domains, and the team's own CI are dev traffic.
 Record them as `noise:` and move on.
