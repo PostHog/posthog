@@ -1,0 +1,204 @@
+name: Frontend CI - Update test timing
+
+on:
+    workflow_dispatch:
+        inputs:
+            frontend_run_id:
+                description: 'Frontend CI run ID (leave empty to use the latest successful hourly master run)'
+                required: false
+                type: string
+    schedule:
+        - cron: '30 4 * * *'
+
+permissions:
+    contents: write
+    actions: read
+    pull-requests: write
+
+jobs:
+    collect-and-refresh:
+        name: Refresh jest timing manifest from CI artifacts
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Guard, only run on master
+              env:
+                  REF: ${{ github.ref }}
+              run: |
+                  if [ "$REF" != "refs/heads/master" ]; then
+                      echo "::error::This workflow can only run on master (got $REF). Re-dispatch it from master."
+                      exit 1
+                  fi
+
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.ref_name }}
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Find Frontend CI run to use
+              id: find-run
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  INPUT_RUN_ID: ${{ inputs.frontend_run_id }}
+              run: |
+                  validate_run() {
+                      local run_id="$1"
+                      local run_json artifact_names
+
+                      run_json=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id")
+                      if ! jq -e '
+                          .conclusion == "success" and
+                          .event == "schedule" and
+                          .head_branch == "master" and
+                          .path == ".github/workflows/ci-frontend.yml"
+                      ' <<< "$run_json" >/dev/null; then
+                          echo "Run $run_id is not a successful hourly master run of ci-frontend.yml" >&2
+                          return 1
+                      fi
+
+                      artifact_names=$(gh api "repos/${{ github.repository }}/actions/runs/$run_id/artifacts?per_page=100" \
+                          --jq '[.artifacts[] | select(.expired == false) | .name]')
+                      if ! jq -e '
+                          ([.[] | select(test("^junit-results-frontend-app-[1-4]$"))] | unique | length) == 4
+                      ' <<< "$artifact_names" >/dev/null; then
+                          echo "Run $run_id does not have all 4 live jest JUnit shard artifacts" >&2
+                          return 1
+                      fi
+                  }
+
+                  if [ -n "$INPUT_RUN_ID" ]; then
+                      if ! validate_run "$INPUT_RUN_ID"; then
+                          echo "::error::Provided run must be a successful hourly master Frontend CI run with all shard artifacts"
+                          exit 1
+                      fi
+                      echo "run_id=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
+                      echo "Using provided Frontend CI run: $INPUT_RUN_ID"
+                      exit 0
+                  fi
+
+                  echo "Searching for a successful hourly master Frontend CI run with live JUnit artifacts..."
+                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-frontend.yml/runs?status=success&branch=master&event=schedule&per_page=30" \
+                      --jq '.workflow_runs[].id' | \
+                      while read -r id; do
+                          if validate_run "$id"; then
+                              echo "$id"
+                              break
+                          fi
+                      done)
+
+                  if [ -z "$run_id" ]; then
+                      echo "::error::No successful hourly master Frontend CI run found with live JUnit artifacts (1-day retention)"
+                      exit 1
+                  fi
+                  echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+                  echo "Using Frontend CI run: $run_id"
+
+            - name: Regenerate jest-timings.json
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
+              run: ./frontend/update-jest-timings.sh "$RUN_ID"
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  if git diff --quiet frontend/jest-timings.json; then
+                      echo "No changes to jest timings"
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Jest timings updated"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                      git diff --stat frontend/jest-timings.json
+                  fi
+
+            - name: Clean up stale branch
+              if: steps.check-changes.outputs.changed == 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-jest-timings" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    gh pr close "$existing_pr" --delete-branch || true
+                    echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Reset branch to checked-out SHA
+              if: steps.check-changes.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  TARGET_SHA: ${{ github.sha }}
+              run: |
+                  if gh api repos/${{ github.repository }}/git/ref/heads/chore/update-jest-timings >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/chore/update-jest-timings \
+                      -f sha="$TARGET_SHA" -F force=true
+                    echo "Force-reset branch to $TARGET_SHA (superseding any prior unmerged commits)"
+                  else
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/update-jest-timings -f sha="$TARGET_SHA"
+                    echo "Created branch at $TARGET_SHA"
+                  fi
+
+            - name: Commit via GitHub API (signed)
+              if: steps.check-changes.outputs.changed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore(ci): update jest shard timing manifest'
+                  repo: ${{ github.repository }}
+                  branch: chore/update-jest-timings
+                  file_pattern: frontend/jest-timings.json
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Create pull request
+              if: steps.check-changes.outputs.changed == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  existing_pr=$(gh pr list --head "chore/update-jest-timings" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    echo "PR #$existing_pr already exists, updated by commit"
+                  else
+                    body=$(cat <<EOF
+                  ## Problem
+
+                  Jest shard timings become stale as test files are added and removed, which makes the frontend test shards less balanced.
+
+                  ## Changes
+
+                  Refresh the timing manifest from [Frontend CI run ${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID}).
+
+                  ## How did you test this code?
+
+                  The scheduled workflow validated that the source was a successful hourly master run with all four shard artifacts, then regenerated the manifest.
+
+                  ## Automatic notifications
+
+                  - [ ] Publish to changelog?
+
+                  ## Docs update
+
+                  No user-facing behavior or documented workflow changes.
+
+                  ## 🤖 Agent context
+
+                  **Autonomy:** Fully autonomous
+
+                  Created by the jest timing refresh workflow from validated CI artifacts.
+                  EOF
+                  )
+
+                    gh pr create \
+                      --title "chore(ci): update jest shard timing manifest" \
+                      --body "$body" \
+                      --base master \
+                      --head chore/update-jest-timings \
+                      --reviewer "PostHog/team-devex"
+                  fi

@@ -194,6 +194,8 @@ const config: Config = {
 
     testEnvironmentOptions: {},
 
+    testSequencer: '<rootDir>/jest.sequencer.js',
+
     testPathIgnorePatterns: [
         '/node_modules/',
         '/services/mcp/',
