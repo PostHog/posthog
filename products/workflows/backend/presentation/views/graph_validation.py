@@ -8,7 +8,8 @@ from rest_framework import serializers
 # Mirrors the frontend branch-edge model (getBranchLabel / StepConditionalBranch / StepRandomCohortBranch
 # in products/workflows/frontend/Workflows/hogflows): conditional_branch has one branch per condition,
 # random_cohort_branch one per cohort, wait_until_condition exactly one (the condition-met path, index 0),
-# each alongside a single `continue` fall-through/timeout edge.
+# ai_decision one per answer then one for Unsure when it is on, each alongside a single `continue`
+# fall-through/timeout/failure edge.
 
 
 def _branch_slot_count(action: dict) -> int:
@@ -20,7 +21,24 @@ def _branch_slot_count(action: dict) -> int:
         return len(config.get("cohorts") or [])
     if action_type == "wait_until_condition":
         return 1
+    if action_type == "ai_decision":
+        answers = len(config.get("options") or []) if config.get("answer_type") == "pick_one" else 2
+        return answers + (1 if config.get("unsure_enabled") else 0)
     return 0
+
+
+def missing_ai_decision_edges(actions: list[dict], edges: list[dict]) -> list[str]:
+    """The runtime follows the branch edge of the answer the model gives, and a missing one stops the
+    run for that person, so every answer edge and the Unsure edge must exist before the step can run."""
+    branch_keys = {(edge.get("from"), edge.get("index")) for edge in edges if edge.get("type") == "branch"}
+    return [
+        f"ai_decision '{action.get('id')}' is missing the 'branch' edge with index {index}. "
+        "Add one edge per answer, in answer order, then one for Unsure when it is on."
+        for action in actions
+        if action.get("type") == "ai_decision"
+        for index in range(_branch_slot_count(action))
+        if (action.get("id"), index) not in branch_keys
+    ]
 
 
 def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optional[str] = None) -> list[str]:
@@ -85,6 +103,8 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
                 f"with index 0 (taken when the condition matches or an events entry fires). Without it the wait "
                 f"only ever advances on the max_wait_duration timeout, never on resolution."
             )
+
+    errors.extend(missing_ai_decision_edges(actions, edges))
 
     if errors:
         raise serializers.ValidationError({"graph": errors})

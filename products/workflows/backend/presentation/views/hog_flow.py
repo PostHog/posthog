@@ -186,7 +186,7 @@ from products.workflows.backend.models.team_workflows_config import TeamWorkflow
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
 from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
-from products.workflows.backend.presentation.views.graph_validation import validate_graph
+from products.workflows.backend.presentation.views.graph_validation import missing_ai_decision_edges, validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
@@ -204,7 +204,13 @@ from products.workflows.backend.presentation.views.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
+from products.workflows.backend.presentation.views.workflow_ai_decisions import (
+    AI_DECISION_INPUTS_SCHEMA,
+    AIDecisionConfigSerializer,
+    ai_decision_context_error,
+)
 from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.services.ai_decision import ai_decision_enabled
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -987,7 +993,9 @@ class HogFlowEdgeSerializer(serializers.Serializer):
             "Required for type='branch'. conditional_branch: index into config.conditions[index]. "
             "random_cohort_branch: index into config.cohorts[index]. "
             "wait_until_condition: use index:0 — it advances via the index:0 branch edge when it "
-            "resolves (a condition match or an events entry firing)."
+            "resolves (a condition match or an events entry firing). "
+            "ai_decision: one index per answer (yes_no: 0 Yes, 1 No; pick_one: config.options order), then "
+            "one more for Unsure when config.unsure_enabled; every one is required."
         ),
     )
 
@@ -1220,6 +1228,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             "must target at least one event or action. On resolution (a condition match or any events "
             "entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout "
             "falls through the 'continue' edge. "
+            "ai_decision: asks a hosted AI model a question about the run and branches on the answer. "
+            "{question, answer_type: 'yes_no'|'pick_one', options?: [{name, description?}] (pick_one, 2 to 16, "
+            "unique names), yes_means?, no_means?, yes_threshold? (1-99, default 50), unsure_enabled?, "
+            "min_pick_probability? (1-99, default 60), no_threshold? (1-98, below yes_threshold, default 20), "
+            "inputs: {context: {value: {<field name>: '<hog template>'}}}}. question and options are plain text; "
+            "only the context is templated. Branch edge N is answer N, then Unsure when unsure_enabled; the "
+            "'continue' edge is taken when the decision fails. Each run uses AI credits. "
             "exit: {reason}."
         ),
     )
@@ -1380,6 +1395,38 @@ class HogFlowActionSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
+
+    def _validate_ai_decision_action(self, data: dict, strict: bool) -> None:
+        config = data["config"] if isinstance(data.get("config"), dict) else {}
+        if strict:
+            self._reject_ai_decision_without_flag(data.get("id"))
+            context_error = ai_decision_context_error(config.get("inputs"))
+            if context_error:
+                raise serializers.ValidationError({"inputs": {"context": context_error}})
+        config_serializer = AIDecisionConfigSerializer(data=config)
+        inputs_serializer = HogFlowConfigFunctionInputsSerializer(
+            data={"inputs_schema": AI_DECISION_INPUTS_SCHEMA, "inputs": config.get("inputs") or {}},
+            context={"function_type": "destination", "is_dwh_source": self.context.get("is_dwh_source", False)},
+        )
+        if strict:
+            if not config_serializer.is_valid():
+                raise serializers.ValidationError({"config": config_serializer.errors})
+            inputs_serializer.is_valid(raise_exception=True)
+        normalized = dict(config)
+        if config_serializer.is_valid():
+            normalized.update(config_serializer.validated_data)
+        if inputs_serializer.is_valid():
+            normalized["inputs"] = inputs_serializer.validated_data["inputs"]
+        data["config"] = normalized
+
+    def _reject_ai_decision_without_flag(self, action_id: Optional[str]) -> None:
+        # Same grandfathering as a flag-gated template: a step an active flow already holds keeps
+        # saving after the flag turns off, and fails at run time instead.
+        if action_id in (self.context.get("stored_gated_template_action_ids") or set()):
+            return
+        get_team = self.context.get("get_team")
+        if get_team is not None and not ai_decision_enabled(get_team()):
+            raise serializers.ValidationError({"type": "AI decisions aren't available for this organization yet."})
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
@@ -1647,6 +1694,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+
+        if data.get("type") == "ai_decision":
+            self._validate_ai_decision_action(data, strict)
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -2984,7 +3034,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
-        # Action ids already stored with a flag-gated template, so the gate only polices new
+        # Action ids already stored with a flag-gated template or action type, so the gate only polices new
         # adoption: a flow that was allowed to hold the step keeps validating after a flag
         # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
         # failing refresh_hog_flows. Only an active flow's steps count - active means the step
@@ -2996,7 +3046,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
             if isinstance(action, dict)
             and action.get("id")
-            and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
+            and (
+                (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
+                or action.get("type") == "ai_decision"
+            )
         }
 
         status = data.get("status")
@@ -3177,6 +3230,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # drafts — same posture as HogFlowActionSerializer, so a conversion filter that can't compile
         # (e.g. a cohort reference) fails at create rather than being silently stored.
         strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
+
+        # Unlike the advisory checks below, an AI decision's answer edges are enforced on every strict
+        # save. The step type is new, so no stored workflow carries a legacy gap here.
+        if strict:
+            missing_edges = missing_ai_decision_edges(actions, data.get("edges", instance.edges if instance else []))
+            if missing_edges:
+                raise serializers.ValidationError({"graph": missing_edges})
 
         # Graph wiring (dangling edges, branch-index range, abort_action, reachability) is enforced only on
         # the surgical /graph endpoint (which sets enforce_graph_structure and builds a clean graph by
@@ -3550,6 +3610,15 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         help_text=(
             "Test the workflow's staged draft instead of its live config. Set this only when workflows-get "
             "returns a non-null 'draft'; it can't be combined with an explicit configuration override."
+        ),
+    )
+    mock_answer = serializers.CharField(
+        write_only=True,
+        required=False,
+        max_length=500,
+        help_text=(
+            "With mock_async_functions, the answer a mocked ai_decision step gives: an option name, or yes, "
+            "no, or unsure. Omit it to take the first answer. A mocked decision spends no AI credits."
         ),
     )
 

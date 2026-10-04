@@ -2635,6 +2635,7 @@ class TestHogFlowAPI(APIBaseTest):
                 data={
                     "globals": {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}},
                     "mock_async_functions": True,
+                    "mock_answer": "Developer",
                 },
             )
 
@@ -2647,6 +2648,7 @@ class TestHogFlowAPI(APIBaseTest):
             payload = mock_invoke.call_args.kwargs["payload"]
             assert payload["globals"] == {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}}
             assert payload["mock_async_functions"] is True
+            assert payload["mock_answer"] == "Developer"
 
     def test_hog_flow_conditional_event_filter_rejected(self):
         conditional_action = {
@@ -6702,3 +6704,129 @@ class TestRunScoutActionValidation(APIBaseTest):
         response = self._post_flow(self.team)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+_AI_DECISION_FLAG = "products.workflows.backend.presentation.views.hog_flow.ai_decision_enabled"
+
+
+def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None) -> dict:
+    config = {
+        "question": "Which onboarding track fits this signup?",
+        "answer_type": "pick_one",
+        "options": [
+            {"name": "Developer", "description": "Writes code"},
+            {"name": "Marketer", "description": "Runs campaigns"},
+        ],
+        "inputs": {"context": {"value": {"answer": "{event.properties.answer}"}}},
+        **config_overrides,
+    }
+    answer_count = 2 if config["answer_type"] == "yes_no" else len(config.get("options") or [])
+    slots = answer_count + (1 if config.get("unsure_enabled") else 0)
+    return {
+        "name": "Decision flow",
+        "status": "active",
+        "actions": [
+            {
+                "id": "trigger_node",
+                "name": "trigger",
+                "type": "trigger",
+                "config": {
+                    "type": "event",
+                    "filters": {"events": [{"id": "signup", "name": "signup", "type": "events"}]},
+                },
+            },
+            {"id": "decide", "name": "decide", "type": "ai_decision", "config": config},
+            {"id": "exit_node", "name": "exit", "type": "exit", "config": {"reason": "done"}},
+        ],
+        "edges": [
+            {"from": "trigger_node", "to": "decide", "type": "continue"},
+            *(
+                {"from": "decide", "to": "exit_node", "type": "branch", "index": index}
+                for index in range(slots if answer_edges is None else answer_edges)
+            ),
+            {"from": "decide", "to": "exit_node", "type": "continue"},
+        ],
+    }
+
+
+class TestAIDecisionActionValidation(APIBaseTest):
+    def _post(self, flow: dict, flag_enabled: bool = True) -> Any:
+        with patch(_AI_DECISION_FLAG, return_value=flag_enabled):
+            return self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, format="json")
+
+    @parameterized.expand(
+        [
+            ("pick_one", {}),
+            ("sixteen_options", {"options": [{"name": f"o{i}"} for i in range(16)]}),
+            ("yes_no", {"answer_type": "yes_no", "options": [], "yes_means": "A work account"}),
+            ("yes_no_unsure_band", {"answer_type": "yes_no", "unsure_enabled": True, "no_threshold": 20}),
+            ("pick_one_unsure", {"unsure_enabled": True, "min_pick_probability": 70}),
+        ]
+    )
+    def test_saves_a_valid_decision_with_every_answer_edge(self, _name: str, overrides: dict) -> None:
+        response = self._post(_ai_decision_flow(overrides))
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("one_option", {"options": [{"name": "Only"}]}, None, "options"),
+            ("seventeen_options", {"options": [{"name": f"o{i}"} for i in range(17)]}, None, "options"),
+            ("duplicate_option_name", {"options": [{"name": "Same"}, {"name": "Same"}]}, None, "options"),
+            ("blank_option_name", {"options": [{"name": " "}, {"name": "B"}]}, None, "options"),
+            ("question_too_long", {"question": "q" * 2001}, None, "question"),
+            ("question_as_a_template", {"question": {"value": "{person.name}", "templating": "hog"}}, None, "question"),
+            (
+                "no_threshold_at_yes_threshold",
+                {"answer_type": "yes_no", "unsure_enabled": True, "yes_threshold": 40, "no_threshold": 40},
+                None,
+                "no_threshold",
+            ),
+            ("empty_context", {"inputs": {"context": {"value": {}}}}, None, "context"),
+            ("long_context_name", {"inputs": {"context": {"value": {"n" * 101: "{event.event}"}}}}, None, "context"),
+            ("missing_answer_edge", {}, 1, "graph"),
+            ("missing_unsure_edge", {"unsure_enabled": True}, 2, "graph"),
+        ]
+    )
+    def test_rejects_a_decision_that_cannot_run(
+        self, _name: str, overrides: dict, answer_edges: int | None, error_field: str
+    ) -> None:
+        response = self._post(_ai_decision_flow(overrides, answer_edges))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert error_field in response.json()["attr"], response.json()
+
+    def test_only_the_context_is_templated(self) -> None:
+        flow = _ai_decision_flow(
+            {
+                "question": "Is {person.properties.name} a developer?",
+                "inputs": {
+                    "context": {"value": {"answer": "{event.properties.answer}"}},
+                    "question": {"value": "{person.properties.name}", "templating": "hog"},
+                },
+            }
+        )
+
+        response = self._post(flow)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        config = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]
+        assert config["question"] == "Is {person.properties.name} a developer?"
+        assert set(config["inputs"]) == {"context"}
+        assert config["inputs"]["context"]["bytecode"]
+
+    def test_the_flag_rejects_a_new_decision_and_keeps_a_stored_one(self) -> None:
+        flow = _ai_decision_flow({})
+
+        rejected = self._post(flow, flag_enabled=False)
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST, rejected.json()
+
+        created = self._post(flow)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        with patch(_AI_DECISION_FLAG, return_value=False):
+            updated = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}",
+                {"name": "Renamed", "actions": flow["actions"], "edges": flow["edges"]},
+                format="json",
+            )
+        assert updated.status_code == status.HTTP_200_OK, updated.json()

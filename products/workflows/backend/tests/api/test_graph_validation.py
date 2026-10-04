@@ -105,6 +105,30 @@ class TestValidateGraph(TestCase):
         assert validate_graph(actions, edges) == []
         assert "out of range [0, 1)" in _graph_errors(actions, [_edge("t", "w"), _edge("w", "x", "branch", index=1)])
 
+    @parameterized.expand(
+        [
+            ("yes_no", {"answer_type": "yes_no"}, 2),
+            ("yes_no_unsure", {"answer_type": "yes_no", "unsure_enabled": True}, 3),
+            ("pick_three", {"answer_type": "pick_one", "options": [{"name": "a"}, {"name": "b"}, {"name": "c"}]}, 3),
+            (
+                "pick_two_unsure",
+                {"answer_type": "pick_one", "options": [{"name": "a"}, {"name": "b"}], "unsure_enabled": True},
+                3,
+            ),
+        ]
+    )
+    def test_ai_decision_needs_one_branch_edge_per_answer_and_unsure(self, _name, config, slots):
+        decision = {"id": "d", "name": "d", "type": "ai_decision", "config": config}
+        actions = [TRIGGER, decision, EXIT]
+        answer_edges = [_edge("d", "x", "branch", index=index) for index in range(slots)]
+        assert validate_graph(actions, [_edge("t", "d"), *answer_edges, _edge("d", "x")]) == []
+        assert f"out of range [0, {slots})" in _graph_errors(
+            actions, [_edge("t", "d"), *answer_edges, _edge("d", "x", "branch", index=slots)]
+        )
+        assert f"missing the 'branch' edge with index {slots - 1}" in _graph_errors(
+            actions, [_edge("t", "d"), *answer_edges[:-1], _edge("d", "x")]
+        )
+
     def test_unreachable_node_returns_warning_not_error(self):
         actions = [TRIGGER, _fn("a"), _fn("orphan"), EXIT]
         edges = [_edge("t", "a"), _edge("a", "x")]

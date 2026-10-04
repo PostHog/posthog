@@ -37,6 +37,7 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "conditional_branch",
     "random_cohort_branch",
     "exit",
+    "ai_decision",
 ]
 
 # The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
