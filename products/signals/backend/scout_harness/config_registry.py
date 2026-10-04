@@ -179,6 +179,8 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
 def live_scout_skill_names(
     team_id: int,
     withheld_skill_names: frozenset[str] | set[str] | None = None,
+    *,
+    canonical: bool = False,
 ) -> set[str]:
     """Names of the team's configs whose skill is live (latest, non-deleted), minus the holdback set.
 
@@ -191,10 +193,13 @@ def live_scout_skill_names(
     The config names go in as a subquery, and the holdback is applied as an `exclude` on the same
     query, so the per-team gate stays one round trip. Keep it that way — this runs once per team
     on every tick.
+
+    Pass `canonical=True` when `team_id` is already the canonical parent id. This skips the Team
+    lookup in `for_team`, which raises `TeamScopeError` for a team deleted since the caller read it.
     """
     rows = LLMSkill.objects.filter(
         team_id=team_id,
-        name__in=SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True),
+        name__in=SignalScoutConfig.objects.for_team(team_id, canonical=canonical).values_list("skill_name", flat=True),
         is_latest=True,
         deleted=False,
     )
