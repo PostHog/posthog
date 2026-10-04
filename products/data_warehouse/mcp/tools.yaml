@@ -266,7 +266,9 @@ tools:
         title: Create saved query
         description: |
             Create a new data warehouse saved query (view). If a view with the same name already exists, it will be
-            updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced
+            updated instead (upsert behavior). To change the query of an existing view, first read the view with
+            view-get and pass its latest_history_id as `edited_history_id`, or use view-update. The query must be
+            valid HogQL. After creation, the view can be referenced
             by name in other HogQL queries. Set `description` to record what the view represents (a semantic description
             surfaced to agents); per-column descriptions are set via the saved-query column annotation tools.
 
@@ -277,8 +279,8 @@ tools:
             ```
         exclude_params:
             - deleted
-            - edited_history_id
             - soft_update
+            - is_test
             - is_materialized
             - origin
             - status
@@ -294,6 +296,10 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
+            edited_history_id:
+                description:
+                    Omit when you create a new view. Required when a view with this name already exists and the call changes
+                    its query. Get this from latest_history_id on the view-get response.
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true

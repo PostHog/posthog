@@ -64,6 +64,20 @@ def _as_uuid(value: object) -> uuid.UUID | None:
         return None
 
 
+def _query_conflict_error(edited_history_id: object) -> serializers.ValidationError:
+    # A missing revision is a request contract error, not a concurrent edit. Name the field so
+    # API callers, such as an upsert through POST, can see what to send.
+    if edited_history_id is None or edited_history_id == "":
+        return serializers.ValidationError(
+            {
+                "edited_history_id": "Required to change the query of an existing view. Read the view and "
+                "send its latest_history_id as edited_history_id."
+            },
+            code="required",
+        )
+    return serializers.ValidationError("The query was modified by someone else.")
+
+
 def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
     # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
@@ -446,7 +460,7 @@ class DataWarehouseSavedQuerySerializer(
         if check_conflict and _as_uuid(edited_history_id) != instance.query_revision:
             # Advisory only: rejects a stale edit before it pays for inference. The check under the
             # row lock below is the one that prevents a lost update.
-            raise serializers.ValidationError("The query was modified by someone else.")
+            raise _query_conflict_error(edited_history_id)
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
@@ -504,7 +518,7 @@ class DataWarehouseSavedQuerySerializer(
 
             if query_changed and not soft_update and locked_instance.query_revision is not None:
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
-                    raise serializers.ValidationError("The query was modified by someone else.")
+                    raise _query_conflict_error(edited_history_id)
 
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
