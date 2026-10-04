@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronDown, IconDownload, IconGear, IconUser, IconGlobe, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconDownload, IconGear, IconUser, IconGlobe, IconPlus, IconRevert } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -23,15 +23,34 @@ export interface TableViewSelectorProps {
     contextKey: string
     query: TableViewSupportedQueryType
     setQuery: (query: TableViewSupportedQueryType) => void
+    defaultColumns: string[]
 }
 
-export function TableViewSelector({ contextKey, query, setQuery }: TableViewSelectorProps): JSX.Element {
-    const tableViewLogicProps = { contextKey, query, setQuery }
+export function TableViewSelector({
+    contextKey,
+    query,
+    setQuery,
+    defaultColumns,
+}: TableViewSelectorProps): JSX.Element {
+    const tableViewLogicProps = { contextKey, query, setQuery, defaultColumns }
     const logic = tableViewLogic(tableViewLogicProps)
-    const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, user } = useValues(logic)
-    const { applyView, updateView, setShowDeleteConfirm, setIsCreating } = useActions(logic)
+    const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, isOnDefaultColumns, user } =
+        useValues(logic)
+    const { applyView, updateView, setShowDeleteConfirm, setIsCreating, resetToDefaultColumns } = useActions(logic)
 
     const menuItems: LemonMenuItems = [
+        {
+            // Without this a view that leaves out a column has no way back, because the menu is
+            // built from the saved views alone.
+            items: [
+                {
+                    label: 'Default columns',
+                    icon: <IconRevert />,
+                    active: !currentView,
+                    onClick: () => resetToDefaultColumns(),
+                },
+            ],
+        },
         {
             items: views.map((view) => {
                 const canEditView = view.created_by === user?.id
@@ -105,14 +124,28 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                         </LemonButton>
                     </LemonMenu>
                 ) : (
-                    <LemonButton
-                        icon={<IconDownload />}
-                        size="small"
-                        type="secondary"
-                        onClick={() => setIsCreating(true)}
-                    >
-                        Save current view
-                    </LemonButton>
+                    <>
+                        {/* Deleting the last view leaves its columns on the table, and the menu
+                            that would undo that is gone with it. */}
+                        {!isOnDefaultColumns && (
+                            <LemonButton
+                                icon={<IconRevert />}
+                                size="small"
+                                type="secondary"
+                                onClick={() => resetToDefaultColumns()}
+                            >
+                                Default columns
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            icon={<IconDownload />}
+                            size="small"
+                            type="secondary"
+                            onClick={() => setIsCreating(true)}
+                        >
+                            Save current view
+                        </LemonButton>
+                    </>
                 )}
 
                 {currentView && hasUnsavedChanges && (

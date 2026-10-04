@@ -4,6 +4,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { urls } from 'scenes/urls'
+
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -17,6 +19,7 @@ const eventsTable = setLatestVersionsOnQuery({
     source: { kind: NodeKind.EventsQuery, select },
 }) as DataTableNode
 
+const PERSON_UUID = 'c3b1f6a2-0000-0000-0000-000000000000'
 const personSelect = ['*', 'event', 'person', 'timestamp']
 const personColumnTable = setLatestVersionsOnQuery({
     kind: NodeKind.DataTableNode,
@@ -114,5 +117,67 @@ describe('renderColumn', () => {
 
         expect(screen.getByText('someone@example.com')).toBeInTheDocument()
         expect(screen.queryByText('Unknown')).toBeNull()
+    })
+
+    // A shared view that drops the person column used to leave every row on the persons list
+    // with no link to a profile, because the person cells are the only ones that render one.
+    test.each([
+        [['person_display_name -- Person', 'created_at', 'id'], false],
+        [['created_at', 'id'], true],
+        [['id', 'created_at', 'person.$delete'], true],
+        [['created_at', 'properties.email'], false],
+    ])('links the fallback profile column for %p', (select, linked) => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select },
+        }) as DataTableNode
+        const record = select.map((column) => (column === 'id' ? PERSON_UUID : '2026-01-01T00:00:00Z'))
+
+        render(
+            <Provider>{renderColumn('created_at', record[select.indexOf('created_at')], record, 0, 1, query)}</Provider>
+        )
+
+        expect(screen.queryByRole('link')?.getAttribute('href')).toEqual(
+            linked ? expect.stringContaining(urls.personByUUID(PERSON_UUID)) : undefined
+        )
+    })
+
+    it('skips a hidden column when it picks the one to link', () => {
+        const select = ['properties.email', 'created_at', 'id']
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select },
+            hiddenColumns: ['properties.email'],
+        }) as DataTableNode
+        const record = ['someone@example.com', '2026-01-01T00:00:00Z', PERSON_UUID]
+
+        render(<Provider>{renderColumn('created_at', record[1], record, 0, 1, query)}</Provider>)
+
+        expect(screen.getByRole('link').getAttribute('href')).toEqual(
+            expect.stringContaining(urls.personByUUID(PERSON_UUID))
+        )
+    })
+
+    it('leaves a url cell with its own link rather than nesting two anchors', () => {
+        const select = ['properties.$initial_current_url', 'id']
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select },
+        }) as DataTableNode
+
+        render(
+            <Provider>
+                {renderColumn(
+                    select[0],
+                    'https://example.com/pricing',
+                    ['https://example.com/pricing', PERSON_UUID],
+                    0,
+                    1,
+                    query
+                )}
+            </Provider>
+        )
+
+        expect(screen.getByRole('link').getAttribute('href')).toEqual('https://example.com/pricing')
     })
 })
