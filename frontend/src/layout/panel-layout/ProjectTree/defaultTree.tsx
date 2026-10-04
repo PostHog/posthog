@@ -22,7 +22,6 @@ import {
     IconDocument,
     IconDownload,
     IconEndpoints,
-    IconExternal,
     IconEye,
     IconFeatures,
     IconFilter,
@@ -239,10 +238,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     data_warehouse: {
         icon: <IconDatabase />,
         iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
-    },
-    link: {
-        icon: <IconExternal />,
-        iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
     },
     workflows: {
         icon: <IconDecisionTree />,

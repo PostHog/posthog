@@ -317,9 +317,6 @@ export const urls = {
     projectFiles: (folder = ''): string => combineUrl('/files', folder ? { folder } : {}).url,
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    links: (params?: string): string =>
-        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    link: (id: string): string => `/link/${id}`,
     tracing: (): string => '/tracing',
     metrics: (): string => '/metrics',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',

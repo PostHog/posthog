@@ -81,7 +81,7 @@ APIScopeObject = Literal[
     "interactive_run",
     "internal_run",
     "legal_document",
-    "link",
+    "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "live_debugger",
     "llm_analytics",
     "ai_observability_clusters",
