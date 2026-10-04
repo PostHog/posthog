@@ -48,6 +48,12 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
+from products.ai_observability.backend.llm.decisions import (
+    DecisionClient,
+    DecisionEndpointBlockedError,
+    decision_evaluations_enabled,
+    is_decision_model,
+)
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
@@ -63,11 +69,7 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
-from products.ai_observability.backend.llm.system_one import (
-    SystemOneClient,
-    SystemOneEndpointBlockedError,
-    system_one_evaluations_enabled,
-)
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
     CategoricalOutputConfig,
@@ -506,7 +508,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     )
 
 
-def _system_one_numeric_score(minimum: float, maximum: float, index: float) -> float:
+def _decision_numeric_score(minimum: float, maximum: float, index: float) -> float:
     last_index = MAX_SCORE_LEVELS - 1
     if index == 0:
         return minimum
@@ -553,23 +555,6 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
-    if provider == "system_one":
-        if output_type not in ("boolean", "categorical", "numeric"):
-            return build_skipped_evaluation_result(
-                output_type=output_type,
-                allows_na=allows_na,
-                reasoning="System One supports boolean, categorical, and numeric evaluations.",
-                skip_reason="unsupported_output_type",
-            )
-        base_url = provider_key.encrypted_config.get("base_url", "") if provider_key else ""
-        if not system_one_evaluations_enabled(team_id, base_url=base_url):
-            return build_skipped_evaluation_result(
-                output_type=output_type,
-                allows_na=allows_na,
-                reasoning="System One evaluations are not available for this project.",
-                skip_reason="system_one_unavailable",
-            )
-
     type_config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     response_format = type_config.response_format
 
@@ -582,9 +567,35 @@ def call_llm_judge(
     )
 
     probability: float | None = None
-    system_one_result = None
+    decision_result = None
     try:
-        if provider == "system_one":
+        if is_decision_model(
+            provider,
+            model,
+            openrouter_enabled=provider == "openrouter"
+            and decision_evaluations_enabled(team_id, base_url=OPENROUTER_DECISIONS_BASE_URL),
+        ):
+            if output_type not in ("boolean", "categorical", "numeric"):
+                return build_skipped_evaluation_result(
+                    output_type=output_type,
+                    allows_na=allows_na,
+                    reasoning="Decision models support boolean, categorical, and numeric evaluations.",
+                    skip_reason="unsupported_output_type",
+                )
+            base_url = (
+                OPENROUTER_DECISIONS_BASE_URL
+                if provider == "openrouter"
+                else provider_key.encrypted_config.get("base_url", "")
+                if provider_key
+                else ""
+            )
+            if provider == "system_one" and not decision_evaluations_enabled(team_id, base_url=base_url):
+                return build_skipped_evaluation_result(
+                    output_type=output_type,
+                    allows_na=allows_na,
+                    reasoning="System One evaluations are not available for this project.",
+                    skip_reason="system_one_unavailable",
+                )
             prompt = evaluation["evaluation_config"]["prompt"]
             categorical_config = (
                 CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None
@@ -597,11 +608,11 @@ def call_llm_judge(
                     return build_skipped_evaluation_result(
                         output_type=output_type,
                         allows_na=allows_na,
-                        reasoning="System One numeric evaluations require a minimum score below the maximum score.",
+                        reasoning="Numeric evaluations with decision models require a minimum score below the maximum score.",
                         skip_reason="request_rejected",
                     )
                 numeric_levels = [
-                    _system_one_numeric_score(numeric_config.min, numeric_config.max, index)
+                    _decision_numeric_score(numeric_config.min, numeric_config.max, index)
                     for index in range(MAX_SCORE_LEVELS)
                 ]
                 if numeric_config.step is not None:
@@ -642,16 +653,17 @@ def call_llm_judge(
                         + prompt
                     )
                 )
-            system_one_result = SystemOneClient.evaluate(
+            decision_result = DecisionClient.evaluate(
                 api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
                 base_url=base_url,
+                path="decisions" if provider == "openrouter" else "systemone",
                 model=model,
                 state=user_prompt,
                 questions=questions,
             )
             applicable = True
             if allows_na:
-                applicability_answer = system_one_result.answers["applicable"]
+                applicability_answer = decision_result.answers["applicable"]
                 if not isinstance(applicability_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid applicability answer.")
                 applicable = applicability_answer.probability >= 0.5
@@ -664,10 +676,10 @@ def call_llm_judge(
                 | NumericWithNAEvalResult
             )
             if numeric_levels is not None:
-                score_answer = system_one_result.answers["score"]
+                score_answer = decision_result.answers["score"]
                 if not isinstance(score_answer, ScoreAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid score answer.")
-                score = _system_one_numeric_score(numeric_levels[0], numeric_levels[-1], score_answer.score)
+                score = _decision_numeric_score(numeric_levels[0], numeric_levels[-1], score_answer.score)
                 parsed = (
                     NumericWithNAEvalResult(reasoning="", score=score if applicable else None)
                     if allows_na
@@ -676,13 +688,13 @@ def call_llm_judge(
             elif categorical_config is not None:
                 categories: list[str] = []
                 if categorical_config.selection_mode == "single":
-                    category_answer = system_one_result.answers["category"]
+                    category_answer = decision_result.answers["category"]
                     if not isinstance(category_answer, ChoiceAnswer):
                         raise StructuredOutputParseError("The endpoint returned an invalid category answer.")
                     categories = [category_answer.choice]
                 else:
                     for index, option in enumerate(categorical_config.options):
-                        category_match = system_one_result.answers[f"category_{index}"]
+                        category_match = decision_result.answers[f"category_{index}"]
                         if not isinstance(category_match, NoulAnswer):
                             raise StructuredOutputParseError("The endpoint returned an invalid category answer.")
                         if category_match.probability >= 0.5:
@@ -693,7 +705,7 @@ def call_llm_judge(
                     else CategoricalEvalResult(reasoning="", categories=categories)
                 )
             else:
-                verdict_answer = system_one_result.answers["verdict"]
+                verdict_answer = decision_result.answers["verdict"]
                 if not isinstance(verdict_answer, NoulAnswer):
                     raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
                 probability = verdict_answer.probability
@@ -710,9 +722,9 @@ def call_llm_judge(
                 model=model,
                 parsed=parsed,
                 usage=Usage(
-                    input_tokens=(system_one_result.input_tokens or 0),
-                    output_tokens=(system_one_result.output_tokens or 0),
-                    total_tokens=(system_one_result.input_tokens or 0) + (system_one_result.output_tokens or 0),
+                    input_tokens=(decision_result.input_tokens or 0),
+                    output_tokens=(decision_result.output_tokens or 0),
+                    total_tokens=(decision_result.input_tokens or 0) + (decision_result.output_tokens or 0),
                 ),
             )
         else:
@@ -725,7 +737,7 @@ def call_llm_judge(
                     response_format=response_format,
                 )
             )
-    except SystemOneEndpointBlockedError as e:
+    except DecisionEndpointBlockedError as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("endpoint_blocked", is_byok=is_byok),
@@ -981,9 +993,9 @@ def call_llm_judge(
         "model": model,
         "provider": provider,
     }
-    if system_one_result is not None:
-        result_dict["input_tokens"] = system_one_result.input_tokens
-        result_dict["output_tokens"] = system_one_result.output_tokens
+    if decision_result is not None:
+        result_dict["input_tokens"] = decision_result.input_tokens
+        result_dict["output_tokens"] = decision_result.output_tokens
 
     if isinstance(parsed_result, CategoricalEvalResult | CategoricalWithNAEvalResult):
         result_dict["result_type"] = "categorical"
