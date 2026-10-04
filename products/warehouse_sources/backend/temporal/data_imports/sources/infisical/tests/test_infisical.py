@@ -283,11 +283,14 @@ class TestProjectMembershipsFanOut:
             "/api/v1/projects/p3/memberships",
         ]
 
-    def test_non_permission_error_fails_the_sync(self):
+    @pytest.mark.parametrize("status_code", [400, 403])
+    def test_fails_the_sync_when_no_project_is_readable(self, status_code):
+        # A 403 on every project means the identity lacks the permission outright, so an empty
+        # full refresh must not be reported as a success.
         projects = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}]})
-        bad_request = _response(status_code=400)
+        error = _response(status_code=status_code)
         with pytest.raises(requests.HTTPError):
-            _run_get_rows([_login_response(), projects, bad_request], "project_memberships")
+            _run_get_rows([_login_response(), projects, error], "project_memberships")
 
     def test_fan_out_is_capped(self):
         # base_url is customer-controlled: a host returning far more projects than any real org

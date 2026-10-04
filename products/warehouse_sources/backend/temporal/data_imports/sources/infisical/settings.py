@@ -4,7 +4,7 @@ from typing import Literal
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class InfisicalEndpointConfig:
     name: str
     # API path, optionally with `{organization_id}` / `{project_id}` placeholders.

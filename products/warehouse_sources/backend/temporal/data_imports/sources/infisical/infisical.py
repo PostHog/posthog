@@ -699,6 +699,8 @@ def _get_fan_out_rows(
     # request may overrun by at most one response deadline, which is already bounded elsewhere.
     fan_out_deadline = time.monotonic() + MAX_FAN_OUT_SECONDS
 
+    any_parent_read = False
+    last_forbidden: requests.HTTPError | None = None
     for parent in parents:
         _check_fan_out_budget(fan_out_deadline, config.name)
 
@@ -708,19 +710,30 @@ def _get_fan_out_rows(
 
         path = config.path.replace(placeholder, quote(str(parent_id), safe=""))
         params: dict[str, Any] = {config.parent_id_param: parent_id} if config.parent_id_param else {}
+        yielded = False
         try:
             for rows in _get_fan_out_child_pages(client, config, path, params, fan_out_deadline, logger):
                 if config.parent_id_field:
                     rows = [{**row, config.parent_id_field: parent_id} for row in rows]
+                yielded = True
                 yield rows
+            any_parent_read = True
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             # The machine identity's grants are per-project, and a parent can be deleted
-            # between enumeration and this fetch. Skip rather than failing the sync.
-            if status in (403, 404):
+            # between enumeration and this fetch. Skip rather than failing the sync, unless
+            # pages were already yielded: skipping then would leave a partial parent behind.
+            if status in (403, 404) and not yielded:
+                if status == 403:
+                    last_forbidden = exc
                 logger.warning(f"Infisical: skipping {parent_id} for {config.name} (status={status})")
                 continue
             raise
+
+    # Every parent forbidden means the identity lacks the permission outright. Fail rather than
+    # report an empty full refresh as a success.
+    if last_forbidden is not None and not any_parent_read:
+        raise last_forbidden
 
 
 def get_rows(
