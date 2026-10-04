@@ -294,13 +294,12 @@ async def test_pending_input_without_new_content_keeps_title_summary_and_logs_no
             MarkReportPendingInput(
                 team_id=ateam.id,
                 report_id=report_id,
-                title=None,
-                summary=None,
+                title="Repository selection required",
+                summary="Could not automatically select a repository: no repository matched",
                 reason="Requires human input: no repository matched",
                 pending_reason="repo_selection_required",
                 note="Could not automatically select a repository: no repository matched",
-                fallback_title="Repository selection required",
-                fallback_summary="Could not automatically select a repository: no repository matched",
+                keep_existing_content=True,
             )
         )
 

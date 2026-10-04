@@ -414,13 +414,12 @@ async def test_no_repository_keeps_report_content_and_logs_the_blocker():
     assert recorder.researches == 0
     assert len(recorder.pending_inputs) == 1
     pending = recorder.pending_inputs[0]
-    assert pending.title is None
-    assert pending.summary is None
+    assert pending.keep_existing_content is True
+    assert pending.title == "Repository selection required"
+    assert pending.summary == "Could not automatically select a repository: no repository matched"
     assert pending.suggested_prompts is None
     assert pending.pending_reason == "repo_selection_required"
     assert pending.note == "Could not automatically select a repository: no repository matched"
-    assert pending.fallback_title == "Repository selection required"
-    assert pending.fallback_summary == "Could not automatically select a repository: no repository matched"
 
 
 # ---------------------------------------------------------------------------

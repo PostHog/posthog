@@ -148,10 +148,8 @@ def _capture_report_event(
 
 @frozen
 class ReportDecision:
-    # `None` keeps the report's current title/summary. The no-repo branch does no research, so it
-    # has no new prose, and the content the report already holds must stay searchable.
-    title: str | None
-    summary: str | None
+    title: str
+    summary: str
     choice: ActionabilityChoice
     explanation: str
     # Resolved chart payload to store with the title/summary (see `RunAgenticReportOutput.charts`):
@@ -183,10 +181,11 @@ class ReportDecision:
     # Work-log note to append with the transition. The no-repo branch records its blocker here
     # instead of in the title/summary.
     note: str | None = None
-    # Stored in place of a `None` title/summary only when the report holds none yet (a recurrence
-    # of a safety-failed report starts blank), so a blocked report never shows up empty.
-    fallback_title: str | None = None
-    fallback_summary: str | None = None
+    # Set by the no-repo branch, which does no research. Its `title`/`summary` are placeholders that
+    # fill only blank fields (a recurrence of a safety-failed report starts blank), so a report keeps
+    # the content it is searched and deduplicated by. They stay non-null because an older activity
+    # worker in a rolling deploy rejects `None`.
+    keep_existing_content: bool = False
     # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
@@ -449,14 +448,13 @@ class SignalReportSummaryWorkflow:
                 )
                 blocker = f"Could not automatically select a repository: {repo_result.reason}"
                 decision = ReportDecision(
-                    title=None,
-                    summary=None,
+                    title="Repository selection required",
+                    summary=blocker,
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
                     suggested_prompts=None,
                     note=blocker,
-                    fallback_title="Repository selection required",
-                    fallback_summary=blocker,
+                    keep_existing_content=True,
                     pending_reason="repo_selection_required",
                 )
             else:
@@ -542,8 +540,7 @@ class SignalReportSummaryWorkflow:
                         charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
                         note=decision.note,
-                        fallback_title=decision.fallback_title,
-                        fallback_summary=decision.fallback_summary,
+                        keep_existing_content=decision.keep_existing_content,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -552,8 +549,6 @@ class SignalReportSummaryWorkflow:
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
-            # Only the research branch reaches here, and it always writes a title and summary.
-            assert decision.title is not None and decision.summary is not None
             has_new_signals: bool = await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
@@ -1255,9 +1250,8 @@ class MarkReportPendingInput:
     pending_reason: str | None = None
     # See ReportDecision.note. Appended to the work log in the same transaction.
     note: str | None = None
-    # See ReportDecision.fallback_title.
-    fallback_title: str | None = None
-    fallback_summary: str | None = None
+    # See ReportDecision.keep_existing_content.
+    keep_existing_content: bool = False
 
 
 @temporalio.activity.defn
@@ -1272,8 +1266,8 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
                 return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
-            title = input.title if input.title is not None or report.title else input.fallback_title
-            summary = input.summary if input.summary is not None or report.summary else input.fallback_summary
+            title = report.title if input.keep_existing_content and report.title else input.title
+            summary = report.summary if input.keep_existing_content and report.summary else input.summary
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=title, summary=summary, error=input.reason
             )
