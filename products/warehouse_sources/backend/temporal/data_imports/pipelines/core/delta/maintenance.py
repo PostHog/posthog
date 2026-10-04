@@ -29,6 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     ObjectStorePermissionDeniedError,
     execute_with_conflict_retry,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    note_post_load_phase,
+    recorded_phase,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -248,6 +252,7 @@ class DeltaMaintenance:
         self._table = table
         self._logger = table.logger
 
+    @recorded_phase("vacuum")
     async def _vacuum(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Vacuuming table...")
         # vacuum() commits a REMOVE of tombstoned files, so it's just as subject to delta-rs's
@@ -262,6 +267,7 @@ class DeltaMaintenance:
             "vacuum_table",
             self._logger,
         )
+        note_post_load_phase(files_deleted=len(vacuum_stats) if isinstance(vacuum_stats, list) else None)
         await self._logger.adebug(json.dumps(vacuum_stats))
 
     async def _plan_compaction(self, table: deltalake.DeltaTable) -> CompactionPlan:
@@ -272,6 +278,7 @@ class DeltaMaintenance:
             ratio = None
         return plan_compaction(ratio, get_governor().slot_budget_mb())
 
+    @recorded_phase("compact")
     async def _compact(self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None) -> bool:
         plan = plan or await self._plan_compaction(table)
         target_size = plan.target_size
@@ -328,6 +335,9 @@ class DeltaMaintenance:
             compact_files_removed=compact_stats.get("numFilesRemoved"),
             pod_memory_mb=get_governor().pod.current_mb(),
             peak_rss_mb=_peak_rss_mb(),
+        )
+        note_post_load_phase(
+            files_added=compact_stats.get("numFilesAdded"), files_removed=compact_stats.get("numFilesRemoved")
         )
         await self._logger.adebug(json.dumps(compact_stats))
         return True
@@ -435,6 +445,7 @@ class DeltaMaintenance:
 
         file_uris = await asyncio.to_thread(table.file_uris)
         total_files = len(file_uris)
+        note_post_load_phase(total_files=total_files)
         if partition_count is None:
             # One directory per partition value; unpartitioned tables collapse to the single
             # table root. Without this, a partitioned table with no persisted count reads as

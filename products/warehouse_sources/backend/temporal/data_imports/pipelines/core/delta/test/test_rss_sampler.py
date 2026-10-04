@@ -106,6 +106,25 @@ class TestRssPeakSampler:
             pass
         assert (a.max_concurrent, b.max_concurrent, c.max_concurrent, alone.max_concurrent) == (2, 2, 2, 1)
 
+    def test_windows_in_one_group_count_once(self):
+        sampler = RssPeakSampler(3600.0, read_rss_mb=_Readings(1.0))
+        group = object()
+        with sampler.window(group=group) as outer:
+            with sampler.window(group=group) as inner:
+                pass
+            with sampler.window() as other:
+                pass
+        assert (outer.max_concurrent, inner.max_concurrent, other.max_concurrent) == (2, 1, 2)
+
+    def test_an_enclosing_window_keeps_the_peak_an_inner_window_read(self):
+        # The thread reads once an hour here, so only the inner window's own reads see 900.
+        readings = _Readings(100.0, 900.0, 100.0)
+        sampler = RssPeakSampler(3600.0, read_rss_mb=readings)
+        with sampler.window() as outer:
+            with sampler.window():
+                pass
+        assert (outer.start_mb, outer.peak_mb) == (100.0, 900.0)
+
     def test_window_closes_when_the_upsert_raises(self):
         sampler = RssPeakSampler(0.001, read_rss_mb=_Readings(10.0, 20.0))
         with pytest.raises(RuntimeError):
