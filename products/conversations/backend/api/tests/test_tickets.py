@@ -3278,6 +3278,73 @@ class TestAiFeedbackAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
+class TestRemoveCcParticipantAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id="customer@example.com",
+            email_from="customer@example.com",
+            cc_participants=["support@example.com", "teammate@example.com"],
+            status=Status.OPEN,
+        )
+
+    def _remove(self, email: str, ticket: Ticket | None = None):
+        ticket = ticket or self.ticket
+        return self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/remove_cc_participant/",
+            {"email": email},
+            format="json",
+        )
+
+    @patch("products.conversations.backend.api.tickets.report_user_action")
+    def test_removes_address_case_insensitively_and_logs_activity(self, mock_report):
+        response = self._remove("Support@Example.com")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["cc_participants"] == ["teammate@example.com"]
+        self.ticket.refresh_from_db()
+        assert self.ticket.cc_participants == ["teammate@example.com"]
+
+        entry = ActivityLog.objects.get(team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id))
+        assert entry.detail is not None
+        assert entry.detail["changes"][0]["field"] == "cc_participants"
+        assert entry.detail["changes"][0]["before"] == ["support@example.com", "teammate@example.com"]
+        assert entry.detail["changes"][0]["after"] == ["teammate@example.com"]
+        assert mock_report.call_args.args[1] == "support ticket cc participant removed"
+
+    def test_unknown_address_changes_nothing(self):
+        response = self._remove("someone-else@example.com")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.ticket.refresh_from_db()
+        assert self.ticket.cc_participants == ["support@example.com", "teammate@example.com"]
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket").exists()
+
+    def test_rejects_invalid_email(self):
+        response = self._remove("not-an-email")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_cannot_change_another_teams_ticket(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.EMAIL,
+            distinct_id="customer@example.com",
+            email_from="customer@example.com",
+            cc_participants=["support@example.com"],
+            status=Status.OPEN,
+        )
+
+        response = self._remove("support@example.com", ticket=other_ticket)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        other_ticket.refresh_from_db()
+        assert other_ticket.cc_participants == ["support@example.com"]
+
+
 class TestTicketAccessControl(APIBaseTest):
     """Resource- and object-level access control for support tickets (the `ticket` RBAC resource)."""
 
@@ -3332,6 +3399,16 @@ class TestTicketAccessControl(APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/",
             {"message": "A reply"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_200_OK)])
+    def test_remove_cc_participant_gated_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/remove_cc_participant/",
+            {"email": "support@example.com"},
             format="json",
         )
         self.assertEqual(response.status_code, expected_status, response.json())
