@@ -1344,3 +1344,84 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(any("very similar" in warning.message for warning in metadata.warnings))
+
+    @parameterized.expand(["$time", "$timestamp"])
+    def test_metadata_warns_about_deprecated_timestamp_property_filter(self, property_name: str):
+        metadata = self._select(f"SELECT count() FROM events WHERE properties.{property_name} >= '2026-09-19'")
+
+        warnings = [
+            warning
+            for warning in metadata.warnings
+            if f"'properties.{property_name}' is a deprecated property" in warning.message
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Filter on the 'timestamp' column instead.", warnings[0].message)
+        self.assertIsNone(warnings[0].fix)
+
+    def test_metadata_warns_once_for_a_deprecated_timestamp_range_filter(self):
+        metadata = self._select(
+            "SELECT count() FROM events WHERE properties.$time >= '2026-09-19' AND properties.$time < '2026-09-20'"
+        )
+
+        warnings = [warning for warning in metadata.warnings if "deprecated property" in warning.message]
+        self.assertEqual(len(warnings), 1)
+
+    def test_metadata_warns_about_deprecated_timestamp_property_in_bracket_access(self):
+        metadata = self._select("SELECT count() FROM events WHERE properties['$time'] >= '2026-09-19'")
+
+        self.assertTrue(any("deprecated property" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_warns_about_deprecated_timestamp_property_in_a_subquery(self):
+        metadata = self._select(
+            """
+            SELECT *
+            FROM (
+                SELECT count() AS total
+                FROM events
+                WHERE properties.$time >= '2026-09-19'
+            ) a
+            """
+        )
+
+        self.assertTrue(any("deprecated property" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_does_not_warn_when_the_timestamp_column_is_filtered(self):
+        metadata = self._select("SELECT count() FROM events WHERE timestamp >= '2026-09-19'")
+
+        self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_does_not_warn_when_a_deprecated_timestamp_property_is_only_selected(self):
+        metadata = self._select("SELECT properties.$time FROM events WHERE timestamp >= '2026-09-19'")
+
+        self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_does_not_warn_when_a_filter_subquery_only_selects_the_property(self):
+        metadata = self._select(
+            "SELECT count() FROM events "
+            "WHERE event IN (SELECT properties.$time FROM events WHERE timestamp >= '2026-09-19')"
+        )
+
+        self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_warns_when_a_filter_subquery_filters_on_the_property(self):
+        metadata = self._select(
+            "SELECT count() FROM events "
+            "WHERE event IN (SELECT event FROM events WHERE properties.$time >= '2026-09-19')"
+        )
+
+        warnings = [warning for warning in metadata.warnings if "deprecated property" in warning.message]
+        self.assertEqual(len(warnings), 1)
+
+    def test_metadata_does_not_warn_when_a_cte_shadows_the_events_table(self):
+        metadata = self._select(
+            """
+            WITH events AS (
+                SELECT properties
+                FROM events
+                WHERE timestamp >= '2026-09-19'
+            )
+            SELECT count() FROM events WHERE properties.$time >= '2026-09-19'
+            """
+        )
+
+        self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))
