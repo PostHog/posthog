@@ -872,9 +872,29 @@ export class ApiClient {
             }): Promise<Result<ApiEventDefinition>> => {
                 const createUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/`
 
-                return this.fetchJson<ApiEventDefinition>(createUrl, {
+                const createResult = await this.fetchJson<ApiEventDefinition>(createUrl, {
                     method: 'POST',
                     body: JSON.stringify({ name: eventName, ...data }),
+                })
+
+                if (createResult.success) {
+                    return createResult
+                }
+
+                // Idempotent create. Cross-project taxonomy syncs re-send definitions that already
+                // exist in the target project, and the API rejects the duplicate name with a
+                // validation error. Rather than fail the sync, adopt the existing definition and
+                // apply the supplied metadata, so a re-run converges instead of erroring.
+                const error = createResult.error
+                const isDuplicateName = error instanceof PostHogValidationError && /already exists/i.test(error.detail)
+                if (!isDuplicateName) {
+                    return createResult
+                }
+
+                return this.projects().updateEventDefinition({
+                    projectId,
+                    eventName,
+                    data: data ?? {},
                 })
             },
 
@@ -892,44 +912,29 @@ export class ApiClient {
                     hidden?: boolean
                 }
             }): Promise<Result<ApiEventDefinition>> => {
-                try {
-                    // Fetching the event definition by name to get its ID
-                    const searchParams = new URLSearchParams({ name: eventName })
-                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
+                // Fetching the event definition by name to get its ID
+                const searchParams = new URLSearchParams({ name: eventName })
+                const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
 
-                    const findResponse = await this.fetch(findUrl)
+                const findResult = await this.fetchJson<ApiEventDefinition>(findUrl)
 
-                    if (findResponse.status === 404) {
+                if (!findResult.success) {
+                    if (findResult.error instanceof PostHogApiError && findResult.error.status === 404) {
                         return {
                             success: false,
                             error: new Error(`Event definition not found: ${eventName}`),
                         }
                     }
-
-                    if (!findResponse.ok) {
-                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
-                    }
-
-                    const eventDef = (await findResponse.json()) as ApiEventDefinition
-
-                    // Updating the event definition by ID
-                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${eventDef.id}/`
-
-                    const updateResponse = await this.fetch(updateUrl, {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    })
-
-                    if (!updateResponse.ok) {
-                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
-                    }
-
-                    const responseData = (await updateResponse.json()) as ApiEventDefinition
-
-                    return { success: true, data: responseData }
-                } catch (error) {
-                    return { success: false, error: error as Error }
+                    return findResult
                 }
+
+                // Updating the event definition by ID
+                const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${findResult.data.id}/`
+
+                return this.fetchJson<ApiEventDefinition>(updateUrl, {
+                    method: 'PATCH',
+                    body: JSON.stringify(data),
+                })
             },
 
             updatePropertyDefinition: async ({

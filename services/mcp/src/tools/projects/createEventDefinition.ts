@@ -25,8 +25,9 @@ export const createEventDefinitionHandler: ToolBase<typeof schema, Result>['hand
 
     if (!result.success) {
         // Preserve the typed API error as `cause` so `handleToolError` can
-        // classify a recoverable failure (e.g. a duplicate-name validation
-        // error) instead of counting it as an internal fault.
+        // classify a recoverable failure instead of counting it as an internal
+        // fault. A duplicate name is handled upstream as an idempotent update,
+        // so a failure here is a genuine rejection (bad metadata, missing scope).
         throw wrapError(`Failed to create event definition: ${result.error.message}`, result.error)
     }
 
