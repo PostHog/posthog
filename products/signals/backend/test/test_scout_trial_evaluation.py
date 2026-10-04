@@ -85,7 +85,7 @@ from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.signals.backend.test.test_scout_trial_judge import _reference_context, _snapshot
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run  # tach-ignore
 
 if TYPE_CHECKING:
     pass
@@ -313,6 +313,7 @@ class TestScoutTrialEvaluation(BaseTest):
         ):
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, selected.launch_id)
         judge.assert_awaited_once()
+        assert judge.await_args is not None
         judge_snapshot, judge_evidence = judge.await_args.args
         assert judge_snapshot == snapshot.model_copy(update={"runs": [selected]})
         assert judge_evidence == selected
@@ -1141,7 +1142,8 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
             assert isinstance(payload, TrialEvaluationRunInput)
             policy = options["retry_policy"]
             assert isinstance(policy, RetryPolicy) and policy.maximum_attempts == 1
-            assert options["start_to_close_timeout"] >= timedelta(minutes=17)
+            timeout = options["start_to_close_timeout"]
+            assert isinstance(timeout, timedelta) and timeout >= timedelta(minutes=17)
             active += 1
             highest_active = max(highest_active, active)
             if active == 3:

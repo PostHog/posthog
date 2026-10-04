@@ -123,13 +123,13 @@ def build_trial_judge_prompt(snapshot: TrialJudgeInput, evidence: TrialRunEviden
         raise TrialJudgeValidationError("Start a new trial to use the sandbox judge.")
     if not snapshot.rubric_reference_context:
         raise TrialJudgeValidationError("The saved rubric has no reference instructions.")
-    files = [file.model_dump(mode="json") for file in evidence.files]
-    if not files or len({file["id"] for file in files}) != len(files):
+    files = evidence.files
+    if not files or len({file.id for file in files}) != len(files):
         raise TrialJudgeValidationError("The saved run has no valid evidence file manifest.")
     rubric: dict[str, JsonValue] = {
         "criteria": [criterion.model_dump(mode="json") for criterion in snapshot.criteria],
         "rubric_reference_context": snapshot.rubric_reference_context,
-        "files": files,
+        "files": [file.model_dump(mode="json") for file in files],
         "limitations": list(evidence.limitations),
     }
     return (

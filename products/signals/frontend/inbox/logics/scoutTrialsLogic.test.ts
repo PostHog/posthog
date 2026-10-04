@@ -428,7 +428,9 @@ describe('scoutTrialsLogic', () => {
             expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(5)
         } finally {
             logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
-            await expectLogic(logic, () => logic.mount()).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toFinishAllListeners()
         }
     })
 
