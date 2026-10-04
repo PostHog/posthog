@@ -276,6 +276,13 @@ class VacuumCadence:
 
 
 @frozen
+class _VacuumConfigKeys:
+    version: str
+    vacuumed_at: str
+    full_vacuumed_at: str
+
+
+@frozen
 class VacuumWatermarks:
     """The vacuum cadence state of one Delta table, persisted in the schema's `sync_type_config`.
 
@@ -288,29 +295,33 @@ class VacuumWatermarks:
     full_vacuumed_at: dt.datetime | None
 
     @staticmethod
-    def _keys(is_cdc_companion: bool) -> tuple[str, str, str]:
+    def _keys(is_cdc_companion: bool) -> _VacuumConfigKeys:
         suffix = "_cdc" if is_cdc_companion else ""
-        return f"last_vacuum_version{suffix}", f"last_vacuum_at{suffix}", f"last_full_vacuum_at{suffix}"
+        return _VacuumConfigKeys(
+            version=f"last_vacuum_version{suffix}",
+            vacuumed_at=f"last_vacuum_at{suffix}",
+            full_vacuumed_at=f"last_full_vacuum_at{suffix}",
+        )
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any] | None, is_cdc_companion: bool) -> "VacuumWatermarks":
-        version_key, vacuumed_key, full_key = cls._keys(is_cdc_companion)
+        keys = cls._keys(is_cdc_companion)
         config = config or {}
         return cls(
-            version=config.get(version_key),
-            vacuumed_at=_parse_timestamp(config.get(vacuumed_key)),
-            full_vacuumed_at=_parse_timestamp(config.get(full_key)),
+            version=config.get(keys.version),
+            vacuumed_at=_parse_timestamp(config.get(keys.vacuumed_at)),
+            full_vacuumed_at=_parse_timestamp(config.get(keys.full_vacuumed_at)),
         )
 
     def config_updates(self, previous: "VacuumWatermarks", is_cdc_companion: bool) -> dict[str, Any]:
-        version_key, vacuumed_key, full_key = self._keys(is_cdc_companion)
+        keys = self._keys(is_cdc_companion)
         updates: dict[str, Any] = {}
         if self.version is not None and self.version != previous.version:
-            updates[version_key] = self.version
+            updates[keys.version] = self.version
         if self.vacuumed_at is not None and self.vacuumed_at != previous.vacuumed_at:
-            updates[vacuumed_key] = self.vacuumed_at.isoformat()
+            updates[keys.vacuumed_at] = self.vacuumed_at.isoformat()
         if self.full_vacuumed_at is not None and self.full_vacuumed_at != previous.full_vacuumed_at:
-            updates[full_key] = self.full_vacuumed_at.isoformat()
+            updates[keys.full_vacuumed_at] = self.full_vacuumed_at.isoformat()
         return updates
 
 
