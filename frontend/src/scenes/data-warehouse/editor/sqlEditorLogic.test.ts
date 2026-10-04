@@ -2749,7 +2749,7 @@ describe('sqlEditorLogic', () => {
             }
         )
 
-        test.each(['disable', 'sql', 'clear', 'unchanged'] as const)(
+        test.each(['disable', 'sql', 'clear', 'invalid', 'unchanged'] as const)(
             'handles a pending automatic query when the worksheet is %s',
             async (transition) => {
                 logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
@@ -2769,6 +2769,22 @@ describe('sqlEditorLogic', () => {
                         logic.actions.setQueryInput('SELECT 42')
                     } else if (transition === 'clear') {
                         biLogic.actions.resetConfig()
+                    } else if (transition === 'invalid') {
+                        biLogic.actions.restoreState({
+                            editorView: BIEditorView.BI,
+                            config: {
+                                ...config,
+                                filters: [
+                                    {
+                                        field: { ...eventField, type: 'integer' },
+                                        operator: 'between',
+                                        value: '0',
+                                        valueTo: 'abc',
+                                    },
+                                ],
+                            },
+                        })
+                        biLogic.actions.setLimit(10000)
                     }
                     await jest.advanceTimersByTimeAsync(500)
                     expect(runQuery).toHaveBeenCalledTimes(transition === 'unchanged' ? 1 : 0)
@@ -2850,6 +2866,42 @@ describe('sqlEditorLogic', () => {
                 ...persistedConfig,
                 filters: [{ ...persistedConfig.filters[0], value: 'purchase' }],
             })
+
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'in')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].values).toEqual(['purchase'])
+            await expectLogic(biLogic, () =>
+                biLogic.actions.updateFilter(0, { values: ['purchase', 'renewal'] })
+            ).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: false })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            expect(router.values.hashParams.bi.filters[0]).toEqual(
+                expect.objectContaining({ enabled: false, values: ['purchase', 'renewal'] })
+            )
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: true })).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { values: [] })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'equals')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].value).toBe('')
+
+            biLogic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: {
+                    ...config,
+                    filters: [{ field: { ...eventField, type: 'integer' }, operator: 'between', value: '0' }],
+                },
+            })
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { valueTo: 'abc' })).toFinishAllListeners()
+            const lastRunQuery = logic.values.lastRunQuery
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.error).toBe('Fix invalid worksheet filters before running the query.')
+            expect(logic.values.lastRunQuery).toEqual(lastRunQuery)
+            await expectLogic(biLogic, () =>
+                biLogic.actions.updateFilter(0, { valueTo: '9007199254740993' })
+            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.lastRunQuery?.source.query).toContain('event <= 9007199254740993')
 
             biLogic.unmount()
         })
