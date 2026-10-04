@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
+    NO_COST_HISTORY_ERROR_PREFIX,
     AzureCostManagementResumeConfig,
     azure_cost_management_source,
     validate_credentials as validate_azure_cost_management_credentials,
@@ -130,6 +131,8 @@ The scope is the Azure Resource Manager path to read cost for, without a leading
             "401 Client Error: Unauthorized for url: https://login.microsoftonline.com": "Azure AD rejected the service principal credentials. Check the application (client) ID and client secret, then reconnect.",
             "401 Client Error: Unauthorized for url: https://management.azure.com": "Azure rejected the access token for Cost Management. Check that the app registration is still enabled, then reconnect.",
             "403 Client Error: Forbidden for url: https://management.azure.com": "The service principal cannot read Cost Management on this scope. Give it the Cost Management Reader role on the scope, then reconnect.",
+            # Retrying cannot add cost history Azure does not hold.
+            NO_COST_HISTORY_ERROR_PREFIX: "Azure has no cost history on this scope yet, so there is nothing to sync. Wait until the scope has spend, then enable this table again.",
         }
 
     def get_retryable_errors(self) -> set[str]:
