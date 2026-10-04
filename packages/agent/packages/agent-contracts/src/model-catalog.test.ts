@@ -21,7 +21,7 @@ describe("isOfferedModel", () => {
   });
 
   it.each([
-    "claude-opus-4-8",
+    "claude-opus-5",
     "claude-opus-5-5",
     "claude-sonnet-5",
     "anthropic/claude-opus-5-5",
@@ -35,7 +35,7 @@ describe("isOfferedModel", () => {
 });
 
 describe("isRetiredModel", () => {
-  it.each(["claude-opus-4-7", "claude-sonnet-4-6", "@cf/zai-org/glm-5.2"])(
+  it.each(["claude-opus-4-8", "claude-sonnet-4-6", "@cf/zai-org/glm-5.2"])(
     "retires %s",
     (modelId) => {
       expect(isRetiredModel(modelId)).toBe(true);

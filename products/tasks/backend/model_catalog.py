@@ -214,6 +214,7 @@ MODELS: tuple[CatalogModel, ...] = (
         cost=_OPUS_COST,
         supports_1m_context=True,
         supports_fast_mode=True,
+        retired=True,
     ),
     CatalogModel(
         "claude-opus-5",
