@@ -38,10 +38,39 @@ function unwrapPaginatedResponse(data: unknown): unknown {
         'previous' in data &&
         Object.keys(data).every((key) => ['results', 'next', 'count', 'previous'].includes(key))
     ) {
-        return data.results
+        // Keep the envelope ahead of the rows, so a caller can still check completeness when the text is truncated.
+        const envelope: Record<string, unknown> = {}
+        if ('count' in data && typeof data.count === 'number') {
+            envelope.count = data.count
+        }
+        if (typeof data.next === 'string' && data.next) {
+            Object.assign(envelope, nextPageIndicator(data.next))
+        }
+        if (Object.keys(envelope).length === 0) {
+            return data.results
+        }
+        return { ...envelope, results: data.results }
     }
 
     return data
+}
+
+function nextPageIndicator(next: string): Record<string, string | number> {
+    let params: URLSearchParams
+    try {
+        params = new URL(next, 'http://localhost').searchParams
+    } catch {
+        return { next }
+    }
+    const offset = Number(params.get('offset'))
+    if (params.has('offset') && Number.isInteger(offset)) {
+        return { next_offset: offset }
+    }
+    const cursor = params.get('cursor')
+    if (cursor) {
+        return { next_cursor: cursor }
+    }
+    return { next }
 }
 
 export function formatResponse(data: any): string {

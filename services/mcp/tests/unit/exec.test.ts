@@ -8,7 +8,6 @@ import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
-import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
@@ -301,7 +300,9 @@ describe('exec tool', () => {
                 const result = await exec.handler(mockContext, { command })
 
                 expect(result).toBe(
-                    command.includes('--json') ? JSON.stringify(handlerResult) : formatResponse(results)
+                    command.includes('--json')
+                        ? JSON.stringify(handlerResult)
+                        : 'count: 1\nresults[1]{id,name}:\n  1,example'
                 )
             }
         )
