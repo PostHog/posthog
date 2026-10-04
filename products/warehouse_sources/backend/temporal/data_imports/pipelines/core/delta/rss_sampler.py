@@ -11,7 +11,7 @@ import resource
 import threading
 import contextlib
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 MB = 1024 * 1024
 
@@ -46,6 +46,9 @@ class RssWindow:
     #: Most upserts that had a window open at the same time as this one, itself included.
     max_concurrent: int = 1
     samples: int = 0
+    #: Windows that share a group count once in ``max_concurrent``, so one caller's nested windows
+    #: do not read as concurrent work.
+    group: object | None = field(default=None, repr=False)
 
     def observe(self, rss_mb: float | None) -> None:
         if rss_mb is None:
@@ -107,15 +110,17 @@ class RssPeakSampler:
             raise
 
     @contextlib.contextmanager
-    def window(self) -> Iterator[RssWindow]:
+    def window(self, group: object | None = None) -> Iterator[RssWindow]:
         start = self._safe_read()
-        window = RssWindow(start_mb=round(start, 1) if start is not None else None)
-        window.observe(start)
+        window = RssWindow(start_mb=round(start, 1) if start is not None else None, group=group)
         with self._lock:
             self._open.append(window)
-            running = len(self._open)
+            running = len({w.group if w.group is not None else w for w in self._open})
             for other in self._open:
                 other.max_concurrent = max(other.max_concurrent, running)
+                # A read is a sample for every open window, so an enclosing window keeps the peak
+                # that a short inner window saw between two thread reads.
+                other.observe(start)
             if self._thread is None:
                 self._wake.clear()
                 self._thread = threading.Thread(target=self._run, name="deltalite-rss-sampler", daemon=True)
@@ -125,8 +130,9 @@ class RssPeakSampler:
         finally:
             end = self._safe_read()
             with self._lock:
+                for other in self._open:
+                    other.observe(end)
                 self._open.remove(window)
-                window.observe(end)
                 if not self._open:
                     self._wake.set()
 
