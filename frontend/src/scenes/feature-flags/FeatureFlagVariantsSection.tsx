@@ -49,7 +49,9 @@ export function FeatureFlagVariantsSection({ featureFlag, variants }: FeatureFla
                                     <span className="text-sm font-medium font-mono">{`Variant ${index + 1}`}</span>
                                 )}
                                 <span className="text-xs text-muted tabular-nums">
-                                    {variant.rollout_percentage || 0}%
+                                    {typeof variant.rollout_percentage === 'number'
+                                        ? `${variant.rollout_percentage}%`
+                                        : 'Not set'}
                                 </span>
                             </div>
                         ),
