@@ -214,7 +214,7 @@ export const loadAppMetricsTimeSeries = async (
             FROM
             (
                 SELECT
-                    ${hogql.raw(request.breakdownBy!)} AS breakdown,
+                    ${hogql.raw(request.breakdownBy ?? "''")} AS breakdown,
                     -- Convert data to user's TZ before truncating
                     dateTrunc(g, toTimeZone(timestamp, tz), tz) AS bucket,
                     sum(count) AS cnt
