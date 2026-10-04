@@ -507,6 +507,7 @@ def _write_examples(
             birth_day_positives=birth_day_positives(head_examples.examples),
             example_window_start=head_examples.window_start,
             example_cap_bound=head_examples.cap_bound,
+            pairs_skipped_missing_label_columns=head_examples.pairs_skipped_missing_label_columns,
         )
         for name, head_examples in built.items()
     }
@@ -522,6 +523,12 @@ def _write_examples(
         },
         **{
             f"{feature_set.name}_{name}_birth_day_positives": dagster.MetadataValue.int(head_counts.birth_day_positives)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_pairs_skipped_missing_label_columns": dagster.MetadataValue.int(
+                head_counts.pairs_skipped_missing_label_columns
+            )
             for name, head_counts in counts.items()
         },
         f"{feature_set.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
@@ -773,6 +780,7 @@ def _decide_champion(
         return None
     champion_key = champion_object_key(prefix, family.name)
     champion = _read_json_if_exists(client, bucket, champion_key)
+    champion_grades: dict[str, HoldoutGrade] = {}
     champion_aucs: dict[str, float] = {}
     champion_eces: dict[str, float] = {}
     if champion is not None:
@@ -794,7 +802,7 @@ def _decide_champion(
                     f"the {family.name} champion is compared on its stored AUC"
                 )
             else:
-                grades = paired_champion_grades(
+                champion_grades = paired_champion_grades(
                     client,
                     bucket,
                     prefix,
@@ -803,10 +811,10 @@ def _decide_champion(
                     feature_set=champion_feature_set,
                     holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
                 )
-                champion_aucs = {head: grade.auc for head, grade in grades.items() if grade.auc is not None}
+                champion_aucs = {head: grade.auc for head, grade in champion_grades.items() if grade.auc is not None}
                 champion_eces = {
                     head: grade.expected_calibration_error
-                    for head, grade in grades.items()
+                    for head, grade in champion_grades.items()
                     if grade.expected_calibration_error is not None
                 }
                 context.log.info(
@@ -818,8 +826,8 @@ def _decide_champion(
         champion,
         now=datetime.datetime.now(datetime.UTC),
         min_days_between=settings.INBOX_RANKING_PROMOTION_MIN_DAYS,
-        champion_aucs=champion_aucs,
-        champion_eces=champion_eces,
+        champion_grades=champion_grades,
+        min_holdout_positives={name: head.min_holdout_positives for name, head in HEADS_BY_NAME.items()},
     )
     context.log.info(
         f"{family.name} promotion decision for dt={partition_key}: promote={decision.promote} ({decision.reason})"
@@ -866,6 +874,7 @@ def _decide_champion(
         f"{family.name}_would_promote": dagster.MetadataValue.bool(decision.promote),
         f"{family.name}_promoted": dagster.MetadataValue.bool(promoted),
         f"{family.name}_reason": dagster.MetadataValue.text(decision.reason),
+        f"{family.name}_skipped_heads": dagster.MetadataValue.json(list(decision.skipped_heads)),
         **{
             f"{family.name}_champion_{head}_auc_on_this_holdout": dagster.MetadataValue.float(auc)
             for head, auc in champion_aucs.items()

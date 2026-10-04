@@ -72,6 +72,7 @@ class HeadExampleCounts:
     # so a chart shows when the budget starts to cut history.
     example_window_start: datetime.date | None
     example_cap_bound: bool
+    pairs_skipped_missing_label_columns: int
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -136,6 +137,7 @@ def examples_events(
                 if counts.example_window_start
                 else None,
                 "example_cap_bound": counts.example_cap_bound,
+                "pairs_skipped_missing_label_columns": counts.pairs_skipped_missing_label_columns,
             },
         )
         for head, counts in per_head.items()
@@ -166,6 +168,7 @@ def promotion_event(
             "would_promote": decision.promote,
             "promoted": promoted,
             "reason": decision.reason,
+            "skipped_heads": list(decision.skipped_heads),
             "champion_version": champion_version,
             "incumbent_champion_version": incumbent_champion_version,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},

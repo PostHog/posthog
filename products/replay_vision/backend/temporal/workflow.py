@@ -298,6 +298,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 triggered_by_user_id=inputs.triggered_by_user_id,
                 workflow_id=workflow_id,
                 backfill_id=inputs.backfill_id,
+                variant_sampling_rates=inputs.variant_sampling_rates,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
@@ -352,7 +353,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     ),
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single
-                # call, and must cover both mission passes plus the one verify-positives draw: a pass that
+                # call, and must cover both mission passes: a pass that
                 # overruns would surface as a Temporal timeout labeled provider_transient when the real problem is
                 # the scanner's prompt.
                 start_to_close_timeout=dt.timedelta(minutes=20),
@@ -421,7 +422,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         signals_count=signals_count,
                         signal_problem_types=signal_problem_types,
                         signal_summaries=signal_summaries,
-                        verification=call_output.verification,
                         experiment_variant=(
                             experiment_resolution.experiment_variant if experiment_resolution is not None else None
                         ),
