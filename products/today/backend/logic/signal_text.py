@@ -140,7 +140,10 @@ def slack_thread(signal: SignalInput) -> str | None:
 
 
 def safe_http_url(url: str) -> str | None:
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
     return url if parts.scheme in ("http", "https") and parts.netloc else None
 
 

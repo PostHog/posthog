@@ -8,6 +8,7 @@ from posthog.dataclasses import frozen
 from products.signals.backend.facade import api as signals
 
 SAMPLE_ID_PREFIX = "sample-"
+_SAMPLE_REPO = "example/hedgebox"
 _SAMPLES_PATH = Path(__file__).with_name("sample_reports.json")
 
 
@@ -63,6 +64,6 @@ def sample_page_source(sample: SampleReport) -> signals.ReportPageSource:
         summary=sample.summary,
         sections=signals.report_sections(sample.summary),
         action_prompts=[],
-        repo_slug=None,
+        repo_slug=_SAMPLE_REPO,
         signals=_sample_signals(sample, datetime.now(UTC)),
     )

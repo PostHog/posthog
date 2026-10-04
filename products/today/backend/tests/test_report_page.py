@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -13,6 +15,12 @@ SOLUTION_PR = "Reuse draft https://github.com/example/web/pull/9."
 class TestReportPage(SimpleTestCase):
     @parameterized.expand(
         [
+            (
+                "keeps a title with its name",
+                "Ask Dr. Smith to review this change. Then ship it.",
+                40,
+                "Ask Dr. Smith to review this change.",
+            ),
             (
                 "stops before the limit",
                 "First sentence is short. Second sentence is also short. Third one.",
@@ -76,6 +84,12 @@ class TestReportPage(SimpleTestCase):
                 9,
             ),
             ("a bare reference in the repository", "PR #5 already fixes this.", None, 5),
+            (
+                "a link and a different bare reference",
+                "Merged in https://github.com/example/web/pull/7, and PR #8 follows.",
+                None,
+                None,
+            ),
         ]
     )
     def test_names_the_pull_request(self, _name: str, summary: str, solution: str | None, expected: int | None) -> None:
@@ -96,8 +110,17 @@ class TestReportPage(SimpleTestCase):
         [
             ("a measurement", "212 shoppers could not pay.", "212 shoppers could not pay."),
             ("no number", "Shoppers could not pay.", ""),
-            ("a code path", "Line 42 of `checkout/address.ts` drops it.", ""),
+            ("only digits in code", "`checkout/address_v2.ts` drops it.", ""),
+            (
+                "a measurement beside a code path",
+                "`checkout/address.ts` fails for 12 users.",
+                "`checkout/address.ts` fails for 12 users.",
+            ),
         ]
     )
     def test_keeps_only_a_measured_impact(self, _name: str, impact: str, expected: str) -> None:
         assert report_page(page_source(impact=impact)).impact_sentence == expected
+
+    def test_sees_a_bare_reference_without_a_repository(self) -> None:
+        page = report_page(replace(page_source(solution="PR #5 already fixes this."), repo_slug=None))
+        assert (page.named_pull_request, page.solution_names_pull_request) == (None, True)

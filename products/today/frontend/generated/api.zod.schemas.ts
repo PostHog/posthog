@@ -1022,7 +1022,7 @@ export const ReportPageApi = zod.object({
                     .describe('What expanding the signal shows, if anything.'),
             })
         )
-        .describe("The report's signals, newest first, ready to show."),
+        .describe("The report's newest 100 signals, newest first, ready to show. The counts below use these signals."),
     evidence_signal_ids: zod.array(zod.string()).describe('The ids of the signals to show as evidence, at most 3.'),
     source_count: zod.number().describe('How many distinct source objects the signals come from.'),
     impact_numbers: zod

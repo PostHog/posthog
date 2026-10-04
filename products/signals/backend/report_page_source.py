@@ -55,6 +55,9 @@ def _can_start_work(report: SignalReport, has_pull_requests: bool) -> bool:
     )
 
 
+PAGE_SIGNAL_LIMIT = 100
+
+
 def _report_signals(team: Team, report_id: str) -> list[ReportSignal]:
     return [
         ReportSignal(
@@ -66,7 +69,7 @@ def _report_signals(team: Team, report_id: str) -> list[ReportSignal]:
             timestamp=signal["timestamp"],
             extra=signal["extra"] if isinstance(signal["extra"], dict) else {},
         )
-        for signal in fetch_signals_for_report_sync(team, report_id)
+        for signal in fetch_signals_for_report_sync(team, report_id, newest=PAGE_SIGNAL_LIMIT)
     ]
 
 
@@ -80,7 +83,8 @@ def report_page_source(*, team: Team, report_id: str) -> ReportPageSource | None
     )
     if report is None:
         return None
-    has_pull_requests = bool(fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id))
+    pull_requests = fetch_implementation_prs_for_reports([report_id], team_id=team_id, using="default")
+    has_pull_requests = bool(pull_requests.get(report_id))
     prompts = [prompt for prompt in report.suggested_prompts or [] if isinstance(prompt, str)]
     repository = _latest_content(report, SignalReportArtefact.ArtefactType.REPO_SELECTION).get("repository")
     return ReportPageSource(

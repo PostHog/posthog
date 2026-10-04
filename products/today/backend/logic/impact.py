@@ -6,7 +6,7 @@ from posthog.dataclasses import frozen
 
 from ..facade import contracts
 from ..facade.enums import ImpactNumberKey
-from .signal_text import RECORDING_SOURCES, TICKET_SOURCES, SignalInput, headline, js_number, text_of
+from .signal_text import RECORDING_SOURCES, SignalInput, headline, js_number, text_of
 
 _MIN_TICKETS = 2
 _WEEKS_FROM_DAYS = 14
@@ -17,6 +17,7 @@ _TIME_TAIL = "ms on average"
 _CALLS_TAIL = " calls in last 24h"
 _TIME_CHARS = frozenset("0123456789.,")
 _CALLS_CHARS = frozenset("0123456789,")
+_TICKET_TYPE = "ticket"
 _QUERY_HOURS_SENTENCE = "database time a day, worked out from the query’s pganalyze stats."
 
 
@@ -45,9 +46,9 @@ def _occurrence_of(signal: SignalInput) -> _Occurrence | None:
     if signal.source_product in RECORDING_SOURCES:
         session = text_of(signal.extra.get("session_id"))
         return _Occurrence(kind="sessions", key=session) if session else None
-    if signal.source_product in TICKET_SOURCES:
+    if signal.source_type == _TICKET_TYPE:
         ticket = js_number(signal.extra.get("ticket_number")) or signal.source_id
-        return _Occurrence(kind="tickets", key=ticket) if ticket else None
+        return _Occurrence(kind="tickets", key=f"{signal.source_product}:{ticket}") if ticket else None
     if signal.source_product == "analytics" and signal.source_type == "anomaly_investigation":
         return _Occurrence(kind="alerts", key=text_of(signal.extra.get("alert_check_id")) or signal.source_id)
     return None
@@ -73,8 +74,8 @@ def _occurrences_by_kind(signals: list[SignalInput]) -> dict[str, _Occurrences]:
 
 
 def last_occurrence(signals: list[SignalInput]) -> datetime | None:
-    newest = [occurrences.newest for occurrences in _occurrences_by_kind(signals).values()]
-    return max(newest) if newest else None
+    occurrences = [signal.timestamp for signal in signals if _occurrence_of(signal) is not None]
+    return max(occurrences) if occurrences else None
 
 
 def _amount(text: str) -> float:

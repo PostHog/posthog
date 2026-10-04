@@ -524,7 +524,7 @@ export interface ReportPageApi {
     named_pull_request: PullRequestLinkApi | null
     /** Whether the proposal names any pull request. */
     solution_names_pull_request: boolean
-    /** The report's signals, newest first, ready to show. */
+    /** The report's newest 100 signals, newest first, ready to show. The counts below use these signals. */
     signals: SignalViewApi[]
     /** The ids of the signals to show as evidence, at most 3. */
     evidence_signal_ids: string[]

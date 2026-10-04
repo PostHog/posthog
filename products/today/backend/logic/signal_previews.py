@@ -18,6 +18,7 @@ _IN_APP_PATH = re.compile(r"^(?:posthog|products|ee|common|services|frontend)/")
 _SECTION_LABEL = re.compile(r"^\*\*([^*\n]+?):\*\*\s*")
 _BARE_FILE_NAME = re.compile(r"`([\w-]+\.[a-z]{1,5})`", re.IGNORECASE | re.ASCII)
 _CHANNELS = {"slack": "Slack", "email": "Email", "widget": "Chat widget"}
+_CONVERSATION_MESSAGE = re.compile(r"(?:C|T|AI): ")
 
 SourcePreview = Callable[[SignalInput, contracts.SignalPreview], contracts.SignalPreview | None]
 
@@ -86,10 +87,10 @@ def _pganalyze_query(signal: SignalInput) -> str | None:
     return text_of(query.get("queryText")) if isinstance(query, dict) else None
 
 
-def body_paragraph(content: str, label: str | None = None) -> str | None:
+def body_paragraph(content: str, label: str | None = None, has_title: bool = True) -> str | None:
     trimmed = content.strip()
-    title_end = trimmed.find("\n")
-    body = paragraphs(trimmed[title_end + 1 :]) if title_end >= 0 else []
+    title_end = trimmed.find("\n") if has_title else -1
+    body = paragraphs(trimmed[title_end + 1 :]) if title_end >= 0 or not has_title else []
 
     def label_of(paragraph: str) -> str | None:
         match = _SECTION_LABEL.match(paragraph)
@@ -140,10 +141,12 @@ def _anomaly_facts(extra: dict[str, Any]) -> list[str]:
 
 def _finding_rest(signal: SignalInput) -> str:
     lead = detail(signal).lead
-    for line in signal.content.split("\n"):
+    lines = signal.content.split("\n")
+    for index, line in enumerate(lines):
         found = detail(replace(signal, content=line))
         if lead and found.lead == lead:
-            return found.rest
+            later = detail(replace(signal, content="\n".join(lines[index + 1 :])))
+            return " ".join(part for part in (found.rest, later.lead, later.rest) if part)
     return ""
 
 
@@ -199,7 +202,7 @@ def _description_preview(signal: SignalInput, preview: contracts.SignalPreview) 
 
 
 def _ticket_preview(signal: SignalInput, preview: contracts.SignalPreview) -> contracts.SignalPreview | None:
-    body = body_paragraph(signal.content, "Issue")
+    body = body_paragraph(signal.content, "Issue", has_title=not _CONVERSATION_MESSAGE.match(signal.content.strip()))
     if not body:
         return None
     return replace(

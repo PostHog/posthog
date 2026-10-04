@@ -309,7 +309,10 @@ class ReportPageSerializer(DataclassSerializer):
         help_text="The pull request the proposal names, or else the summary, when it names exactly one.",
     )
     solution_names_pull_request = serializers.BooleanField(help_text="Whether the proposal names any pull request.")
-    signals = SignalViewSerializer(many=True, help_text="The report's signals, newest first, ready to show.")
+    signals = SignalViewSerializer(
+        many=True,
+        help_text="The report's newest 100 signals, newest first, ready to show. The counts below use these signals.",
+    )
     evidence_signal_ids = serializers.ListField(
         child=serializers.CharField(), help_text="The ids of the signals to show as evidence, at most 3."
     )

@@ -15,19 +15,14 @@ _IMPACT_CHARS = 180
 _PULL_REFERENCE = "PR #"
 
 
-def _code_spans(markdown: str) -> list[str]:
+def _prose_outside_code(markdown: str) -> str:
     tokens: list[Token] = MARKDOWN.parseInline(markdown)
-    return [child.content for token in tokens for child in token.children or [] if child.type == "code_inline"]
-
-
-def _names_code_path(markdown: str) -> bool:
-    return any("/" in span or "." in span for span in _code_spans(markdown))
+    return "".join(child.content for token in tokens for child in token.children or [] if child.type == "text")
 
 
 def impact_sentence(impact: str | None) -> str:
     text = concise_text(impact, _IMPACT_CHARS)
-    states_measurement = any(char.isdigit() for char in text) and not _names_code_path(text)
-    return text if states_measurement else ""
+    return text if any(char.isdigit() for char in _prose_outside_code(text)) else ""
 
 
 def proposal(page: signals.ReportPageSource) -> str:
@@ -51,12 +46,14 @@ def _pull_reference_numbers(text: str) -> list[str]:
     return numbers
 
 
-def _pull_requests_in(text: str | None, repo_slug: str | None) -> dict[str, str]:
+def _pull_requests_in(text: str | None, repo_slug: str | None) -> dict[str, str | None]:
     body = text or ""
-    found = {link.number: body[link.start : link.end] for link in github_links(body, lambda link: link.kind == "pull")}
-    if found or not repo_slug:
-        return found
-    return {number: f"https://github.com/{repo_slug}/pull/{number}" for number in _pull_reference_numbers(body)}
+    found: dict[str, str | None] = {
+        number: f"https://github.com/{repo_slug}/pull/{number}" if repo_slug else None
+        for number in _pull_reference_numbers(body)
+    }
+    found |= {link.number: body[link.start : link.end] for link in github_links(body, lambda link: link.kind == "pull")}
+    return found
 
 
 def _only_pull_request(text: str | None, repo_slug: str | None) -> contracts.PullRequestLink | None:
@@ -64,7 +61,7 @@ def _only_pull_request(text: str | None, repo_slug: str | None) -> contracts.Pul
     if len(found) != 1:
         return None
     [(number, url)] = found.items()
-    return contracts.PullRequestLink(url=url, number=int(number))
+    return contracts.PullRequestLink(url=url, number=int(number)) if url else None
 
 
 def report_page(page: signals.ReportPageSource) -> contracts.ReportPage:
