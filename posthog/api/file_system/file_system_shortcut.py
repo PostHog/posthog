@@ -152,7 +152,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
-        if self.action == "list":
+        if self.action in ("list", "reorder", "bulk_update"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         ordering_param = self.request.GET.get("ordering", "")
         if ordering_param == "-created_at":

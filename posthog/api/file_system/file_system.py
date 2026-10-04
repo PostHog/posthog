@@ -502,7 +502,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
-        if self.action == "list":
+        if self.action in ("list", "retrieve"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
         depth_param = self.request.query_params.get("depth")
@@ -943,7 +943,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
 
         if instance.type == "folder":
-            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
+            # Scoped by access control: an inaccessible leftover must not drive folder creation
+            # in an environment the requesting user can't reach.
+            leftovers = self._filter_by_access_control(
+                self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
+            )
             first_leftover = leftovers.first()
             if first_leftover:
                 created_by = first_leftover.created_by or instance_created_by or cast(User, self.request.user)
@@ -1204,6 +1208,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=request.user.id,
             surface=self.file_system_surface,
             type=validated.get("type") or None,
+            exclude_types=RETIRED_FILE_SYSTEM_TYPES,
             limit=validated.get("limit"),
         )
 

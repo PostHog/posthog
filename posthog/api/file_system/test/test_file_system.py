@@ -322,14 +322,16 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(FileSystem.objects.filter(pk=folder.pk).exists(), not delete_parent)
 
     def test_rows_of_retired_type_are_hidden_from_the_tree(self) -> None:
-        folder, _retired = self._create_retired_row_in_folder()
+        folder, retired = self._create_retired_row_in_folder()
         base = f"/api/projects/{self.team.id}/file_system"
 
         listed = self.client.get(f"{base}/?parent=Unfiled/Links").json()
         searched = self.client.get(f"{base}/?search=abc123").json()
         counted = self.client.post(f"{base}/{folder.pk}/count/").json()
+        retrieved = self.client.get(f"{base}/{retired.pk}/")
 
         self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
+        self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_recents_skip_views_of_retired_types(self) -> None:
         _folder, retired = self._create_retired_row_in_folder()
@@ -346,6 +348,23 @@ class TestFileSystemAPI(APIBaseTest):
         recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=1").json()
 
         self.assertEqual([item["id"] for item in recents["results"]], [str(entry.id)])
+
+    def test_log_view_list_skips_views_of_retired_types(self) -> None:
+        _folder, retired = self._create_retired_row_in_folder()
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
+        entry = FileSystem.objects.create(
+            team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
+        )
+        base = f"/api/projects/{self.team.id}/file_system"
+        self.client.post(
+            f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
+        )
+        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+
+        response = self.client.get(f"{base}/log_view/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual([item["ref"] for item in response.json()], [entry.ref])
 
     @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
     def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:
@@ -1968,6 +1987,8 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertTrue(FileSystem.objects.filter(pk=denied_link.pk).exists())
+        # The leftover repair must not write a folder into an environment the user can't access.
+        self.assertFalse(FileSystem.objects.filter(team=team2, path="Shared", type="folder").exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_queries_do_not_scale_with_environment_count(self, mock_flag):

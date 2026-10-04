@@ -203,6 +203,35 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.json()[0]["id"], str(kept.id))
         self.assertFalse(FileSystemShortcut.objects.filter(id=removed.id).exists())
 
+    def test_reorder_response_excludes_retired_shortcuts(self):
+        retired = FileSystemShortcut.objects.create(
+            team=self.team, path="Old link", type="link", user=self.user, order=0
+        )
+        kept = FileSystemShortcut.objects.create(
+            team=self.team, path="Dashboards", type="dashboard", user=self.user, order=1
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
+            {"ordered_ids": [str(kept.id), str(retired.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([row["id"] for row in response.json()], [str(kept.id)])
+
+    def test_bulk_update_response_excludes_retired_shortcuts(self):
+        FileSystemShortcut.objects.create(team=self.team, path="Old link", type="link", user=self.user, order=0)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/bulk_update/",
+            {"add": [{"path": "Dashboards", "type": "dashboard", "href": "/dashboard"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([row["path"] for row in response.json()], ["Dashboards"])
+
     def test_reorder_rejects_empty_list(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
