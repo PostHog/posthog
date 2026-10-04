@@ -1,4 +1,50 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "frontend/src/scenes/max/maxThreadLogic.test.ts::maxThreadLogic error tracking capture gating",
+            "runner": "jest",
+            "reason": "The test.each rows in this describe fail intermittently on unrelated pull requests",
+            "owner": "@team-self-driving",
+            "added": "2026-10-04",
+            "expires": "2026-11-03",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/api/test/test_ingestion_warnings_v2.py::TestIngestionWarningsV2API::test_time_range_bounds_results",
+            "runner": "pytest",
+            "reason": "Fails intermittently on unrelated pull requests and passes on a re-run of the same commit",
+            "owner": "@team-ingestion",
+            "added": "2026-10-04",
+            "expires": "2026-11-03",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/hogql_queries/ai/test/test_vector_search_query_runner.py::TestVectorSearchQueryRunner::test_vector_search_selects_max_version",
+            "runner": "pytest",
+            "reason": "Fails intermittently on unrelated pull requests and passes on a re-run of the same commit",
+            "owner": "@team-ai-observability",
+            "added": "2026-10-04",
+            "expires": "2026-11-03",
+            "mode": "run"
+        },
+        {
+            "id": "products/error_tracking/frontend/posthogAi/ErrorTrackingWidget.test.tsx::ErrorTrackingWidget loads the declared renderer and falls back for the MCP issues-list response",
+            "runner": "jest",
+            "reason": "Fails intermittently on unrelated pull requests and passes on a re-run of the same commit",
+            "owner": "@team-error-tracking",
+            "added": "2026-10-04",
+            "expires": "2026-11-03",
+            "mode": "run"
+        },
+        {
+            "id": "products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/postgres_queue/test_jobs_db.py::TestGetQueueDepth::test_probe_uses_the_partial_indexes",
+            "runner": "pytest",
+            "reason": "EXPLAIN plan assertion depends on planner statistics; sb_schema_busy_idx is not always chosen on a fresh test database",
+            "owner": "@team-warehouse-sources",
+            "added": "2026-10-04",
+            "expires": "2026-11-03",
+            "mode": "run"
+        }
+    ]
 }
