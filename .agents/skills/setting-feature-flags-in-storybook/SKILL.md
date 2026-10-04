@@ -58,17 +58,21 @@ You can mix booleans and variants in one record: `{ 'some-bool-flag': true, 'my-
 
 ## Why the obvious approach fails
 
-Setting flags imperatively (`featureFlagLogic.actions.setFeatureFlags`) works in `jest`
-(`NODE_ENV==='test'`) but not in the built visual-regression Storybook. posthog-js loads
-flags and fires `onFeatureFlags` with an empty set, which dispatches `setFeatureFlags`
-and **wipes** whatever you set imperatively — so the unit test passes while the snapshot
-renders the flag-OFF branch. The `featureFlags` parameter avoids this by writing flags to
-the always-merged baseline instead (below), so the empty callback can't clobber them.
+Setting flags imperatively (`featureFlagLogic.actions.setFeatureFlags`) works in `jest` (`NODE_ENV==='test'`) but not in the built visual-regression Storybook.
+There the logic dispatches an empty flag set of its own, which **wipes** whatever you set imperatively and leaves only the persisted baseline.
+The unit test passes while the snapshot renders the flag-OFF branch, and a story does not control that order.
+The `featureFlags` parameter avoids this by writing flags to that always-merged baseline instead (below), so the empty dispatch keeps them.
 
-> Do **not** try to fix this by disabling posthog-js flags (e.g. `advanced_disable_feature_flags`).
-> The app shell (`appLogic.showApp`) only renders once `receivedFeatureFlags` is true,
-> which is set by that same `onFeatureFlags` callback — suppress it and every
-> `Scenes-App/*` story stalls behind a 3s timeout and flakes.
+### Flags are already off in Storybook
+
+`loadPostHogJS` uses a placeholder init when the page has no project key, and Storybook sets no key.
+Storybook therefore runs posthog-js with `advanced_disable_flags: true`, and the SDK fires no `onFeatureFlags` callback at all.
+`featureFlagLogic` reads that config on mount and dispatches an empty flag set itself, which turns `receivedFeatureFlags` true and lets the app shell (`appLogic.showApp`) render.
+
+> [!NOTE]
+> Before that branch existed, disabling posthog-js flags held every `Scenes-App/*` story behind a 3s timeout, because nothing else set `receivedFeatureFlags`.
+> That failure mode is gone, and `advanced_disable_flags` is a supported way to start a page that needs no remote flags.
+> It is still not a way to give a story flag values — use the `featureFlags` parameter for that.
 
 ## Under the hood (implementation detail — may drift)
 
@@ -79,8 +83,8 @@ the always-merged baseline instead (below), so the empty callback can't clobber 
 flags (array or record) straight to `window.POSTHOG_APP_CONTEXT.persisted_feature_flags`.
 `getPersistedFeatureFlags` (`frontend/src/lib/logic/featureFlagLogic.ts`) reads that as
 `featureFlagLogic`'s initial value and `spyOnFeatureFlags` always merges it as the
-baseline — so both booleans and pinned variants survive the empty `onFeatureFlags`
-callback. The only production-side support this needs is `getPersistedFeatureFlags`
+baseline — so both booleans and pinned variants survive the empty flag set the logic
+dispatches. The only production-side support this needs is `getPersistedFeatureFlags`
 accepting the record form (variant values) in addition to the server's array form.
 
 You should not need to touch any of this. If you're extending the harness, that's the seam.
