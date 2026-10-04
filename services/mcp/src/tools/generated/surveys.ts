@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/surveys/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SurveyCreateSchema = () => {
@@ -384,12 +384,18 @@ const surveysGetAll = (): ToolBase<
                     type: params.type,
                 },
             })
+            const filtered = {
+                ...result,
+                results: (result.results ?? []).map((item: any) =>
+                    omitResponseFields(item, ['linked_flag', 'targeting_flag', 'internal_targeting_flag'])
+                ),
+            } as typeof result
             return await withPostHogUrl(
                 context,
                 {
-                    ...result,
+                    ...filtered,
                     results: await Promise.all(
-                        (result.results ?? []).map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
+                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
                     ),
                 },
                 '/surveys'
