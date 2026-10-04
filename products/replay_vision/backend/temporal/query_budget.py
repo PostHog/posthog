@@ -1,10 +1,10 @@
 import time
 import datetime as dt
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from typing import Any
 
-from django.db import connections, router, transaction
+from django.db import DatabaseError, connections, router, transaction
 from django.db.backends.base.base import BaseDatabaseWrapper
 
 from temporalio import activity
@@ -59,10 +59,14 @@ def _capped(connection: BaseDatabaseWrapper, deadline: float) -> Iterator[None]:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_setting('statement_timeout')")
             previous = cursor.fetchone()[0]
-    with connection.execute_wrapper(cap_to_deadline):
-        yield
-    if previous is not None:
-        _set_statement_timeout(connection, previous)
+    try:
+        with connection.execute_wrapper(cap_to_deadline):
+            yield
+    finally:
+        if previous is not None:
+            # An aborted transaction rejects the reset, and its rollback undoes the cap anyway.
+            with suppress(DatabaseError):
+                _set_statement_timeout(connection, previous)
 
 
 @contextmanager

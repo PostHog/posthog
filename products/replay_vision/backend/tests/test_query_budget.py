@@ -18,3 +18,15 @@ class TestBoundedQueries(BaseTest):
                     with connection.cursor() as cursor:
                         cursor.execute("SELECT 1")
                         cursor.execute("SELECT pg_sleep(0.2)")
+
+    def test_the_caller_transaction_gets_its_timeout_back_when_the_block_raises(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout = '7s'")
+        with self.assertRaises(ValueError):
+            with bounded_queries(dt.timedelta(seconds=60)):
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                raise ValueError
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_setting('statement_timeout')")
+            self.assertEqual(cursor.fetchone()[0], "7s")
