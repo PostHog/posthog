@@ -797,7 +797,9 @@ export const SignalViewApi = zod.object({
     timestamp: zod.iso.datetime({ offset: true }).describe('When the signal happened.'),
     extra: zod
         .record(zod.string(), zod.unknown())
-        .describe("The emitter's extra fields, used to link to the source object."),
+        .describe(
+            "The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON."
+        ),
     headline: zod.string().describe('The signal as one short line.'),
     lead: zod.string().describe("The signal's first sentence."),
     meta: zod.string().describe('Identifiers such as a pull request or ticket number, joined by dots.'),
@@ -921,7 +923,7 @@ export const ReportPageApi = zod.object({
         .describe(
             'The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise.'
         ),
-    in_flight_pull_request: zod
+    named_pull_request: zod
         .union([
             zod.object({
                 url: zod.string().describe('The pull request on GitHub.'),
@@ -942,7 +944,9 @@ export const ReportPageApi = zod.object({
                 timestamp: zod.iso.datetime({ offset: true }).describe('When the signal happened.'),
                 extra: zod
                     .record(zod.string(), zod.unknown())
-                    .describe("The emitter's extra fields, used to link to the source object."),
+                    .describe(
+                        "The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON."
+                    ),
                 headline: zod.string().describe('The signal as one short line.'),
                 lead: zod.string().describe("The signal's first sentence."),
                 meta: zod.string().describe('Identifiers such as a pull request or ticket number, joined by dots.'),
@@ -1019,8 +1023,8 @@ export const ReportPageApi = zod.object({
             })
         )
         .describe("The report's signals, newest first, ready to show."),
-    evidence: zod.array(zod.string()).describe('The ids of the signals to show as evidence, at most 3.'),
-    evidence_count: zod.number().describe('How many distinct source objects the signals come from.'),
+    evidence_signal_ids: zod.array(zod.string()).describe('The ids of the signals to show as evidence, at most 3.'),
+    source_count: zod.number().describe('How many distinct source objects the signals come from.'),
     impact_numbers: zod
         .array(
             zod.object({

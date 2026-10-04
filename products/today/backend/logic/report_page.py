@@ -1,4 +1,3 @@
-from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from posthog.models import Team
@@ -9,16 +8,15 @@ from ..facade import contracts
 from . import evidence, impact, samples
 from .formats import digits_end, github_links, is_word_char
 from .prose import concise_text
+from .report_text import MARKDOWN
 
 _PROPOSAL_CHARS = 260
 _IMPACT_CHARS = 180
-_ACTION_CAPABLE_STATUSES = frozenset({"ready", "pending_input"})
-_MARKDOWN = MarkdownIt("commonmark")
 _PULL_REFERENCE = "PR #"
 
 
 def _code_spans(markdown: str) -> list[str]:
-    tokens: list[Token] = _MARKDOWN.parseInline(markdown)
+    tokens: list[Token] = MARKDOWN.parseInline(markdown)
     return [child.content for token in tokens for child in token.children or [] if child.type == "code_inline"]
 
 
@@ -32,17 +30,8 @@ def impact_sentence(impact: str | None) -> str:
     return text if states_measurement else ""
 
 
-def _action_capable(page: signals.ReportPageSource) -> bool:
-    return (
-        page.status in _ACTION_CAPABLE_STATUSES
-        and page.already_addressed is not True
-        and page.actionability != "not_actionable"
-        and not page.has_pull_requests
-    )
-
-
 def proposal(page: signals.ReportPageSource) -> str:
-    fallback = page.suggested_prompts[0] if page.suggested_prompts and _action_capable(page) else None
+    fallback = page.action_prompts[0] if page.action_prompts else None
     return concise_text(page.sections.solution or fallback, _PROPOSAL_CHARS)
 
 
@@ -78,31 +67,19 @@ def _only_pull_request(text: str | None, repo_slug: str | None) -> contracts.Pul
     return contracts.PullRequestLink(url=url, number=int(number))
 
 
-def _signal_input(signal: signals.ReportSignal) -> evidence.SignalInput:
-    return evidence.SignalInput(
-        signal_id=signal.signal_id,
-        content=signal.content,
-        source_product=signal.source_product,
-        source_type=signal.source_type,
-        source_id=signal.source_id,
-        timestamp=signal.timestamp,
-        extra=signal.extra,
-    )
-
-
 def report_page(page: signals.ReportPageSource) -> contracts.ReportPage:
     solution = page.sections.solution
-    inputs = evidence.newest_first([_signal_input(signal) for signal in page.signals])
+    inputs = evidence.newest_first(page.signals)
     return contracts.ReportPage(
         lead=page.sections.lead,
         proposal=proposal(page),
         impact_sentence=impact_sentence(page.sections.impact),
-        in_flight_pull_request=_only_pull_request(solution, page.repo_slug)
+        named_pull_request=_only_pull_request(solution, page.repo_slug)
         or _only_pull_request(page.summary, page.repo_slug),
         solution_names_pull_request=bool(_pull_requests_in(solution, page.repo_slug)),
         signals=[evidence.signal_view(signal) for signal in inputs],
-        evidence=[signal.signal_id for signal in evidence.pick_evidence(inputs)],
-        evidence_count=evidence.distinct_evidence_count(inputs),
+        evidence_signal_ids=[signal.signal_id for signal in evidence.pick_evidence(inputs)],
+        source_count=evidence.distinct_evidence_count(inputs),
         impact_numbers=impact.impact_numbers(inputs),
         last_seen=impact.last_occurrence(inputs),
     )

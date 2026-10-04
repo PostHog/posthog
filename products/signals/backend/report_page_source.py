@@ -5,6 +5,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_sections import ReportSections, report_sections
@@ -26,11 +27,7 @@ class ReportSignal:
 class ReportPageSource:
     summary: str
     sections: ReportSections
-    status: str
-    actionability: str | None
-    already_addressed: bool | None
-    has_pull_requests: bool
-    suggested_prompts: list[str]
+    action_prompts: list[str]
     repo_slug: str | None
     signals: list[ReportSignal]
 
@@ -44,6 +41,18 @@ def _latest_content(report: SignalReport, artefact_type: str) -> dict[str, objec
     except (TypeError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+_STARTABLE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT})
+
+
+def _can_start_work(report: SignalReport, has_pull_requests: bool) -> bool:
+    return (
+        report.status in _STARTABLE_STATUSES
+        and report.latest_already_addressed is not True
+        and report.latest_actionability != ActionabilityChoice.NOT_ACTIONABLE.value
+        and not has_pull_requests
+    )
 
 
 def _report_signals(team: Team, report_id: str) -> list[ReportSignal]:
@@ -65,24 +74,19 @@ def report_page_source(*, team: Team, report_id: str) -> ReportPageSource | None
     team_id = team.id
     report = (
         SignalReport.objects.filter(team_id=team_id, id=report_id)
-        .only("id", "status", "summary", "suggested_prompts")
+        .exclude(status=SignalReport.Status.DELETED)
+        .only("id", "status", "summary", "suggested_prompts", "latest_actionability", "latest_already_addressed")
         .first()
     )
     if report is None:
         return None
-    judgment = _latest_content(report, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
-    repo_selection = _latest_content(report, SignalReportArtefact.ArtefactType.REPO_SELECTION)
-    actionability = judgment.get("actionability")
-    already_addressed = judgment.get("already_addressed")
-    repository = repo_selection.get("repository")
+    has_pull_requests = bool(fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id))
+    prompts = [prompt for prompt in report.suggested_prompts or [] if isinstance(prompt, str)]
+    repository = _latest_content(report, SignalReportArtefact.ArtefactType.REPO_SELECTION).get("repository")
     return ReportPageSource(
         summary=report.summary or "",
         sections=report_sections(report.summary),
-        status=report.status,
-        actionability=actionability if isinstance(actionability, str) else None,
-        already_addressed=already_addressed if isinstance(already_addressed, bool) else None,
-        has_pull_requests=bool(fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id)),
-        suggested_prompts=[prompt for prompt in report.suggested_prompts or [] if isinstance(prompt, str)],
+        action_prompts=prompts if _can_start_work(report, has_pull_requests) else [],
         repo_slug=repository if isinstance(repository, str) and repository else None,
         signals=_report_signals(team, report_id),
     )

@@ -1,9 +1,9 @@
 import re
-from datetime import datetime
-from typing import Any
 from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
+
+from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
 from ..facade.enums import CitedSource
@@ -39,17 +39,9 @@ _DETAIL_ENDS = (".", "!", "?", ":", ")")
 _SCOUT = "signals_scout"
 TICKET_SOURCES = frozenset({"conversations", "zendesk"})
 RECORDING_SOURCES = frozenset({"replay_vision", "session_replay"})
+_SLACK_HOST = "slack.com"
 
-
-@frozen
-class SignalInput:
-    signal_id: str
-    content: str
-    source_product: str
-    source_type: str
-    source_id: str
-    timestamp: datetime
-    extra: dict[str, Any]
+SignalInput = signals.ReportSignal
 
 
 @frozen
@@ -136,9 +128,15 @@ def github_file_url(file: contracts.CodeFile) -> str:
     return f"https://github.com/{file.repo}/blob/HEAD/{file.path}"
 
 
+def _is_slack_host(url: str) -> bool:
+    host = urlsplit(url).hostname or ""
+    return host == _SLACK_HOST or host.endswith(f".{_SLACK_HOST}")
+
+
 def slack_thread(signal: SignalInput) -> str | None:
     match = _SLACK_LINK.search(signal.content) if signal.source_product == _SCOUT else None
-    return safe_http_url(match.group(0).rstrip(").,")) if match else None
+    url = safe_http_url(match.group(0).rstrip(").,")) if match else None
+    return url if url and _is_slack_host(url) else None
 
 
 def safe_http_url(url: str) -> str | None:

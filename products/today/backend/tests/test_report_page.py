@@ -3,31 +3,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.signals.backend.facade import api as signals
-from products.today.backend.logic.report_page import concise_text, report_page
+from products.today.backend.logic.prose import concise_text
+from products.today.backend.logic.report_page import report_page
+from products.today.backend.tests.factories import page_source
 
 SOLUTION_PR = "Reuse draft https://github.com/example/web/pull/9."
-
-
-def page_source(
-    *,
-    summary: str = "",
-    solution: str | None = None,
-    impact: str | None = None,
-    status: str = "ready",
-    has_pull_requests: bool = False,
-    suggested_prompts: list[str] | None = None,
-) -> signals.ReportPageSource:
-    return signals.ReportPageSource(
-        summary=summary,
-        sections=signals.ReportSections(lead="Lead.", impact=impact, solution=solution),
-        status=status,
-        actionability="immediately_actionable",
-        already_addressed=False,
-        has_pull_requests=has_pull_requests,
-        suggested_prompts=suggested_prompts or [],
-        repo_slug="example/web",
-        signals=[],
-    )
 
 
 class TestReportPage(SimpleTestCase):
@@ -98,22 +78,15 @@ class TestReportPage(SimpleTestCase):
             ("a bare reference in the repository", "PR #5 already fixes this.", None, 5),
         ]
     )
-    def test_names_the_in_flight_pull_request(
-        self, _name: str, summary: str, solution: str | None, expected: int | None
-    ) -> None:
-        pull_request = report_page(page_source(summary=summary, solution=solution)).in_flight_pull_request
+    def test_names_the_pull_request(self, _name: str, summary: str, solution: str | None, expected: int | None) -> None:
+        pull_request = report_page(page_source(summary=summary, solution=solution)).named_pull_request
         assert (pull_request.number if pull_request else None) == expected
 
     @parameterized.expand(
         [
-            ("a solution", page_source(solution="Keep the token.", suggested_prompts=["Fix it"]), "Keep the token."),
-            ("the first prompt when work can start", page_source(suggested_prompts=["Fix it", "Test it"]), "Fix it."),
-            (
-                "no prompt when a pull request exists",
-                page_source(has_pull_requests=True, suggested_prompts=["Fix it"]),
-                "",
-            ),
-            ("no prompt once resolved", page_source(status="resolved", suggested_prompts=["Fix it"]), ""),
+            ("a solution", page_source(solution="Keep the token.", action_prompts=["Fix it"]), "Keep the token."),
+            ("the first prompt when work can start", page_source(action_prompts=["Fix it", "Test it"]), "Fix it."),
+            ("nothing without a solution or a prompt", page_source(), ""),
         ]
     )
     def test_proposes(self, _name: str, source: signals.ReportPageSource, expected: str) -> None:
