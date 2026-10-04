@@ -595,26 +595,7 @@ async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tom
     });
 
     // Commit the attach only once the delete waits on the mark, so the delete cannot finish first.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let waiting: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_stat_activity
-             WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
-               AND query LIKE '%INSERT INTO lifecycle_op_person%'",
-        )
-        .bind(attach_pid)
-        .fetch_one(&ctx.pool)
-        .await
-        .unwrap();
-        if waiting > 0 {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the delete never waited on the attach's mark"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    wait_for_a_mark_claim_blocked_by(&ctx.pool, attach_pid).await;
     attach.commit().await.unwrap();
 
     let outcome = delete.await.unwrap().expect("delete persons");
@@ -623,6 +604,77 @@ async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tom
     assert!(is_deleted);
     assert_eq!(distinct_ids, vec![(true, 1), (true, 2)]);
     assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+async fn wait_for_a_mark_claim_blocked_by(pool: &sqlx::PgPool, holder_pid: i32) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
+               AND query LIKE '%INSERT INTO lifecycle_op_person%'",
+        )
+        .bind(holder_pid)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the delete never waited on the held mark"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_leaves_a_person_created_after_the_claim_live() {
+    let ctx = TestContext::new().await;
+    let held = ctx.insert_person("recreate_held", None).await.unwrap();
+    let recreated_uuid = Uuid::now_v7();
+
+    let mut holder = ctx.pool.begin().await.unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *holder)
+        .await
+        .unwrap();
+    let op_id = claim_merge_mark(&mut holder, ctx.team_id, &held).await;
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let uuids = [held.uuid, recreated_uuid];
+    let delete = tokio::spawn(async move {
+        storage
+            .delete_persons(team_id, &uuids, DeletePersonsMode::Tombstone)
+            .await
+    });
+
+    // Create the second person only after the delete's claim read missed it.
+    wait_for_a_mark_claim_blocked_by(&ctx.pool, holder_pid).await;
+    let recreated = ctx
+        .insert_person_with_uuid("recreate_new", None, recreated_uuid)
+        .await
+        .unwrap();
+    holder.commit().await.unwrap();
+
+    let outcome = delete.await.unwrap().expect("delete persons");
+    assert_eq!(outcome.deleted, 1);
+    let tombstoned: Vec<Uuid> = outcome.tombstones.unwrap().iter().map(|t| t.uuid).collect();
+    assert_eq!(tombstoned, vec![held.uuid]);
+    let (is_deleted, version, _, distinct_ids) =
+        tombstone_state(&ctx.pool, ctx.team_id, recreated.id).await;
+    assert!(!is_deleted);
+    assert_eq!(version, 0);
+    assert_eq!(distinct_ids, vec![(false, 0)]);
 
     ctx.cleanup().await.ok();
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id::bigint as \"id!\", uuid as \"uuid!\",\n               COALESCE(version, 0)::bigint as \"version!\", is_deleted as \"is_deleted!\"\n        FROM posthog_person\n        WHERE team_id = $1 AND uuid = ANY($2)\n        ORDER BY id FOR UPDATE\n        ",
+  "query": "\n        SELECT id::bigint as \"id!\", uuid as \"uuid!\",\n               COALESCE(version, 0)::bigint as \"version!\", is_deleted as \"is_deleted!\"\n        FROM posthog_person\n        WHERE team_id = $1 AND id = ANY($2)\n        ORDER BY id FOR UPDATE\n        ",
   "describe": {
     "columns": [
       {
@@ -27,7 +27,7 @@
     "parameters": {
       "Left": [
         "Int4",
-        "UuidArray"
+        "Int8Array"
       ]
     },
     "nullable": [
@@ -37,5 +37,5 @@
       false
     ]
   },
-  "hash": "addc1747821f2f45601a9524ee8f70aa58c8c2173e9e9aa2ba18632a5da005db"
+  "hash": "e6869d827b4d4d6e025415989e567c8ebc9c0410e13b35c31e7e9a4e064e8dc3"
 }

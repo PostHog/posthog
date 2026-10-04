@@ -1361,20 +1361,21 @@ async fn tombstone_persons_by_uuids(
         .execute(&mut *tx)
         .await?;
 
-    let mark_op_id = claim_delete_marks(&mut tx, team_id, uuids).await?;
+    let (mark_op_id, claimed_ids) = claim_delete_marks(&mut tx, team_id, uuids).await?;
 
-    // Lock every requested person up front, in id order, the order the
-    // ingestion writer and the tombstone drain take their locks in.
+    // Lock the claimed persons up front, in id order, the order the ingestion
+    // writer and the tombstone drain take their locks in. Lock by id, not uuid:
+    // a person re-created under a requested uuid after the claim holds no mark.
     let rows = sqlx::query!(
         r#"
         SELECT id::bigint as "id!", uuid as "uuid!",
                COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
         FROM posthog_person
-        WHERE team_id = $1 AND uuid = ANY($2)
+        WHERE team_id = $1 AND id = ANY($2)
         ORDER BY id FOR UPDATE
         "#,
         team_id as i32,
-        uuids
+        &claimed_ids
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1450,7 +1451,7 @@ async fn claim_delete_marks(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     uuids: &[Uuid],
-) -> StorageResult<Option<Uuid>> {
+) -> StorageResult<(Option<Uuid>, Vec<i64>)> {
     let persons = sqlx::query!(
         r#"
         SELECT id::bigint as "id!", uuid as "uuid!"
@@ -1464,7 +1465,7 @@ async fn claim_delete_marks(
     .fetch_all(&mut **tx)
     .await?;
     if persons.is_empty() {
-        return Ok(None);
+        return Ok((None, Vec::new()));
     }
 
     let op_id = Uuid::new_v4();
@@ -1504,7 +1505,7 @@ async fn claim_delete_marks(
             persons.len()
         )));
     }
-    Ok(Some(op_id))
+    Ok((Some(op_id), person_ids))
 }
 
 async fn release_delete_marks(
