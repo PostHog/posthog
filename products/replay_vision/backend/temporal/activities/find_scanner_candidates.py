@@ -64,6 +64,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
 )
+from products.replay_vision.backend.variant_analysis import pause_variant_analysis_scouts
 
 
 @frozen
@@ -113,6 +114,16 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | Non
     return None
 
 
+def _stop_variant_analysis(scanner: ReplayScanner) -> None:
+    # Best-effort: a failure here leaves the scout running one more day, which must never fail the tick.
+    try:
+        pause_variant_analysis_scouts(scanner)
+    except Exception:
+        activity.logger.exception(
+            "replay_vision.sweep.variant_analysis_pause_failed", extra={"scanner_id": str(scanner.id)}
+        )
+
+
 def _swept_past(scanner: ReplayScanner, end: dt.datetime) -> bool:
     """Whether both passes have covered everything up to `end`."""
     deep_done = scanner.deep_swept_through is None or scanner.deep_swept_through >= end
@@ -150,6 +161,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
         scanner.enabled = False
         scanner.save(update_fields=["enabled"])
+        _stop_variant_analysis(scanner)
         record_sweep_outcome("experiment_deleted")
         activity.logger.info("replay_vision.sweep.disabled_experiment_scanner scanner_id=%s", inputs.scanner_id)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
@@ -160,6 +172,11 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             # relaunch, but a disabled scanner has no schedule left to notice either. So skip the
             # tick instead, before any ClickHouse read. Both watermarks move to now, as a re-enable
             # does, so the sweep picks up from the resume or relaunch and never bills the gap.
+            if lifecycle_block.kind != "paused":
+                # A pause resumes, and the scout can sit it out. An ended or archived experiment's
+                # data stops changing, so its scout would only re-read the same summaries on the
+                # customer's bill.
+                _stop_variant_analysis(scanner)
             record_sweep_outcome("experiment_over")
             horizon = initial_watermark()
             return FindScannerCandidatesOutput(

@@ -997,6 +997,8 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
+export const visionScannersScoutsCreateBodyVariantAnalysisDefault = false
+
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
         display_name: zod
@@ -1178,6 +1180,12 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
+            ),
+        variant_analysis: zod
+            .boolean()
+            .default(visionScannersScoutsCreateBodyVariantAnalysisDefault)
+            .describe(
+                "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
             ),
     })
     .describe(
