@@ -4099,14 +4099,14 @@ Note: Static endpoint list; source dir products/warehouse_sources/backend/tempor
 
 ## Honeycomb — gaps
 
-Today (9): `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `slos`, `triggers`
+Today (11): `board_views`, `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `slo_counts_history`, `slos`, `triggers`
 
 Diffed against: <https://api-docs.honeycomb.io/api/openapi-public.yaml>
 
-- [ ] `/1/slos/{datasetSlug}/{sloId}/counts/history` — hourly SLI good/bad event counts - the data behind SLO compliance and burn, and we already sync slos (high)
-- [ ] `/1/slos/{datasetSlug}/{sloId}/counts` — current SLO budget/compliance counts, Honeycomb's headline reliability metric (high)
-- [ ] `/2/teams/{teamSlug}/environments` — lookup table for the environments that own the datasets we already sync (high)
-- [ ] `/1/boards/{boardId}/views` — the views that make up each board we sync - board content is otherwise opaque (medium)
+- [x] `/1/slos/{datasetSlug}/{sloId}/counts/history` — hourly SLI good/bad event counts - the data behind SLO compliance and burn, and we already sync slos (high). Added as `slo_counts_history` (incremental on `start_time`; Enterprise plan only, off by default).
+- [ ] `/1/slos/{datasetSlug}/{sloId}/counts` — current SLO budget/compliance counts, Honeycomb's headline reliability metric (high). Skipped: it returns per-minute deltas for the current clock hour only, a realtime feed rather than a table; `slo_counts_history` holds the same counts per hour.
+- [ ] `/2/teams/{teamSlug}/environments` — lookup table for the environments that own the datasets we already sync (high). Skipped: it is a v2 Management API endpoint that needs a management key and a team slug, and the source authenticates with an environment-scoped configuration key.
+- [x] `/1/boards/{boardId}/views` — the views that make up each board we sync - board content is otherwise opaque (medium). Added as `board_views` (fan-out over `boards`).
 - [ ] `/1/dataset_definitions/{datasetSlug}` — lookup mapping dataset definition types (duration, trace id, span kind) to actual column names (medium)
 - [ ] `/1/recipients/{recipientId}/triggers` — join table between recipients and triggers, both of which we already sync (medium)
 - [ ] `/1/reporting/slos/historical` — weekly historical SLO breakdown across multiple SLOs in one call (medium)
