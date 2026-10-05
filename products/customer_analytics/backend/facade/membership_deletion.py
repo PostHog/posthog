@@ -18,8 +18,8 @@ def delete_team_membership(cluster: ClickhouseCluster, team_ids: Sequence[int], 
     membership_deletion.delete_teams(cluster, team_ids, include_config=include_config)
 
 
-def removes_account_group_property(team_id: int, properties: Sequence[str]) -> bool:
-    return membership_deletion.removes_account_group_property(team_id, properties)
+def removes_account_group_property(cluster: ClickhouseCluster, team_id: int, properties: Sequence[str]) -> bool:
+    return membership_deletion.removes_account_group_property(cluster, team_id, properties)
 
 
 def refuse_unswept_membership_sources(

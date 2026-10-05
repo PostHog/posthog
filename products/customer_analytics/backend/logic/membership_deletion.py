@@ -27,8 +27,6 @@ from posthog.models.person_group_membership.sql import (
     SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE,
 )
 
-from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
-
 MEMBERSHIP_DELETION_TARGETS = (
     DeletionTarget(
         data_table=SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE,
@@ -181,16 +179,20 @@ def delete_teams(cluster: ClickhouseCluster, team_ids: Sequence[int], *, include
         _verify_empty(cluster, placement.target.read_table, predicate, parameters)
 
 
-def removes_account_group_property(team_id: int, properties: Sequence[str]) -> bool:
-    index = (
-        TeamCustomerAnalyticsConfig.objects.filter(team_id=team_id)
-        .values_list("account_group_type_index", flat=True)
-        .first()
-    )
-    return (
-        index is not None
-        and 0 <= index <= PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX
-        and f"$group_{index}" in properties
+def removes_account_group_property(cluster: ClickhouseCluster, team_id: int, properties: Sequence[str]) -> bool:
+    # Rows for a previous account index stay after the team changes the index, so stored rows decide, not the config.
+    indices = [i for i in range(PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX + 1) if f"$group_{i}" in properties]
+    if not indices or not resolve_placements(cluster, MEMBERSHIP_DELETION_TARGETS[:1]):
+        return False
+    return bool(
+        cluster.any_host_by_role(
+            Query(
+                f"SELECT 1 FROM {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} "
+                "WHERE team_id = %(team_id)s AND group_type_index IN %(indices)s LIMIT 1",
+                {"team_id": team_id, "indices": indices},
+            ),
+            NodeRole.DATA,
+        ).result()
     )
 
 

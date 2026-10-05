@@ -160,7 +160,8 @@ It refuses a skipped source that holds events for affected membership rows.
 Thus the default native-JSON skip cannot silently preserve an association that the request should remove.
 Empty membership leaves the existing source-table gap unchanged.
 
-Property removal stages keys only when the request removes the team's configured `$group_N` event property.
+Property removal stages keys only when the request removes a `$group_N` event property that has stored membership for the team.
+The check uses stored rows, not the configured index, because rows for a previous index stay after the index changes.
 It stages before fan-out and before shard work, then reconciles after all source rewrites pass verification.
 Unrelated event properties and person properties do not rewrite membership.
 The staging rewrite lets ClickHouse recompute true `MATERIALIZED` group columns when properties change.

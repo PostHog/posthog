@@ -331,14 +331,22 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("configured_single", "only", "$group_0", 3),
-            ("configured_multiple", "first", "$group_0", 4),
-            ("unrelated", "only", "unrelated", 4),
-            ("unconfigured_group", "only", "$group_1", 4),
-            ("person_property", "only", "person:email", 4),
+            ("configured_single", "only", "$group_0", 3, 0),
+            ("configured_multiple", "first", "$group_0", 4, 0),
+            ("unrelated", "only", "unrelated", 4, 0),
+            ("unconfigured_group", "only", "$group_1", 4, 0),
+            ("person_property", "only", "person:email", 4, 0),
+            ("previously_configured_group", "only", "$group_0", 3, 1),
         ]
     )
-    def test_property_removal(self, _name: str, event: str, property_name: str, expected_count: int) -> None:
+    def test_property_removal(
+        self, _name: str, event: str, property_name: str, expected_count: int, account_index: int
+    ) -> None:
+        if account_index != 0:
+            self.account.delete()
+            TeamCustomerAnalyticsConfig.objects.update_or_create(
+                team=self.team, defaults={"account_group_type_index": account_index}
+            )
         request = self._request([event], [] if property_name.startswith("person:") else [property_name])
         if property_name.startswith("person:"):
             request.person_properties = ["email"]

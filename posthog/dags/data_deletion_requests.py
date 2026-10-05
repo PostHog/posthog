@@ -644,7 +644,7 @@ def _membership_event_sources(cluster: ClickhouseCluster) -> list[tuple[str, boo
 
 
 def _stage_property_membership(cluster: ClickhouseCluster, request: DeletionRequestContext) -> None:
-    if not removes_account_group_property(request.team_id, request.properties):
+    if not removes_account_group_property(cluster, request.team_id, request.properties):
         return
     if request.inserted_at_marker is None:
         raise dagster.Failure("Property removal marker is missing. Reload the request before retrying.")
