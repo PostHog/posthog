@@ -161,13 +161,15 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 <IconRewindPlay />
                                                 View recordings
                                             </SceneMenuBarItem>
-                                            <SceneMenuBarItem
-                                                onClick={setUpVisionScanner}
-                                                data-attr="issue-menubar-scan-with-vision"
-                                            >
-                                                <IconSparkles className="text-ai" />
-                                                Set up a scanner to watch these
-                                            </SceneMenuBarItem>
+                                            {issue.name && (
+                                                <SceneMenuBarItem
+                                                    onClick={setUpVisionScanner}
+                                                    data-attr="issue-menubar-scan-with-vision"
+                                                >
+                                                    <IconSparkles className="text-ai" />
+                                                    Set up a scanner to watch these
+                                                </SceneMenuBarItem>
+                                            )}
                                         </SceneMenuBarMenu>
                                     </SceneMenuBar>
                                 )}
@@ -204,7 +206,43 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                <ButtonGroup>
+                                                {issue.name ? (
+                                                    <ButtonGroup>
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={() => openRecordings('header')}
+                                                            data-attr="error-tracking-issue-view-recordings"
+                                                        >
+                                                            View recordings
+                                                            <IconRewindPlay />
+                                                        </Button>
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger
+                                                                render={
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="icon"
+                                                                        aria-label="More recording options"
+                                                                    />
+                                                                }
+                                                            >
+                                                                <IconChevronDown />
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent
+                                                                align="end"
+                                                                className="w-auto min-w-56"
+                                                            >
+                                                                <DropdownMenuItem
+                                                                    onClick={setUpVisionScanner}
+                                                                    data-attr="error-tracking-scan-with-vision"
+                                                                >
+                                                                    <IconSparkles className="text-ai" />
+                                                                    Set up a scanner to watch these
+                                                                </DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </ButtonGroup>
+                                                ) : (
                                                     <Button
                                                         variant="outline"
                                                         onClick={() => openRecordings('header')}
@@ -213,29 +251,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         View recordings
                                                         <IconRewindPlay />
                                                     </Button>
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger
-                                                            render={
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="icon"
-                                                                    aria-label="More recording options"
-                                                                />
-                                                            }
-                                                        >
-                                                            <IconChevronDown />
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent align="end" className="w-auto min-w-56">
-                                                            <DropdownMenuItem
-                                                                onClick={setUpVisionScanner}
-                                                                data-attr="error-tracking-scan-with-vision"
-                                                            >
-                                                                <IconSparkles className="text-ai" />
-                                                                Set up a scanner to watch these
-                                                            </DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
-                                                </ButtonGroup>
+                                                )}
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
