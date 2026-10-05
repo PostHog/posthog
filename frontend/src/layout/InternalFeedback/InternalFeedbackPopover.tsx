@@ -1,15 +1,32 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    Button,
+    Card,
+    CardContent,
+    CardDescription,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+    Field,
+    FieldError,
+    FieldLabel,
+    Textarea,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
+import { INTERNAL_FEEDBACK_IGNORE_ATTR } from './captureFeedbackScreenshot'
 import { internalFeedbackLogic } from './internalFeedbackLogic'
 
 const POPOVER_WIDTH = 320
-// Room the popover needs below the element before it flips into view from the bottom edge.
-const POPOVER_HEIGHT = 260
+// Room the card needs below the element before it moves up to stay in view.
+const POPOVER_HEIGHT = 300
+const COMMENT_INPUT_ID = 'internal-feedback-comment'
 
 export function InternalFeedbackPopover(): JSX.Element | null {
-    const { target, selectedElementRect, comment, isSubmitting } = useValues(internalFeedbackLogic)
+    const { target, selectedElementRect, comment, isSubmitting, submitError } = useValues(internalFeedbackLogic)
     const { setComment, submitFeedback, clearSelection } = useActions(internalFeedbackLogic)
 
     if (!target) {
@@ -25,50 +42,66 @@ export function InternalFeedbackPopover(): JSX.Element | null {
         )
         left = Math.min(Math.max(selectedElementRect.left, 8), window.innerWidth - POPOVER_WIDTH - 8)
     }
+    const canSave = !!comment.trim()
 
     return (
-        <div
-            className="fixed z-[2147483647] pointer-events-auto flex flex-col gap-2 p-3 rounded-lg border border-primary bg-surface-primary shadow-lg w-80 max-w-[calc(100vw-1rem)]"
+        <Card
+            size="sm"
+            data-quill
+            {...{ [INTERNAL_FEEDBACK_IGNORE_ATTR]: '' }}
+            // Same top layer as the bar, so an open modal or menu never covers the card.
+            className="fixed z-[2147483647] pointer-events-auto w-80 shadow-md"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ top, left }}
         >
-            <div className="font-semibold">Send feedback to devs</div>
-            <code className="text-xs text-secondary truncate" title={target.identifier}>
-                {target.identifier}
-            </code>
-            <LemonTextArea
-                placeholder="What should change here? (⌘↵ to save)"
-                value={comment}
-                onChange={setComment}
-                onPressCmdEnter={() => comment.trim() && !isSubmitting && submitFeedback()}
-                minRows={3}
-                autoFocus
-                data-attr="internal-feedback-comment"
-            />
-            <div className="flex gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => clearSelection()}
-                    className="flex-1"
-                    center
-                    data-attr="internal-feedback-cancel"
-                >
+            <CardHeader>
+                <CardTitle>Send feedback to devs</CardTitle>
+                <CardDescription className="font-mono truncate" title={target.identifier}>
+                    {target.identifier}
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Field>
+                    <FieldLabel htmlFor={COMMENT_INPUT_ID}>What should change?</FieldLabel>
+                    <Textarea
+                        id={COMMENT_INPUT_ID}
+                        placeholder="⌘↵ to save"
+                        value={comment}
+                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setComment(e.target.value)}
+                        onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSave && !isSubmitting) {
+                                e.preventDefault()
+                                submitFeedback()
+                            }
+                        }}
+                        rows={3}
+                        autoFocus
+                        data-attr="internal-feedback-comment"
+                    />
+                    {submitError && <FieldError>{submitError}</FieldError>}
+                </Field>
+            </CardContent>
+            <CardFooter className="justify-end gap-2">
+                <Button variant="outline" onClick={() => clearSelection()} data-attr="internal-feedback-cancel">
                     Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={() => submitFeedback()}
-                    loading={isSubmitting}
-                    disabledReason={!comment.trim() ? 'Write some feedback first' : undefined}
-                    className="flex-1"
-                    center
-                    data-attr="internal-feedback-save"
-                >
-                    Save
-                </LemonButton>
-            </div>
-        </div>
+                </Button>
+                <Tooltip disabled={canSave}>
+                    <TooltipTrigger
+                        render={
+                            <Button
+                                variant="primary"
+                                loading={isSubmitting}
+                                disabled={!canSave}
+                                onClick={() => submitFeedback()}
+                                data-attr="internal-feedback-save"
+                            />
+                        }
+                    >
+                        Save
+                    </TooltipTrigger>
+                    <TooltipContent>Write some feedback first</TooltipContent>
+                </Tooltip>
+            </CardFooter>
+        </Card>
     )
 }

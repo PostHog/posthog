@@ -1,18 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconCursorClick, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconCursorClick, IconDrag, IconX } from '@posthog/icons'
+import { Button, Text, Toggle, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
-import { IconDragHandle } from 'lib/lemon-ui/icons'
-
+import { INTERNAL_FEEDBACK_IGNORE_ATTR } from './captureFeedbackScreenshot'
 import { clampToViewport, internalFeedbackLogic } from './internalFeedbackLogic'
 
 export function InternalFeedbackBar(): JSX.Element {
-    const { position, isInspecting } = useValues(internalFeedbackLogic)
+    const { position, isInspecting, target, justSent } = useValues(internalFeedbackLogic)
     const { setPosition, startInspecting, stopInspecting, hide } = useActions(internalFeedbackLogic)
     const barRef = useRef<HTMLDivElement>(null)
     const dragOffset = useRef<{ x: number; y: number } | null>(null)
+
+    // The tooltips explain the bar while it is idle. Once a flow is open they only get in the way.
+    const tooltipsDisabled = isInspecting || !!target
 
     const viewport = { width: window.innerWidth, height: window.innerHeight }
     const size = barRef.current
@@ -23,57 +25,83 @@ export function InternalFeedbackBar(): JSX.Element {
     return (
         <div
             ref={barRef}
-            className={`fixed z-[2147483647] pointer-events-auto flex items-center gap-1 p-1 rounded-lg border border-primary bg-surface-primary shadow-lg ${
-                placed ? '' : 'bottom-4 left-1/2 -translate-x-1/2'
-            }`}
+            data-quill
+            {...{ [INTERNAL_FEEDBACK_IGNORE_ATTR]: '' }}
+            // Above every other layer, including modals and tooltips, so the bar never ends up hidden.
+            className={cn(
+                'fixed z-[2147483647] pointer-events-auto flex items-center gap-1 p-1 rounded-lg border border-border bg-card text-card-foreground shadow-md',
+                !placed && 'bottom-4 left-1/2 -translate-x-1/2'
+            )}
             // eslint-disable-next-line react/forbid-dom-props
             style={placed ? { left: placed.x, top: placed.y } : undefined}
         >
-            <button
-                type="button"
-                aria-label="Move the feedback bar"
-                className="flex items-center self-stretch px-0.5 text-secondary cursor-grab active:cursor-grabbing touch-none bg-transparent border-none"
-                onPointerDown={(e) => {
-                    if (!barRef.current) {
-                        return
+            <Tooltip disabled={tooltipsDisabled}>
+                <TooltipTrigger
+                    delay={0}
+                    render={
+                        <Button
+                            size="icon"
+                            aria-label="Drag to move the feedback bar"
+                            className="cursor-grab touch-none active:cursor-grabbing"
+                            onPointerDown={(e: React.PointerEvent<HTMLButtonElement>) => {
+                                if (!barRef.current) {
+                                    return
+                                }
+                                const rect = barRef.current.getBoundingClientRect()
+                                dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+                                e.currentTarget.setPointerCapture(e.pointerId)
+                            }}
+                            onPointerMove={(e: React.PointerEvent<HTMLButtonElement>) => {
+                                if (!dragOffset.current || !barRef.current) {
+                                    return
+                                }
+                                setPosition(
+                                    clampToViewport(
+                                        { x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y },
+                                        { width: barRef.current.offsetWidth, height: barRef.current.offsetHeight },
+                                        { width: window.innerWidth, height: window.innerHeight }
+                                    )
+                                )
+                            }}
+                            onPointerUp={() => {
+                                dragOffset.current = null
+                            }}
+                            onPointerCancel={() => {
+                                dragOffset.current = null
+                            }}
+                        />
                     }
-                    const rect = barRef.current.getBoundingClientRect()
-                    dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-                    e.currentTarget.setPointerCapture(e.pointerId)
-                }}
-                onPointerMove={(e) => {
-                    if (!dragOffset.current || !barRef.current) {
-                        return
-                    }
-                    setPosition(
-                        clampToViewport(
-                            { x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y },
-                            { width: barRef.current.offsetWidth, height: barRef.current.offsetHeight },
-                            { width: window.innerWidth, height: window.innerHeight }
-                        )
-                    )
-                }}
-                onPointerUp={() => {
-                    dragOffset.current = null
-                }}
-                onPointerCancel={() => {
-                    dragOffset.current = null
-                }}
-            >
-                <IconDragHandle className="text-lg" />
-            </button>
-            <LemonButton
-                size="small"
-                type={isInspecting ? 'primary' : 'secondary'}
-                icon={<IconCursorClick />}
-                onClick={() => (isInspecting ? stopInspecting() : startInspecting())}
-                data-attr="internal-feedback-inspect"
-            >
-                Inspect
-            </LemonButton>
-            <LemonButton size="small" icon={<IconX />} onClick={() => hide()} data-attr="internal-feedback-close">
-                Close
-            </LemonButton>
+                >
+                    <IconDrag />
+                </TooltipTrigger>
+                <TooltipContent>Drag to move the feedback bar</TooltipContent>
+            </Tooltip>
+            <Tooltip disabled={tooltipsDisabled}>
+                {/* Toggle does not forward refs, so the tooltip anchors to a wrapper instead. */}
+                <TooltipTrigger render={<span className="inline-flex" tabIndex={-1} />}>
+                    <Toggle
+                        pressed={isInspecting}
+                        onPressedChange={(pressed: boolean) => (pressed ? startInspecting() : stopInspecting())}
+                        data-attr="internal-feedback-inspect"
+                    >
+                        <IconCursorClick />
+                        Inspect
+                    </Toggle>
+                </TooltipTrigger>
+                <TooltipContent>Click to pick a part of the page and send feedback about it to the devs</TooltipContent>
+            </Tooltip>
+            <Tooltip disabled={tooltipsDisabled}>
+                <TooltipTrigger render={<Button onClick={() => hide()} data-attr="internal-feedback-close" />}>
+                    <IconX />
+                    Close
+                </TooltipTrigger>
+                <TooltipContent>Click to hide this bar. It comes back when you reload the page.</TooltipContent>
+            </Tooltip>
+            {justSent && (
+                <Text size="xs" variant="muted" render={<span />} className="pr-2" role="status">
+                    Sent, thanks!
+                </Text>
+            )}
         </div>
     )
 }
