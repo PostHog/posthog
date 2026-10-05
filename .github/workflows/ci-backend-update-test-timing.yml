@@ -491,13 +491,17 @@ jobs:
               with:
                   enable-cache: false
 
-            - name: Build the manifest
+            # Its own step, so the Depot token stays out of the step that installs from PyPI.
+            - name: Download the recordings
               if: steps.cached.outputs.cache-hit != 'true'
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   RUN_ID: ${{ steps.find-run.outputs.run_id }}
+              run: python3 "$RUNNER_TEMP/depot_scheduled_runs.py" download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
+
+            - name: Build the manifest
+              if: steps.cached.outputs.cache-hit != 'true'
               run: |
-                  python3 "$RUNNER_TEMP/depot_scheduled_runs.py" download "$RUN_ID" --pattern 'events-schema-record-*' --dir events-schema-records
                   uv run --no-project --with pytest python posthog/test/events_schema_prune.py \
                       --output events-schema-prune.json events-schema-records/*/events-schema-record.json
 

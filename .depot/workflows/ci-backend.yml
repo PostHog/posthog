@@ -142,6 +142,8 @@ name: Backend CI on Depot
 # `Hand off backend tests to Depot CI` check from .github/workflows/ci-backend.yml and
 # `changes` (root of the needs graph) only runs when that check succeeded, so the whole
 # workflow cascades off otherwise. A manual run needs that check on its commit too.
+# The hourly master run is the exception: only this workflow has a schedule trigger, so that
+# run starts here with no hand-off.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes, independent of the percent.
 on:

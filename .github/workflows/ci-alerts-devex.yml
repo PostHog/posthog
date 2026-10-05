@@ -95,12 +95,16 @@ jobs:
                       .github/scripts/depot_scheduled_runs.py
                   sparse-checkout-cone-mode: false
 
+            # Both Depot steps are capped, so a slow Depot API cannot use up the job's
+            # timeout and cancel the reconcile of every other lane.
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               continue-on-error: true
+              timeout-minutes: 1
 
             # A failed read leaves no file, and the script then treats the lane as unreadable.
             - name: Read the hourly Backend CI runs from Depot CI
               continue-on-error: true
+              timeout-minutes: 3
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
               run: |

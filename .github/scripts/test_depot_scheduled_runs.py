@@ -1,3 +1,4 @@
+import json
 import importlib.util
 from pathlib import Path
 from typing import Any
@@ -32,8 +33,8 @@ def test_gate_run_reports_the_gate_verdict(
     jobs: list[dict[str, Any]] = [{"job_key": "ci-backend.yml:report-test-timings", "status": "failed"}]
     if gate_status:
         jobs.append({"job_key": script.GATE_JOB_KEY, "status": gate_status, "finished_at": "2026-10-05T13:00:00Z"})
-    shown = {"org_id": "org", "workflow": {"finished_at": "2026-10-05T13:05:00Z"}, "jobs": jobs}
-    monkeypatch.setattr(script, "depot_json", lambda *args: shown)
+    shown = {"org_id": "org", "jobs": jobs}
+    monkeypatch.setattr(script, "depot", lambda *args: json.dumps(shown))
     listed = {
         "workflow_id": "wf",
         "run_id": "run",

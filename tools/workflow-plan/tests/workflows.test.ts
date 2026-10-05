@@ -550,6 +550,27 @@ describe('.github/workflows run plans', () => {
         expect(crons('.github/workflows/ci-backend.yml')).toEqual([])
     })
 
+    it('the hourly Depot run takes the matrices and skips the per-commit checks', () => {
+        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const plan = planWorkflow(depot, {
+            name: 'hourly schedule',
+            github: schedule(),
+            steps: {
+                ...allFiltersChanged(depot),
+                ...backendSelectors,
+                'wait-for-handoff': { handoff: { outputs: { handed_off: 'true' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const running = new Set(runningJobs(plan))
+        const perCommit = ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types']
+        expect({
+            didNotRun: ['changes', 'turbo-tests', 'django', 'django_tests'].filter((id) => !running.has(id)),
+            didNotSkip: perCommit.filter((id) => plan.jobs[id]?.result !== 'skipped'),
+            filterRuns: plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs,
+        }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false })
+    })
+
     it.each([
         ['master schedule', schedule(), 'success', true],
         ['same-repo PR', pullRequest(), 'success', false],

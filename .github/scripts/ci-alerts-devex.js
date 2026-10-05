@@ -170,7 +170,8 @@ async function fetchWorkflowRuns(
                 runsFile,
             })
         } catch (err) {
-            if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) {throw err}
+            // A Depot runs file does not change between attempts, so a retry cannot help it.
+            if (!err.staleIndex || runsFile || attempt >= STALE_PAGE_RETRIES) {throw err}
             await sleep(STALE_PAGE_RETRY_DELAY_MS)
         }
     }
@@ -598,7 +599,8 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             const redForMins = Math.round((now.getTime() - new Date(f.since).getTime()) / 60000)
             return {
                 ...f,
-                runsUrl: runsUrlFor(owner, repo, f.workflowName),
+                // GitHub has no run history for a lane on Depot CI, so link its failing run.
+                runsUrl: f.lane.runsFile ? f.run_url : runsUrlFor(owner, repo, f.workflowName),
                 redForMins, // detection: byDuration + open/resolve thresholds
                 displayRedForMins: Math.round((now.getTime() - new Date(f.displaySince).getTime()) / 60000),
                 byCount: f.consecutive_failures >= f.lane.streakThreshold,
