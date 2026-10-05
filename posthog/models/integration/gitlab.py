@@ -100,7 +100,12 @@ class GitLabIntegration:
         )
         if not isinstance(members, list):
             raise GitLabIntegrationError("Failed to list GitLab project members")
-        return [{"id": str(member["id"]), "name": member.get("name") or member["username"]} for member in members]
+        # The state query filter only applies on paid GitLab tiers, so filter here as well.
+        return [
+            {"id": str(member["id"]), "name": member.get("name") or member["username"]}
+            for member in members
+            if member.get("state", "active") == "active"
+        ]
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")

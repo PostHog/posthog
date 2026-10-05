@@ -137,3 +137,20 @@ class TestGitLabIntegrationModel:
         GitLabIntegration(integration).create_issue({"title": "Checkout failed", "body": "Details", "assignee": "42"})
 
         assert mock_post.call_args.kwargs["json"]["assignee_ids"] == [42]
+
+    @patch("posthog.models.integration.gitlab.requests.get")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_list_members_skips_inactive_members(self, _mock_is_url_allowed, mock_get):
+        from posthog.models.integration import GitLabIntegration
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "project_id": 1},
+            sensitive_config={"access_token": "token123"},
+        )
+        mock_get.return_value.json.return_value = [
+            {"id": 1, "username": "ada", "name": "Ada", "state": "active"},
+            {"id": 2, "username": "gone", "name": "Gone", "state": "blocked"},
+        ]
+
+        assert GitLabIntegration(integration).list_members() == [{"id": "1", "name": "Ada"}]

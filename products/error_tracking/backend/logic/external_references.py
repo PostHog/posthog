@@ -52,6 +52,17 @@ LINK_EXISTING_REQUIRED_CONTEXT_FIELDS: dict[str, dict[str, type]] = {
 }
 
 
+def _validate_github_assignee(integration: Integration, repository: str, login: str) -> None:
+    # GitHub creates the issue and silently drops a login it cannot assign, so check before creating.
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", login):
+        raise ErrorTrackingExternalReferenceValidationError("GitHub assignee must be a GitHub login.")
+    result = GitHubIntegration(integration).is_assignable(repository.strip(), login)
+    if result.get("success") and not result.get("assignable"):
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"GitHub user {login} cannot be assigned issues in {repository.strip()}."
+        )
+
+
 def _validate_external_reference_config(integration: Integration, config: Any) -> None:
     if not isinstance(config, dict):
         raise ErrorTrackingExternalReferenceValidationError("External reference config must be an object.")
@@ -92,6 +103,9 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
         and not re.fullmatch(r"[0-9]+", assignee.strip())
     ):
         raise ErrorTrackingExternalReferenceValidationError("GitLab assignee must be a numeric user ID.")
+
+    if assignee and assignee.strip() and integration.kind == Integration.IntegrationKind.GITHUB:
+        _validate_github_assignee(integration, config["repository"], assignee.strip())
 
     if integration.kind == Integration.IntegrationKind.LINEAR:
         team_id = config["team_id"]
