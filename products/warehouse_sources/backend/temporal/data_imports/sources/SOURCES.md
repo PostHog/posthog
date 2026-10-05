@@ -683,6 +683,7 @@ the row lists both.
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sevdesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| sevenshifts                      | HTTP                        | requests                                                        | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
 | shipmail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
@@ -1384,7 +1385,6 @@ doesn't conflict with concurrent PRs.
 - servicetitan
 - servicetrade
 - sevalla
-- sevenshifts
 - sharepoint
 - sharetribe
 - shippo
