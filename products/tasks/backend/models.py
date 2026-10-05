@@ -839,6 +839,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             carry_config_snapshot = (
                 task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
             )
+            carry_sandbox_environment = (
+                task.origin_product == Task.OriginProduct.WORKFLOW and "sandbox_environment_id" not in state
+            )
             if state.get("sandbox_template") is None:
                 # A null is "no choice", the same as an absent key, so it must not block the carry.
                 state.pop("sandbox_template", None)
@@ -849,7 +852,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 # Unknown and VM templates are refused here, before the run row exists.
                 parse_requested_sandbox_template(state["sandbox_template"])
             previous_state: dict = {}
-            if carry_config_snapshot or carry_sandbox_template:
+            if carry_config_snapshot or carry_sandbox_template or carry_sandbox_environment:
                 # Only the newest run's state; ``latest_run`` would load every run of the task.
                 previous_state = (
                     task.runs.filter(team_id=task.team_id)
@@ -861,6 +864,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.
             if carry_config_snapshot and previous_state.get("config_snapshot"):
                 state["config_snapshot"] = previous_state["config_snapshot"]
+            # And the network environment it was pinned to, so a rerun or a teammate's follow-up that
+            # names no environment of its own does not quietly reopen egress the workflow step closed.
+            if carry_sandbox_environment and previous_state.get("sandbox_environment_id"):
+                state["sandbox_environment_id"] = previous_state["sandbox_environment_id"]
             # Later runs keep the image the task was first provisioned with.
             if carry_sandbox_template and previous_state.get("sandbox_template"):
                 state["sandbox_template"] = previous_state["sandbox_template"]

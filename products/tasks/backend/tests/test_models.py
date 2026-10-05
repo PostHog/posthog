@@ -388,6 +388,38 @@ class TestTask(TestCase):
             task.create_run(extra_state={"sandbox_template": "vm_base"})
         self.assertEqual(TaskRun.objects.filter(task=task).count(), 3)
 
+    @parameterized.expand(
+        [
+            ("no environment named", {}, "pinned"),
+            ("another environment named", {"sandbox_environment_id": "named"}, "named"),
+        ]
+    )
+    def test_a_workflow_tasks_later_run_keeps_its_network_environment(self, _name, extra_state, expected):
+        task = Task.objects.create(
+            team=self.team,
+            title="Workflow task",
+            description="Workflow task",
+            origin_product=Task.OriginProduct.WORKFLOW,
+        )
+        TaskRun.objects.create(task=task, team=self.team, state={"sandbox_environment_id": "pinned"})
+
+        later_run = task.create_run(mode="background", extra_state=extra_state)
+
+        self.assertEqual(later_run.state["sandbox_environment_id"], expected)
+
+    def test_a_non_workflow_tasks_later_run_does_not_inherit_a_network_environment(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Desktop task",
+            description="Desktop task",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        TaskRun.objects.create(task=task, team=self.team, state={"sandbox_environment_id": "pinned"})
+
+        later_run = task.create_run(mode="background")
+
+        self.assertNotIn("sandbox_environment_id", later_run.state)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_attribution_stamps_into_state(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
