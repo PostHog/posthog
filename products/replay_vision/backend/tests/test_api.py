@@ -388,6 +388,64 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(with_column.status_code, 400, with_column.json())
         self.assertEqual(with_column.json()["attr"], "experiment_targeting")
 
+    def test_experiment_scanner_saved_off_on_a_draft_turns_on_at_launch(self) -> None:
+        draft = create_experiment(self.team, "waiting-flag", variants=["control", "test"])
+        other_draft = create_experiment(self.team, "other-draft-flag", variants=["control", "test"])
+
+        def post(name: str, experiment_id: int, *, enabled: bool, **config_overrides: Any) -> Any:
+            return self.client.post(
+                self.scanners_url,
+                data={
+                    "name": name,
+                    "scanner_type": ScannerType.EXPERIMENT,
+                    "scanner_config": {
+                        "prompt": "p",
+                        "experiment_id": experiment_id,
+                        "start_on_launch": True,
+                        **config_overrides,
+                    },
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "enabled": enabled,
+                },
+                format="json",
+            )
+
+        enabled_on_draft = post("enabled-on-draft", draft.id, enabled=True)
+        self.assertEqual(enabled_on_draft.status_code, 400, enabled_on_draft.json())
+        self.assertIn("hasn't launched", enabled_on_draft.json()["detail"])
+
+        unknown_variant = post("unknown-variant-on-draft", draft.id, enabled=False, variants=["nope"])
+        self.assertEqual(unknown_variant.status_code, 400, unknown_variant.json())
+        self.assertIn("not a variant", unknown_variant.json()["detail"])
+
+        waiting = post("waiting", draft.id, enabled=False)
+        self.assertEqual(waiting.status_code, 201, waiting.json())
+        other = post("waiting-on-other-draft", other_draft.id, enabled=False)
+        self.assertEqual(other.status_code, 201, other.json())
+
+        early_enable = self.client.patch(
+            f"{self.scanners_url}{waiting.json()['id']}/", data={"enabled": True}, format="json"
+        )
+        self.assertEqual(early_enable.status_code, 400, early_enable.json())
+        self.assertEqual(early_enable.json()["attr"], "enabled")
+
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{draft.id}/launch/")
+        self.assertEqual(launch.status_code, 200, launch.json())
+
+        started = ReplayScanner.objects.get(id=waiting.json()["id"])
+        self.assertTrue(started.enabled)
+        self.assertNotIn("start_on_launch", started.scanner_config)
+        self.assertFalse(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+
+        # Setting a start date on a draft also launches it, through the experiment update path.
+        patch_launch = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{other_draft.id}/",
+            data={"start_date": "2026-09-01T00:00:00Z"},
+            format="json",
+        )
+        self.assertEqual(patch_launch.status_code, 200, patch_launch.json())
+        self.assertTrue(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+
     def test_experiment_scanner_experiment_is_fixed_after_creation(self) -> None:
         # Retargeting would mix two experiments' populations under one scanner's history and
         # readouts, so it is a new scanner, not an edit; `variants` stays editable.
