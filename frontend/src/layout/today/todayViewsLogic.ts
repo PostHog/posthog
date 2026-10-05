@@ -5,7 +5,7 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { ViewFeed, ViewFeedQuery, ViewSourceState } from 'scenes/views/viewFeed'
+import { VIEW_FEED_PAGE_SIZE, ViewFeed, ViewFeedQuery, ViewSourceState } from 'scenes/views/viewFeed'
 import { selectViewFeed, viewFeedLogic } from 'scenes/views/viewFeedLogic'
 import { ViewItem } from 'scenes/views/viewsUtils'
 
@@ -19,8 +19,6 @@ import { TodayRecentEntry, todayRecentsLogic } from './todayRecentsLogic'
 import { railPaneForPath } from './todayShellLogic'
 import { DEFAULT_VIEWS_FILTERS, TodayViewsFilters, filterRecentViews, viewsFiltersActive } from './todayViewsFilters'
 
-// The sidebar shows the most recent views of every type in one list. The Views page lists the rest.
-const RECENT_LIMIT = 12
 const ALL_RECENT_QUERY: ViewFeedQuery = { type: 'all', search: '' }
 const FIRST_BUILD_POLL_MS = 5000
 // pinned: task run statuses from the tasks API
@@ -47,6 +45,7 @@ export interface todayViewsLogicValues {
     recentFeedQuery: ViewFeedQuery
     recentFilters: TodayViewsFilters
     recentFiltersActive: boolean
+    recentHasMore: boolean
     recentItems: ViewItem[]
     recentQuery: string
     recentReady: boolean
@@ -100,6 +99,9 @@ export interface todayViewsLogicActions {
         }
         payload?: void
     }
+    loadMoreRecentViews: () => {
+        value: true
+    }
     loadRecentViews: () => {
         value: true
     }
@@ -149,6 +151,7 @@ export interface todayViewsLogicMeta {
             recentFilters: TodayViewsFilters,
             user: UserType | null
         ) => ViewItem[]
+        recentHasMore: (recentViews: ViewFeed, recentFeedQuery: ViewFeedQuery, recentQuery: string) => boolean
         buildingViewIds: (
             allRecentViews: ViewFeed,
             firstBuilds: Record<string, FirstBuildState>,
@@ -207,6 +210,7 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
     })),
     actions({
         loadRecentViews: true,
+        loadMoreRecentViews: true,
         setRecentQuery: (query: string) => ({ query }),
         setRecentSearch: (search: string) => ({ search }),
         setRecentFilters: (filters: TodayViewsFilters) => ({ filters }),
@@ -321,12 +325,15 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
             ): ViewItem[] => {
                 const userUuid = user?.uuid ?? null
                 if (recentViews.initialized && recentQuery.trim() === recentFeedQuery.search) {
-                    return recentFeedQuery.search || viewsFiltersActive(recentFilters)
-                        ? filterRecentViews(recentViews.items, '', recentFilters, userUuid)
-                        : recentViews.items.slice(0, RECENT_LIMIT)
+                    return filterRecentViews(recentViews.items, '', recentFilters, userUuid)
                 }
                 return filterRecentViews(allRecentViews.items, recentQuery, recentFilters, userUuid)
             },
+        ],
+        recentHasMore: [
+            (s) => [s.recentViews, s.recentFeedQuery, s.recentQuery],
+            (recentViews: ViewFeed, recentFeedQuery: ViewFeedQuery, recentQuery: string): boolean =>
+                recentViews.initialized && recentViews.hasMore && recentQuery.trim() === recentFeedQuery.search,
         ],
         buildingViewIds: [
             (s) => [s.allRecentViews, s.firstBuilds, s.openCanvasBuilding],
@@ -370,8 +377,13 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
                 actions.setRecentSearch(query.trim())
             }
         },
-        setRecentSearch: () => actions.ensureFeed(values.recentFeedQuery, RECENT_LIMIT),
-        setRecentFilters: () => actions.ensureFeed(values.recentFeedQuery, RECENT_LIMIT),
+        loadMoreRecentViews: () => {
+            if (values.recentHasMore) {
+                actions.ensureFeed(values.recentFeedQuery, values.recentViews.items.length + VIEW_FEED_PAGE_SIZE)
+            }
+        },
+        setRecentSearch: () => actions.ensureFeed(values.recentFeedQuery, VIEW_FEED_PAGE_SIZE),
+        setRecentFilters: () => actions.ensureFeed(values.recentFeedQuery, VIEW_FEED_PAGE_SIZE),
         loadFirstBuildsSuccess: ({ firstBuilds }) => {
             const building = Object.values(firstBuilds).filter(
                 (build) => !build.hasVersion && !!build.runStatus && !TERMINAL_RUN_STATUSES.has(build.runStatus)

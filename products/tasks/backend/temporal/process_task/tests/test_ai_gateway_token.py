@@ -10,8 +10,10 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
+from django.test import override_settings
 
 from posthog.constants import AvailableFeature
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Organization, Team
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
@@ -28,7 +30,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     pinned_run_allows_model,
 )
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
-from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
+from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, Task
 from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _PRODUCT_ALLOWED_MODELS,
@@ -41,6 +43,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     mint_refusal,
     mint_scoped_token,
     resolve_sandbox_ai_product,
+    revoke_scoped_token,
     sandbox_product_routed,
     token_cap_usd,
 )
@@ -145,6 +148,7 @@ class TestSandboxProductRouted:
 
 @pytest.fixture
 def mint_settings(settings):
+    settings.AI_GATEWAY_URL = "https://ai-gateway.dev.posthog.dev/v1"
     settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.dev.posthog.dev"
     settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals_scout,signals_research"
     settings.SANDBOX_AI_GATEWAY_MINT_KEY = "phs_test_mint"
@@ -163,20 +167,60 @@ class TestMintScopedToken:
         response.text = ""
         return response
 
-    def test_mints_pinned_token(self, mint_settings):
+    @pytest.mark.parametrize("private", [False, True])
+    def test_mints_pinned_token(self, mint_settings, private: bool) -> None:
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
-            post.return_value = self._response(201, {"token": "phe_abc"})
-            assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
+            post.return_value = self._response(201, {"token": "phe_abc", "capture_mode": "none"})
+            assert (
+                mint_scoped_token(
+                    ai_product="signals_scout",
+                    team_id=123,
+                    capture_mode="none" if private else None,
+                    expires_in_seconds=600 if private else None,
+                )
+                == "phe_abc"
+            )
         _, kwargs = post.call_args
         assert post.call_args[0][0] == "https://ai-gateway.dev.posthog.dev/v1/tokens"
         assert kwargs["json"] == {
             "cap_usd": "3",
-            "ttl_seconds": 14400,
+            "ttl_seconds": 600 if private else 14400,
             "product": "signals_scout",
             "obo": "123",
+            **({"capture_mode": "none"} if private else {}),
         }
         assert kwargs["headers"] == {"Authorization": "Bearer phs_test_mint"}
         assert kwargs["timeout"] == 3
+
+    @pytest.mark.parametrize("capture_mode", [None, "default", False])
+    def test_private_mint_revokes_an_unacknowledged_token(self, mint_settings, capture_mode: object) -> None:
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.side_effect = [
+                self._response(201, {"token": "phe_ordinary", "capture_mode": capture_mode}),
+                self._response(200, {"revoked": True}),
+            ]
+            assert mint_scoped_token(ai_product="signals_scout", team_id=123, capture_mode="none") is None
+        assert post.call_count == 2
+        assert post.call_args.args == ("https://ai-gateway.dev.posthog.dev/v1/tokens/revoke",)
+        assert post.call_args.kwargs["json"] == {"token": "phe_ordinary"}
+        assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_test_mint"}
+
+    @pytest.mark.parametrize("status_code", [200, 403, 503])
+    def test_revocation_reports_failure_without_token_details(self, mint_settings, status_code: int) -> None:
+        with (
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep"),
+        ):
+            post.return_value = self._response(status_code, {"revoked": status_code == 200})
+            if status_code == 200:
+                revoke_scoped_token("phe_private")
+            else:
+                with pytest.raises(
+                    GatewayNotConfiguredError, match="^The private AI gateway credential could not be revoked$"
+                ):
+                    revoke_scoped_token("phe_private")
+        assert post.call_args.kwargs["json"] == {"token": "phe_private"}
+        assert post.call_args.kwargs["allow_redirects"] is False
 
     def test_review_hog_mint_carries_the_model_pin(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -583,6 +627,103 @@ class TestProvisioningBoundaries:
         mint.assert_not_called()
         test_task_run.refresh_from_db()
         assert test_task_run.state["token_cost_incomplete"] is True
+
+    @pytest.mark.parametrize("origin_product", ["signals_scout", "user_created"])
+    @pytest.mark.parametrize(
+        "origin_key",
+        [
+            "scout-trial:11111111-1111-1111-1111-111111111111",
+            "scout-trial-judge:11111111-1111-1111-1111-111111111111:22222222-2222-2222-2222-222222222222",
+            "ordinary",
+        ],
+    )
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    )
+    def test_private_gateway_requires_the_server_task_origin(
+        self, mint_settings: Settings, origin_product: str, origin_key: str
+    ) -> None:
+        ctx = self._ctx()
+        ctx.state["scout_trial"] = {"id": "caller-supplied"}
+        task = Task(origin_product=origin_product, origin_key=origin_key)
+
+        with (
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+            patch.object(utils, "ai_gateway_env_vars", return_value={}) as ordinary_route,
+            patch.object(utils, "record_gateway_routing") as record_routing,
+        ):
+            post.return_value.status_code = 201
+            post.return_value.json.return_value = {"token": "phe_private", "capture_mode": "none"}
+            out = utils.run_gateway_env_vars(ctx, task)
+
+        if task.is_scout_experiment:
+            assert out == {
+                "LLM_GATEWAY_URL": "",
+                "AI_GATEWAY_URL": mint_settings.SANDBOX_AI_GATEWAY_URL,
+                "AI_GATEWAY_PRODUCTS": "signals_scout",
+                "AI_GATEWAY_TOKEN": "phe_private",
+                "AI_GATEWAY_TOKEN_CAP_USD": "3",
+                "AI_GATEWAY_PRODUCT": "signals_scout",
+                "AI_GATEWAY_AI_STAGE": "scout:logs",
+            }
+            ordinary_route.assert_not_called()
+            assert post.call_args.kwargs["json"]["capture_mode"] == "none"
+            assert post.call_args.kwargs["json"]["obo"] == str(ctx.team_id)
+            assert post.call_args.kwargs["json"]["user"] == ctx.distinct_id
+            record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
+        else:
+            assert out == {}
+            ordinary_route.assert_called_once()
+            post.assert_not_called()
+            record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
+
+    @pytest.mark.parametrize(
+        ("private_capture", "claude_model_access", "codex_model_access", "runtime"),
+        [
+            (False, "posthog-gateway", "posthog-gateway", "acp"),
+            (True, "own-subscription", "posthog-gateway", "acp"),
+            (True, "posthog-gateway", "own-subscription", "acp"),
+            (True, "posthog-gateway", "posthog-gateway", "pi"),
+        ],
+    )
+    def test_trial_cannot_fall_back_to_an_ordinary_gateway(
+        self,
+        mint_settings: Settings,
+        private_capture: bool,
+        claude_model_access: str,
+        codex_model_access: str,
+        runtime: str,
+    ) -> None:
+        ctx = self._ctx()
+        ctx.claude_model_access = claude_model_access
+        ctx.codex_model_access = codex_model_access
+        ctx.task_runtime = runtime
+        task = Task(origin_product="signals_scout", origin_key="scout-trial:11111111-1111-1111-1111-111111111111")
+
+        with (
+            override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=private_capture),
+            patch.object(utils, "ai_gateway_env_vars") as ordinary_route,
+        ):
+            with pytest.raises(GatewayNotConfiguredError):
+                utils.run_gateway_env_vars(ctx, task)
+        ordinary_route.assert_not_called()
+
+    @pytest.mark.parametrize("mint_response", [{}, {"capture_mode": "none"}])
+    @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True)
+    def test_trial_mint_failure_never_returns_fallback_environment(
+        self, mint_settings: Settings, mint_response: dict[str, str]
+    ) -> None:
+        task = Task(origin_product="signals_scout", origin_key="scout-trial:11111111-1111-1111-1111-111111111111")
+        with (
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep"),
+            patch.object(utils, "record_gateway_routing") as record_routing,
+        ):
+            post.return_value.status_code = 201
+            post.return_value.json.return_value = mint_response
+            with pytest.raises(GatewayNotConfiguredError, match="private AI gateway credential"):
+                utils.run_gateway_env_vars(self._ctx(), task)
+        record_routing.assert_not_called()
 
     def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils

@@ -515,6 +515,7 @@ jobs:
                       selfDriving:
                         - 'products/signals/backend/**'
                         - 'products/signals/skills/**'
+                        - 'products/autoresearch/backend/**'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
