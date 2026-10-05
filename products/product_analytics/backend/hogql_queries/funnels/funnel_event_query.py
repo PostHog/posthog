@@ -24,6 +24,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     UUIDDatabaseField,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -599,7 +600,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         # Aggregating by HogQL
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
             tag_contains_user_hogql()
-            aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
+            # The expression is printed as `<expr> AS aggregation_target`, so a user alias can
+            # collide with sibling columns, and a bare `*` prints SQL that ClickHouse rejects.
+            aggregation_target = strip_user_aliases(parse_expr(funnelsFilter.funnelAggregateByHogQL))
+            if isinstance(aggregation_target, ast.Field) and aggregation_target.chain[-1] == "*":
+                raise QueryError(
+                    "Funnels can't be aggregated by `*`. Use a single expression, such as `properties.$session_id`."
+                )
 
         if isinstance(aggregation_target, str):
             return ast.Field(chain=[aggregation_target])
