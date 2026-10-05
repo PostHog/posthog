@@ -1,4 +1,10 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.core.management import call_command
+from django.core.management.base import CommandError
+
+from parameterized import parameterized
 
 from posthog.models.team import Team
 
@@ -98,3 +104,102 @@ class TestGetOrCreateWarehouseDestination(BaseTest):
         theirs = get_or_create_warehouse_destination(other_team.pk)
 
         assert mine.id != theirs.id
+
+
+class TestBackfillWarehouseSourceDestinations(BaseTest):
+    def _source(self, source_id: str, team: Team | None = None) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=team or self.team,
+            source_id=source_id,
+            connection_id=f"conn-{source_id}",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+
+    @parameterized.expand(
+        [
+            ("new_destination_first_run", 1, False),
+            ("new_destination_second_run", 2, False),
+            ("existing_destination_first_run", 1, True),
+            ("existing_destination_second_run", 2, True),
+        ]
+    )
+    def test_a_source_without_links_gains_one_for_the_warehouse(
+        self, _case: str, runs: int, warehouse_exists: bool
+    ) -> None:
+        source = self._source("src")
+        existing_destination = get_or_create_warehouse_destination(self.team.pk) if warehouse_exists else None
+
+        for _ in range(runs):
+            call_command("backfill_warehouse_source_destinations", live_run=True)
+
+        links = list(ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source))
+        assert len(links) == 1
+        assert links[0].enabled is True
+        assert links[0].destination.type == ExternalDataDestination.Type.POSTHOG_WAREHOUSE
+        if existing_destination:
+            assert links[0].destination_id == existing_destination.pk
+        assert (
+            ExternalDataDestination.objects.for_team(self.team.pk)
+            .filter(type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE, deleted=False)
+            .count()
+            == 1
+        )
+
+    def test_a_source_with_an_external_link_is_unchanged(self) -> None:
+        source = self._source("src")
+        external_destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, type=ExternalDataDestination.Type.REDSHIFT, name="Redshift"
+        )
+        link = ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=source, destination=external_destination, enabled=False
+        )
+
+        call_command("backfill_warehouse_source_destinations", live_run=True)
+
+        links = list(ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source))
+        assert len(links) == 1
+        assert links[0].pk == link.pk
+        assert links[0].destination_id == external_destination.pk
+        assert links[0].enabled is False
+        assert ExternalDataDestination.objects.for_team(self.team.pk).count() == 1
+
+    def test_preview_creates_no_links_or_warehouse_destination(self) -> None:
+        source = self._source("src")
+
+        call_command("backfill_warehouse_source_destinations")
+
+        assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source).exists()
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).exists()
+
+    def test_team_id_only_backfills_that_teams_sources(self) -> None:
+        source = self._source("mine")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_source = self._source("other", team=other_team)
+
+        call_command("backfill_warehouse_source_destinations", team_id=self.team.pk, live_run=True)
+
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source).count() == 1
+        assert not ExternalDataSourceDestination.objects.for_team(other_team.pk).filter(source=other_source).exists()
+        assert not ExternalDataDestination.objects.for_team(other_team.pk).exists()
+
+    def test_a_deleted_source_is_left_alone(self) -> None:
+        # A deleted source never syncs again, so a link for it is noise the backfill should not add.
+        source = self._source("deleted-source")
+        source.deleted = True
+        source.save(update_fields=["deleted"])
+
+        call_command("backfill_warehouse_source_destinations", "--live-run")
+
+        assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source_id=source.pk).exists()
+
+    def test_a_failed_link_makes_the_command_fail(self) -> None:
+        source = self._source("src")
+
+        with (
+            patch.object(ExternalDataSourceDestination, "save", side_effect=RuntimeError("write failed")),
+            self.assertRaisesMessage(CommandError, "1 source(s) could not be linked"),
+        ):
+            call_command("backfill_warehouse_source_destinations", "--live-run")
+
+        assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source).exists()

@@ -938,7 +938,7 @@ const noop = (): void => {}
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
-            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]">
                 {children}
             </Card>
         </div>
