@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -280,8 +281,18 @@ export const NewFeatureFlagKeyTaken: Story = {
         testOptions: { waitForLoadersToDisappear: false },
     },
     play: async ({ canvasElement }) => {
-        const logic = await waitForMountedFeatureFlagLogic()
-        logic.actions.setFeatureFlagValue('key', 'session-recording-console')
+        await waitForMountedFeatureFlagLogic()
+        const keyInput = await waitFor(
+            () => {
+                const input = canvasElement.querySelector<HTMLInputElement>('input[data-attr="feature-flag-key"]')
+                if (!input) {
+                    throw new Error('flag key input not yet rendered')
+                }
+                return input
+            },
+            { timeout: 5000 }
+        )
+        await userEvent.type(keyInput, 'session-recording-console')
         await waitFor(
             () => {
                 if (!canvasElement.querySelector('[data-attr="feature-flag-key-conflict-link"]')) {
