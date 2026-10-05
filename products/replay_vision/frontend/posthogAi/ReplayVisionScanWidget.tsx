@@ -5,8 +5,9 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { parseFailureReason, parseIneligibleReason } from '../replay_scanners/types'
 import { flattenMarkdownToLine } from '../utils/markdown'
-import { readErrorMessage, readReasoning, readSummary, readTitle } from '../utils/observation'
+import { isUnsuccessfulScan, readReasoning, readSummary, readTitle } from '../utils/observation'
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
 
 export interface ReplayVisionScanWidgetProps {
@@ -14,6 +15,24 @@ export interface ReplayVisionScanWidgetProps {
     sessionIds: string[]
     /** Sessions the scan did not start, with the reason, so the user is not left waiting on them. */
     skipped: { sessionId: string; reason: string }[]
+}
+
+/**
+ * Scans that settled without a result, one line per reason. A scan over an arbitrary session list is
+ * mostly recordings that do not qualify, so a row each buries the results the scan did produce.
+ */
+function groupUnsuccessful(observations: ReplayObservationApi[]): [string, ReplayObservationApi[]][] {
+    const groups = new Map<string, ReplayObservationApi[]>()
+    for (const observation of observations) {
+        const parsed = observation.error_reason
+            ? observation.status === 'ineligible'
+                ? parseIneligibleReason(observation.error_reason)
+                : parseFailureReason(observation.error_reason)
+            : null
+        const label = parsed?.label ?? 'Could not be watched'
+        groups.set(label, [...(groups.get(label) ?? []), observation])
+    }
+    return [...groups.entries()]
 }
 
 const SKIP_MESSAGES: Record<string, string> = {
@@ -31,6 +50,8 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
             return counts
         }, {})
     )
+    const unsuccessfulByReason = groupUnsuccessful(latestPerSession.filter(isUnsuccessfulScan))
+    const resultRows = latestPerSession.filter((observation) => !isUnsuccessfulScan(observation))
 
     return (
         <div className="overflow-hidden rounded border bg-surface-primary">
@@ -45,7 +66,7 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
                 {pendingCount > 0 && !gaveUp && <Spinner />}
             </div>
 
-            {skippedByReason.length > 0 && (
+            {(skippedByReason.length > 0 || unsuccessfulByReason.length > 0) && (
                 <LemonBanner type="warning" className="m-3">
                     {skippedByReason.map(([reason, count]) => (
                         <p key={reason} className="m-0">
@@ -53,11 +74,22 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
                             {SKIP_MESSAGES[reason] ?? 'the scan could not be started'}.
                         </p>
                     ))}
+                    {unsuccessfulByReason.map(([label, observations]) => (
+                        <p key={label} className="m-0">
+                            {observations.length} recording{observations.length === 1 ? ' was' : 's were'} not analyzed:{' '}
+                            {label}.{' '}
+                            {observations.length === 1 && (
+                                <Link to={urls.replayVisionObservation(observations[0].id)} className="text-xs">
+                                    View details
+                                </Link>
+                            )}
+                        </p>
+                    ))}
                 </LemonBanner>
             )}
 
             <div className="divide-y">
-                {latestPerSession.map((observation) => (
+                {resultRows.map((observation) => (
                     <ObservationRow key={observation.id} observation={observation} />
                 ))}
                 {pendingCount > 0 && gaveUp && (
@@ -66,7 +98,7 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
                         finish.
                     </p>
                 )}
-                {latestPerSession.length === 0 && pendingCount > 0 && !gaveUp && (
+                {resultRows.length === 0 && pendingCount > 0 && !gaveUp && (
                     <p className="m-0 px-3 py-3 text-sm text-secondary">Starting the scans...</p>
                 )}
             </div>
@@ -80,15 +112,6 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
             <div className="flex items-center gap-2 px-3 py-2 text-sm text-secondary">
                 <Spinner />
                 <span>Still watching</span>
-            </div>
-        )
-    }
-
-    if (observation.status !== 'succeeded') {
-        const reason = readErrorMessage(observation)
-        return (
-            <div className="px-3 py-2 text-sm">
-                <p className="m-0 text-secondary">Could not watch this recording{reason ? `: ${reason}` : '.'}</p>
             </div>
         )
     }
