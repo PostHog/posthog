@@ -431,6 +431,85 @@ def _run_queued_deletion_steps(
     return result.deleted_count
 
 
+def _delete_membership_batch(
+    team_id: int,
+    batch: builtins.list[tuple[Person, builtins.list[str]]],
+    failures: builtins.list[PersonDeletionFailure],
+) -> builtins.list[Person]:
+    """Delete membership for one batch and return the persons it succeeded for.
+
+    The batch goes out as one delete. Only when that raises are the persons retried one at a time,
+    which pins the failure on the person that causes it instead of blocking the whole batch.
+    """
+    try:
+        delete_person_membership(team_id, [distinct_id for _, ids in batch for distinct_id in ids])
+        return [person for person, _ in batch]
+    except Exception:
+        logger.warning(
+            "person_deletion.membership_batch_failed",
+            team_id=team_id,
+            person_count=len(batch),
+            reason="retrying per person to isolate the failure",
+        )
+
+    deleted: builtins.list[Person] = []
+    for person, ids in batch:
+        try:
+            delete_person_membership(team_id, ids)
+        except Exception as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.DELETE_MEMBERSHIP,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid],
+            )
+            continue
+        deleted.append(person)
+    return deleted
+
+
+def _delete_membership_isolating_failures(
+    team_id: int,
+    persons: builtins.list[Person],
+    failures: builtins.list[PersonDeletionFailure],
+) -> builtins.list[Person]:
+    """Delete membership for the persons' current distinct IDs and return the persons it succeeded for.
+
+    Each membership delete is a mutation on every membership shard, so persons share one delete per
+    ``QUEUED_DELETION_DISTINCT_IDS_PER_BATCH`` distinct IDs rather than one each.
+    """
+    deleted: builtins.list[Person] = []
+    batch: builtins.list[tuple[Person, builtins.list[str]]] = []
+    batch_ids = 0
+    for person in persons:
+        try:
+            # Fresh identity reads exclude distinct IDs reassigned since the request resolved its persons.
+            ids = _paginated_get_distinct_ids_for_person(
+                team_id,
+                person.pk,
+                page_size=QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE,
+                read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
+            )
+        except Exception as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.DELETE_MEMBERSHIP,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid],
+            )
+            continue
+        batch.append((person, [d.id for d in ids]))
+        batch_ids += len(ids)
+        if batch_ids >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
+            deleted.extend(_delete_membership_batch(team_id, batch, failures))
+            batch, batch_ids = [], 0
+    if batch:
+        deleted.extend(_delete_membership_batch(team_id, batch, failures))
+    return deleted
+
+
 def _tombstone_and_delete_persons(
     team_id: int,
     persons: builtins.list[Person],
@@ -451,7 +530,6 @@ def _tombstone_and_delete_persons(
     failures: builtins.list[PersonDeletionFailure] = []
     if not persons:
         return PersonProfileDeletionResult(deleted_count=0)
-    eligible: builtins.list[Person] = []
     try:
         needs_membership_delete = has_team_membership(team_id)
     except Exception as exc:
@@ -463,26 +541,9 @@ def _tombstone_and_delete_persons(
             person_uuids=[p.uuid for p in persons],
         )
         return PersonProfileDeletionResult(deleted_count=0, failures=failures)
-    for person in persons:
-        try:
-            if needs_membership_delete:
-                # Fresh identity reads exclude distinct IDs reassigned since the request resolved its persons.
-                ids = _paginated_get_distinct_ids_for_person(
-                    team_id,
-                    person.pk,
-                    page_size=QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE,
-                    read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
-                )
-                delete_person_membership(team_id, [d.id for d in ids])
-            eligible.append(person)
-        except Exception as exc:
-            _record_step_failure(
-                failures,
-                step=PersonDeletionStep.DELETE_MEMBERSHIP,
-                team_id=team_id,
-                exc=exc,
-                person_uuids=[person.uuid],
-            )
+    eligible = (
+        _delete_membership_isolating_failures(team_id, persons, failures) if needs_membership_delete else list(persons)
+    )
     deleted = _tombstone_persons_at_exact_versions(team_id, eligible, failures)
 
     if organization_id is not None and deleted:

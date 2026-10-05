@@ -33,6 +33,7 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
     DeletePersons (capped at 1000/call). DeletePersons cascades the per-person
     cohortpeople cleanup, so no separate cohort delete is needed here.
     """
+    from posthog.models.person.bulk_delete import QUEUED_DELETION_DISTINCT_IDS_PER_BATCH
     from posthog.models.person.util import _paginated_get_distinct_ids_for_person
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
@@ -56,6 +57,8 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
     with personhog_caller_tag("delete-persons/by-ids"):
         uuids: list[str] = []
         needs_membership_delete = has_team_membership(team_id)
+        # Each membership delete is a mutation on every membership shard, so persons share one delete.
+        membership_ids: list[str] = []
         for id_chunk in _chunked(person_ids, GET_PERSONS_MAX_IDS):
             persons_resp = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=id_chunk))
             for person in persons_resp.persons:
@@ -66,8 +69,12 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
                         page_size=5000,
                         read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
                     )
-                    delete_person_membership(team_id, [d.id for d in ids])
+                    membership_ids.extend(d.id for d in ids)
+                    if len(membership_ids) >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
+                        delete_person_membership(team_id, membership_ids)
+                        membership_ids = []
                 uuids.append(person.uuid)
+        delete_person_membership(team_id, membership_ids)
 
         deleted = 0
         for uuid_chunk in _chunked(uuids, DELETE_PERSONS_MAX_UUIDS):
