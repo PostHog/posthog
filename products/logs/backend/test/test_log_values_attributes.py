@@ -373,6 +373,9 @@ class TestLogValuesUnsupportedFilters(APIBaseTest):
             ("message", {"key": "message", "type": "log", "operator": "exact", "value": "no-such-log-line"}),
             ("trace id", {"key": "trace_id", "type": "log", "operator": "exact", "value": "abc"}),
             ("log attribute", {"key": "http.url", "type": "log_attribute", "operator": "exact", "value": "/x"}),
+            ("unhashable key", {"key": ["service_name"], "type": "log", "operator": "exact", "value": ["api"]}),
+            ("not an object", "service_name"),
+            ("invalid operator", {"key": "service_name", "type": "log", "operator": "nope", "value": ["api"]}),
         ]
     )
     def test_flat_filter_the_rollup_cannot_apply_returns_400(self, _name, unsupported_filter):
@@ -387,7 +390,6 @@ class TestLogValuesUnsupportedFilters(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", params)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(unsupported_filter["key"], response.json()["detail"])
         calculate.assert_not_called()
 
 

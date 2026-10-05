@@ -1347,26 +1347,27 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             data = json.loads(raw or "{}")
         except json.JSONDecodeError:
             return None
-        if isinstance(data, list):
-            for log_filter in data:
-                if not isinstance(log_filter, dict):
-                    continue
-                filter_type, key = log_filter.get("type"), log_filter.get("key")
-                if filter_type == "log_resource_attribute" or (
-                    filter_type == "log" and key in COLUMN_FILTER_FACET_FIELDS
-                ):
-                    continue
-                raise ParseError(
-                    f'filterGroup cannot use a {filter_type} filter on "{key}" here. Attribute values come '
-                    "from a rollup that only supports service_name and severity_level log filters and "
-                    "log_resource_attribute filters. To scope by message or log attributes, use query-logs "
-                    "with a narrow dateRange."
-                )
-            data = self._normalize_filter_group(data)
-        try:
-            return self.get_model(data, PropertyGroupFilter)
-        except ParseError:
-            return None
+        if not isinstance(data, list):
+            try:
+                return self.get_model(data, PropertyGroupFilter)
+            except ParseError:
+                return None
+        for log_filter in data:
+            if not isinstance(log_filter, dict):
+                raise ParseError("filterGroup entries must be filter objects.")
+            filter_type, key = log_filter.get("type"), log_filter.get("key")
+            if filter_type == "log_resource_attribute" or (
+                filter_type == "log" and isinstance(key, str) and key in COLUMN_FILTER_FACET_FIELDS
+            ):
+                continue
+            raise ParseError(
+                f'filterGroup cannot use a {filter_type} filter on "{key}" here. Attribute values come '
+                "from a rollup that only supports service_name and severity_level log filters and "
+                "log_resource_attribute filters. To scope by message or log attributes, use query-logs "
+                "with a narrow dateRange."
+            )
+        # A flat list that fails validation must not silently fall back to unscoped values.
+        return self.get_model(self._normalize_filter_group(data), PropertyGroupFilter)
 
     @staticmethod
     def _require_dict_query(query_data: object) -> None:
