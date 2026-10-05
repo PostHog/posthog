@@ -36,6 +36,9 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
         self.addCleanup(self.reconciliation.cleanup)
         self.start = datetime(2025, 1, 1, tzinfo=UTC)
 
+    def _drop_dictionary(self, dictionary: PendingDeletesDictionary | AdhocEventDeletesDictionary) -> None:
+        self.cluster.map_all_hosts(dictionary.drop).result()
+
     def _select_schema(self, native: bool) -> None:
         self.native = native
         self.source = "events_json" if native else "events"
@@ -120,7 +123,9 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
             ]
             + [(self.team.pk + 2000000, 0, keys[0][0], keys[0][1], self.start, self.start)]
         )
-        sources = [(self.source, self.native, "team_id = %(team_id)s AND event = 'delete'", {"team_id": self.team.pk})]
+        sources: list[tuple[str, bool, str, dict[str, object]]] = [
+            (self.source, self.native, "team_id = %(team_id)s AND event = 'delete'", {"team_id": self.team.pk})
+        ]
         with patch.dict(
             QUERY_SETTINGS,
             {"max_rows_in_set": str(row_limit), "max_bytes_in_set": str(byte_limit), "max_query_size": "262144"},
@@ -195,7 +200,7 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
         self.cluster.map_all_hosts(pending.source.create).result()
         self.addCleanup(lambda: self.cluster.map_all_hosts(pending.source.drop).result())
         for dictionary in (pending, adhoc):
-            self.addCleanup(lambda d=dictionary: self.cluster.map_all_hosts(d.drop).result())
+            self.addCleanup(self._drop_dictionary, dictionary)
         cutoff = self.start + timedelta(days=5)
         person_id, event_id = uuid4(), uuid4()
         adhoc_id, cancelled_id = uuid4(), uuid4()
