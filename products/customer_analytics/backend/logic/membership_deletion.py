@@ -117,10 +117,13 @@ def _delete(placement: TargetPlacement, predicate: str, parameters: Mapping[str,
         settings={**QUERY_SETTINGS, "lightweight_deletes_sync": 2, "mutations_sync": 2},
         force=True,
         capacity_timeout=1800,
+        deadline=placement.cluster.deadline,
     )
     for host, waiter in placement.cluster.map_one_host_per_shard(runner).result().items():
         if host.shard_num is not None:
-            placement.cluster.map_all_hosts_in_shard(host.shard_num, waiter.wait).result()
+            placement.cluster.map_all_hosts_in_shard(
+                host.shard_num, partial(waiter.wait, deadline=placement.cluster.deadline)
+            ).result()
 
 
 def _verify_empty(cluster: ClickhouseCluster, table: str, predicate: str, parameters: Mapping[str, object]) -> None:

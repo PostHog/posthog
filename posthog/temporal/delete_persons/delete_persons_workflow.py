@@ -4,14 +4,21 @@ import asyncio
 import datetime as dt
 import itertools
 import dataclasses
+from functools import partial
 
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 from structlog import get_logger
 
+from posthog.models.person.bulk_delete import (
+    QUEUED_DELETION_DISTINCT_IDS_PER_BATCH,
+    get_distinct_ids_for_membership_deletion,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.customer_analytics.backend.facade.membership_deletion import membership_deletion_deadline
 
 LOGGER = get_logger(__name__)
 
@@ -33,17 +40,9 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
     DeletePersons (capped at 1000/call). DeletePersons cascades the per-person
     cohortpeople cleanup, so no separate cohort delete is needed here.
     """
-    from posthog.models.person.bulk_delete import QUEUED_DELETION_DISTINCT_IDS_PER_BATCH
-    from posthog.models.person.util import _paginated_get_distinct_ids_for_person
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.proto import (
-        CONSISTENCY_LEVEL_STRONG,
-        DeletePersonsMode,
-        DeletePersonsRequest,
-        GetPersonsRequest,
-        ReadOptions,
-    )
+    from posthog.personhog_client.proto import DeletePersonsMode, DeletePersonsRequest, GetPersonsRequest
 
     from products.customer_analytics.backend.facade.membership_deletion import (
         delete_person_membership,
@@ -54,30 +53,29 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
     if client is None:
         raise RuntimeError("personhog client not configured")
 
+    deadline = membership_deletion_deadline(background=True)
     with personhog_caller_tag("delete-persons/by-ids"):
         uuids: list[str] = []
-        needs_membership_delete = has_team_membership(team_id)
+        needs_membership_delete = has_team_membership(team_id, deadline=deadline)
         # Each membership delete is a mutation on every membership shard, so persons share one delete.
         membership_ids: list[str] = []
         for id_chunk in _chunked(person_ids, GET_PERSONS_MAX_IDS):
-            persons_resp = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=id_chunk))
+            persons_resp = deadline.run(
+                partial(client.get_persons, GetPersonsRequest(team_id=team_id, person_ids=id_chunk))
+            )
             for person in persons_resp.persons:
                 if needs_membership_delete:
-                    ids = _paginated_get_distinct_ids_for_person(
-                        team_id,
-                        person.id,
-                        page_size=5000,
-                        read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
-                    )
+                    ids = get_distinct_ids_for_membership_deletion(team_id, person.id, deadline)
                     membership_ids.extend(d.id for d in ids)
                     if len(membership_ids) >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
-                        delete_person_membership(team_id, membership_ids)
+                        delete_person_membership(team_id, membership_ids, deadline=deadline)
                         membership_ids = []
                 uuids.append(person.uuid)
-        delete_person_membership(team_id, membership_ids)
+        delete_person_membership(team_id, membership_ids, deadline=deadline)
 
         deleted = 0
         for uuid_chunk in _chunked(uuids, DELETE_PERSONS_MAX_UUIDS):
+            deadline.remaining()
             # A purge publishes no ClickHouse tombstones, so the rows must go rather than
             # stay behind as tombstones nothing would ever sweep.
             delete_resp = client.delete_persons(
@@ -103,9 +101,11 @@ def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> i
         has_team_membership,
     )
 
+    deadline = membership_deletion_deadline(background=True)
     # Every batch calls this. The probe keeps later batches from re-running the team-wide delete.
-    if has_team_membership(team_id):
-        delete_team_membership(get_cluster(), [team_id], include_config=False)
+    if has_team_membership(team_id, deadline=deadline):
+        delete_team_membership(get_cluster(deadline=deadline), [team_id], include_config=False)
+    deadline.remaining()
     client = get_personhog_client()
     if client is None:
         raise RuntimeError("personhog client not configured")

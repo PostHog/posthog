@@ -5,6 +5,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import field
 from datetime import timedelta
 from enum import StrEnum
+from functools import partial
 from typing import cast
 
 from django.conf import settings
@@ -13,6 +14,7 @@ import structlog
 from prometheus_client import Counter, Histogram
 from temporalio import common
 
+from posthog.clickhouse.cluster import ExecutionDeadline
 from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, LogActivityEntry, bulk_log_activity
@@ -29,12 +31,17 @@ from posthog.models.person.util import (
     tombstone_persons_in_postgres,
 )
 from posthog.models.user import User
-from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, ReadOptions
+from posthog.personhog_client.client import require_personhog_client
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, GetDistinctIdsForPersonRequest, ReadOptions
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 
 from products.ai_training.backend.facade.api import queue_person_training_deletion
-from products.customer_analytics.backend.facade.membership_deletion import delete_person_membership, has_team_membership
+from products.customer_analytics.backend.facade.membership_deletion import (
+    delete_person_membership,
+    has_team_membership,
+    membership_deletion_deadline,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -217,6 +224,7 @@ class _QueuedDeletionOptions:
     actor: User | None
     was_impersonated: bool
     organization_id: uuid_lib.UUID | None
+    membership_deadline: ExecutionDeadline
 
 
 def process_queued_person_deletion(
@@ -253,6 +261,7 @@ def process_queued_person_deletion(
         actor=actor,
         was_impersonated=was_impersonated,
         organization_id=organization_id,
+        membership_deadline=membership_deletion_deadline(background=True),
     )
     failures: builtins.list[PersonDeletionFailure] = []
     requested = [uuid_lib.UUID(u) for u in person_uuids]
@@ -426,15 +435,38 @@ def _run_queued_deletion_steps(
         actor=options.actor,
         was_impersonated=options.was_impersonated,
         organization_id=options.organization_id,
+        membership_deadline=options.membership_deadline,
     )
     failures.extend(result.failures)
     return result.deleted_count
+
+
+def get_distinct_ids_for_membership_deletion(
+    team_id: int, person_id: int, deadline: ExecutionDeadline
+) -> builtins.list[DistinctIdForPerson]:
+    client = require_personhog_client()
+    ids: builtins.list[DistinctIdForPerson] = []
+    cursor = 0
+    while True:
+        request = GetDistinctIdsForPersonRequest(
+            team_id=team_id,
+            person_id=person_id,
+            limit=QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE,
+            cursor_id=cursor,
+            read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
+        )
+        response = deadline.run(partial(client.get_distinct_ids_for_person, request))
+        ids.extend(DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)) for d in response.distinct_ids)
+        if not response.HasField("next_cursor_id"):
+            return ids
+        cursor = response.next_cursor_id
 
 
 def _delete_membership_batch(
     team_id: int,
     batch: builtins.list[tuple[Person, builtins.list[str]]],
     failures: builtins.list[PersonDeletionFailure],
+    deadline: ExecutionDeadline,
 ) -> builtins.list[Person]:
     """Delete membership for one batch and return the persons it succeeded for.
 
@@ -442,7 +474,9 @@ def _delete_membership_batch(
     which pins the failure on the person that causes it instead of blocking the whole batch.
     """
     try:
-        delete_person_membership(team_id, [distinct_id for _, ids in batch for distinct_id in ids])
+        deadline.remaining()
+        delete_person_membership(team_id, [distinct_id for _, ids in batch for distinct_id in ids], deadline=deadline)
+        deadline.remaining()
         return [person for person, _ in batch]
     except Exception:
         logger.warning(
@@ -455,7 +489,9 @@ def _delete_membership_batch(
     deleted: builtins.list[Person] = []
     for person, ids in batch:
         try:
-            delete_person_membership(team_id, ids)
+            deadline.remaining()
+            delete_person_membership(team_id, ids, deadline=deadline)
+            deadline.remaining()
         except Exception as exc:
             _record_step_failure(
                 failures,
@@ -473,6 +509,7 @@ def _delete_membership_isolating_failures(
     team_id: int,
     persons: builtins.list[Person],
     failures: builtins.list[PersonDeletionFailure],
+    deadline: ExecutionDeadline,
 ) -> builtins.list[Person]:
     """Delete membership for the persons' current distinct IDs and return the persons it succeeded for.
 
@@ -485,12 +522,7 @@ def _delete_membership_isolating_failures(
     for person in persons:
         try:
             # Fresh identity reads exclude distinct IDs reassigned since the request resolved its persons.
-            ids = _paginated_get_distinct_ids_for_person(
-                team_id,
-                person.pk,
-                page_size=QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE,
-                read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
-            )
+            ids = get_distinct_ids_for_membership_deletion(team_id, person.pk, deadline)
         except Exception as exc:
             _record_step_failure(
                 failures,
@@ -503,10 +535,10 @@ def _delete_membership_isolating_failures(
         batch.append((person, [d.id for d in ids]))
         batch_ids += len(ids)
         if batch_ids >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
-            deleted.extend(_delete_membership_batch(team_id, batch, failures))
+            deleted.extend(_delete_membership_batch(team_id, batch, failures, deadline))
             batch, batch_ids = [], 0
     if batch:
-        deleted.extend(_delete_membership_batch(team_id, batch, failures))
+        deleted.extend(_delete_membership_batch(team_id, batch, failures, deadline))
     return deleted
 
 
@@ -517,6 +549,7 @@ def _tombstone_and_delete_persons(
     actor: User | None,
     was_impersonated: bool,
     organization_id: uuid_lib.UUID | None,
+    membership_deadline: ExecutionDeadline | None = None,
 ) -> PersonProfileDeletionResult:
     """Tombstone each person in Postgres, publish the ClickHouse tombstones, then log the deletions.
 
@@ -530,8 +563,10 @@ def _tombstone_and_delete_persons(
     failures: builtins.list[PersonDeletionFailure] = []
     if not persons:
         return PersonProfileDeletionResult(deleted_count=0)
+    membership_deadline = membership_deadline or membership_deletion_deadline()
     try:
-        needs_membership_delete = has_team_membership(team_id)
+        needs_membership_delete = has_team_membership(team_id, deadline=membership_deadline)
+        membership_deadline.remaining()
     except Exception as exc:
         _record_step_failure(
             failures,
@@ -542,8 +577,22 @@ def _tombstone_and_delete_persons(
         )
         return PersonProfileDeletionResult(deleted_count=0, failures=failures)
     eligible = (
-        _delete_membership_isolating_failures(team_id, persons, failures) if needs_membership_delete else list(persons)
+        _delete_membership_isolating_failures(team_id, persons, failures, membership_deadline)
+        if needs_membership_delete
+        else list(persons)
     )
+    if eligible:
+        try:
+            membership_deadline.remaining()
+        except TimeoutError as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.DELETE_MEMBERSHIP,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[p.uuid for p in eligible],
+            )
+            eligible = []
     deleted = _tombstone_persons_at_exact_versions(team_id, eligible, failures)
 
     if organization_id is not None and deleted:

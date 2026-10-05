@@ -132,6 +132,18 @@ A membership failure keeps the profile for retry and records the `delete_members
 The person-removal Dagster request fails on that step rather than marking the request complete.
 The Temporal person purge uses the same hook.
 
+`MEMBERSHIP_DELETION_SYNC_TIMEOUT_SECONDS` defaults to 10 seconds for the membership gate on synchronous profile deletion.
+`MEMBERSHIP_DELETION_BACKGROUND_TIMEOUT_SECONDS` defaults to 1,800 seconds for queued deletion and Temporal purge.
+One deadline covers discovery, identity reads, network operations, mutation capacity, replica verification, batches, and failure-isolation retries.
+It ends before the Postgres tombstone and does not bound the whole HTTP request.
+On expiry, the hook records `delete_membership` and retains the profile.
+An already-started ClickHouse mutation can finish afterwards; retry repeats the idempotent delete and verifies its result.
+
+Presence checks remain fail-closed if a host cannot be reached.
+An empty healthy replica cannot prove absence of retained staging keys on an unavailable replica.
+Bypassing ClickHouse for unaffected teams requires durable team-level ownership metadata, updated before every membership or staging write.
+This availability trade-off remains open; host failures must not be treated as successful erasure.
+
 ### Team deletion
 
 Team teardown removes both membership and `person_group_membership_config` before removing identity mappings.
@@ -162,7 +174,7 @@ It excludes whole-team requests because the team hook clears their membership di
 Each source scan receives a bounded, dictionary-free predicate with that team's request keys and cutoffs.
 Remote sources do not need the pending-deletion tables, deletion dictionaries, or new dictionary credentials.
 The person arm preserves both timestamp and insertion-time bounds, including NULL insertion times.
-Event UUID requests stay unbounded, and adhoc requests retain their insertion-time bound and cancelled-request exclusion.
+Event UUID requests have no time cutoff, and adhoc requests retain their insertion-time bound and cancelled-request exclusion.
 A failed probe fails the run before any source mutation.
 The probe does not enable deletion of skipped events or change the default skip list.
 Thus the default native-JSON skip cannot silently preserve an association that the request should remove.

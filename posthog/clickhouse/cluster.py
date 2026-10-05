@@ -7,11 +7,14 @@ import logging
 import itertools
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
-from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed, wait
+from contextvars import copy_context
 from copy import copy
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
+from functools import partial
+from math import ceil, isfinite
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar, cast
 
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException
@@ -162,6 +165,91 @@ class HostInfo(NamedTuple):
 T = TypeVar("T")
 
 
+@frozen
+class ExecutionDeadline:
+    expires_at: float
+
+    @classmethod
+    def after(cls, seconds: float) -> ExecutionDeadline:
+        if not isfinite(seconds) or seconds <= 0:
+            raise ValueError("Deletion timeout must be finite and positive")
+        return cls(expires_at=time.monotonic() + seconds)
+
+    def remaining(self) -> float:
+        remaining = self.expires_at - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Deletion deadline expired")
+        return remaining
+
+    def sleep(self, seconds: float) -> None:
+        time.sleep(min(seconds, self.remaining()))
+        self.remaining()
+
+    def run(self, fn: Callable[[], T]) -> T:
+        self.remaining()
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+
+            def run_before_expiry() -> T:
+                self.remaining()
+                return fn()
+
+            context = copy_context()
+            future = executor.submit(lambda: context.run(run_before_expiry))
+            result = future.result(timeout=self.remaining())
+            self.remaining()
+            return result
+        finally:
+            # Only read-only work or ClickHouse work may outlive this wait, never profile writes.
+            executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _submit_tasks(
+    tasks: Mapping[K, Callable[[], V]], concurrency: int | None, deadline: ExecutionDeadline | None
+) -> FuturesMap[K, V]:
+    if deadline is not None:
+        deadline.remaining()
+    executor = ThreadPoolExecutor(max_workers=concurrency)
+    try:
+        futures = FuturesMap({key: executor.submit(task) for key, task in tasks.items()})
+        if deadline is not None:
+            _, pending = wait(futures.values(), timeout=deadline.remaining())
+            if pending:
+                raise TimeoutError("ClickHouse operation exceeded its deadline")
+            deadline.remaining()
+        return futures
+    finally:
+        executor.shutdown(wait=deadline is None, cancel_futures=deadline is not None)
+
+
+class _DeadlineClient:
+    def __init__(self, client: Client, deadline: ExecutionDeadline) -> None:
+        self._client = client
+        self._deadline = deadline
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def execute(self, *args: Any, **kwargs: Any) -> Any:
+        remaining = self._deadline.remaining()
+        connection = self._client.connection
+        connection.connect_timeout = remaining
+        connection.send_receive_timeout = remaining
+        connection.sync_request_timeout = remaining
+        if connection.socket is not None:
+            connection.socket.settimeout(remaining)
+        query_settings = dict(kwargs.get("settings") or {})
+        query_settings["max_execution_time"] = min(
+            float(query_settings.get("max_execution_time", remaining)), remaining
+        )
+        for name in ("connect_timeout", "receive_timeout", "send_timeout"):
+            query_settings[name] = max(1, ceil(min(float(query_settings.get(name, remaining)), remaining)))
+        kwargs["settings"] = query_settings
+        result = self._client.execute(*args, **kwargs)
+        self._deadline.remaining()
+        return result
+
+
 class ClickhouseCluster:
     def __init__(
         self,
@@ -176,10 +264,14 @@ class ClickhouseCluster:
         connection_overrides: Mapping[str, Any] | None = None,
         shard_role: NodeRole = NodeRole.DATA,
         bootstrap_credential_provider: Callable[[], str] | None = None,
+        deadline: ExecutionDeadline | None = None,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
 
+        self.__deadline = deadline
+        if deadline is not None:
+            bootstrap_client = cast(Client, _DeadlineClient(bootstrap_client, deadline))
         self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
         self.__extra_hosts: set[HostInfo] = set()
 
@@ -287,6 +379,10 @@ class ClickhouseCluster:
         self.__siblings: dict[tuple[str, NodeRole], ClickhouseCluster] = {}
 
     @property
+    def deadline(self) -> ExecutionDeadline | None:
+        return self.__deadline
+
+    @property
     def shard_role(self) -> NodeRole:
         return self.__shard_role
 
@@ -305,7 +401,8 @@ class ClickhouseCluster:
             return self
         sibling = self.__siblings.get((cluster, shard_role))
         if sibling is None:
-            sibling = self.__siblings[(cluster, shard_role)] = ClickhouseCluster(
+            build_sibling = partial(
+                ClickhouseCluster,
                 self.__bootstrap_client,
                 extra_hosts=self.__extra_host_infos,
                 logger=self.__logger,
@@ -315,6 +412,10 @@ class ClickhouseCluster:
                 connection_overrides=self.__connection_overrides,
                 shard_role=shard_role,
                 bootstrap_credential_provider=self.__bootstrap_credential_provider,
+                deadline=self.__deadline,
+            )
+            sibling = self.__siblings[(cluster, shard_role)] = (
+                self.__deadline.run(build_sibling) if self.__deadline is not None else build_sibling()
             )
         return sibling
 
@@ -337,7 +438,7 @@ class ClickhouseCluster:
             )
 
         if retry_policy is not None:
-            return retry_policy(get_cluster_hosts_fn)(client)
+            return retry_policy(get_cluster_hosts_fn, deadline=self.__deadline)(client)
         return get_cluster_hosts_fn(client)
 
     def __get_satellite_cluster_hosts(
@@ -360,21 +461,26 @@ class ClickhouseCluster:
             )
 
         if retry_policy is not None:
-            return retry_policy(get_hosts_fn)(client)
+            return retry_policy(get_hosts_fn, deadline=self.__deadline)(client)
         return get_hosts_fn(client)
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
-        pool = self.__pools.get(host)
-        if pool is None:
-            pool = self.__pools[host] = host.connection_info.make_pool(
-                self.__client_settings, **self.__connection_overrides
-            )
-
         if self.__retry_policy is not None:
-            fn = self.__retry_policy(fn)
+            fn = self.__retry_policy(fn, deadline=self.__deadline)
 
-        def task():
+        def task() -> T:
+            overrides = dict(self.__connection_overrides)
+            if self.__deadline is not None:
+                remaining = self.__deadline.remaining()
+                overrides.update(
+                    connect_timeout=remaining, send_receive_timeout=remaining, sync_request_timeout=remaining
+                )
+            pool = self.__pools.get(host)
+            if pool is None:
+                pool = self.__pools[host] = host.connection_info.make_pool(self.__client_settings, **overrides)
             with pool.get_client() as client:
+                if self.__deadline is not None:
+                    client = cast(Client, _DeadlineClient(client, self.__deadline))
                 self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
@@ -429,9 +535,8 @@ class ClickhouseCluster:
         return len(self.__shards)
 
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
-        with ThreadPoolExecutor() as executor:
-            host = next(iter(self.__hosts))
-            return executor.submit(self.__get_task_function(host, fn))
+        host = next(iter(self.__hosts))
+        return _submit_tasks({host: self.__get_task_function(host, fn)}, None, self.__deadline)[host]
 
     def any_host_by_role(
         self, fn: Callable[[Client], T], node_role: NodeRole, workload: Workload = Workload.DEFAULT
@@ -447,12 +552,11 @@ class ClickhouseCluster:
         """
         Execute the callable once for any host with the given node role.
         """
-        with ThreadPoolExecutor() as executor:
-            try:
-                host = next(iter(self.__hosts_by_roles(self.__hosts, node_roles, workload)))
-            except StopIteration:
-                raise ValueError(f"No hosts found with roles {node_roles}")
-            return executor.submit(self.__get_task_function(host, fn))
+        try:
+            host = next(iter(self.__hosts_by_roles(self.__hosts, node_roles, workload)))
+        except StopIteration:
+            raise ValueError(f"No hosts found with roles {node_roles}")
+        return _submit_tasks({host: self.__get_task_function(host, fn)}, None, self.__deadline)[host]
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
         """
@@ -491,8 +595,7 @@ class ClickhouseCluster:
         if require_hosts and not hosts:
             raise ValueError(f"No hosts found with roles {node_roles}")
 
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
+        return _submit_tasks({host: self.__get_task_function(host, fn) for host in hosts}, concurrency, self.__deadline)
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
@@ -529,13 +632,14 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {
-                    host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts_by_roles(self.__shards[shard_num], node_roles, workload)
-                }
-            )
+        return _submit_tasks(
+            {
+                host: self.__get_task_function(host, fn)
+                for host in self.__hosts_by_roles(self.__shards[shard_num], node_roles, workload)
+            },
+            concurrency,
+            self.__deadline,
+        )
 
     def map_all_hosts_in_shards(
         self,
@@ -555,10 +659,11 @@ class ClickhouseCluster:
             for host in self.__shards[shard]:
                 shard_host_fn[host] = fn
 
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fn.items()}
-            )
+        return _submit_tasks(
+            {host: self.__get_task_function(host, fn) for host, fn in shard_host_fn.items()},
+            concurrency,
+            self.__deadline,
+        )
 
     def map_any_host_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
@@ -610,10 +715,11 @@ class ClickhouseCluster:
                     f"No hosts found with role {node_roles} and workload {workload.value} in shard {shard}"
                 )
 
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fns.items()}
-            )
+        return _submit_tasks(
+            {host: self.__get_task_function(host, fn) for host, fn in shard_host_fns.items()},
+            concurrency,
+            self.__deadline,
+        )
 
     def map_one_host_per_shard(
         self, fn: Callable[[Client], T], concurrency: int | None = None
@@ -625,8 +731,7 @@ class ClickhouseCluster:
         default limit of the executor.
         """
         hosts = {next(iter(shard_hosts)) for shard_hosts in self.__shards.values()}
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
+        return _submit_tasks({host: self.__get_task_function(host, fn) for host in hosts}, concurrency, self.__deadline)
 
 
 def get_cluster(
@@ -638,6 +743,8 @@ def get_cluster(
     retry_policy: RetryPolicy | None = None,
     host: str = settings.CLICKHOUSE_HOST,
     connection_overrides: Mapping[str, Any] | None = None,
+    *,
+    deadline: ExecutionDeadline | None = None,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
@@ -655,18 +762,22 @@ def get_cluster(
     else:
         bootstrap_client = default_client(host=host)
 
-    return ClickhouseCluster(
-        bootstrap_client,
-        extra_hosts=extra_hosts,
-        logger=logger,
-        client_settings=client_settings,
-        cluster=cluster,
-        data_cluster=data_cluster,
-        satellite_clusters=satellite_clusters,
-        retry_policy=retry_policy,
-        connection_overrides=overrides,
-        bootstrap_credential_provider=bootstrap_credential_provider,
-    )
+    def build_cluster() -> ClickhouseCluster:
+        return ClickhouseCluster(
+            bootstrap_client,
+            extra_hosts=extra_hosts,
+            logger=logger,
+            client_settings=client_settings,
+            cluster=cluster,
+            data_cluster=data_cluster,
+            satellite_clusters=satellite_clusters,
+            retry_policy=retry_policy,
+            connection_overrides=overrides,
+            bootstrap_credential_provider=bootstrap_credential_provider,
+            deadline=deadline,
+        )
+
+    return deadline.run(build_cluster) if deadline is not None else build_cluster()
 
 
 # Masks inline credentials (e.g. dictionary `SOURCE(CLICKHOUSE(... PASSWORD '…'))` or
@@ -725,8 +836,8 @@ class RetryPolicy:
     delay: float | Callable[[int], float]
     exceptions: tuple[type[Exception], ...] | Callable[[Exception], bool] = (Exception,)
 
-    def __call__(self, fn: Callable[[Client], T]) -> Retryable[T]:
-        return Retryable(callable=fn, policy=self)
+    def __call__(self, fn: Callable[[Client], T], *, deadline: ExecutionDeadline | None = None) -> Retryable[T]:
+        return Retryable(callable=fn, policy=self, deadline=deadline)
 
     def is_retryable(self, e: Exception) -> bool:
         if isinstance(self.exceptions, tuple):
@@ -741,6 +852,7 @@ class RetryPolicy:
 class Retryable(Generic[T]):  # note: this class exists primarily to allow a readable __repr__
     callable: Callable[[Client], T]
     policy: RetryPolicy
+    deadline: ExecutionDeadline | None = field(default=None, repr=False)
 
     def __call__(self, client: Client) -> T:
         if not callable(self.policy.delay):
@@ -752,6 +864,8 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
 
         counter = itertools.count(1)
         while (attempt := next(counter)) <= self.policy.max_attempts:
+            if self.deadline is not None:
+                self.deadline.remaining()
             try:
                 return self.callable(client)
             except Exception as e:
@@ -760,7 +874,10 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
                     logger.warning(
                         "Failed to execute %r (attempt #%s, retry in %0.2fs): %s", self.callable, attempt, delay, e
                     )
-                    time.sleep(delay)
+                    if self.deadline is not None:
+                        self.deadline.sleep(delay)
+                    else:
+                        time.sleep(delay)
                 else:
                     raise
 
@@ -815,9 +932,16 @@ class MutationWaiter:
         else:
             return all(statuses.values())
 
-    def wait(self, client: Client) -> None:
-        while not self.is_done(client):
-            time.sleep(15.0)
+    def wait(self, client: Client, *, deadline: ExecutionDeadline | None = None) -> None:
+        while True:
+            if deadline is not None:
+                deadline.remaining()
+            if self.is_done(client):
+                return
+            if deadline is not None:
+                deadline.sleep(15.0)
+            else:
+                time.sleep(15.0)
 
 
 @dataclass
@@ -868,6 +992,7 @@ class MutationRunner(abc.ABC):
     # How long to wait for the table to be free of other mutations before giving up. 0 waits
     # forever, which is what a caller with no deadline of its own wants.
     capacity_timeout: float = field(default=0.0, kw_only=True)
+    deadline: ExecutionDeadline | None = field(default=None, kw_only=True, repr=False)
     # Oldest ``create_time`` an existing mutation may have for this runner to adopt it instead of
     # enqueueing its own. A command names the dictionaries it joins, never their contents, so a
     # caller whose dictionaries are rebuilt each run produces the same command text over different
@@ -912,6 +1037,8 @@ class MutationRunner(abc.ABC):
             return MutationWaiter(self.table, set(mutations_running.values()))
 
         while True:
+            if self.deadline is not None:
+                self.deadline.remaining()
             self.wait_for_mutation_capacity(client)
             try:
                 client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
@@ -929,7 +1056,10 @@ class MutationRunner(abc.ABC):
             mutations_running = self.find_existing_mutations(client, expected_commands)
             if mutations_running.keys() == expected_commands:
                 return MutationWaiter(self.table, set(mutations_running.values()))
-            time.sleep(1.0)
+            if self.deadline is not None:
+                self.deadline.sleep(1.0)
+            else:
+                time.sleep(1.0)
 
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
@@ -947,6 +1077,8 @@ class MutationRunner(abc.ABC):
         """
         deadline = time.monotonic() + self.capacity_timeout if self.capacity_timeout else None
         while True:
+            if self.deadline is not None:
+                self.deadline.remaining()
             [[count]] = client.execute(
                 """
                 SELECT count()
@@ -957,7 +1089,8 @@ class MutationRunner(abc.ABC):
             )
             if count == 0:
                 return
-            if deadline is not None and time.monotonic() > deadline:
+            now = time.monotonic() if deadline is not None else 0.0
+            if deadline is not None and now >= deadline:
                 raise MutationCapacityTimeout(
                     f"{self.table} still has {count} unfinished mutation(s)"
                     f" after {self.capacity_timeout:.0f}s waiting for capacity"
@@ -968,7 +1101,13 @@ class MutationRunner(abc.ABC):
                 self.table,
                 poll_interval,
             )
-            time.sleep(poll_interval)
+            if self.deadline is not None:
+                capacity_remaining = max(0.0, deadline - now) if deadline is not None else poll_interval
+                self.deadline.sleep(min(poll_interval, capacity_remaining))
+            elif deadline is not None:
+                time.sleep(min(poll_interval, max(0.0, deadline - now)))
+            else:
+                time.sleep(poll_interval)
 
     def find_existing_mutations(
         self, client: Client, commands: Set[str] | None = None, since: datetime | None = None
