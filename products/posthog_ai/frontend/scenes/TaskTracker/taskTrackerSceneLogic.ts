@@ -1083,8 +1083,20 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     }
                     actions.clearActiveCreation()
                 }
-                if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
-                    lemonToast.error("Couldn't start this run yet. Please try again.")
+                if (error instanceof ApiError) {
+                    if (error.code === 'warm_run_activation_unavailable') {
+                        lemonToast.error("Couldn't start this run yet. Please try again.")
+                    } else if (error.status === 402) {
+                        lemonToast.error(
+                            'Your organization reached its AI credit usage limit. Raise the limit in billing, or ask an organization admin to do it.',
+                            {
+                                button: {
+                                    label: 'Go to billing',
+                                    action: () => router.actions.push(urls.organizationBilling()),
+                                },
+                            }
+                        )
+                    }
                 }
                 if (error instanceof CodexBillingUnresolvedError) {
                     lemonToast.error("Couldn't confirm your ChatGPT plan for this run. Please try again.")
