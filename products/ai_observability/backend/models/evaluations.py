@@ -274,25 +274,25 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
                 raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
 
         # Compile bytecode for each condition
-        # The scheduler skips a condition that has no bytecode, so the evaluation never runs. Reject it when
-        # the caller changes the filters. Other saves skip this check, so pause, delete and status changes work.
-        update_fields = kwargs.get("update_fields")
-        writes_conditions = update_fields is None or "conditions" in update_fields
         compiled_conditions = []
+        compile_error: str | None = None
         for index, condition in enumerate(self.conditions):
             compiled_condition = {**condition}
             filters = {"properties": condition.get("properties", [])}
             compiled = compile_filters_bytecode(filters, self.team)
             bytecode_error = compiled.get("bytecode_error")
-            if bytecode_error and writes_conditions and self._condition_filters_changed():
-                raise ValidationError(
-                    {
-                        "conditions": f"Condition set {index + 1} has a filter that evaluations cannot run. {bytecode_error}"
-                    }
-                )
+            if bytecode_error and compile_error is None:
+                compile_error = f"Condition set {index + 1} has a filter that evaluations cannot run. {bytecode_error}"
             compiled_condition["bytecode"] = compiled.get("bytecode")
             compiled_condition["bytecode_error"] = bytecode_error
             compiled_conditions.append(compiled_condition)
+
+        # The scheduler never matches a condition that has no bytecode. Reject the save when the caller
+        # changes the filters. Other saves skip this check, so pause, delete and status changes work.
+        update_fields = kwargs.get("update_fields")
+        writes_conditions = update_fields is None or "conditions" in update_fields
+        if compile_error and writes_conditions and self._condition_filters_changed():
+            raise ValidationError({"conditions": compile_error})
 
         self.conditions = compiled_conditions
         result = super().save(*args, **kwargs)
