@@ -38,9 +38,9 @@ def request_params(
     config: PromptingCompanySourceConfig,
     name: str,
     watermark: date | datetime | str | None = None,
-) -> dict[str, str | int]:
+) -> dict[str, Any]:
     endpoint = schema_for_resource(ENDPOINTS, name)
-    params: dict[str, str | int] = {}
+    params: dict[str, Any] = {}
     if endpoint.product_scoped:
         params["productId"] = config.product_id
     if endpoint.paginated:
