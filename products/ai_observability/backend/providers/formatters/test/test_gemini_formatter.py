@@ -28,6 +28,7 @@ class TestConvertAnthropicMessagesToGemini:
         assert content.role == "model"
         assert content.parts[0].text == "Checking the weather."
         function_call = content.parts[1].function_call
+        assert function_call.id == "call_1"
         assert function_call.name == "get_weather"
         assert function_call.args == expected_args
 
@@ -54,6 +55,7 @@ class TestConvertAnthropicMessagesToGemini:
 
         assert contents[1].role == "user"
         function_response = contents[1].parts[0].function_response
+        assert function_response.id == "call_1"
         assert function_response.name == "get_weather"
         assert function_response.response == expected_response
 

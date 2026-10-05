@@ -73,14 +73,24 @@ def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> Cont
                     call_id = block.get("id")
                     if isinstance(call_id, str):
                         tool_name_by_call_id[call_id] = name
-                    parts.append(Part(function_call=FunctionCall(name=name, args=_tool_call_args(block.get("input")))))
+                    parts.append(
+                        Part(
+                            function_call=FunctionCall(
+                                id=call_id if isinstance(call_id, str) else None,
+                                name=name,
+                                args=_tool_call_args(block.get("input")),
+                            )
+                        )
+                    )
                 elif is_tool_result_param(block):
                     call_id = block.get("tool_use_id")
                     name = tool_name_by_call_id.get(cast(str, call_id), "") or str(call_id or "unknown")
                     parts.append(
                         Part(
                             function_response=FunctionResponse(
-                                name=name, response=_tool_response_payload(block.get("content"))
+                                id=call_id if isinstance(call_id, str) else None,
+                                name=name,
+                                response=_tool_response_payload(block.get("content")),
                             )
                         )
                     )
