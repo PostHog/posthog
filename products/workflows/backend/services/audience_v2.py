@@ -35,6 +35,11 @@ AUDIENCE_QUERY_V2_FLAG = "workflows-audience-query-v2"
 
 QUERY_TYPE = "workflows_audience_count_v2"
 
+# Below this many sampled people without an email, count them exactly instead of extrapolating.
+# The extrapolation's relative error is about 1/sqrt(sampled), so 1,000 keeps it near 3%. The
+# exact count dedups only those people, so it stays below ~64k of them.
+MIN_SAMPLED_WITHOUT_EMAIL = 1_000
+
 
 def use_audience_query_v2(team: Team) -> bool:
     return bool(
@@ -82,23 +87,26 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
 
         total = count_matching_persons(team, None, database, query_type=QUERY_TYPE)
         count = _sampled_or_exact_dedupe_count(
-            lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus)
+            lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus),
+            lambda: _run_without_email_count(team, cleaned_filter, database),
         )
         return DedupeAudienceSize.capped_at_total(count, total)
 
 
 def _sampled_or_exact_dedupe_count(
     run_count: Callable[[Optional[int]], DedupeAudienceCount],
+    count_without_email: Callable[[], int],
 ) -> DedupeAudienceCount:
     # Mirrors person_sampling.sampled_or_exact_count for a pair of counts from one query. The
-    # sample keys on the dedupe group, so both counts scale by the same modulus.
+    # sample keys on the dedupe group, so both counts scale by the same modulus. A large audience
+    # can have few people without an email, and a handful of sampled ones misses or overstates them.
     sample = run_count(person_sampling.SAMPLE_MODULUS)
-    if sample.sends >= person_sampling.MIN_SAMPLED_MATCHES:
-        return DedupeAudienceCount(
-            sends=sample.sends * person_sampling.SAMPLE_MODULUS,
-            without_email=sample.without_email * person_sampling.SAMPLE_MODULUS,
-        )
-    return run_count(None)
+    if sample.sends < person_sampling.MIN_SAMPLED_MATCHES:
+        return run_count(None)
+    sends = sample.sends * person_sampling.SAMPLE_MODULUS
+    if sample.without_email < MIN_SAMPLED_WITHOUT_EMAIL:
+        return DedupeAudienceCount(sends=sends, without_email=count_without_email())
+    return DedupeAudienceCount(sends=sends, without_email=sample.without_email * person_sampling.SAMPLE_MODULUS)
 
 
 def _run_dedupe_count(
@@ -115,20 +123,33 @@ def _run_dedupe_count(
     return dedupe_audience_count_from_row(response.results[0] if response.results else None)
 
 
+def _run_without_email_count(team: Team, filter: Filter, database: Database) -> int:
+    response = execute_hogql_query(
+        query=build_without_email_count_query(team, filter),
+        team=team,
+        query_type=QUERY_TYPE,
+        context=HogQLContext(team_id=team.pk, database=database),
+        settings=count_settings(None),
+    )
+    return response.results[0][0] if response.results else 0
+
+
+def build_without_email_count_query(team: Team, filter: Filter) -> ast.SelectQuery:
+    # The missing-email predicate reaches the person prefilter, so the dedup holds only the
+    # people without an email. That keeps this exact count cheap when they are few.
+    return ast.SelectQuery(
+        select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(exprs=[*_audience_where_exprs(team, filter), email_missing_expr()]),
+    )
+
+
 def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:
-    where_exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["persons", "team_id"]),
-            right=ast.Constant(value=team.pk),
-        )
-    ]
+    where_exprs = _audience_where_exprs(team, filter)
     if sample_modulus is not None:
         # A fresh group expr per use: the resolver annotates AST nodes in place, so the
         # WHERE and SELECT must not share one instance.
         where_exprs.append(sample_predicate(email_dedupe_group_expr(), sample_modulus))
-    if len(filter.property_groups.flat) > 0:
-        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
 
     return ast.SelectQuery(
         select=[
@@ -138,3 +159,16 @@ def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optiona
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
     )
+
+
+def _audience_where_exprs(team: Team, filter: Filter) -> list[ast.Expr]:
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        )
+    ]
+    if len(filter.property_groups.flat) > 0:
+        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
+    return where_exprs
