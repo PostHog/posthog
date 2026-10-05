@@ -57,6 +57,7 @@ products/batch_exports/backend/tests/temporal/test_filters.py
 products/batch_exports/backend/tests/temporal/test_record_batch_model.py
 products/batch_exports/backend/tests/test_hogql_source.py
 products/feature_flags/backend/test/test_request_usage.py
+products/posthog_ai/eval_harness/test/test_environment_restore.py
 
 # Other modules that own a *.new_events_schema.ambr snapshot, so the snapshot bot keeps it current
 posthog/api/test/test_event.py

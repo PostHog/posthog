@@ -4,6 +4,11 @@ The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports 
 With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
 Reporting does not run the agent or scorers again.
 
+For a persistent local project with reusable event and metric fixtures, see the
+[evaluation environment setup guide](../../products/posthog_ai/eval_harness/environment/README.md).
+It accepts local bundles or authenticated S3 downloads pinned by archive checksum.
+Preparing that environment does not run an evaluation or upload results.
+
 ## Capture settings
 
 Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
