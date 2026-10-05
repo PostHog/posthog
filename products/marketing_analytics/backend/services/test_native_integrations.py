@@ -144,9 +144,9 @@ class TestStructuralInvariants:
             assert isinstance(source_type, str)
 
     def test_every_oauth_kind_is_one_the_authorize_endpoint_accepts(self):
-        # Spelled out means it can drift, and a kind `authorize` rejects is a Connect button
-        # that 400s. `supported_kinds` is what that endpoint validates against.
-        unknown = set(OAUTH_KIND_BY_NATIVE.values()) - set(OauthIntegration.supported_kinds)
+        # X Ads uses a separate OAuth 1.0a branch in IntegrationViewSet.authorize.
+        supported_kinds = set(OauthIntegration.supported_kinds) | {"twitter-ads"}
+        unknown = set(OAUTH_KIND_BY_NATIVE.values()) - supported_kinds
 
         assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"
 
