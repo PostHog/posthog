@@ -35,6 +35,7 @@ import type {
     EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
+    EngineeringAnalyticsJobLogInsightsParams,
     EngineeringAnalyticsMasterFailuresParams,
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
@@ -59,6 +60,7 @@ import type {
     EngineeringAnalyticsWorkflowRunsParams,
     FlakyTestListApi,
     GitHubSourceApi,
+    JobLogInsightsApi,
     MasterFailureGroupApi,
     PRCostSummaryApi,
     PRLifecycleApi,
@@ -547,6 +549,39 @@ export const engineeringAnalyticsJobAggregates = async (
     options?: RequestInit
 ): Promise<WorkflowJobAggregateApi[]> => {
     return apiMutator<WorkflowJobAggregateApi[]>(getEngineeringAnalyticsJobAggregatesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsJobLogInsightsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsJobLogInsightsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/job_log_insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/job_log_insights/`
+}
+
+/**
+ * What one GitHub Actions job's log says it did: cache restores (hit, older cache, miss, restore failed) and migrations applied, for the job and per step. Reads the log from GitHub on demand. Only a completed job's answer is cached. `log_read` is false, never an error, when there is no log to read: a Depot CI job, a job the source does not hold, an expired log, or a failed fetch.
+ */
+export const engineeringAnalyticsJobLogInsights = async (
+    projectId: string,
+    params: EngineeringAnalyticsJobLogInsightsParams,
+    options?: RequestInit
+): Promise<JobLogInsightsApi> => {
+    return apiMutator<JobLogInsightsApi>(getEngineeringAnalyticsJobLogInsightsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

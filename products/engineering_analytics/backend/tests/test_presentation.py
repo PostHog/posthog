@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
@@ -5,6 +6,7 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -20,6 +22,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_github_source,
 )
 from products.signals.backend.models import SignalSourceConfig
+from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
 
 
 class TestScopeEnrollment(SimpleTestCase):
@@ -591,6 +594,33 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("fetch_fails", contracts.CIEngine.GITHUB_ACTIONS, requests.ConnectionError("unreachable"), 1),
+            ("log_expired", contracts.CIEngine.GITHUB_ACTIONS, None, 1),
+            ("depot_job", contracts.CIEngine.DEPOT_CI, "unused", 0),
+        ]
+    )
+    def test_job_log_insights_reports_log_not_read(
+        self, _name: str, engine: contracts.CIEngine, fetched: Exception | str | None, fetches: int
+    ) -> None:
+        logic = "products.engineering_analytics.backend.logic.job_log_insights"
+        job = dataclasses.replace(_workflow_job(), ci_engine=engine)
+        credential = GitHubSourceCredential(personal_access_token="invented-token")
+        with (
+            mock.patch(f"{logic}.query_workflow_job", return_value=job),
+            mock.patch(f"{logic}.warehouse_sources.github_source_credential", return_value=credential),
+            mock.patch(f"{logic}.fetch_job_log", side_effect=[fetched]) as fetch,
+        ):
+            response = self.client.get(
+                self._url("job_log_insights"), {"repo": "PostHog/posthog", "run_id": "9100", "job_id": "91000"}
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"log_read": False, "attributed_to_steps": False, "job": [], "steps": []}
+        assert fetch.call_count == fetches
+
+    @parameterized.expand(
+        [
+            ("job_log_insights_job_id_missing", "job_log_insights", {"repo": "PostHog/posthog", "run_id": "9100"}),
             ("pr_lifecycle_pr_number_invalid", "pr_lifecycle", {"pr_number": "not-a-number"}),
             # repo is required (a PR number is repo-scoped), consistent with pr_runs/pr_cost.
             ("pr_lifecycle_repo_missing", "pr_lifecycle", {"pr_number": "10"}),

@@ -982,6 +982,75 @@ export interface WorkflowJobAggregateApi {
     estimated_cost_usd: number | null
 }
 
+/**
+ * * `cache` - Cache
+ * * `migrations` - Migrations
+ */
+export type JobLogBadgeKindEnumApi = (typeof JobLogBadgeKindEnumApi)[keyof typeof JobLogBadgeKindEnumApi]
+
+export const JobLogBadgeKindEnumApi = {
+    Cache: 'cache',
+    Migrations: 'migrations',
+} as const
+
+/**
+ * * `hit` - Cache hit
+ * * `partial` - Older cache
+ * * `miss` - Cache miss
+ * * `failed` - Cache restore failed
+ * * `none` - No migrations
+ * * `applied` - Migrations applied
+ */
+export type JobLogBadgeStateEnumApi = (typeof JobLogBadgeStateEnumApi)[keyof typeof JobLogBadgeStateEnumApi]
+
+export const JobLogBadgeStateEnumApi = {
+    Hit: 'hit',
+    Partial: 'partial',
+    Miss: 'miss',
+    Failed: 'failed',
+    None: 'none',
+    Applied: 'applied',
+} as const
+
+export interface JobLogBadgeApi {
+    /** What the badge is about: a dependency cache, or migrations.
+     *
+     * * `cache` - Cache
+     * * `migrations` - Migrations */
+    kind: JobLogBadgeKindEnumApi
+    /** What happened. For a cache: 'hit' (exact key restored), 'partial' (an older cache restored from a restore key), 'miss' (nothing restored), 'failed' (the restore itself failed). For migrations: 'none' (nothing to apply) or 'applied'.
+     *
+     * * `hit` - Cache hit
+     * * `partial` - Older cache
+     * * `miss` - Cache miss
+     * * `failed` - Cache restore failed
+     * * `none` - No migrations
+     * * `applied` - Migrations applied */
+    state: JobLogBadgeStateEnumApi
+    /** How many times the log reports this outcome. */
+    count: number
+    /** What each occurrence was about: a cache key or a migration name. Capped, so it can hold fewer entries than `count`. */
+    detail: string[]
+}
+
+export interface JobStepLogBadgesApi {
+    /** What the log says this step did. */
+    badges: JobLogBadgeApi[]
+    /** The step's number in the job, matching `number` of the job's steps. */
+    number: number
+}
+
+export interface JobLogInsightsApi {
+    /** Every badge found in the log, for the job as a whole. */
+    job: JobLogBadgeApi[]
+    /** The same badges per step. Only steps with a badge are listed. Empty when `attributed_to_steps` is false. */
+    steps: JobStepLogBadgesApi[]
+    /** False when no log was read: a Depot CI job, a job the source does not hold, a log GitHub no longer keeps, or a failed fetch. Empty badges then mean 'unknown', not 'nothing found'. */
+    log_read: boolean
+    /** False when the log's step markers did not line up with the job's steps, so the badges are reported for the job only. */
+    attributed_to_steps: boolean
+}
+
 export interface MasterFailureGroupApi {
     /** Repository the failures occurred in. */
     repo: RepoRefApi
@@ -2665,6 +2734,42 @@ export const EngineeringAnalyticsJobAggregatesRunScope = {
     DefaultBranch: 'default_branch',
     MergeQueue: 'merge_queue',
     PullRequest: 'pull_request',
+} as const
+
+export type EngineeringAnalyticsJobLogInsightsParams = {
+    /**
+     * CI engine. Required when job_id exists in both engines. Only GitHub Actions job logs are read.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI
+     * @minLength 1
+     */
+    ci_engine?: EngineeringAnalyticsJobLogInsightsCiEngine
+    /**
+     * Job id to read the log of; a row id from workflow_jobs.
+     */
+    job_id: number
+    /**
+     * 'owner/name' repository the job ran in.
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Workflow run id the job belongs to.
+     */
+    run_id: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsJobLogInsightsCiEngine =
+    (typeof EngineeringAnalyticsJobLogInsightsCiEngine)[keyof typeof EngineeringAnalyticsJobLogInsightsCiEngine]
+
+export const EngineeringAnalyticsJobLogInsightsCiEngine = {
+    GithubActions: 'github_actions',
+    DepotCi: 'depot_ci',
 } as const
 
 export type EngineeringAnalyticsMasterFailuresParams = {
