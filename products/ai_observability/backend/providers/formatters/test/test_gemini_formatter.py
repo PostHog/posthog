@@ -92,6 +92,22 @@ class TestConvertAnthropicMessagesToGemini:
         assert function_response.name == "get_weather"
         assert function_response.response == expected_response
 
+    def test_first_function_call_in_a_turn_gets_the_skip_signature(self):
+        contents = _convert(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {}},
+                        {"type": "tool_use", "id": "call_2", "name": "get_weather", "input": {}},
+                    ],
+                }
+            ]
+        )
+
+        assert _part(contents[0], 0).thought_signature == b"skip_thought_signature_validator"
+        assert _part(contents[0], 1).thought_signature is None
+
     def test_unparseable_tool_call_arguments_are_rejected(self):
         with pytest.raises(MessageConversionError, match="get_weather"):
             convert_anthropic_messages_to_gemini(

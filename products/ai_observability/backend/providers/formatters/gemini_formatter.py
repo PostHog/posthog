@@ -12,6 +12,12 @@ from products.ai_observability.backend.providers.formatters.anthropic_typeguards
     is_tool_use_param,
 )
 
+# Gemini 3 rejects a request when the first function call in a replayed model turn has no
+# thought signature. Imported Anthropic-style blocks never carry one, so use the documented
+# dummy that skips validation on both the Gemini API and Vertex:
+# https://ai.google.dev/gemini-api/docs/thought-signatures#faqs
+_SKIP_THOUGHT_SIGNATURE = b"skip_thought_signature_validator"
+
 
 class MessageConversionError(ValueError):
     """A message cannot be converted to the provider's wire format.
@@ -85,6 +91,7 @@ def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> Cont
     tool_name_by_call_id: dict[str, str] = {}
     for message in messages:
         parts: list[Part] = []
+        is_first_function_call = True
         if isinstance(message["content"], str):
             parts.append(Part(text=message["content"]))
         elif isinstance(message["content"], list):
@@ -113,9 +120,11 @@ def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> Cont
                                 id=call_id if isinstance(call_id, str) else None,
                                 name=name,
                                 args=_tool_call_args(block.get("input"), name),
-                            )
+                            ),
+                            thought_signature=_SKIP_THOUGHT_SIGNATURE if is_first_function_call else None,
                         )
                     )
+                    is_first_function_call = False
                 elif is_tool_result_param(block):
                     call_id = block.get("tool_use_id")
                     name = tool_name_by_call_id.get(cast(str, call_id), "") or str(call_id or "unknown")
