@@ -12,6 +12,8 @@ jest.mock('@posthog/hogvm-node', () => ({
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
 
+const nodeFunctions = { parseUserAgent: () => null }
+
 const rustResult = (overrides: Partial<ReturnType<typeof mockHogvmNode.executeSync>> = {}) => ({
     result: { properties: { a: 1 } },
     durationUs: 1500,
@@ -33,7 +35,7 @@ describe('RustVmExecutor', () => {
         const invocation = createExampleInvocation({ bytecode: ['_H', 1, 38] })
         mockHogvmNode.executeSync.mockReturnValue(rustResult())
 
-        const result = executor.execute(invocation, [])
+        const result = executor.execute(invocation, [], nodeFunctions)
 
         expect(mockHogvmNode.executeSync).toHaveBeenCalledWith(['_H', 1, 38], invocation.state.globals, {
             maxSteps: 1_000_000,
@@ -49,7 +51,7 @@ describe('RustVmExecutor', () => {
     it('a null program result leaves execResult unset so the transformer drops the event', () => {
         mockHogvmNode.executeSync.mockReturnValue(rustResult({ result: null }))
 
-        const result = executor.execute(createExampleInvocation(), [])
+        const result = executor.execute(createExampleInvocation(), [], nodeFunctions)
 
         expect(result!.error).toBeUndefined()
         expect(result!.execResult).toBeUndefined()
@@ -60,7 +62,7 @@ describe('RustVmExecutor', () => {
             rustResult({ logs: ['token is secret-token', 'plain'], logsTruncated: true })
         )
 
-        const result = executor.execute(createExampleInvocation(), ['secret-token'])
+        const result = executor.execute(createExampleInvocation(), ['secret-token'], nodeFunctions)
 
         expect(result!.logs.map((log) => [log.level, log.message])).toEqual([
             ['info', 'token is ***REDACTED***'],
@@ -73,34 +75,57 @@ describe('RustVmExecutor', () => {
     it("redacts each invocation's logs with its own sensitive values, not another invocation's", () => {
         mockHogvmNode.executeSync.mockReturnValue(rustResult({ logs: ['token is secret-a and secret-b'] }))
 
-        const first = executor.execute(createExampleInvocation(), ['secret-a'])
-        const second = executor.execute(createExampleInvocation(), ['secret-b'])
+        const first = executor.execute(createExampleInvocation(), ['secret-a'], nodeFunctions)
+        const second = executor.execute(createExampleInvocation(), ['secret-b'], nodeFunctions)
 
         expect(first!.logs[0].message).toEqual('token is ***REDACTED*** and secret-b')
         expect(second!.logs[0].message).toEqual('token is secret-a and ***REDACTED***')
     })
 
-    it('a rust execution error becomes the result error with an error log, without falling back', () => {
-        mockHogvmNode.executeSync.mockReturnValue(rustResult({ result: undefined, error: 'Division by zero' }))
+    it.each([
+        ['a rust execution error', 'Division by zero'],
+        ['a function the node vm cannot resolve either', 'Unknown function random'],
+    ])('%s becomes the result error with an error log, without falling back', (_name, error) => {
+        mockHogvmNode.executeSync.mockReturnValue(rustResult({ result: undefined, error }))
 
-        const result = executor.execute(createExampleInvocation(), [])
+        const result = executor.execute(createExampleInvocation(), [], nodeFunctions)
 
         expect(result).not.toBeNull()
-        expect(result!.error).toEqual('Division by zero')
+        expect(result!.error).toEqual(error)
         expect(result!.finished).toEqual(true)
         expect(result!.execResult).toBeUndefined()
         expect(result!.logs.map((log) => log.level)).toEqual(['error'])
-        expect(result!.logs[0].message).toContain('Division by zero')
+        expect(result!.logs[0].message).toContain(error)
     })
 
     it.each([
         ['unsupported host function', 'Native call failed: unsupported_ext_fn:geoipLookup'],
-        ['function missing from the rust vm', 'Unknown function sendEmail'],
+        ['host function missing from the rust vm', 'Unknown function parseUserAgent'],
+        ['stl function missing from the rust vm', 'Unknown function extract'],
         ['global chain the rust vm cannot resolve', 'Unknown Global ["inputs", "foo"]'],
     ])('falls back to the node vm on %s', (_name, error) => {
         mockHogvmNode.executeSync.mockReturnValue(rustResult({ result: undefined, error }))
 
-        expect(executor.execute(createExampleInvocation(), [])).toBeNull()
+        expect(executor.execute(createExampleInvocation(), [], nodeFunctions)).toBeNull()
+    })
+
+    it('logs a repeated unsupported fallback once per function and error', () => {
+        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {})
+        mockHogvmNode.executeSync.mockReturnValue(
+            rustResult({ result: undefined, error: 'Unknown function parseUserAgent' })
+        )
+
+        const invocation = createExampleInvocation({ id: 'function-a' })
+
+        expect(executor.execute(invocation, [], nodeFunctions)).toBeNull()
+        expect(executor.execute(invocation, [], nodeFunctions)).toBeNull()
+        expect(executor.execute(createExampleInvocation({ id: 'function-b' }), [], nodeFunctions)).toBeNull()
+
+        const fallbackCalls = warnSpy.mock.calls.filter((call) => String(call[1]).includes('fell back'))
+        expect(fallbackCalls.map((call) => (call[2] as { functionId: string }).functionId)).toEqual([
+            'function-a',
+            'function-b',
+        ])
     })
 
     it('falls back to the node vm when the ffi boundary throws instead of returning an error', () => {
@@ -109,7 +134,7 @@ describe('RustVmExecutor', () => {
             throw new Error('Failed to convert js number to serde_json::Number')
         })
 
-        expect(executor.execute(createExampleInvocation(), [])).toBeNull()
+        expect(executor.execute(createExampleInvocation(), [], nodeFunctions)).toBeNull()
     })
 
     it('redacts sensitive values from fallback logs', () => {
@@ -119,7 +144,7 @@ describe('RustVmExecutor', () => {
             throw new Error('failed to convert value "secret-token" at inputs')
         })
 
-        expect(executor.execute(createExampleInvocation(), ['secret-token'])).toBeNull()
+        expect(executor.execute(createExampleInvocation(), ['secret-token'], nodeFunctions)).toBeNull()
 
         const fallbackCalls = warnSpy.mock.calls.filter((call) => String(call[1]).includes('fell back'))
         expect(fallbackCalls).toHaveLength(1)
@@ -132,7 +157,7 @@ describe('RustVmExecutor', () => {
             throw new Error('addon not built')
         })
 
-        expect(executor.execute(createExampleInvocation(), [])).toBeNull()
+        expect(executor.execute(createExampleInvocation(), [], nodeFunctions)).toBeNull()
         expect(mockHogvmNode.executeSync).not.toHaveBeenCalled()
     })
 
@@ -147,7 +172,7 @@ describe('RustVmExecutor', () => {
             const invocation = createExampleInvocation({ bytecode: ['_H', 1, 38] })
             mockHogvmNode.executeBatch.mockResolvedValue([rustResult()])
 
-            const result = await executor.executeBatched(invocation, [])
+            const result = await executor.executeBatched(invocation, [], nodeFunctions)
 
             expect(mockHogvmNode.executeBatch).toHaveBeenCalledWith(['_H', 1, 38], [invocation.state.globals], {
                 parallel: true,
@@ -163,7 +188,7 @@ describe('RustVmExecutor', () => {
                 rustResult({ result: undefined, error: 'marshal_error:Failed to convert js number' }),
             ])
 
-            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(await executor.executeBatched(createExampleInvocation(), [], nodeFunctions)).toBeNull()
             expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
         })
 
@@ -172,13 +197,13 @@ describe('RustVmExecutor', () => {
                 rustResult({ result: undefined, error: 'Native call failed: unsupported_ext_fn:geoipLookup' }),
             ])
 
-            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(await executor.executeBatched(createExampleInvocation(), [], nodeFunctions)).toBeNull()
         })
 
         it('falls back to the node vm when the whole batch call rejects', async () => {
             mockHogvmNode.executeBatch.mockRejectedValue(new Error('native fault'))
 
-            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(await executor.executeBatched(createExampleInvocation(), [], nodeFunctions)).toBeNull()
         })
 
         it('falls back to the node vm when the native addon is unavailable, without enqueueing', async () => {
@@ -186,7 +211,7 @@ describe('RustVmExecutor', () => {
                 throw new Error('addon not built')
             })
 
-            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(await executor.executeBatched(createExampleInvocation(), [], nodeFunctions)).toBeNull()
             expect(mockHogvmNode.executeBatch).not.toHaveBeenCalled()
         })
     })

@@ -375,8 +375,8 @@ export class HogTransformerService implements HogTransformer {
         if (this.rustVmExecutor) {
             const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
             const rustResult = this.config.hogRustVmBatchExecutionEnabled
-                ? await this.rustVmExecutor.executeBatched(invocation, sensitiveValues)
-                : this.rustVmExecutor.execute(invocation, sensitiveValues)
+                ? await this.rustVmExecutor.executeBatched(invocation, sensitiveValues, transformationFunctions)
+                : this.rustVmExecutor.execute(invocation, sensitiveValues, transformationFunctions)
             // Null means the Rust VM can't run this program (addon not built, unsupported host
             // function): fall through to the Node VM.
             if (rustResult) {

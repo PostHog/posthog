@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
@@ -11,6 +12,7 @@ import {
     MARSHAL_ERROR_PREFIX,
     RUST_MAX_STEPS,
     RustExecResult,
+    isUnknownToNodeVm,
     isUnsupportedByRustVm,
     loadHogvmNodeModule,
 } from './rust-vm'
@@ -43,6 +45,9 @@ export const rustVmExecutionDuration = new Histogram({
 
 export class RustVmExecutor {
     private scheduler: RustVmBatchScheduler
+    // An unsupported-function fallback repeats on every invocation of the same program, so its warn
+    // log is emitted once per function and error. The counter still counts every fallback.
+    private loggedUnsupportedFallbacks = new LRUCache<string, true>({ max: 10_000 })
 
     constructor(private options: { mmdbPath: string }) {
         this.scheduler = new RustVmBatchScheduler((program, events) => {
@@ -70,6 +75,9 @@ export class RustVmExecutor {
         error: unknown
     ): null {
         rustVmExecution.inc({ outcome })
+        if (outcome === 'fallback_unsupported' && !this.isFirstUnsupportedFallback(invocation, error)) {
+            return null
+        }
         logger.warn('🦀', 'Rust HogVM invocation fell back to the node vm', {
             outcome,
             functionId: invocation.functionId,
@@ -79,6 +87,15 @@ export class RustVmExecutor {
             error: error !== undefined ? sanitizeLogMessage([String(error)], sensitiveValues) : undefined,
         })
         return null
+    }
+
+    private isFirstUnsupportedFallback(invocation: CyclotronJobInvocationHogFunction, error: unknown): boolean {
+        const key = `${invocation.functionId}:${String(error)}`
+        if (this.loggedUnsupportedFallbacks.has(key)) {
+            return false
+        }
+        this.loggedUnsupportedFallbacks.set(key, true)
+        return true
     }
 
     /**
@@ -91,7 +108,8 @@ export class RustVmExecutor {
      */
     public execute(
         invocation: CyclotronJobInvocationHogFunction,
-        sensitiveValues: string[]
+        sensitiveValues: string[],
+        nodeFunctions: Record<string, unknown>
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
         const module_ = this.getModule()
         if (!module_) {
@@ -116,7 +134,7 @@ export class RustVmExecutor {
             return this.fallback('fallback_exception', invocation, sensitiveValues, error)
         }
 
-        return this.toInvocationResult(rust, invocation, sensitiveValues)
+        return this.toInvocationResult(rust, invocation, sensitiveValues, nodeFunctions)
     }
 
     /**
@@ -128,7 +146,8 @@ export class RustVmExecutor {
      */
     public async executeBatched(
         invocation: CyclotronJobInvocationHogFunction,
-        sensitiveValues: string[]
+        sensitiveValues: string[],
+        nodeFunctions: Record<string, unknown>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
         const module_ = this.getModule()
         if (!module_) {
@@ -148,15 +167,16 @@ export class RustVmExecutor {
             return this.fallback('fallback_exception', invocation, sensitiveValues, rust.error)
         }
 
-        return this.toInvocationResult(rust, invocation, sensitiveValues)
+        return this.toInvocationResult(rust, invocation, sensitiveValues, nodeFunctions)
     }
 
     private toInvocationResult(
         rust: RustExecResult,
         invocation: CyclotronJobInvocationHogFunction,
-        sensitiveValues: string[]
+        sensitiveValues: string[],
+        nodeFunctions: Record<string, unknown>
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
-        if (rust.error && isUnsupportedByRustVm(rust.error)) {
+        if (rust.error && isUnsupportedByRustVm(rust.error) && !isUnknownToNodeVm(rust.error, nodeFunctions)) {
             return this.fallback('fallback_unsupported', invocation, sensitiveValues, rust.error)
         }
 

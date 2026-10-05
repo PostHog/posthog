@@ -1002,6 +1002,17 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            "extract",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "extract")?;
+                let part = args[0].deref(&vm.heap)?.try_as::<str>()?.to_string();
+                match extract_impl(vm, &part, &args[1])? {
+                    Some(n) => Ok(HogLiteral::Number(Num::Integer(n)).into()),
+                    None => Ok(HogLiteral::Null.into()),
+                }
+            }),
+        ),
+        (
             "toYYYYMM",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "toYYYYMM")?;
@@ -2117,15 +2128,44 @@ fn extract_utc_field(
     let secs = temporal_seconds(vm, value, name)?;
     let utc = DateTime::from_timestamp(secs.floor() as i64, 0)
         .ok_or_else(|| VmError::NativeCallFailed(format!("{name}: timestamp out of range")))?;
-    Ok(match field {
-        "year" => utc.year() as i64,
-        "month" => utc.month() as i64,
-        "day" => utc.day() as i64,
-        "hour" => utc.hour() as i64,
-        "minute" => utc.minute() as i64,
-        "second" => utc.second() as i64,
-        _ => 0,
+    Ok(datetime_field(&utc, field).unwrap_or(0))
+}
+
+fn datetime_field<Tz: TimeZone>(dt: &DateTime<Tz>, field: &str) -> Option<i64> {
+    Some(match field {
+        "year" => dt.year() as i64,
+        "month" => dt.month() as i64,
+        "day" => dt.day() as i64,
+        "hour" => dt.hour() as i64,
+        "minute" => dt.minute() as i64,
+        "second" => dt.second() as i64,
+        _ => return None,
     })
+}
+
+// extract(part, value): the field of a Date/DateTime in its own zone (Dates are UTC midnight), or
+// of an ISO string read as UTC. The reference yields NaN, observably null, for a value it cannot
+// read, so those map to None.
+fn extract_impl(vm: &HogVM, part: &str, value: &HogValue) -> Result<Option<i64>, VmError> {
+    let (secs, zone) = match value.deref(&vm.heap)? {
+        HogLiteral::String(s) => match parse_datetime_native(s, None) {
+            Ok(secs) => (secs, "UTC".to_string()),
+            Err(_) => return Ok(None),
+        },
+        lit if lit.as_temporal_seconds(&vm.heap).is_some() => {
+            hog_datetime_parts(vm, value, "extract")?
+        }
+        _ => return Ok(None),
+    };
+    let Ok(tz) = zone.parse::<chrono_tz::Tz>() else {
+        return Ok(None);
+    };
+    let Some(dt) = DateTime::from_timestamp(secs.floor() as i64, 0) else {
+        return Ok(None);
+    };
+    datetime_field(&dt.with_timezone(&tz), part)
+        .map(Some)
+        .ok_or_else(|| VmError::NativeCallFailed(format!("Unknown extract part: {part}")))
 }
 
 // dateTrunc: truncate the UTC wall-clock to the unit, then re-interpret in the value's zone.
