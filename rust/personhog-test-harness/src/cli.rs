@@ -9,6 +9,11 @@ pub const DEFAULT_PERSONS_DB_URL: &str =
 /// The dev-stack leader-mode router (bin/mprocs.yaml `personhog-router-leader`).
 pub const DEV_STACK_ROUTER_URL: &str = "http://127.0.0.1:50054";
 
+/// The dev-stack identity service, which also serves the lifecycle saga.
+pub const DEV_STACK_IDENTITY_URL: &str = "http://127.0.0.1:50055";
+
+pub const DEFAULT_DELETE_CONCURRENCY: usize = 4;
+
 /// Connections a load-driving scenario opens to the router by default.
 /// Sized so a deployed instance spreads over a meaningful slice of a
 /// router fleet while staying trivial against a single local router.
@@ -46,6 +51,9 @@ pub enum Command {
     /// seeds, and every database operation is confined to the configured
     /// validation table.
     Traffic(Box<TrafficArgs>),
+    /// Create persons through the identity service and delete them as one
+    /// chunked, concurrent job, the shape of a production bulk delete.
+    BulkDelete(BulkDeleteArgs),
 }
 
 #[derive(Args, Clone)]
@@ -77,6 +85,33 @@ pub struct CleanupArgs {
     /// Table to delete the team's rows from.
     #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
+}
+
+#[derive(Args, Clone)]
+pub struct BulkDeleteArgs {
+    /// Identity service, or a router fronting it, serving get-or-create
+    /// and DeletePersons.
+    #[arg(long, env = "BULK_DELETE_IDENTITY_URL", default_value = DEV_STACK_IDENTITY_URL)]
+    pub identity_url: String,
+
+    /// Connections to open to the service; see TrafficArgs::router_channels.
+    #[arg(long, default_value_t = DEFAULT_ROUTER_CHANNELS)]
+    pub router_channels: usize,
+
+    #[arg(long)]
+    pub team_id: i64,
+
+    /// Persons to create and then delete as one job.
+    #[arg(long, default_value_t = 2000)]
+    pub count: u32,
+
+    /// Person ids per DeletePersons call, at most the service's cap of 250.
+    #[arg(long, default_value_t = crate::bulk_delete::MAX_CHUNK_SIZE)]
+    pub chunk_size: usize,
+
+    /// DeletePersons calls in flight.
+    #[arg(long, default_value_t = DEFAULT_DELETE_CONCURRENCY)]
+    pub concurrency: usize,
 }
 
 #[derive(Args, Clone)]
@@ -412,6 +447,16 @@ pub struct TrafficArgs {
     /// pod's ceiling rather than the fleet's.
     #[arg(long, env = "TRAFFIC_ROUTER_CHANNELS", default_value_t = DEFAULT_ROUTER_CHANNELS)]
     pub router_channels: usize,
+
+    /// Person ids per DeletePersons call when a pool rotates, at most the
+    /// service's cap of 250. Production callers fill each call and send
+    /// several at once, and rotation reproduces that shape.
+    #[arg(long, env = "TRAFFIC_DELETE_CHUNK_SIZE", default_value_t = crate::bulk_delete::MAX_CHUNK_SIZE)]
+    pub delete_chunk_size: usize,
+
+    /// DeletePersons calls in flight per pool rotation.
+    #[arg(long, env = "TRAFFIC_DELETE_CONCURRENCY", default_value_t = DEFAULT_DELETE_CONCURRENCY)]
+    pub delete_concurrency: usize,
 
     /// Master toggle. When false the process starts fully (guard, metrics,
     /// liveness) but idles instead of driving traffic — so a deployed-but-
