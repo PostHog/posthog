@@ -4443,7 +4443,7 @@ Note: IP2WHOIS's Domain WHOIS product is literally one endpoint: GET https://api
 
 ## Iterable — **thin**
 
-Today (5): `campaigns`, `channels`, `lists`, `message_types`, `templates`
+Today (7 + Export API): `campaigns`, `campaign_metrics`, `channels`, `lists`, `list_users`, `message_types`, `templates`, plus one Export API table per `dataTypeName` (`email_send`, `email_open`, ..., `users`)
 
 Diffed against: <https://api.iterable.com/api-docs>
 
@@ -4459,7 +4459,7 @@ Diffed against: <https://api.iterable.com/api-docs>
 - [ ] `GET /api/snippets` — reusable template snippets referenced by templates we sync (low)
 - [ ] `GET /api/embedded-messaging/messages` — embedded message inventory for the embedded channel (low)
 
-Note: Swagger JSON is public and unauthenticated at https://api.iterable.com/api-docs (52 GET paths). The source's own products/warehouse_sources/backend/temporal/data_imports/sources/iterable/api_inventory.md explicitly defers the Export API (async jobId polling, NDJSON streaming, ~4 req/min limit) — that deferral is why the source is 5 config tables with zero metrics or events. EU keys need api.eu.iterable.com.
+Note: Swagger JSON is public and unauthenticated at https://api.iterable.com/api-docs (52 GET paths). The Export API tables use the synchronous `/api/export/data.json` NDJSON stream in 30-day windows, paced for its ~4 req/min limit, rather than the async jobId flow. EU keys need api.eu.iterable.com.
 
 ## JamfPro — **thin**
 

@@ -1,7 +1,6 @@
 import io
 import csv
 import time
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -10,6 +9,8 @@ from urllib.parse import urlparse
 import orjson
 import requests
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -61,7 +62,7 @@ RATE_LIMITED_RETRY = BoundedRetry(
 )
 
 
-@dataclasses.dataclass
+@frozen
 class IterableResumeConfig:
     next_url: str | None = None
     # ISO start of the next export window to fetch.
@@ -170,11 +171,17 @@ def _format_export_datetime(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S +00:00")
 
 
-def _export_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
+@frozen
+class ExportWindow:
+    start: datetime
+    end: datetime
+
+
+def _export_windows(start: datetime, end: datetime) -> Iterator[ExportWindow]:
     window_start = start
     while window_start < end:
         window_end = min(window_start + EXPORT_WINDOW, end)
-        yield window_start, window_end
+        yield ExportWindow(start=window_start, end=window_end)
         window_start = window_end
 
 
@@ -182,13 +189,12 @@ def _stream_export_window(
     session: requests.Session,
     base_url: str,
     config: IterableExportEndpointConfig,
-    window_start: datetime,
-    window_end: datetime,
+    window: ExportWindow,
 ) -> Iterator[list[dict[str, Any]]]:
     params = {
         "dataTypeName": config.data_type_name,
-        "startDateTime": _format_export_datetime(window_start),
-        "endDateTime": _format_export_datetime(window_end),
+        "startDateTime": _format_export_datetime(window.start),
+        "endDateTime": _format_export_datetime(window.end),
     }
     with session.get(
         f"{base_url}/api/export/data.json", params=params, timeout=REQUEST_TIMEOUT, stream=True
@@ -224,18 +230,18 @@ def _iter_export(
         if resume_start is not None:
             start = resume_start
 
-    for index, (window_start, window_end) in enumerate(_export_windows(start, end)):
+    for index, window in enumerate(_export_windows(start, end)):
         if index > 0:
             time.sleep(EXPORT_REQUEST_INTERVAL_SECONDS)
         # Hold back one batch so the next window's cursor is staged before the window's last
         # batch is yielded: the pipeline then commits it only once the whole window is written.
         pending: list[dict[str, Any]] | None = None
-        for batch in _stream_export_window(session, base_url, config, window_start, window_end):
+        for batch in _stream_export_window(session, base_url, config, window):
             if pending is not None:
                 yield pending
             pending = batch
-        if window_end < end:
-            manager.save_state(IterableResumeConfig(export_window_start=window_end.isoformat()))
+        if window.end < end:
+            manager.save_state(IterableResumeConfig(export_window_start=window.end.isoformat()))
         if pending is not None:
             yield pending
         else:
@@ -296,7 +302,14 @@ def _iter_campaign_metrics(session: requests.Session, base_url: str) -> Iterator
 
 
 def _make_session(api_key: str) -> requests.Session:
-    return make_tracked_session(retry=RATE_LIMITED_RETRY, headers=_api_key_headers(api_key), redact_values=(api_key,))
+    # `requests` only strips `Authorization` on a cross-host redirect, so a redirect would replay the
+    # Api-Key header to the new host.
+    return make_tracked_session(
+        retry=RATE_LIMITED_RETRY,
+        headers=_api_key_headers(api_key),
+        redact_values=(api_key,),
+        allow_redirects=False,
+    )
 
 
 def _export_source_response(

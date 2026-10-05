@@ -12,7 +12,7 @@ class IterableEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class IterableExportEndpointConfig:
     name: str
     data_type_name: str  # `dataTypeName` passed to `/api/export/data.json`
