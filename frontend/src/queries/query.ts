@@ -242,6 +242,7 @@ async function executeQuery<N extends DataNode>(
             {
                 maxAttempts: TRANSIENT_SUBMIT_ATTEMPTS,
                 initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
+                backoffMultiplier: 2,
                 signal: methodOptions?.signal,
                 shouldRetry: isRetryableSubmitFailure,
                 getDelayMs: shortCapacityWaitMs,

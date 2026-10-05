@@ -439,7 +439,9 @@ describe('query', () => {
             const querySpy = jest.spyOn(api, 'query').mockRejectedValue(makeError())
 
             const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
-            await jest.advanceTimersByTimeAsync(elapsedMs)
+            await jest.advanceTimersByTimeAsync(elapsedMs - 1)
+            expect(querySpy).toHaveBeenCalledTimes(2)
+            await jest.advanceTimersByTimeAsync(1)
 
             await expect(outcome).resolves.toMatchObject([{ status: 'rejected', reason: { status: 503 } }])
             expect(querySpy).toHaveBeenCalledTimes(3)
