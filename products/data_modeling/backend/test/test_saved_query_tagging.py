@@ -146,7 +146,7 @@ class TestSavedQueryTagging(APIBaseTest):
     )
     def test_execution_tags_the_views_and_tables_the_resolver_bound(
         self, _name: str, query: str, views: list[str], tables: list[str], direct: list[str]
-    ):
+    ) -> None:
         with tags_context(product=Product.WAREHOUSE, feature=Feature.QUERY), self.captured_tags() as captured:
             with suppress(_Captured):
                 self.executor(query).execute()

@@ -942,12 +942,12 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
         with self.context.entering_select(node.view_name):
             return self._resolve_select_query(node)
 
-    def _resolve_select_query(self, node: ast.SelectQuery):
+    def _resolve_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
         # counts as root — a top-level `SELECT *` on a direct table is kept literal below.
         is_root_select = not self._entered_root_select
