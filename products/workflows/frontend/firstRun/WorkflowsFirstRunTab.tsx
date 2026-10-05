@@ -1,4 +1,4 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -7,7 +7,6 @@ import { WorkflowsTable } from '../Workflows/WorkflowsTable'
 import { WorkflowsFirstRunGallery } from './WorkflowsFirstRunGallery'
 
 export function WorkflowsFirstRunTab(): JSX.Element {
-    useMountedLogic(workflowsSetupLogic)
     const { setupStatus } = useValues(workflowsSetupLogic)
 
     if (setupStatus === 'loading') {

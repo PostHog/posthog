@@ -22,11 +22,7 @@ export function WorkflowsFirstRunGallery(): JSX.Element {
             <div className="flex flex-col gap-1">
                 <h2 className="text-xl font-semibold mb-0">Start with an email template</h2>
                 {galleryTemplates !== null && (
-                    <p className="mb-0 text-secondary">
-                        {readyTemplates.length === 0
-                            ? 'Your app does not send the events these templates start on yet. Each card says what it needs.'
-                            : "Templates your app's events can start today come first. Pick one to make it yours."}
-                    </p>
+                    <p className="mb-0 text-secondary">{gallerySubtitle(readyTemplates.length, activeFilter)}</p>
                 )}
             </div>
             {galleryTemplates === null ? (
@@ -93,4 +89,13 @@ export function WorkflowsFirstRunGallery(): JSX.Element {
             )}
         </div>
     )
+}
+
+function gallerySubtitle(readyCount: number, activeFilter: GalleryFilter): string {
+    if (readyCount === 0) {
+        return 'Your app does not send the events these templates start on yet. Each card says what it needs.'
+    }
+    return activeFilter === 'picked'
+        ? 'These templates work with the events your app sends today. Pick one to make it yours.'
+        : 'Templates that work with the events your app sends today come first.'
 }
