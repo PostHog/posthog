@@ -1905,7 +1905,7 @@ class TestExports(APIBaseTest):
     @patch("products.exports.backend.api.exports.async_connect")
     def test_export_wait_timeout_returns_201_and_leaves_workflow_running(self, mock_async_connect) -> None:
         async def never_finishes() -> None:
-            await asyncio.sleep(60)
+            await asyncio.Event().wait()
 
         mock_handle = self._mock_export_workflow_handle(mock_async_connect)
         mock_handle.result.side_effect = never_finishes
@@ -1942,7 +1942,7 @@ class TestExports(APIBaseTest):
 
     @patch.object(_blocking_exports_limiter, "use", side_effect=redis.exceptions.ConnectionError("unavailable"))
     @patch("products.exports.backend.api.exports.async_connect")
-    def test_export_waits_when_wait_limiter_fails(self, mock_async_connect, _mock_use) -> None:
+    def test_export_starts_without_waiting_when_wait_limiter_fails(self, mock_async_connect, _mock_use) -> None:
         mock_handle = self._mock_export_workflow_handle(mock_async_connect)
 
         response = self.client.post(
@@ -1951,7 +1951,8 @@ class TestExports(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_handle.result.assert_awaited_once()
+        mock_async_connect.return_value.start_workflow.assert_awaited_once()
+        mock_handle.result.assert_not_awaited()
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")

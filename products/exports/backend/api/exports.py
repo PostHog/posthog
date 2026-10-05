@@ -78,6 +78,8 @@ logger = structlog.get_logger(__name__)
 # the caller polls the asset for the result.
 BLOCKING_EXPORT_WAIT_TIMEOUT = timedelta(seconds=60)
 BLOCKING_EXPORTS_PER_TEAM = 5
+# The start RPC has no deadline by default, so a stalled Temporal call would hold the worker without the wait bound.
+EXPORT_WORKFLOW_START_TIMEOUT = timedelta(seconds=10)
 
 _blocking_exports_limiter = RateLimit(
     max_concurrency=BLOCKING_EXPORTS_PER_TEAM,
@@ -106,7 +108,8 @@ def _blocking_export_slot(team_id: int, asset_id: int) -> Iterator[bool]:
         may_wait = False
         logger.info("export_blocking_wait_limit_reached", team_id=team_id, asset_id=asset_id)
     except Exception as e:
-        # A limiter failure must not break exports, so the request waits without a slot.
+        # Without the limiter nothing caps the waits, so the request falls back to the async path.
+        may_wait = False
         logger.warning("export_blocking_slot_unavailable", team_id=team_id, asset_id=asset_id, error=str(e))
 
     try:
@@ -128,7 +131,11 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         read_only=True,
         help_text="File format of the generated export.",
     )
-    has_content = serializers.BooleanField(read_only=True)
+    has_content = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the export finished and its content is ready to download. Create can return before the "
+        "export finishes; poll the asset until has_content is true or exception is set.",
+    )
     filename = serializers.CharField(read_only=True)
 
     class Meta:
@@ -482,6 +489,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
                 execution_timeout=timedelta(minutes=35),
+                rpc_timeout=EXPORT_WORKFLOW_START_TIMEOUT,
             )
             if wait:
                 # A timeout cancels only this wait. The workflow keeps running and stores the content on the asset.
