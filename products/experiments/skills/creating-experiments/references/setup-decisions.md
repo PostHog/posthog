@@ -1,5 +1,16 @@
 # Setup decisions from project facts
 
+## Contents
+
+- [Bucketing and persistence](#bucketing-and-persistence)
+- [Where the flag is evaluated](#where-the-flag-is-evaluated)
+- [Exposure](#exposure)
+- [Who counts](#who-counts)
+- [Primary metric](#primary-metric)
+- [Feasibility and running time](#feasibility-and-running-time)
+- [Precedent](#precedent)
+- [Statistics](#statistics)
+
 Use this file after `experiment-setup-context` returned. Each section maps the tool's facts to one configuration choice and to a tier for the summary:
 
 - **Confident**: the facts decide it.
