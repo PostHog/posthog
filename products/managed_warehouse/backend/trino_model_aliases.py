@@ -75,26 +75,21 @@ class ModelAliasPublisher:
         self.cursor.execute(sql, parameters)
         return cast(list[tuple[str, ...]], self.cursor.fetchall())
 
-    def _owned_views(self, names: set[str] | None) -> dict[str, str]:
+    def _owned_views(self, names: set[str]) -> dict[str, str]:
         owned: dict[str, str] = {}
-        if names is None:
-            return {
-                name: comment
-                for name, comment in self._execute(
-                    "SELECT table_name, comment FROM system.metadata.table_comments WHERE catalog_name = ? AND schema_name = ?",
-                    [self.catalog, self.schema_name],
-                )
-                if comment and comment.startswith(self.owner_prefix)
-            }
-        # Exact table predicates use Trino's point lookup; a schema-wide comments query loads every table's metadata.
+        identifier = r'(?:"(?:[^"]|"")*"|[a-zA-Z_][a-zA-Z_0-9]*)'
         for name in sorted(names):
-            for view_name, comment in self._execute(
-                "SELECT table_name, comment FROM system.metadata.table_comments "
-                "WHERE catalog_name = ? AND schema_name = ? AND table_name = ?",
-                [self.catalog, self.schema_name, name],
-            ):
-                if comment and comment.startswith(self.owner_prefix):
-                    owned[view_name] = comment
+            rows = self._execute(f"SHOW CREATE VIEW {self.schema}.{escape_trino_identifier(name)}")
+            if not rows:
+                continue
+            # Read only the formatted DDL header; a marker in the SELECT body is not ownership.
+            comment = re.match(
+                rf"CREATE VIEW {identifier}(?:\.{identifier}){{0,2}}\s+"
+                r"COMMENT '((?:[^']|'')*)'\s+SECURITY (?:INVOKER|DEFINER)\s+AS\s",
+                rows[0][0],
+            )
+            if comment and comment[1].startswith(self.owner_prefix):
+                owned[name] = comment[1].replace("''", "'")
         return owned
 
     def reconcile(
@@ -122,13 +117,7 @@ class ModelAliasPublisher:
         if not relations:
             return ModelAliasReconciliation()
 
-        owned = {
-            name: comment
-            for name, comment in self._owned_views(
-                None if saved_query_ids is None else {name for name, kind in relations.items() if kind == "VIEW"}
-            ).items()
-            if relations.get(name) == "VIEW"
-        }
+        owned = self._owned_views({name for name, kind in relations.items() if kind == "VIEW"})
         columns: dict[str, list[tuple[str, str]]] = {}
         if saved_query_ids is None:
             for table, column, data_type in self._execute(

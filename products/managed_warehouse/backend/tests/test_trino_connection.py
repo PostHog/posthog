@@ -149,6 +149,12 @@ def test_connect_managed_warehouse_trino_enforces_verified_https_and_closes() ->
     [
         ("trino.dw.us.postwh.com", 443, True),
         ("TRINO.DW.US.POSTWH.COM.", 443, True),
+        ("warehouse-1.dw.us.postwh.com", 443, True),
+        ("WAREHOUSE-1.DW.DEV.POSTWH.COM.", 443, True),
+        ("nested.warehouse-1.dw.us.postwh.com", 443, False),
+        ("warehouse-1.dw.us.postwh.com.example.com", 443, False),
+        ("dw.us.postwh.com", 443, False),
+        ("-invalid.dw.us.postwh.com", 443, False),
         ("trino.dw.us.postwh.com", 8443, False),
         ("trino.example.com", 443, False),
     ],

@@ -211,8 +211,17 @@ The DAG waits for upstream Trino builds and skips dependent Trino builds when an
 Skipped managed warehouse jobs record the upstream node IDs. Existing Temporal histories retain their previous dependency behavior.
 Run upstream materialized models before their dependents when selecting a subset of the DAG.
 Do not run the legacy DuckLake model-copy workflow against the same destinations while Trino owns their refreshes.
+Concurrent builds can race when creating the shared output schema.
+The materializer accepts `SCHEMA_ALREADY_EXISTS` only from `CREATE SCHEMA IF NOT EXISTS`; all other schema and write errors propagate.
 Publication uses the DuckLake connector's atomic `CREATE OR REPLACE TABLE` operation, so a failed write preserves the previous table.
 The shadow row count comes from Trino's write result; storage size metrics are unavailable and remain zero.
+
+### Hosted connections
+
+Shadow builds and alias reconciliation use the ready control-plane endpoint and the organization's encrypted Trino password.
+The shared hosted-host check accepts one DNS label under `dw.us.postwh.com` or `dw.dev.postwh.com`, including tenant-specific endpoints.
+Both managed connections and the direct Trino source bypass environment proxies only for these hosts on port 443 with HTTPS and certificate verification enabled.
+Other hosts, nested subdomains, and nonstandard ports retain proxy routing.
 
 ### Execution limits and cancellation
 
@@ -250,6 +259,9 @@ Names that collide after lowercasing, with another model's physical destination,
 The `model_<32 hexadecimal characters>` namespace is reserved for physical destinations.
 
 Generated view comments record the team, saved-query ID, and a fingerprint of the destination and output columns.
+Reconciliation reads each existing view's ownership comment through catalog-scoped `SHOW CREATE VIEW`, so tenant credentials do not need access to `system.metadata.table_comments`.
+Trino access control must allow `ShowCreateTable` for the tenant's model schema; Trino uses this permission for both tables and views.
+Targeted passes inspect only requested relations; full audits issue one metadata request per view under the same five-minute deadline.
 Reconciliation refreshes views when their destination or columns change and removes only marked views that are no longer desired.
 It leaves physical tables and unmarked relations intact.
 Renames and deletions are eventually reflected by the next successful full audit; alias cleanup does not delete backing data.

@@ -24,6 +24,8 @@ def execute_trino_shadow_materialization(
     source_query: object,
     control: TrinoQueryControl | None = None,
 ) -> DuckLakeTableResult:
+    from trino.exceptions import TrinoUserError  # noqa: PLC0415 -- keeps the optional driver off startup paths
+
     compiled = get_current_trino_translation(
         organization_id=organization_id,
         team_id=team_id,
@@ -46,8 +48,13 @@ def execute_trino_shadow_materialization(
         try:
             if control:
                 control.checkpoint()
-            cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-            cursor.fetchall()
+            try:
+                cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+                cursor.fetchall()
+            except TrinoUserError as error:
+                # A concurrent model can create the schema after Trino's IF NOT EXISTS check.
+                if error.error_name != "SCHEMA_ALREADY_EXISTS":
+                    raise
             if control:
                 control.checkpoint()
             # The connector replaces the table atomically, so a failed write preserves the previous shadow.
