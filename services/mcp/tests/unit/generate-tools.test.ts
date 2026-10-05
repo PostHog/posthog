@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
+    generateCategoryFile,
     generateDefinitionsJson,
     generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
@@ -1385,7 +1386,12 @@ describe('per-tool category in tool definitions', () => {
         }
         const definitions = generateDefinitionsJson([
             {
-                config: { category: 'AI observability', feature: 'llm_analytics', url_prefix: '/ai-observability', tools: {} },
+                config: {
+                    category: 'AI observability',
+                    feature: 'llm_analytics',
+                    url_prefix: '/ai-observability',
+                    tools: {},
+                },
                 enabledTools: [['llma-prompt-list', toolConfig, resolved]],
                 enabledWrappers: [],
                 yamlDir: '/tmp',
@@ -2398,5 +2404,36 @@ describe('composeToolSchema param aliases', () => {
         expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
             /alias "id" for param "id"/
         )
+    })
+})
+
+describe('generateCategoryFile with a missing operation', () => {
+    const tool = {
+        operation: 'things_gone',
+        scopes: ['thing:read'],
+        annotations: { readOnly: true, destructive: false, idempotent: true },
+    }
+
+    it.each([
+        { name: 'exits for an enabled tool', enabled: true, exits: true },
+        { name: 'skips a disabled tool', enabled: false, exits: false },
+    ])('$name', ({ enabled, exits }) => {
+        const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('process.exit')
+        }) as never)
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const category = { ...defaultCategory, tools: { 'thing-get': { ...tool, enabled } } }
+        const generate = (): unknown =>
+            generateCategoryFile(category, 'things.yaml', 'things', makeSpec(), new Set(), stubGetQuerySchema as never)
+
+        if (exits) {
+            expect(generate).toThrow('process.exit')
+            expect(exit).toHaveBeenCalledWith(1)
+            expect(error).toHaveBeenCalledWith(expect.stringContaining('things_gone'))
+        } else {
+            expect(generate).not.toThrow()
+            expect(exit).not.toHaveBeenCalled()
+        }
+        vi.restoreAllMocks()
     })
 })
