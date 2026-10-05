@@ -4,7 +4,8 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    DeletePersonsMode, GroupKey, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    DeletePersonsMode, DistinctIdVersionHead, GroupKey, PersonVersionHead, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson,
 };
 use rand::Rng;
 use rstest::rstest;
@@ -4050,6 +4051,164 @@ async fn test_delete_tombstoned_persons_gives_up_when_a_writer_holds_the_row() {
     assert!(ctx.person_row_exists(person.id).await.unwrap());
 
     ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Version head tests
+// ============================================================
+
+async fn seed_person(
+    ctx: &TestContext,
+    distinct_id: &str,
+    version: Option<i64>,
+    is_deleted: bool,
+) -> common::TestPerson {
+    let person = ctx
+        .insert_person(distinct_id, Some(serde_json::json!({"seeded": true})))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE posthog_person SET version = $3, is_deleted = $4 WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id)
+    .bind(person.id)
+    .bind(version)
+    .bind(is_deleted)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    person
+}
+
+async fn set_distinct_id_state(
+    ctx: &TestContext,
+    distinct_id: &str,
+    version: Option<i64>,
+    is_deleted: bool,
+) {
+    sqlx::query(
+        "UPDATE posthog_persondistinctid SET version = $3, is_deleted = $4 WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id)
+    .bind(distinct_id)
+    .bind(version)
+    .bind(is_deleted)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+}
+
+/// Insert a live distinct id row whose person has no row, which the NOT VALID FK allows.
+/// Returns the missing person id.
+async fn insert_orphan_distinct_id(ctx: &TestContext, distinct_id: &str, version: i64) -> i64 {
+    let missing_person_id: i64 = rand::thread_rng().gen_range(100_000_000..200_000_000);
+    let mut tx = ctx.pool.begin().await.unwrap();
+    // Skips the FK trigger for this transaction only.
+    sqlx::query("SET LOCAL session_replication_role = replica")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(distinct_id)
+    .bind(missing_person_id)
+    .bind(ctx.team_id)
+    .bind(version)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    missing_person_id
+}
+
+#[tokio::test]
+async fn test_get_person_version_heads() {
+    let ctx = TestContext::new().await;
+    let other = TestContext::new().await;
+    let live = seed_person(&ctx, "heads_live", Some(3), false).await;
+    let tombstoned = seed_person(&ctx, "heads_tombstoned", None, true).await;
+    let other_team = other.insert_person("heads_other_team", None).await.unwrap();
+
+    // More uuids than one chunk, so the found rows come from different chunks.
+    let mut uuids = vec![live.uuid];
+    uuids.extend((0..55).map(|_| Uuid::now_v7()));
+    uuids.extend([other_team.uuid, tombstoned.uuid]);
+    let mut heads = ctx
+        .storage
+        .get_person_version_heads(ctx.team_id, &uuids)
+        .await
+        .unwrap();
+    heads.sort_by_key(|head| head.uuid);
+
+    let mut expected = vec![
+        PersonVersionHead {
+            uuid: live.uuid,
+            version: 3,
+            is_deleted: false,
+        },
+        PersonVersionHead {
+            uuid: tombstoned.uuid,
+            version: 0,
+            is_deleted: true,
+        },
+    ];
+    expected.sort_by_key(|head| head.uuid);
+    assert_eq!(heads, expected);
+
+    ctx.cleanup().await.ok();
+    other.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_id_version_heads() {
+    let ctx = TestContext::new().await;
+    let other = TestContext::new().await;
+    let live = ctx.insert_person("heads_live", None).await.unwrap();
+    let tombstoned = ctx.insert_person("heads_tombstoned", None).await.unwrap();
+    set_distinct_id_state(&ctx, "heads_tombstoned", Some(4), true).await;
+    insert_orphan_distinct_id(&ctx, "heads_orphan", 2).await;
+    other.insert_person("heads_other_team", None).await.unwrap();
+
+    let mut distinct_ids = vec!["heads_live".to_string(), "heads_orphan".to_string()];
+    distinct_ids.extend((0..55).map(|i| format!("heads_absent_{i}")));
+    distinct_ids.extend([
+        "heads_other_team".to_string(),
+        "heads_tombstoned".to_string(),
+    ]);
+    let mut heads = ctx
+        .storage
+        .get_distinct_id_version_heads(ctx.team_id, &distinct_ids)
+        .await
+        .unwrap();
+    heads.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+
+    assert_eq!(
+        heads,
+        vec![
+            DistinctIdVersionHead {
+                distinct_id: "heads_live".to_string(),
+                version: 0,
+                is_deleted: false,
+                person_uuid: Some(live.uuid),
+            },
+            DistinctIdVersionHead {
+                distinct_id: "heads_orphan".to_string(),
+                version: 2,
+                is_deleted: false,
+                person_uuid: None,
+            },
+            DistinctIdVersionHead {
+                distinct_id: "heads_tombstoned".to_string(),
+                version: 4,
+                is_deleted: true,
+                person_uuid: Some(tombstoned.uuid),
+            },
+        ]
+    );
+
+    ctx.cleanup().await.ok();
+    other.cleanup().await.ok();
 }
 
 #[tokio::test]
