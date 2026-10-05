@@ -255,7 +255,8 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # included: the merge population that triggered the spend) while the median keeps the
         # locked bots/drafts-excluded recipe, plus job-backed billable minutes, with every
         # chart series empty. The default call keeps the series for the UI.
-        depot_started, depot_completed = _ago_with_duration(2, 120)
+        # 180s, unlike the 120s merge-queue job, so the Depot CI slice cannot pass by reading the queue slice.
+        depot_started, depot_completed = _ago_with_duration(2, 180)
         self._create_depot_table(
             [
                 _depot_attempt_row(
@@ -322,13 +323,13 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.run_count == 11
         assert overview.success_rate == pytest.approx(4 / 7)  # 4 successes of 7 conclusive runs
         assert overview.rerun_cycles == 1
-        assert overview.billable_minutes == pytest.approx(6.0)  # three 120s jobs on a billable tier
-        # 4 min x $0.004 x 2 (4-core) on GitHub Actions, plus 2 min x $0.004 on the default Depot CI sandbox
-        assert overview.estimated_cost_usd == pytest.approx(0.040)
-        assert overview.cost_per_merge_usd == pytest.approx(0.020)  # the window's cost over its 2 merges
+        assert overview.billable_minutes == pytest.approx(7.0)  # two 120s jobs and one 180s Depot CI attempt
+        # 4 min x $0.004 x 2 (4-core) on GitHub Actions, plus 3 min x $0.004 on the default Depot CI sandbox
+        assert overview.estimated_cost_usd == pytest.approx(0.044)
+        assert overview.cost_per_merge_usd == pytest.approx(0.022)  # the window's cost over its 2 merges
         assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
         assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
-        assert overview.depot_ci_billable_minutes == pytest.approx(2.0)  # only the Depot CI attempt
+        assert overview.depot_ci_billable_minutes == pytest.approx(3.0)  # only the Depot CI attempt
         assert overview.depot_ci_billable_minutes_prev is None
         assert overview.median_ready_to_merge_seconds is None  # issue events unsynced: not observed, never zero
         assert overview.cost_series == []
