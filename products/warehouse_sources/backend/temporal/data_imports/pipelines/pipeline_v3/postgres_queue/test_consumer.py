@@ -2957,6 +2957,13 @@ class TestQueueDbRetry:
             (psycopg.errors.ConnectionTimeout("connection timeout expired"), True, True),
             (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), True, True),
             (psycopg.errors.ProtocolViolation("query_wait_timeout"), True, True),
+            (
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
+                ),
+                True,
+                True,
+            ),
             (psycopg.errors.DeadlockDetected("deadlock detected"), False, True),
             (psycopg.errors.ProtocolViolation("invalid message length"), False, False),
             (psycopg.OperationalError("relation permission denied"), False, False),

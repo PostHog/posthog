@@ -194,14 +194,21 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
     # Take the cutoff before the GitHub request, and lift only rows that existed at the cutoff. A
     # quarantine that somebody creates while the request is in flight must survive this lift.
     now = timezone.now()
-    lifted_at_sha = _lift_commit(repo)
-    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
-        repo_id=repo_id,
-        identifier=identifier,
-        run_type=run_type,
-        team_id=team_id,
-        created_at__lte=now,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now, lifted_at_sha=lifted_at_sha)
+    active = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(
+            repo_id=repo_id,
+            identifier=identifier,
+            run_type=run_type,
+            team_id=team_id,
+            created_at__lte=now,
+        )
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    )
+    # A repeated lift stays a no-op, even while GitHub cannot name the head.
+    if not active.exists():
+        return
+    active.update(expires_at=now, lifted_at_sha=_lift_commit(repo))
 
 
 def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:

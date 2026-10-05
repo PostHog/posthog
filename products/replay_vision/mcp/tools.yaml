@@ -432,6 +432,7 @@ tools:
         enabled: true
         scopes:
             - replay_scanner:read
+            - session_recording:read
             - cohort:write
         annotations:
             readOnly: false
@@ -718,6 +719,7 @@ tools:
         enabled: true
         scopes:
             - replay_scanner:read
+            - session_recording:read
         annotations:
             readOnly: true
             destructive: false
@@ -733,6 +735,7 @@ tools:
         enabled: true
         scopes:
             - replay_scanner:read
+            - session_recording:read
         annotations:
             readOnly: true
             destructive: false

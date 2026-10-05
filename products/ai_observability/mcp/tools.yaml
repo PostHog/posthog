@@ -623,7 +623,7 @@ tools:
         operation: llm_analytics_evaluation_config_retrieve
         enabled: true
         scopes:
-            - evaluation:read
+            - llm_analytics:read
         annotations:
             readOnly: true
             destructive: false
@@ -773,7 +773,7 @@ tools:
         operation: llm_analytics_models_retrieve
         enabled: true
         scopes:
-            - evaluation:read
+            - llm_analytics:read
         annotations:
             readOnly: true
             destructive: false
