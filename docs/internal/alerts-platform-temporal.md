@@ -441,7 +441,9 @@ python manage.py backfill_platform_insight_alert_configurations
 ```
 
 It copies threshold alerts on an hourly or slower cadence only, and skips detector alerts and the real-time and 15-minute cadences.
-Run it only after a worker polls `alerts-platform-insight-evaluation-task-queue`, because the first copied row makes discovery dispatch insight evaluations to that queue.
+Run it only after the evaluation worker's main ClickHouse connection uses the same user as the production insight alert worker.
+Insight checks run on the shared evaluation queue, and a worker with no ClickHouse user configured connects as the default user, which other workloads on the same servers already push against its concurrent query limit.
+That setting also moves the worker's other main-cluster queries onto the same user. Logs evaluation reads its own logs cluster connection, so it does not move.
 
 Every copy adds ClickHouse load beside production's, so roll it out in steps.
 A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.
@@ -450,6 +452,7 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
 4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
+5. Raise that cap from its default of 10 only while the production insight user's daily count of refused queries, `exception_code = 202` in `query_log`, stays flat. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
 To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
