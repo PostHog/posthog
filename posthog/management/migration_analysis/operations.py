@@ -943,8 +943,9 @@ Use RunSQL wrapped in SeparateDatabaseAndState:
 class _SafeConcurrentIndexAnalyzer(OperationAnalyzer):
     """Base for the PostHog concurrent-index helpers.
 
-    All four (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
-    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently)
+    All of them (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
+    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently /
+    DropForeignKeyIndexConcurrently)
     encode the guarantees ConcurrentIndexIdempotencyPolicy enforces - timeout
     disabling, invalid-leftover recovery, and skip-if-already-applied - so they
     are safe by construction. Scoring them SAFE (vs the default "unknown
@@ -975,6 +976,10 @@ class CreateIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
 
 class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "DropIndexConcurrently"
+
+
+class DropForeignKeyIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "DropForeignKeyIndexConcurrently"
 
 
 class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):

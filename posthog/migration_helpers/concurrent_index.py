@@ -53,12 +53,16 @@ can't model):
         )],
     )
 
+`DropForeignKeyIndexConcurrently` drops the index Django creates for a `ForeignKey`.
+
 The Migration class still needs `atomic = False`.
 """
 
-from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
+from django.contrib.postgres.operations import AddIndexConcurrently, NotInTransactionMixin, RemoveIndexConcurrently
 from django.db import migrations, router
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
+from django.db.migrations.operations.fields import FieldOperation
+from django.db.models import DO_NOTHING, Index
 
 import structlog
 
@@ -400,3 +404,117 @@ class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
         to_model_state = to_state.models[app_label, self.model_name_lower]
         index = to_model_state.get_index_by_name(self.name)
         schema_editor.add_index(model, index, concurrently=True)
+
+
+_LEADING_INDEXES_SQL = """
+    SELECT index_class.relname
+    FROM pg_index idx
+    JOIN pg_class table_class ON table_class.oid = idx.indrelid
+    JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+    JOIN pg_attribute att ON att.attrelid = idx.indrelid AND att.attnum = idx.indkey[0]
+    WHERE table_class.relname = %(table)s
+      AND pg_table_is_visible(table_class.oid)
+      AND att.attname = %(column)s
+      AND idx.indisvalid
+      AND idx.indpred IS NULL
+"""
+
+
+class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
+    """Drop the index Django creates for a ForeignKey, and set `db_index=False` on the field.
+
+    Use it in place of the `AlterField` that `makemigrations` writes, which runs a plain
+    `DROP INDEX` under ACCESS EXCLUSIVE on the table. The index comes from the field's
+    `db_index`, not from `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot resolve it.
+    The op derives the name the same way Django did when it created the index, so no
+    hash-suffixed name is typed at the call site. The Migration class still needs
+    `atomic = False`.
+
+        operations = [
+            DropForeignKeyIndexConcurrently(model_name="mymodel", name="team"),
+        ]
+
+    The op raises instead of guessing when another single-column index on the key exists that
+    no Meta index names. It also raises when a parent delete still reads the column and no
+    other index leads with it: the foreign key check at COMMIT and every `on_delete` but
+    `DO_NOTHING` would then scan the whole table.
+    """
+
+    def state_forwards(self, app_label, state) -> None:
+        field = state.models[app_label, self.model_name_lower].fields[self.name]
+        if not (field.many_to_one and field.db_index and not field.unique):
+            raise ValueError(
+                f"{type(self).__name__} needs a ForeignKey with an index of its own, "
+                f"and {self.model_name}.{self.name} has none"
+            )
+        field = field.clone()
+        field.db_index = False
+        state.alter_field(app_label, self.model_name_lower, self.name, field, preserve_default=True)
+
+    def _django_index_name(self, schema_editor, model, field) -> str:
+        # The name BaseDatabaseSchemaEditor._field_indexes_sql gives the index when it creates it.
+        return schema_editor._create_index_name(model._meta.db_table, [field.column])
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = from_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        table = model._meta.db_table
+        field = model._meta.get_field(self.name)
+        index_name = self._django_index_name(schema_editor, model, field)
+        # The lookup Django's own AlterField runs to find this index when db_index turns off.
+        candidates = schema_editor._constraint_names(
+            model,
+            [field.column],
+            index=True,
+            type_=Index.suffix,
+            exclude={index.name for index in model._meta.indexes},
+        )
+        unexpected = sorted(set(candidates) - {index_name})
+        if unexpected:
+            raise ValueError(
+                f"{table} holds {', '.join(unexpected)} on only {field.column}. It is not {index_name}, the "
+                "index Django creates for the key, and no Meta index names it. Find out what created it first."
+            )
+        if index_name not in candidates:
+            return  # already dropped, or never created on this database
+        if field.db_constraint or field.remote_field.on_delete is not DO_NOTHING:
+            with schema_editor.connection.cursor() as cursor:
+                cursor.execute(_LEADING_INDEXES_SQL, {"table": table, "column": field.column})
+                covering = {name for (name,) in cursor.fetchall()} - {index_name}
+            if not covering:
+                raise ValueError(
+                    f"No other index on {table} leads with {field.column}. Without one, a delete of the parent "
+                    f"row scans {table} for child rows. Add an index that leads with {field.column} first."
+                )
+        _disable_timeouts(schema_editor)
+        schema_editor.execute(_build_drop_sql(index_name))
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = to_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        field = model._meta.get_field(self.name)
+        index_name = self._django_index_name(schema_editor, model, field)
+        _disable_timeouts(schema_editor)
+        if _index_validity(schema_editor, index_name) == "invalid":
+            _log_and_drop_invalid_index(schema_editor, index_name, type(self).__name__)
+        schema_editor.execute(
+            _build_create_sql(
+                index_name=index_name,
+                table_name=model._meta.db_table,
+                columns=f"({schema_editor.quote_name(field.column)})",
+                unique=False,
+                using="",
+                where="",
+            )
+        )
+
+    def describe(self) -> str:
+        return f"Concurrently drop the foreign key index on {self.model_name}.{self.name}"
+
+    @property
+    def migration_name_fragment(self) -> str:
+        return f"drop_{self.model_name_lower}_{self.name_lower}_index"
