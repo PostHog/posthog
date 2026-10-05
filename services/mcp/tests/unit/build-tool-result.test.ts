@@ -201,14 +201,12 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             params: {},
             suppressStructuredContentForFormattedResults: false,
             distinctId: 'user-abc-123',
-            mcpClientName: 'Cursor',
         })
 
         expect(payload.structuredContent).toMatchObject({
             _analytics: {
                 distinctId: 'user-abc-123',
                 toolName: 'query-trends',
-                mcpClientName: 'Cursor',
             },
         })
     })

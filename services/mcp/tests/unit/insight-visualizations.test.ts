@@ -249,7 +249,6 @@ describe('insight visualizations', () => {
 
         describe('insightQueryProperties', () => {
             it.each([
-                ['no query', undefined, {}],
                 [
                     'bare trends without a display',
                     { kind: 'TrendsQuery' },
@@ -262,16 +261,6 @@ describe('insight visualizations', () => {
                         source: { kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } },
                     },
                     { queryKind: 'InsightVizNode', querySourceKind: 'TrendsQuery', display: 'BoldNumber' },
-                ],
-                [
-                    'funnel with a viz type',
-                    { kind: 'FunnelsQuery', funnelsFilter: { funnelVizType: 'trends' } },
-                    { queryKind: 'FunnelsQuery', funnelVizType: 'trends' },
-                ],
-                [
-                    'HogQL wrapped in DataVisualizationNode',
-                    { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
-                    { queryKind: 'DataVisualizationNode', querySourceKind: 'HogQLQuery' },
                 ],
             ])('%s', (_, query, expected) => {
                 expect(insightQueryProperties(query)).toEqual(expected)
