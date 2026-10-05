@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import temporalio.activity
@@ -13,6 +13,7 @@ from products.ai_observability.backend.ai_event_lookup import fetch_generation_e
 # A generation can reach `events`, where a backfill finds it, before it reaches `ai_events`, where
 # it is read, so a miss gets two retries before it fails the run.
 GENERATION_NOT_FOUND_MAX_ATTEMPTS = 3
+GENERATION_NOT_FOUND_RETRY_DELAY = timedelta(seconds=15)
 
 
 def as_utc_datetime(value: str | datetime) -> datetime:
@@ -89,6 +90,10 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
     if event is None:
         if temporalio.activity.in_activity() and temporalio.activity.info().attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
             # Only the last miss reaches error tracking: an earlier one is usually the lag above.
-            raise NonReportableApplicationError("Generation not found", type="generation_not_found")
+            raise NonReportableApplicationError(
+                "Generation not found",
+                type="generation_not_found",
+                next_retry_delay=GENERATION_NOT_FOUND_RETRY_DELAY,
+            )
         raise ApplicationError("Generation not found", type="generation_not_found", non_retryable=True)
     return event
