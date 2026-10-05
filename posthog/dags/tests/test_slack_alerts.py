@@ -19,7 +19,7 @@ from posthog.dags.slack_alerts import (
 class TestSlackAlertsRouting:
     def test_query_log_archive_export_uses_query_performance_runbook(self):
         assert get_alert_channel("export_query_log_archive_to_s3", JobOwners.TEAM_ANALYTICS_PLATFORM.value) == (
-            "#support-query-performance"
+            "#team-query-performance"
         )
 
         blocks = build_failure_alert_blocks(

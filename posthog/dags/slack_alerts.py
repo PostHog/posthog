@@ -32,7 +32,7 @@ notification_channel_per_team = {
 }
 
 JOB_ALERT_CHANNELS = {
-    "export_query_log_archive_to_s3": "#support-query-performance",
+    "export_query_log_archive_to_s3": "#team-query-performance",
 }
 
 JOB_ALERT_RUNBOOK_URLS = {
