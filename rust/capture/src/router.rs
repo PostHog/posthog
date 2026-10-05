@@ -506,6 +506,9 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     let router = router
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(track_metrics))
+        .layer(axum::middleware::from_fn(
+            crate::managed_proxy_metrics::track_managed_proxy,
+        ))
         .with_state(state);
 
     // The caller installs the recorder, before anything can emit; here we only

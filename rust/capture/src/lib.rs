@@ -9,6 +9,7 @@ pub mod gateway_provenance;
 pub mod global_rate_limiter;
 pub mod ingestion_warnings;
 pub mod log_util;
+pub mod managed_proxy_metrics;
 pub mod metrics_middleware;
 pub mod ordering;
 pub mod otel;
