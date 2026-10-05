@@ -542,6 +542,11 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "short_id": obj.short_id,
             }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Dashboard":
+            return {
+                "id": obj.id,
+                "name": obj.name,
+            }
         if hasattr(obj, "__class__") and obj.__class__.__name__ == "Integration":
             # Identity only: an integration's config and sensitive_config hold credentials, and the
             # Integration scope already masks both. `integration_id` rather than `display_name`,
