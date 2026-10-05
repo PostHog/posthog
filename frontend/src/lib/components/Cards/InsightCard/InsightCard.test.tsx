@@ -56,22 +56,28 @@ describe('InsightCard', () => {
         })
 
         it.each([
-            { source: 'card', cardWait: 45, embeddedWait: null },
-            { source: 'embedded query', cardWait: null, embeddedWait: 45 },
-            { source: 'longer card wait', cardWait: 45, embeddedWait: 30 },
-            { source: 'longer embedded wait', cardWait: 30, embeddedWait: 45 },
-        ])('holds refresh controls until the $source cooldown ends', ({ cardWait, embeddedWait }) => {
+            { source: 'card', cardStatus: 503, cardWait: 45, embeddedWait: null },
+            { source: 'embedded query', cardStatus: null, cardWait: null, embeddedWait: 45 },
+            { source: 'longer card wait', cardStatus: 503, cardWait: 45, embeddedWait: 30 },
+            { source: 'longer embedded wait', cardStatus: 503, cardWait: 30, embeddedWait: 45 },
+            { source: 'embedded wait with a 502 card error', cardStatus: 502, cardWait: null, embeddedWait: 45 },
+            { source: 'embedded wait with a 500 card error', cardStatus: 500, cardWait: null, embeddedWait: 45 },
+        ])('holds refresh controls until the $source cooldown ends', ({ cardStatus, cardWait, embeddedWait }) => {
             const refresh = jest.fn()
             const { container } = render(
                 <InsightCard
                     insight={insight}
                     placement="SavedInsightGrid"
                     doNotLoad
-                    apiErrored={cardWait !== null}
+                    apiErrored={cardStatus !== null}
                     apiError={
-                        cardWait === null
+                        cardStatus === null
                             ? undefined
-                            : new ApiError('', 503, new Headers({ 'Retry-After': String(cardWait) }))
+                            : new ApiError(
+                                  '',
+                                  cardStatus,
+                                  cardWait === null ? undefined : new Headers({ 'Retry-After': String(cardWait) })
+                              )
                     }
                     refresh={refresh}
                 />
@@ -97,7 +103,7 @@ describe('InsightCard', () => {
             expect(refresh).not.toHaveBeenCalled()
 
             act(() => jest.advanceTimersByTime(30_000))
-            if (cardWait !== null) {
+            if (cardStatus !== null) {
                 expect(screen.getByText('PostHog is busy. You can retry in 15 seconds.')).toBeVisible()
                 expect(screen.getByTestId('insight-retry-button')).toHaveAttribute('aria-disabled', 'true')
             }
@@ -111,7 +117,7 @@ describe('InsightCard', () => {
             expect(refresh).not.toHaveBeenCalled()
             fireEvent.click(screen.getByTestId('dashboard-tile-refresh-data'))
             expect(refresh).toHaveBeenCalledTimes(1)
-            if (cardWait !== null) {
+            if (cardStatus !== null) {
                 expect(screen.getByText('You can try this query again now.')).toBeVisible()
                 expect(screen.getByTestId('insight-retry-button')).toHaveAttribute('aria-disabled', 'false')
                 fireEvent.click(screen.getByTestId('insight-retry-button'))

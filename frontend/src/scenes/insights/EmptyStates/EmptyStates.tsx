@@ -846,7 +846,7 @@ export function InsightErrorState({
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const [, setTick] = useState(0)
-    const capacityRetryAt = titleStatus === 503 ? retryAfterTimestamp : null
+    const capacityRetryAt = retryAfterTimestamp
     const retrySecondsLeft = capacityRetryAt ? Math.max(0, Math.ceil((capacityRetryAt - Date.now()) / 1000)) : 0
     useInterval(() => setTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
     const retryDisabledReason =
