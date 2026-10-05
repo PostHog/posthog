@@ -32,6 +32,7 @@ export interface messageTemplateTestSendLogicValues {
     ownEmailIntegrations: IntegrationType[] // integrationsLogic
     sandboxEmailSender: IntegrationType | null // integrationsLogic
     sandboxEmailSenderEnabled: boolean // integrationsLogic
+    meFirstMembers: OrganizationMemberType[] // membersLogic
     members: OrganizationMemberType[] | null // membersLogic
     membersLoading: boolean // membersLogic
     template: MessageTemplate // messageTemplateLogic
@@ -133,7 +134,7 @@ export interface messageTemplateTestSendLogicMeta {
         ) => boolean
         deliverableMembers: (members: OrganizationMemberType[] | null) => OrganizationMemberType[] | null
         memberEmails: (deliverableMembers: OrganizationMemberType[] | null) => string[] | null
-        recipientSuggestions: (deliverableMembers: OrganizationMemberType[] | null) => string[]
+        recipientSuggestions: (meFirstMembers: OrganizationMemberType[]) => string[]
         recipientOutsideOrganization: (
             isSandboxSenderSelected: boolean,
             recipientEmail: string,
@@ -173,7 +174,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             integrationsLogic,
             ['ownEmailIntegrations', 'sandboxEmailSender', 'sandboxEmailSenderEnabled', 'emailIntegrationsLoading'],
             membersLogic,
-            ['members', 'membersLoading'],
+            ['members', 'membersLoading', 'meFirstMembers'],
         ],
         actions: [
             integrationsLogic,
@@ -295,9 +296,11 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 deliverableMembers?.map((member) => member.user.email.toLowerCase()) ?? null,
         ],
         recipientSuggestions: [
-            (s) => [s.deliverableMembers],
-            (deliverableMembers: OrganizationMemberType[] | null): string[] =>
-                deliverableMembers?.map((member) => member.user.email) ?? [],
+            (s) => [s.meFirstMembers],
+            (meFirstMembers: OrganizationMemberType[]): string[] =>
+                meFirstMembers
+                    .filter((member) => member.user.is_email_verified !== false)
+                    .map((member) => member.user.email),
         ],
         recipientOutsideOrganization: [
             (s) => [s.isSandboxSenderSelected, s.recipientEmail, s.memberEmails],
@@ -371,7 +374,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                     return
                 }
                 actions.clearTestSendResult()
-                if (!values.recipientEmail && values.user?.email) {
+                if (!values.recipientEmail && values.user?.email && !values.sandboxEmailSenderEnabled) {
                     actions.setRecipientEmail(values.user.email)
                 }
                 prepareSandboxSender()

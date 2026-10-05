@@ -84,6 +84,22 @@ describe('messageTemplateTestSendLogic', () => {
         }).toMatchValues({ recipientEmail: 'john.doe@posthog.com' })
     })
 
+    it('leaves the recipient empty with the sandbox flag on, so the member suggestions show with the user first', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientEmail: '' })
+            expect(logic.values.recipientSuggestions[0]).toBe('john.doe@posthog.com')
+        } finally {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        }
+    })
+
     it('defaults the sender to the first verified email integration, excluding unverified and non-email kinds', async () => {
         await expectLogic(logic).toMatchValues({
             senderIntegrationId: 5,

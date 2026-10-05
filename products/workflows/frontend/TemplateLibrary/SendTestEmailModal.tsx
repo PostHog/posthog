@@ -4,6 +4,7 @@ import { IconExternal } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
     LemonInputSelect,
     LemonLabel,
     LemonSelect,
@@ -49,6 +50,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
     const {
         recipientEmail,
         recipientSuggestions,
+        sandboxEmailSenderEnabled,
         recipientOutsideOrganization,
         senderIntegrationId,
         sandboxEmailSender,
@@ -87,16 +89,26 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
             <div className="flex flex-col gap-4 min-w-100">
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Send to</LemonLabel>
-                    <LemonInputSelect
-                        mode="single"
-                        allowCustomValues
-                        value={recipientEmail ? [recipientEmail] : []}
-                        onChange={(values) => setRecipientEmail(values[0] ?? '')}
-                        options={recipientSuggestions.map((email) => ({ key: email, label: email }))}
-                        placeholder="you@example.com"
-                        emptyStateComponent="Type an email address and press Enter"
-                        data-attr="send-test-email-recipient"
-                    />
+                    {sandboxEmailSenderEnabled ? (
+                        <LemonInputSelect
+                            mode="single"
+                            allowCustomValues
+                            value={recipientEmail ? [recipientEmail] : []}
+                            onChange={(values) => setRecipientEmail(values[0] ?? '')}
+                            options={recipientSuggestions.map((email) => ({ key: email, label: email }))}
+                            placeholder="you@example.com"
+                            emptyStateComponent="Type an email address and press Enter"
+                            data-attr="send-test-email-recipient"
+                        />
+                    ) : (
+                        <LemonInput
+                            type="email"
+                            value={recipientEmail}
+                            onChange={setRecipientEmail}
+                            placeholder="you@example.com"
+                            data-attr="send-test-email-recipient"
+                        />
+                    )}
                     {recipientOutsideOrganization && (
                         <LemonBanner
                             type="warning"
