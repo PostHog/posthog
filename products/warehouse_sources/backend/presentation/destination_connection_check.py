@@ -11,10 +11,7 @@ from psycopg import errors as pg_errors
 from posthog.models.integration import Integration, PostgreSQLIntegration
 from posthog.models.integration.postgres import MISSING_CERT_PATH
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    HostNotAllowedError,
-    pinned_host_kwargs,
-)
+from products.warehouse_sources.backend.facade.source_management import HostNotAllowedError, pinned_host_kwargs
 
 CONNECT_TIMEOUT_SECONDS = 5
 STATEMENT_TIMEOUT_MILLISECONDS = 5_000
