@@ -27,6 +27,7 @@ class TestWrapClickhouseQueryError:
             (264, "INCOMPATIBLE_TYPE_OF_JOIN"),
             (352, "AMBIGUOUS_COLUMN_NAME"),
             (377, "ILLEGAL_SYNTAX_FOR_DATA_TYPE"),
+            (475, "INVALID_WITH_FILL_EXPRESSION"),
             (703, "INVALID_IDENTIFIER"),
         ]
     )
