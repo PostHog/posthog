@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCalendar, IconNotebook, IconPencil, IconPlus, IconSearch, IconTrends, IconWarning } from '@posthog/icons'
+import {
+    IconCalendar,
+    IconFlask,
+    IconNotebook,
+    IconPencil,
+    IconPlus,
+    IconSearch,
+    IconTrends,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
@@ -17,6 +26,7 @@ import { ScannerScoutReportModal } from './ScannerScoutReportModal'
 import { ScannerScoutRow } from './ScannerScoutRow'
 
 const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
+    'variant-analysis': <IconFlask />,
     'daily-digest': <IconCalendar />,
     'root-cause': <IconSearch />,
     'weekly-themes': <IconNotebook />,

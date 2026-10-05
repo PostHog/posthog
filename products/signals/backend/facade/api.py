@@ -1,3 +1,4 @@
+import json
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
@@ -13,6 +14,10 @@ import temporalio
 import posthoganalytics
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -1313,6 +1318,96 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
     return True
+
+
+@frozen
+class SourceScout:
+    """A scout another product created for one of its objects."""
+
+    config_id: str
+    skill_name: str
+    enabled: bool
+    created_at: datetime
+
+
+@frozen
+class ScoutStructuredRecord:
+    """One record a scout submitted through its structured output channel."""
+
+    payload: dict[str, Any]
+    # The run's start, which is the event's timestamp: Signals stamps every record of a run with it.
+    recorded_at: datetime
+    skill_name: str
+    run_id: str
+
+
+# The structured output channel writes this event (see `scout_harness/tools/structured_output.py`).
+_STRUCTURED_OUTPUT_EVENT = "$scout_structured_output"
+
+
+def scouts_for_source(
+    team_id: int, source_product: str, source_id: str, *, tag: str | None = None
+) -> list[SourceScout]:
+    """The scouts recorded as belonging to one source object, oldest first, optionally narrowed to a tag."""
+    configs = SignalScoutConfig.objects.for_team(team_id).filter(source_product=source_product, source_id=source_id)
+    if tag is not None:
+        configs = configs.filter(tags__contains=[tag])
+    return [
+        SourceScout(config_id=str(config_id), skill_name=skill_name, enabled=enabled, created_at=created_at)
+        for config_id, skill_name, enabled, created_at in configs.order_by("created_at").values_list(
+            "id", "skill_name", "enabled", "created_at"
+        )
+    ]
+
+
+def latest_structured_output_for_source(
+    team_id: int, source_product: str, source_id: str, *, tag: str
+) -> ScoutStructuredRecord | None:
+    """The newest structured record any of a source object's scouts with `tag` submitted, or None.
+
+    Records exist only as events, so this reads them back with one bounded events query. It is
+    bounded below by the oldest matching scout's creation, since no record can predate its scout.
+    """
+    configs = list(
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(source_product=source_product, source_id=source_id, tags__contains=[tag])
+        .values_list("team_id", "skill_name", "created_at")
+    )
+    if not configs:
+        return None
+    # Scout configs and their runs live on the canonical team, so the events do too.
+    team = Team.objects.get(pk=configs[0][0])
+    since = min(created_at for _, _, created_at in configs)
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsLatestStructuredOutputForSource",
+        query="""
+            SELECT properties.output, timestamp, properties.skill_name, properties.run_id
+            FROM events
+            WHERE event = {event}
+              AND properties.skill_name IN {skill_names}
+              AND timestamp >= {since}
+              AND timestamp <= now() + INTERVAL 1 DAY
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """,
+        team=team,
+        placeholders={
+            "event": ast.Constant(value=_STRUCTURED_OUTPUT_EVENT),
+            "skill_names": ast.Tuple(exprs=[ast.Constant(value=skill_name) for _, skill_name, _ in configs]),
+            "since": ast.Constant(value=since),
+        },
+    )
+    if not result.results:
+        return None
+    output, recorded_at, skill_name, run_id = result.results[0]
+    payload = json.loads(output) if isinstance(output, str) else output
+    if not isinstance(payload, dict):
+        return None
+    return ScoutStructuredRecord(
+        payload=payload, recorded_at=recorded_at, skill_name=str(skill_name or ""), run_id=str(run_id or "")
+    )
 
 
 def repair_report_actionability_cache(
