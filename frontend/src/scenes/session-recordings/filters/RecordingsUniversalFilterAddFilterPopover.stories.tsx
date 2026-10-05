@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -6,7 +7,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { userEvent, waitFor, within } from 'storybook/test'
+import { userEvent } from 'storybook/test'
 
 import { RecordingsUniversalFilterAddFilterPopover } from './RecordingsUniversalFiltersEmbed'
 
@@ -42,18 +43,20 @@ type Story = StoryObj
 
 export const Closed: Story = {}
 
+function findByDataAttr(container: ParentNode, dataAttr: string): Promise<HTMLElement> {
+    return waitFor(() => {
+        const element = container.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
+        if (!element) {
+            throw new Error(`${dataAttr} not rendered yet`)
+        }
+        return element
+    })
+}
+
 export const Open: Story = {
     play: async ({ canvasElement }) => {
-        const input = await waitFor(() => {
-            const element = canvasElement.querySelector<HTMLInputElement>(
-                '[data-attr="replay-filters-add-filter-input"]'
-            )
-            if (!element) {
-                throw new Error('search input not rendered yet')
-            }
-            return element
-        })
-        await userEvent.click(input)
-        await within(document.body).findByTestId('taxonomic-category-dropdown-item-events')
+        await userEvent.click(await findByDataAttr(canvasElement, 'replay-filters-add-filter-input'))
+        await userEvent.click(await findByDataAttr(document.body, 'taxonomic-category-dropdown-trigger-pill'))
+        await findByDataAttr(document.body, 'taxonomic-category-dropdown-item-events')
     },
 }
