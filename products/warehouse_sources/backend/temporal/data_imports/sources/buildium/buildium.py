@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
@@ -75,9 +76,10 @@ def buildium_source(
     if updated_from is not None:
         params["lastupdatedfrom"] = updated_from
 
+    endpoint_config: Endpoint = {"path": path, "data_selector": "$", "params": params}
     resource_config: EndpointResource = {
         "name": endpoint,
-        "endpoint": {"path": path, "data_selector": "$", "params": params},
+        "endpoint": endpoint_config,
         "columns": {"LastUpdatedDateTime": {"data_type": "timestamp"}} if endpoint in INCREMENTAL_FIELDS else {},
     }
     rest_config: RESTAPIConfig = {
