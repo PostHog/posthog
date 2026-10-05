@@ -15,6 +15,9 @@ import {
 
 import { cn } from 'lib/utils/css-classes'
 
+import { FlowRows } from './FlowRows'
+import { VirtualizedThreadRowContext, type VirtualizedThreadRowContextValue } from './VirtualizedThreadRowContext'
+
 /**
  * Slack the virtualizer core is allowed to treat as "at the end" while the thread is pinned, so its own
  * growth compensation still smooths streaming that lands between our follow writes. Deliberately *not*
@@ -110,12 +113,7 @@ interface RootContextValue {
     virtualized: boolean
 }
 
-interface RowContextValue {
-    index: number
-}
-
 const RootContext = createContext<RootContextValue | null>(null)
-const RowContext = createContext<RowContextValue | null>(null)
 
 /**
  * Virtualized row shell: publishes the row index via context and defers content to `renderRow`. Row
@@ -129,26 +127,9 @@ const InternalRow = memo(function InternalRow({
     index: number
     renderRow: (index: number) => ReactNode
 }): JSX.Element {
-    const value = useMemo<RowContextValue>(() => ({ index }), [index])
-    return <RowContext.Provider value={value}>{renderRow(index)}</RowContext.Provider>
+    const value = useMemo<VirtualizedThreadRowContextValue>(() => ({ index }), [index])
+    return <VirtualizedThreadRowContext.Provider value={value}>{renderRow(index)}</VirtualizedThreadRowContext.Provider>
 })
-
-const FlowRow = memo(function FlowRow({ index, children }: { index: number; children: ReactNode }): JSX.Element {
-    const value = useMemo<RowContextValue>(() => ({ index }), [index])
-    return <RowContext.Provider value={value}>{children}</RowContext.Provider>
-})
-
-const FlowItemRow = memo(function FlowItemRow<T>({
-    index,
-    item,
-    render,
-}: {
-    index: number
-    item: T
-    render: (item: T, index: number) => ReactNode
-}): JSX.Element {
-    return <FlowRow index={index}>{render(item, index)}</FlowRow>
-}) as <T>(props: { index: number; item: T; render: (item: T, index: number) => ReactNode }) => JSX.Element
 
 export interface VirtualizedThreadRootProps<T> {
     items: T[]
@@ -933,19 +914,14 @@ function Root<T>({
     if (!virtualized) {
         return (
             <RootContext.Provider value={rootValue}>
-                {hasHeader && (
-                    <FlowRow key="header" index={0}>
-                        {header}
-                    </FlowRow>
-                )}
-                {items.map((item, index) => (
-                    <FlowItemRow key={getItemKey(item, index)} index={index} item={item} render={children} />
-                ))}
-                {hasFooter && (
-                    <FlowRow key="footer" index={rowCount - 1}>
-                        {footer}
-                    </FlowRow>
-                )}
+                <FlowRows
+                    items={items}
+                    getItemKey={getItemKey}
+                    header={hasHeader ? header : null}
+                    footer={hasFooter ? footer : null}
+                    footerIndex={rowCount - 1}
+                    render={children}
+                />
             </RootContext.Provider>
         )
     }
@@ -986,7 +962,7 @@ function Root<T>({
  */
 function Row({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
     const root = useContext(RootContext)
-    const row = useContext(RowContext)
+    const row = useContext(VirtualizedThreadRowContext)
     if (!root || !row) {
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }

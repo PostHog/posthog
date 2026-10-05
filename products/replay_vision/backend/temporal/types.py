@@ -10,7 +10,7 @@ from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.experiment import ExperimentOutput
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorVerdict
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.snapshots import (
@@ -22,19 +22,6 @@ AnyScannerOutput = Annotated[
     ClassifierOutput | ExperimentOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
-
-
-class VerificationRecord(BaseModel, frozen=True):
-    """Audit of the extra draws taken to verify a monitor `yes` verdict. Absent when no verdict was verified."""
-
-    mode: str
-    # Verdicts in draw order; the first entry is the pass that triggered verification.
-    draws: list[MonitorVerdict]
-    # The verdict verification settled on: the first pass when the second draw agrees, else the dissent.
-    # `served_verdict` is what `model_output` carries: the same value under `enforce`, the first draw under `shadow`.
-    resolved_verdict: MonitorVerdict
-    served_verdict: MonitorVerdict
-    skipped_reason: str | None = None
 
 
 class EmittedSignal(BaseModel, frozen=True):
@@ -59,7 +46,6 @@ class ScannerResult(BaseModel, frozen=True):
     # and can rank a weak finding below a strong one. Empty on non-signal rows and on rows scanned before
     # this shipped; `signal_problem_types` stays because those older rows carry only it.
     signal_summaries: list[EmittedSignal] = Field(default_factory=list)
-    verification: VerificationRecord | None = None
     # Experiment scanners only. The variant comes from the exposure data, never from the model, so
     # readouts that group by it cannot disagree with the prompt's framing. Null on rows scanned
     # before attribution shipped, which readouts count as unattributed.
@@ -187,10 +173,12 @@ class SessionMetadata(BaseModel, frozen=True):
     mouse_activity_count: int | None = None
     start_url: str | None = None
     console_error_count: int | None = None
+    # A native mobile recording or a touch web browser. Gates the gestures guidance; not shown as metadata.
+    touch: bool = False
 
     def as_prompt_dict(self) -> dict[str, Any]:
         """Drop unset (None) fields so the prompt isn't padded with `null`s."""
-        return self.model_dump(mode="json", exclude_none=True)
+        return self.model_dump(mode="json", exclude_none=True, exclude={"touch"})
 
 
 class SessionGroup(BaseModel, frozen=True):
@@ -304,7 +292,6 @@ class ScannerCallOutput(BaseModel, frozen=True):
     model_output: AnyScannerOutput
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
-    verification: VerificationRecord | None = None
     # Video seconds the model picked for the thumbnail; None when it skipped the optional pick.
     thumbnail_video_s: int | None = None
     # Signal spans on the video clock, which `signals` no longer carries once they move to session time.

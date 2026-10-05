@@ -14,6 +14,7 @@ the source-validation import path (the builder imports it for verb names).
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.db import transaction
 
@@ -25,8 +26,6 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from rest_framework.response import Response
-
-    from posthog.models import Team
 
     from products.canvas.backend.models import Canvas
 
@@ -45,12 +44,12 @@ class CanvasActionDenied(Exception):
 CANVAS_ACTIONS_KILL_SWITCH_FLAG = "canvas-actions-disabled"
 
 
-def canvas_actions_disabled(team: "Team") -> bool:
+def canvas_actions_disabled(team_uuid: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 CANVAS_ACTIONS_KILL_SWITCH_FLAG,
-                str(team.uuid),
+                str(team_uuid),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )

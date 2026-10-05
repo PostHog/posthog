@@ -62,11 +62,6 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     variant_sampling_rates: dict[str, float] | None = None
 
 
-class RefreshPromptSuggestionInputs(BaseModel, frozen=True):
-    scanner_id: UUID
-    team_id: int
-
-
 class CheckScannerBudgetInputs(BaseModel, frozen=True):
     scanner_id: UUID
     team_id: int
