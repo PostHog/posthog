@@ -95,6 +95,15 @@ class TestFilters(BaseTest):
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
+    def test_raises_when_whole_query_is_a_filters_placeholder(self):
+        # Regression: an empty select stack raised IndexError, so the user got a server error
+        with self.assertRaisesMessage(QueryError, "`{filters}` only works inside a SELECT query"):
+            replace_filters(
+                self._parse_select("{filters}"),
+                HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                self.team,
+            )
+
     def test_replace_filters_date_range(self):
         with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             # open-ended range: bounded at the end of today instead of including future-dated rows
