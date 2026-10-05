@@ -1,6 +1,8 @@
 import base64
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import datetime, timedelta
+from typing import Any, cast
 
 import pytest
 from time_machine import travel
@@ -18,12 +20,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clip.setti
 from products.warehouse_sources.backend.temporal.data_imports.sources.clip.source import ClipSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clip import ClipSourceConfig
 
 BASE = "https://api-gw.payclip.com"
 AUTH = "Basic " + base64.b64encode(b"test-key:test-secret").decode()
 DEPOSIT_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def sync_items(response: SourceResponse) -> Iterable[list[dict[str, Any]]]:
+    return cast(Iterable[list[dict[str, Any]]], response.items())
 
 
 @pytest.fixture
@@ -71,7 +77,7 @@ def test_transactions_paginate_within_date_windows(
             ],
         )
         response = clip_source(config, inputs, manager)
-        assert [row["receipt_no"] for page in response.items() for row in page] == ["a", "b", "c"]
+        assert [row["receipt_no"] for page in sync_items(response) for row in page] == ["a", "b", "c"]
         assert response.sort_mode == "desc"
         assert len(http.request_history) == 3
         for request in http.request_history:
@@ -118,7 +124,7 @@ def test_incremental_filter_and_full_refresh(
     inputs = replace(inputs, should_use_incremental_field=incremental, db_incremental_field_last_value=watermark)
     with requests_mock.Mocker() as http:
         http.get(f"{BASE}/payments", json={"items": [], "meta": {}})
-        assert list(clip_source(config, inputs, manager).items()) == []
+        assert list(sync_items(clip_source(config, inputs, manager))) == []
         assert http.request_history[-1].qs["from"] == [expected]
         if len(http.request_history) > 1:
             manager.safe_point.assert_called()
@@ -134,7 +140,7 @@ def test_resume_preserves_dates_and_cursor(config: ClipSourceConfig, inputs: Sou
     )
     with requests_mock.Mocker() as http:
         http.get(f"{BASE}/payments", json={"items": [], "meta": {}})
-        list(clip_source(config, inputs, manager).items())
+        list(sync_items(clip_source(config, inputs, manager)))
         assert http.request_history[0].qs["pagination_token"] == ["saved-token"]
         assert http.request_history[0].qs["to"] == ["2026-07-03t12:00:00+00:00"]
         assert "pagination_token" not in http.request_history[1].qs
@@ -164,7 +170,7 @@ def test_settlement_payments_follow_uuid_and_next_link(
             ],
         )
         response = clip_source(config, inputs, manager)
-        assert list(response.items()) == [
+        assert list(sync_items(response)) == [
             [{"receipt_no": "a", "settlement_report_id": "report-1"}],
             [{"receipt_no": "b", "settlement_report_id": "report-1"}],
         ]
@@ -187,7 +193,7 @@ def test_settlements_single_page(
     with requests_mock.Mocker() as http:
         http.get(f"{BASE}/settlements", json={"settlements": rows})
         response = clip_source(config, replace(inputs, schema_name="settlements"), manager)
-        assert [row for page in response.items() for row in page] == rows
+        assert [row for page in sync_items(response) for row in page] == rows
         assert len(http.request_history) == 1
         assert http.request_history[0].qs == {"from": ["2026-06-01"], "to": ["2026-07-03"]}
 
@@ -232,7 +238,7 @@ def test_invalid_parent_link_is_rejected(
             },
         )
         with pytest.raises(ValueError, match="invalid deposit link"):
-            list(clip_source(config, replace(inputs, schema_name="settlement_payments"), manager).items())
+            list(sync_items(clip_source(config, replace(inputs, schema_name="settlement_payments"), manager)))
         assert len(http.request_history) == 1
 
 
@@ -278,7 +284,7 @@ def test_settlement_resume_skips_completed_parents_and_resumes_child_page(
                 "links": {},
             },
         )
-        assert list(clip_source(config, replace(inputs, schema_name="settlement_payments"), manager).items()) == [
+        assert list(sync_items(clip_source(config, replace(inputs, schema_name="settlement_payments"), manager))) == [
             [{"receipt_no": "b", "settlement_report_id": "report-1"}],
         ]
         assert len(http.request_history) == 2
@@ -301,7 +307,7 @@ def test_sync_auth_errors_are_terminal(
     with requests_mock.Mocker() as http:
         http.get(f"{BASE}/payments", status_code=status, reason="Unauthorized" if status == 401 else "Forbidden")
         with pytest.raises(requests.HTTPError) as error:
-            list(clip_source(config, inputs, manager).items())
+            list(sync_items(clip_source(config, inputs, manager)))
         assert len(http.request_history) == 1
         assert any(pattern in str(error.value) for pattern in ClipSource().get_non_retryable_errors())
 
@@ -315,5 +321,5 @@ def test_repeated_cursor_fails_instead_of_looping(
     with requests_mock.Mocker() as http:
         http.get(f"{BASE}/payments", json={"items": [{"receipt_no": "a"}], "meta": {"pagination_token": "same"}})
         with pytest.raises(ValueError, match="not advancing"):
-            list(clip_source(config, inputs, manager).items())
+            list(sync_items(clip_source(config, inputs, manager)))
         assert len(http.request_history) == 2

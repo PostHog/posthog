@@ -52,11 +52,16 @@ def parse_start_date(value: str) -> datetime:
 
 def validate_credentials(config: ClipSourceConfig) -> tuple[bool, str | None]:
     now = datetime.now(UTC)
+    params: dict[str, str | int] = {
+        "from": (now - timedelta(days=1)).isoformat(),
+        "to": now.isoformat(),
+        "limit": 1,
+    }
     with make_tracked_session() as session:
         response = session.get(
             f"{BASE_URL}/payments",
             auth=HttpBasicAuth(config.api_key, config.secret_key),
-            params={"from": (now - timedelta(days=1)).isoformat(), "to": now.isoformat(), "limit": 1},
+            params=params,
             timeout=30,
         )
     if response.status_code == 401:
@@ -86,7 +91,7 @@ def payment_parent(row: dict[str, Any]) -> dict[str, Any]:
 
 def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: datetime) -> RESTAPIConfig:
     if endpoint == "transactions":
-        result: RESTAPIConfig = {
+        transaction_config: RESTAPIConfig = {
             "client": {
                 "base_url": BASE_URL,
                 "auth": HttpBasicAuth(config.api_key, config.secret_key),
@@ -112,7 +117,7 @@ def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: 
                 }
             ],
         }
-        return result
+        return transaction_config
     token = base64.b64encode(f"{config.api_key}:{config.secret_key}".encode()).decode()
     parent: EndpointResource = {
         "name": "settlements",
@@ -143,7 +148,7 @@ def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: 
                 },
             }
         )
-    result: RESTAPIConfig = {
+    settlement_config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
             "auth": APIKeyAuth(api_key=f"Basic {token}", name="x-api-key"),
@@ -153,7 +158,7 @@ def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: 
         },
         "resources": resources,
     }
-    return result
+    return settlement_config
 
 
 def clip_source(
