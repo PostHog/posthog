@@ -99,6 +99,7 @@ const meta: Meta<StoryArgs> = {
         layout: 'padded',
         viewMode: 'story',
         featureFlags: [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER],
+        testOptions: { waitForSelector: '[data-attr="workflow-sandbox-switch-sender"]' },
     },
 }
 export default meta

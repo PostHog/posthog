@@ -107,6 +107,13 @@ describe('workflowSandboxSwitchBannerLogic', () => {
     let savedWorkflow: HogFlow
     let integrationsPayload: unknown[]
 
+    const setSandboxFlag = (enabled: boolean): void => {
+        featureFlagLogic.actions.setFeatureFlags(
+            enabled ? [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER] : [],
+            enabled ? { [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true } : {}
+        )
+    }
+
     const mountWith = async ({
         steps,
         integrations,
@@ -120,17 +127,14 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         integrationsPayload = integrations
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(
-            flag ? [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER] : [],
-            flag ? { [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true } : {}
-        )
+        setSandboxFlag(flag)
+        const workflow = workflowLogic({ id: WORKFLOW_ID })
+        workflow.mount()
+        integrationsLogic.mount()
+        await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
         logic = workflowSandboxSwitchBannerLogic({ id: WORKFLOW_ID })
         logic.mount()
-        const workflowLoaded = workflowLogic({ id: WORKFLOW_ID }).actionTypes.loadWorkflowSuccess
-        await expectLogic(logic).toDispatchActions([
-            (action) => action.type === workflowLoaded,
-            'loadIntegrationsSuccess',
-        ])
     }
 
     beforeEach(() => {
@@ -194,13 +198,29 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         )
     })
 
+    it('reports the banner once the flag arrives after the workflow and integrations loaded', async () => {
+        await mountWith({
+            steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
+            integrations: [SANDBOX_SENDER, OWN_SENDER],
+            flag: false,
+        })
+        expect(logic.values.bannerVisible).toBe(false)
+
+        setSandboxFlag(true)
+
+        expect(logic.values.bannerVisible).toBe(true)
+        expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox switch banner shown')).toHaveLength(
+            1
+        )
+    })
+
     it('reports the banner once per workflow view even when integrations reload', async () => {
         await mountWith({
             steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
             integrations: [SANDBOX_SENDER, OWN_SENDER],
         })
 
-        await expectLogic(logic, () => {
+        await expectLogic(integrationsLogic, () => {
             integrationsLogic.actions.loadIntegrations()
         }).toDispatchActions(['loadIntegrationsSuccess'])
 
