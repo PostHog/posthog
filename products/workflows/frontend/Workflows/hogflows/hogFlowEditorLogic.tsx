@@ -732,6 +732,15 @@ export interface hogFlowEditorLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1588,6 +1597,15 @@ export interface hogFlowEditorLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string

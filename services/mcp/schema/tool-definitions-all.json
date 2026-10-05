@@ -7759,7 +7759,7 @@
         "feature": "llm_analytics",
         "summary": "Get evaluation config",
         "title": "Get evaluation config",
-        "required_scopes": ["evaluation:read"],
+        "required_scopes": ["llm_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7899,7 +7899,7 @@
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
         "title": "List supported llm_judge models",
-        "required_scopes": ["evaluation:read"],
+        "required_scopes": ["llm_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -13871,7 +13871,7 @@
         "feature": "replay_vision",
         "summary": "Save a scanner's affected users as a cohort",
         "title": "Save a scanner's affected users as a cohort",
-        "required_scopes": ["replay_scanner:read", "cohort:write"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "cohort:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -14086,7 +14086,7 @@
         "feature": "replay_vision",
         "summary": "Get a scanner's impact counts",
         "title": "Get a scanner's impact counts",
-        "required_scopes": ["replay_scanner:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14100,7 +14100,7 @@
         "feature": "replay_vision",
         "summary": "Get a scanner's impact counts (deprecated)",
         "title": "Get a scanner's impact counts (deprecated)",
-        "required_scopes": ["replay_scanner:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14676,7 +14676,7 @@
         "feature": "data_warehouse",
         "summary": "Add a warehouse column description",
         "title": "Add a warehouse column description",
-        "required_scopes": ["external_data_source:write"],
+        "required_scopes": ["warehouse_table:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -14690,7 +14690,7 @@
         "feature": "data_warehouse",
         "summary": "List warehouse column descriptions",
         "title": "List warehouse column descriptions",
-        "required_scopes": ["external_data_source:read"],
+        "required_scopes": ["warehouse_table:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14704,7 +14704,7 @@
         "feature": "data_warehouse",
         "summary": "Edit a warehouse column description",
         "title": "Edit a warehouse column description",
-        "required_scopes": ["external_data_source:write"],
+        "required_scopes": ["warehouse_table:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
