@@ -15,9 +15,11 @@ name: Engineering analytics weekly digest
 #     ci-alerts-devex).
 #
 # Optional (the digest posts without the Depot contract rows when one is missing):
-#   - secrets.DEPOT_TOKEN — a Depot organization token that can read usage.
-#   - vars.DEPOT_CONTRACT_MINUTES — the GitHub Actions minutes the Depot contract includes.
-#   - vars.DEPOT_CONTRACT_START and vars.DEPOT_CONTRACT_END — the contract dates, as YYYY-MM-DD.
+#   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage.
+#   - secrets.DEPOT_CONTRACT_MINUTES: the GitHub Actions minutes the Depot contract includes.
+#   - secrets.DEPOT_CONTRACT_START and secrets.DEPOT_CONTRACT_END: the contract dates, as YYYY-MM-DD.
+#   The contract terms are secrets, not variables, because the public run log prints the value of
+#   every variable in a step's `env` and masks only secrets.
 
 on:
     schedule:
@@ -36,7 +38,8 @@ jobs:
     digest:
         runs-on: ubuntu-24.04
         # Covers the script's worst case: 3 endpoint attempts x 150s abort plus 2 x 30s
-        # backoffs (~8.5min; it retries transient 5xxs from a contended warehouse cluster), plus setup.
+        # backoffs (~8.5min; it retries transient 5xxs from a contended warehouse cluster), plus the
+        # 60s abort on the Depot usage calls, plus setup.
         timeout-minutes: 12
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
@@ -64,9 +67,9 @@ jobs:
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
-                  DEPOT_CONTRACT_MINUTES: ${{ vars.DEPOT_CONTRACT_MINUTES }}
-                  DEPOT_CONTRACT_START: ${{ vars.DEPOT_CONTRACT_START }}
-                  DEPOT_CONTRACT_END: ${{ vars.DEPOT_CONTRACT_END }}
+                  DEPOT_CONTRACT_MINUTES: ${{ secrets.DEPOT_CONTRACT_MINUTES }}
+                  DEPOT_CONTRACT_START: ${{ secrets.DEPOT_CONTRACT_START }}
+                  DEPOT_CONTRACT_END: ${{ secrets.DEPOT_CONTRACT_END }}
                   # Manual runs default to dry-run; the scheduled run posts (empty on schedule events).
                   DRY_RUN: ${{ inputs.dry_run }}
               run: node .github/scripts/eng-analytics-weekly-digest.mjs

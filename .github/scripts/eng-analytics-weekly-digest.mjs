@@ -52,7 +52,7 @@ const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || ''
 const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
 const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
-// The Depot contract terms are repository variables because this repository is public.
+// The Depot contract terms come from repository secrets because this repository is public.
 const DEPOT_TOKEN = process.env.DEPOT_TOKEN || ''
 const DEPOT_CONTRACT_MINUTES = Number(process.env.DEPOT_CONTRACT_MINUTES || 0)
 const DEPOT_CONTRACT_START = process.env.DEPOT_CONTRACT_START || ''
@@ -74,8 +74,9 @@ async function depotBilledMinutes(startAt, endAt) {
         // The response body stays out of the message, because the message goes to the public Actions log.
         throw new Error(`Depot GetUsage -> ${res.status}`)
     }
-    const usage = await res.json()
-    if (!Array.isArray(usage.githubActionsJobs)) {
+    // A JSON parse error quotes part of the body in its message, so it is replaced for the same reason.
+    const usage = await res.json().catch(() => null)
+    if (!Array.isArray(usage?.githubActionsJobs)) {
         throw new Error('Depot GetUsage returned no githubActionsJobs list')
     }
     return usage.githubActionsJobs.reduce((sum, repo) => sum + (repo.total?.minutesBilled ?? 0), 0)
@@ -87,7 +88,7 @@ async function depotContractUsage(weekStart, weekEnd) {
     const contractStart = new Date(`${DEPOT_CONTRACT_START}T00:00:00Z`)
     const contractEnd = new Date(`${DEPOT_CONTRACT_END}T00:00:00Z`)
     if (!DEPOT_TOKEN || !(DEPOT_CONTRACT_MINUTES > 0) || isNaN(contractStart) || isNaN(contractEnd)) {
-        console.warn('Depot token or contract variables not set. Skipping the contract rows.')
+        console.warn('Depot token or contract terms not set. Skipping the contract rows.')
         return null
     }
     try {
@@ -119,9 +120,10 @@ function contractSummary(contract, weekEnd) {
     }
     const runOut = new Date(weekEnd.getTime() + (remaining / (contract.lastWeek / 7)) * DAY_MS)
     const daysShort = Math.round((contract.contractEnd.getTime() - runOut.getTime()) / DAY_MS)
+    const contractEnd = isoDay(contract.contractEnd)
     return daysShort > 0
-        ? `${used} At last week's rate they run out around ${isoDay(runOut)}, ${daysShort} days before the contract ends on ${DEPOT_CONTRACT_END}.`
-        : `${used} At last week's rate they last until the contract ends on ${DEPOT_CONTRACT_END}.`
+        ? `${used} At last week's rate they run out around ${isoDay(runOut)}, ${daysShort} days before the contract ends on ${contractEnd}.`
+        : `${used} At last week's rate they last until the contract ends on ${contractEnd}.`
 }
 
 async function api(action, params = {}) {
@@ -230,6 +232,10 @@ function cell(text) {
     return { type: 'raw_text', text }
 }
 
+function metricRow(metric, curValue, prevValue, format) {
+    return [cell(metric), cell(format(curValue)), cell(format(prevValue)), cell(fmtDelta(curValue, prevValue))]
+}
+
 // One table row per metric, added only when both windows carry the value, so a
 // not-yet-synced jobs source (null cost fields) or an old backend (no merged_pr_count)
 // degrades to fewer rows instead of a broken message.
@@ -239,7 +245,7 @@ function tableRows(overview) {
         if (curValue == null || prevValue == null) {
             return
         }
-        rows.push([cell(metric), cell(format(curValue)), cell(format(prevValue)), cell(fmtDelta(curValue, prevValue))])
+        rows.push(metricRow(metric, curValue, prevValue, format))
     }
     // Null-propagating so `add`'s missing-value guard stays the only degradation path.
     const perPr = (minutes, merges) => (minutes != null && merges ? minutes / merges : null)
@@ -269,7 +275,23 @@ function tableRows(overview) {
     return rows
 }
 
-function buildBlocks(weekStart, weekEnd, rows, contract) {
+// The table row and the sentence for the Depot contract. A dry run prints the blocks to the Actions
+// log, which is public, so it gets placeholders instead of any figure from Depot's API.
+function depotDigest(contract, weekEnd) {
+    const metric = 'Depot runner min, all repos'
+    if (DRY_RUN) {
+        return {
+            row: [cell(metric), ...Array(3).fill(cell('hidden in dry runs'))],
+            summary: 'Depot contract line hidden in dry runs.',
+        }
+    }
+    return {
+        row: metricRow(metric, contract.lastWeek, contract.priorWeek, fmtMinutes),
+        summary: contractSummary(contract, weekEnd),
+    }
+}
+
+function buildBlocks(weekStart, weekEnd, rows, depotSummary) {
     const lastDay = new Date(weekEnd.getTime() - DAY_MS)
     const blocks = [
         {
@@ -285,9 +307,8 @@ function buildBlocks(weekStart, weekEnd, rows, contract) {
             rows: [[cell('metric'), cell('last week'), cell('prior week'), cell('Δ')], ...rows],
         },
     ]
-    if (contract) {
-        const text = DRY_RUN ? 'Depot contract line hidden in dry runs.' : contractSummary(contract, weekEnd)
-        blocks.push({ type: 'section', text: { type: 'mrkdwn', text } })
+    if (depotSummary) {
+        blocks.push({ type: 'section', text: { type: 'mrkdwn', text: depotSummary } })
     }
     const workflowPath = GITHUB_WORKFLOW_REF.split('@')[0].replace(`${GITHUB_REPOSITORY}/`, '')
     if (GITHUB_REPOSITORY && workflowPath) {
@@ -342,18 +363,11 @@ async function main() {
         throw new Error('repo_overview returned no usable metrics — not posting. Check the connected source.')
     }
     const contract = await depotContractUsage(weekStart, weekEnd)
-    if (contract) {
-        // A dry run prints the blocks to the Actions log, which is public, so it prints no figure from Depot's API.
-        const figures = DRY_RUN
-            ? Array(3).fill(cell('hidden in dry runs'))
-            : [
-                  cell(fmtMinutes(contract.lastWeek)),
-                  cell(fmtMinutes(contract.priorWeek)),
-                  cell(fmtDelta(contract.lastWeek, contract.priorWeek)),
-              ]
-        rows.push([cell('Depot runner min, all repos'), ...figures])
+    const depot = contract && depotDigest(contract, weekEnd)
+    if (depot) {
+        rows.push(depot.row)
     }
-    const blocks = buildBlocks(weekStart, weekEnd, rows, contract)
+    const blocks = buildBlocks(weekStart, weekEnd, rows, depot?.summary)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
         return
