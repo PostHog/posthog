@@ -1,9 +1,9 @@
 import json
 import threading
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -140,14 +140,34 @@ def _error_snippet(response: requests.Response) -> str:
         return ""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FlagsmithResumeConfig:
     # Full URL of the next page to fetch ("" once a resource is exhausted).
     next_url: str = ""
     # For fan-out endpoints, the parent (organisation id, project id, or environment
     # api_key) currently being paginated ("" for top-level endpoints or before the first
-    # parent starts).
+    # parent starts). Two-level parents use ``FanoutParent.resume_key``.
     parent_key: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class FanoutParent:
+    """One fan-out parent: the identifiers substituted into a child endpoint's path or query.
+
+    ``child`` is empty for the single-level parents (organisation, project, environment) and
+    carries the inner identifier for the two-level ones (an identity id, or a feature id paired
+    with an environment id). ``extra`` carries the third identifier of a three-level parent (an
+    environment paired with a project and a resource inside it).
+    """
+
+    key: str
+    child: str = ""
+    extra: str = ""
+
+    @property
+    def resume_key(self) -> str:
+        # Identifiers are numeric ids or api_keys, so a "/" join stays unambiguous.
+        return "/".join(part for part in (self.key, self.child, self.extra) if part)
 
 
 def normalize_base_url(base_url: str | None) -> str:
@@ -221,14 +241,32 @@ def _pinned_next_url(base: str, next_link: Any) -> str | None:
     return f"{base}{parsed.path}{query}"
 
 
-def _extract_rows(base: str, data: Any) -> tuple[list[dict[str, Any]], str | None]:
-    """Rows + next-page URL from a response body: either a DRF pagination envelope
-    (``{count, next, previous, results}``) or a plain JSON array (projects, users)."""
+def _cursor_next_url(base: str, current_url: str, cursor: Any) -> str | None:
+    """Next-page URL for a listing that returns an opaque body cursor instead of a ``next`` link.
+
+    The next request repeats the current one with ``cursor`` replaced, rebuilt onto the configured
+    base for the same host-pinning reason as ``_pinned_next_url``.
+    """
+    if not cursor or not isinstance(cursor, str):
+        return None
+    parsed = urlparse(current_url)
+    query = [(key, value) for key, value in parse_qsl(parsed.query) if key != "cursor"]
+    query.append(("cursor", cursor))
+    return f"{base}{parsed.path}?{urlencode(query)}"
+
+
+def _extract_rows(base: str, data: Any, current_url: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Rows + next-page URL from a response body: a DRF pagination envelope
+    (``{count, next, previous, results}``), a cursor envelope (``{results, next_cursor}``), or a
+    plain JSON array (projects, users, evaluation data)."""
     if isinstance(data, list):
         return [row for row in data if isinstance(row, dict)], None
     if isinstance(data, dict):
         rows = [row for row in data.get("results") or [] if isinstance(row, dict)]
-        return rows, _pinned_next_url(base, data.get("next"))
+        next_url = _pinned_next_url(base, data.get("next")) or _cursor_next_url(
+            base, current_url, data.get("next_cursor")
+        )
+        return rows, next_url
     return [], None
 
 
@@ -311,30 +349,175 @@ def _iter_pages(
             logger.warning(f"Flagsmith: sync page budget ({MAX_PAGES_PER_SYNC}) exhausted at {start_url}, truncating")
             return
         data = _fetch_page(session, url, headers, logger)
-        rows, url = _extract_rows(base, data)
+        rows, url = _extract_rows(base, data, url)
         if rows:
             yield rows
 
 
 def _extend_capped(
-    keys: list[str], listing: Iterator[list[dict[str, Any]]], field: str, logger: FilteringBoundLogger
+    keys: list[str],
+    listing: Iterator[list[dict[str, Any]]],
+    field: str,
+    logger: FilteringBoundLogger,
+    limit: int | None = None,
+    predicate: Callable[[dict[str, Any]], bool] | None = None,
 ) -> bool:
     """Append ``row[field]`` from each row of a parent listing into ``keys``, stopping once the
-    retained list hits MAX_FANOUT_PARENTS so a hostile host can't balloon it and exhaust worker
-    memory. Keys longer than MAX_FANOUT_KEY_LENGTH are skipped so an oversized id/api_key can't
-    balloon retained bytes or poison a child request URL. Returns True if the count cap was reached
-    (the caller should stop enumerating)."""
+    retained list hits ``limit`` so a hostile host can't balloon it and exhaust worker memory. A
+    two-level enumeration passes the allowance left over from the outer level, so the cap bounds
+    the parents retained across the whole fan-out rather than per inner listing. Keys longer than
+    MAX_FANOUT_KEY_LENGTH are skipped so an oversized id/api_key can't balloon retained bytes or
+    poison a child request URL. ``predicate`` drops parents whose child endpoint would not serve
+    them. Returns True if the count cap was reached (the caller should stop enumerating)."""
+    # Resolved at call time, not bound as a default, so the module-level cap stays patchable.
+    limit = MAX_FANOUT_PARENTS if limit is None else limit
+    if limit <= 0:
+        return True
     for rows in listing:
         for row in rows:
+            if predicate is not None and not predicate(row):
+                continue
             key = str(row[field])
             if len(key) > MAX_FANOUT_KEY_LENGTH:
                 logger.warning(f"Flagsmith: skipping fan-out parent with oversized {field} ({len(key)} chars)")
                 continue
             keys.append(key)
-            if len(keys) >= MAX_FANOUT_PARENTS:
+            if len(keys) >= limit:
                 logger.warning(f"Flagsmith: fan-out parent cap ({MAX_FANOUT_PARENTS}) reached, truncating enumeration")
                 return True
     return False
+
+
+def _fetch_identity_parents(
+    session: requests.Session,
+    base: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    environment_keys: list[str],
+    budget: _PageBudget,
+) -> list[FanoutParent]:
+    """Pair every environment with each of its identities. Flagsmith has no bulk traits listing,
+    so a traits sync fans out once per identity and both caps apply: the shared page budget bounds
+    the requests and MAX_FANOUT_PARENTS the identities retained."""
+    parents: list[FanoutParent] = []
+    for environment_key in environment_keys:
+        listing = _iter_pages(
+            session,
+            base,
+            _initial_url(base, f"/environments/{environment_key}/identities/", {"page_size": 100}),
+            headers,
+            logger,
+            budget,
+        )
+        identity_ids: list[str] = []
+        capped = _extend_capped(identity_ids, listing, "id", logger, limit=MAX_FANOUT_PARENTS - len(parents))
+        parents.extend(FanoutParent(environment_key, identity_id) for identity_id in identity_ids)
+        if capped:
+            break
+    return parents
+
+
+def _uses_v2_versioning(environment: dict[str, Any]) -> bool:
+    return bool(environment.get("use_v2_feature_versioning"))
+
+
+def _fetch_environment_feature_parents(
+    session: requests.Session,
+    base: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    project_ids: list[str],
+    budget: _PageBudget,
+    require_v2_versioning: bool = False,
+) -> list[FanoutParent]:
+    """Pair every environment with every feature of the same project. The feature-segments and
+    version listings require both filters, and a pair only resolves within the project that owns
+    them. ``require_v2_versioning`` keeps only the environments whose version listing exists,
+    because Flagsmith rejects the request outright on an environment still using unversioned
+    feature states."""
+    parents: list[FanoutParent] = []
+    for project_id in project_ids:
+        environment_ids: list[str] = []
+        _extend_capped(
+            environment_ids,
+            _iter_pages(
+                session, base, _initial_url(base, f"/environments/?project={project_id}", {}), headers, logger, budget
+            ),
+            "id",
+            logger,
+            predicate=_uses_v2_versioning if require_v2_versioning else None,
+        )
+        feature_ids: list[str] = []
+        _extend_capped(
+            feature_ids,
+            _iter_pages(
+                session,
+                base,
+                _initial_url(base, f"/projects/{project_id}/features/", {"page_size": 100}),
+                headers,
+                logger,
+                budget,
+            ),
+            "id",
+            logger,
+        )
+        for environment_id in environment_ids:
+            for feature_id in feature_ids:
+                if len(parents) >= MAX_FANOUT_PARENTS:
+                    logger.warning(
+                        f"Flagsmith: fan-out parent cap ({MAX_FANOUT_PARENTS}) reached, truncating enumeration"
+                    )
+                    return parents
+                parents.append(FanoutParent(environment_id, feature_id))
+    return parents
+
+
+def _fetch_project_resource_environment_parents(
+    session: requests.Session,
+    base: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    project_ids: list[str],
+    budget: _PageBudget,
+    resource_path: str,
+) -> list[FanoutParent]:
+    """Build the (project, project resource, environment) triples the evaluation-data and
+    segment-members listings need: the project and the resource sit in the path, the environment
+    is a required query filter, and a triple only resolves within the project that owns it."""
+    parents: list[FanoutParent] = []
+    for project_id in project_ids:
+        environment_ids: list[str] = []
+        _extend_capped(
+            environment_ids,
+            _iter_pages(
+                session, base, _initial_url(base, f"/environments/?project={project_id}", {}), headers, logger, budget
+            ),
+            "id",
+            logger,
+        )
+        resource_ids: list[str] = []
+        _extend_capped(
+            resource_ids,
+            _iter_pages(
+                session,
+                base,
+                _initial_url(base, resource_path.format(project=project_id), {"page_size": 100}),
+                headers,
+                logger,
+                budget,
+            ),
+            "id",
+            logger,
+        )
+        for resource_id in resource_ids:
+            for environment_id in environment_ids:
+                if len(parents) >= MAX_FANOUT_PARENTS:
+                    logger.warning(
+                        f"Flagsmith: fan-out parent cap ({MAX_FANOUT_PARENTS}) reached, truncating enumeration"
+                    )
+                    return parents
+                parents.append(FanoutParent(project_id, resource_id, environment_id))
+    return parents
 
 
 def _fetch_parent_keys(
@@ -344,18 +527,36 @@ def _fetch_parent_keys(
     logger: FilteringBoundLogger,
     parent: ParentResource,
     budget: _PageBudget,
-) -> list[str]:
+) -> list[FanoutParent]:
     if parent == "organisation":
         listing = _iter_pages(session, base, _initial_url(base, "/organisations/", {}), headers, logger, budget)
         org_ids: list[str] = []
         _extend_capped(org_ids, listing, "id", logger)
-        return org_ids
+        return [FanoutParent(org_id) for org_id in org_ids]
 
     project_listing = _iter_pages(session, base, _initial_url(base, "/projects/", {}), headers, logger, budget)
     project_ids: list[str] = []
     _extend_capped(project_ids, project_listing, "id", logger)
     if parent == "project":
-        return project_ids
+        return [FanoutParent(project_id) for project_id in project_ids]
+
+    if parent == "environment_feature":
+        return _fetch_environment_feature_parents(session, base, headers, logger, project_ids, budget)
+
+    if parent == "versioned_environment_feature":
+        return _fetch_environment_feature_parents(
+            session, base, headers, logger, project_ids, budget, require_v2_versioning=True
+        )
+
+    if parent == "project_feature_environment":
+        return _fetch_project_resource_environment_parents(
+            session, base, headers, logger, project_ids, budget, "/projects/{project}/features/"
+        )
+
+    if parent == "project_segment_environment":
+        return _fetch_project_resource_environment_parents(
+            session, base, headers, logger, project_ids, budget, "/projects/{project}/segments/"
+        )
 
     # Environments are addressed by their (non-secret, client-side) api_key and listed
     # per project; keep API order so the resume bookmark resolves deterministically.
@@ -366,7 +567,10 @@ def _fetch_parent_keys(
         )
         if _extend_capped(keys, env_listing, "api_key", logger):
             break
-    return keys
+    if parent == "environment":
+        return [FanoutParent(key) for key in keys]
+
+    return _fetch_identity_parents(session, base, headers, logger, keys, budget)
 
 
 def _paginate_resource(
@@ -376,8 +580,10 @@ def _paginate_resource(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FlagsmithResumeConfig],
-    parent_key: str,
+    parent: FanoutParent,
     parent_field: str | None,
+    child_field: str | None,
+    extra_field: str | None,
     budget: _PageBudget,
 ) -> Iterator[list[dict[str, Any]]]:
     url: str | None = start_url
@@ -386,21 +592,27 @@ def _paginate_resource(
             logger.warning(f"Flagsmith: sync page budget ({MAX_PAGES_PER_SYNC}) exhausted at {start_url}, truncating")
             # Terminal resume state so a resume advances past this parent instead of re-entering
             # the same (possibly cyclic) chain and re-spending the budget on it.
-            resumable_source_manager.save_state(FlagsmithResumeConfig(next_url="", parent_key=parent_key))
+            resumable_source_manager.save_state(FlagsmithResumeConfig(next_url="", parent_key=parent.resume_key))
             return
         data = _fetch_page(session, url, headers, logger)
-        rows, next_url = _extract_rows(base, data)
+        rows, next_url = _extract_rows(base, data, url)
 
-        if parent_field:
-            for row in rows:
-                row[parent_field] = parent_key
+        for row in rows:
+            if parent_field:
+                row[parent_field] = parent.key
+            if child_field:
+                row[child_field] = parent.child
+            if extra_field:
+                row[extra_field] = parent.extra
 
         if rows:
             yield rows
 
         # Save state AFTER yielding so a heartbeat-timeout crash re-fetches from the next
         # page rather than re-emitting the page we just yielded (merge dedupes regardless).
-        resumable_source_manager.save_state(FlagsmithResumeConfig(next_url=next_url or "", parent_key=parent_key))
+        resumable_source_manager.save_state(
+            FlagsmithResumeConfig(next_url=next_url or "", parent_key=parent.resume_key)
+        )
         url = next_url
 
 
@@ -422,8 +634,9 @@ def _get_fan_out_rows(
 
     start_idx = 0
     resume_url: str | None = None
-    if resume is not None and resume.parent_key and resume.parent_key in parent_keys:
-        idx = parent_keys.index(resume.parent_key)
+    resume_keys = [parent.resume_key for parent in parent_keys]
+    if resume is not None and resume.parent_key and resume.parent_key in resume_keys:
+        idx = resume_keys.index(resume.parent_key)
         if resume.next_url:
             # Mid-parent: pick up at the saved page within that parent. Re-pin onto the current base
             # so a stale URL from a since-retargeted source can't send the current API key to the
@@ -435,13 +648,27 @@ def _get_fan_out_rows(
             start_idx = idx + 1
 
     for i in range(start_idx, len(parent_keys)):
-        parent_key = parent_keys[i]
+        parent = parent_keys[i]
         if i == start_idx and resume_url:
             start_url = resume_url
         else:
-            start_url = _initial_url(base, config.path.format(parent=parent_key), config.params)
+            start_url = _initial_url(
+                base,
+                config.path.format(parent=parent.key, child=parent.child, extra=parent.extra),
+                config.params,
+            )
         yield from _paginate_resource(
-            session, base, start_url, headers, logger, resumable_source_manager, parent_key, config.parent_field, budget
+            session,
+            base,
+            start_url,
+            headers,
+            logger,
+            resumable_source_manager,
+            parent,
+            config.parent_field,
+            config.child_field,
+            config.extra_field,
+            budget,
         )
 
 
@@ -487,8 +714,10 @@ def get_rows(
         headers,
         logger,
         resumable_source_manager,
-        parent_key="",
+        parent=FanoutParent(""),
         parent_field=None,
+        child_field=None,
+        extra_field=None,
         budget=budget,
     )
 

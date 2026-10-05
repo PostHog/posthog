@@ -55,6 +55,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
@@ -104,6 +105,7 @@ from posthog.models.integration import (
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
@@ -115,14 +117,15 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
-from posthog.utils import is_relative_url
+from posthog.utils import absolute_uri, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
+from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
-from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
-from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
+from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
+from products.workflows.backend.facade.api import get_active_workflows_using_integration
 
 logger = structlog.get_logger(__name__)
 
@@ -266,7 +269,8 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 
 
 class _HasNameOrId(Protocol):
-    id: Any
+    @property
+    def id(self) -> Any: ...
 
     @property
     def name(self) -> str | None: ...
@@ -274,6 +278,26 @@ class _HasNameOrId(Protocol):
 
 def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
     return ", ".join(sorted(it.name or str(it.id) for it in items))
+
+
+def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_id: int) -> str:
+    # Link one task so that the user can find what blocks the disconnect, and count the rest.
+    if live_runs.oldest_task_id is None:
+        runs = f"{live_runs.count} in-progress background agent run{'s' if live_runs.count != 1 else ''}"
+    else:
+        task_url = absolute_uri(f"/project/{team_id}/ai?task={live_runs.oldest_task_id}")
+        if live_runs.oldest_task_title:
+            runs = f'the in-progress background agent task "{live_runs.oldest_task_title}" ({task_url})'
+        else:
+            runs = f"an in-progress background agent task ({task_url})"
+        others = live_runs.count - 1
+        if others:
+            runs += f" and {others} other run{'s' if others != 1 else ''}"
+    pronoun = "it" if live_runs.count == 1 else "them"
+    return (
+        f"This GitHub integration is being used by {runs}. "
+        f"Wait for {pronoun} to finish or cancel {pronoun} before disconnecting it."
+    )
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -328,14 +352,43 @@ class GitHubReposQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of repositories to skip before returning results.",
     )
+    compact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, return only id, name, and full_name for each repository. "
+            "Use it to list large rosters in fewer, smaller pages."
+        ),
+    )
 
 
 class GitHubReposResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True)
     has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
+    next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="The offset to pass to get the next page, or null when this page is the last one.",
+    )
     total = serializers.IntegerField(
         help_text="Total number of repositories matching the search query, across all pages."
     )
+
+
+def github_repos_page(github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:
+    """Build one `GitHubReposResponseSerializer` page from validated `GitHubReposQuerySerializer` data."""
+    search, limit, offset = query["search"], query["limit"], query["offset"]
+    repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
+    total = github.count_cached_repositories(search=search)
+    if query["compact"]:
+        repositories = [
+            {"id": repo["id"], "name": repo["name"], "full_name": repo["full_name"]} for repo in repositories
+        ]
+    return {
+        "repositories": repositories,
+        "has_more": has_more,
+        "next_offset": offset + len(repositories) if has_more else None,
+        "total": total,
+    }
 
 
 GITHUB_INSTALLATION_STATUS_CHOICES = ["connected", "unavailable"]
@@ -1091,6 +1144,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "twitter-ads":
+            return TwitterAdsIntegration.integration_from_callback(
+                team_id, request.user, validated_data.get("config") or {}
+            )
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             # Stripe marketplace installs redirect to /integrations/stripe/callback without
             # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
@@ -1417,13 +1475,13 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
-        flows_using_integration = get_active_hog_flows_using_integration(
+        flows_using_integration = get_active_workflows_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
         functions_using_integration = get_enabled_hog_functions_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
-        batch_exports_using_integration = get_batch_exports_using_integration(
+        batch_exports_using_integration = list_batch_exports_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
 
@@ -1448,15 +1506,11 @@ class IntegrationViewSet(
             )
 
         if instance.kind == "github":
-            live_run_count = count_in_progress_runs_for_github_integration(
-                team_id=instance.team_id, integration_id=instance.id
+            live_runs = get_in_progress_runs_for_github_integration(
+                team_id=instance.team_id, integration_id=instance.id, user_id=self.request.user.id
             )
-            if live_run_count:
-                raise ValidationError(
-                    f"This GitHub integration is being used by {live_run_count} in-progress background agent "
-                    f"run{'s' if live_run_count != 1 else ''}. Wait for them to finish or cancel them before "
-                    "disconnecting it."
-                )
+            if live_runs.count:
+                raise ValidationError(_github_disconnect_blocked_message(live_runs, team_id=instance.team_id))
 
         if instance.kind == "stripe":
             try:
@@ -1528,6 +1582,18 @@ class IntegrationViewSet(
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
         token = os.urandom(33).hex()
+
+        if kind == "twitter-ads":
+            response = redirect(TwitterAdsIntegration.authorize_url(self.team_id, cast(User, request.user).id, next))
+            response.set_cookie(
+                "ph_twitter_ads_team_id",
+                str(self.team_id),
+                max_age=600,
+                samesite="Lax",
+                secure=request.is_secure(),
+                httponly=False,
+            )
+            return response
 
         if kind in OauthIntegration.supported_kinds:
             region: str | None = None
@@ -2187,18 +2253,11 @@ class IntegrationViewSet(
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query_serializer = GitHubReposQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
-        search = query_serializer.validated_data["search"]
-        limit = query_serializer.validated_data["limit"]
-        offset = query_serializer.validated_data["offset"]
 
         instance = self.get_object()
         if instance.kind != "github":
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
-        github = GitHubIntegration(instance)
-        repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
-        total = github.count_cached_repositories(search=search)
-
-        return Response({"repositories": repositories, "has_more": has_more, "total": total})
+        return Response(github_repos_page(GitHubIntegration(instance), query_serializer.validated_data))
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
@@ -2549,6 +2608,7 @@ class IntegrationViewSet(
                 host=resolved.host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
+                group_ids=resolved.group_ids,
             )
         except DomainConnectSigningKeyMissing as e:
             capture_exception(

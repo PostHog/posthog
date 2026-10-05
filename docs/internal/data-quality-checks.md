@@ -70,6 +70,14 @@ The panel's text follows the check results. It claims that all data quality chec
 
 A project that has no models and no saved views gets the first-view text instead of a status claim.
 
+## Model detail
+
+Every table node keeps its Lineage tab. Loading the Data quality subject does not wait for the lineage graph.
+
+A model in the lineage graph can also open a Data quality tab. The tab reads the checks of the model's own subject. A saved view answers as a view. An imported warehouse table answers as a table. The node carries the table identifier. The dependency sync refreshes this identifier when it resolves a saved query. A table that is deleted and imported again then uses its new row.
+
+PostHog tables use the subject catalog API. The frontend matches the node name to a `posthog_table` subject from that API. It passes the returned subject id, subject type, and columns to the checks panel. It does not calculate the subject id. The Data quality panel shows a loading, request-error, access-denied, or unsupported-table state when the catalog cannot provide a supported subject.
+
 ## Subject schedules
 
 A subject whose checks run on a recurring schedule has one Temporal Schedule in its canonical project. Metrics and PostHog tables are those subjects; a warehouse table's and a view's checks run when their data changes instead. A PostHog table is never synced or materialized, so a schedule is the only trigger its checks have. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.

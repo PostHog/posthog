@@ -5,11 +5,9 @@ import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardin
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
-    ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentTrendsQuery,
     Node,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -67,6 +65,30 @@ describe('eventUsageLogic', () => {
                 const call = capture.mock.calls.find(([name]) => name === event)
                 expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
             }
+        })
+    })
+
+    describe('experiments list viewed', () => {
+        it('sends the state of the list under its pinned property names', () => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+            eventUsageLogic.actions.reportExperimentsListViewed({
+                experimentsShown: 2,
+                statusFilter: 'running',
+                page: 2,
+                hasSearch: true,
+                archived: true,
+            })
+
+            expect(capture.mock.calls.map(([event, properties]) => [event, properties])).toEqual([
+                [
+                    'experiments list viewed',
+                    { experiments_shown: 2, status_filter: 'running', page: 2, has_search: true, archived: true },
+                ],
+            ])
+            capture.mockRestore()
         })
     })
 
@@ -464,44 +486,6 @@ describe('eventUsageLogic', () => {
                 viewer_is_creator: expected,
                 created_by_system: created_by === null,
             })
-        })
-    })
-
-    describe('legacy formats', () => {
-        it('extracts ExperimentFunnelsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentFunnelsQuery,
-                funnels_query: {
-                    series: [
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
-                        { kind: NodeKind.EventsNode },
-                    ],
-                    filterTestAccounts: true,
-                },
-            } as ExperimentFunnelsQuery
-
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentFunnelsQuery)
-            expect(result.steps_count).toBe(3)
-            expect(result.filter_test_accounts).toBe(true)
-        })
-
-        it('extracts ExperimentTrendsQuery properties', () => {
-            const metric = {
-                kind: NodeKind.ExperimentTrendsQuery,
-                count_query: {
-                    series: [{ kind: NodeKind.ActionsNode, id: 1 }],
-                    filterTestAccounts: false,
-                },
-            } as ExperimentTrendsQuery
-
-            const result = getEventPropertiesForMetric(metric) as Record<string, any>
-
-            expect(result.kind).toBe(NodeKind.ExperimentTrendsQuery)
-            expect(result.series_kind).toBe(NodeKind.ActionsNode)
-            expect(result.filter_test_accounts).toBe(false)
         })
     })
 })

@@ -98,16 +98,17 @@ export function copyIndexHtml(
         // The stable entry may already have run some stable chunks when it fails, and the default
         // entry would then run a second copy of those modules. So the stable variant reloads the page
         // on the default build instead. The server always serves the default build for
-        // ?stable_chunks=0 and clears the opt-in cookie, so the reload cannot loop.
+        // ?stable_chunks=fallback, so the reload cannot loop, and it stores no choice, so the next
+        // navigation tries the stable build again.
         const entryFallback = isStable
             ? `
                         var url = new URL(window.location.href)
-                        url.searchParams.set('stable_chunks', '0')
+                        url.searchParams.set('stable_chunks', 'fallback')
                         window.location.replace(url.toString())`
             : `
                         await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})`
         const scriptCode = `
-            // The server has already applied ?stable_chunks (it sets or clears the opt-in cookie),
+            // The server has already applied ?stable_chunks (1 and 0 also set the choice cookie),
             // so drop it from the address bar. A bookmarked or shared URL must not keep forcing a build.
             if (window.location.search.indexOf('stable_chunks=') !== -1) {
                 var cleanUrl = new URL(window.location.href)
@@ -239,6 +240,29 @@ export const commonConfig = {
                         return { contents, loader: 'js' }
                     }
                 )
+            },
+        },
+        // @posthog/icons declares each of its 300+ icons as `const IconFoo = forwardRef(...)` in
+        // one ES bundle. A bundler cannot prove a bare call is side-effect free, so every entry
+        // point that renders a single icon ships the whole set (~260 KiB on the boot path).
+        // forwardRef only wraps its argument, so annotate the calls and let tree shaking keep
+        // the icons a chunk actually renders. Drop this once the package annotates them itself.
+        {
+            name: 'icons-pure-annotations',
+            setup(build) {
+                build.onLoad({ filter: /@posthog[\\/]icons[\\/]dist[\\/][^\\/]+\.es\.js$/ }, async (args) => {
+                    const source = await fs.readFile(args.path, 'utf8')
+                    const contents = source.replace(
+                        /^const ([A-Za-z0-9_$]+) = forwardRef\(/gm,
+                        'const $1 = /* @__PURE__ */ forwardRef('
+                    )
+                    if (contents === source) {
+                        // Bundle shape changed upstream - fail loudly rather than silently
+                        // reshipping the whole icon set on every page.
+                        throw new Error(`icons-pure-annotations: no icon declarations found in ${args.path}`)
+                    }
+                    return { contents, loader: 'js' }
+                })
             },
         },
         // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
