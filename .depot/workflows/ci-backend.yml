@@ -43,10 +43,10 @@
 #   require side effects, including duration writes. Depot stores these separately
 #   from GitHub Actions.
 # - Hourly scheduled master run: only this workflow has the `schedule` trigger, so the run
-#   needs no hand-off and `wait-for-handoff` accepts it outright. Canonical keeps its
-#   `!= 'schedule'` arms for the drift check, with no trigger to reach them.
-#   build_django_matrix picks the events_json hours from the UTC clock, where canonical
-#   compared `github.event.schedule` against a second cron.
+#   needs no hand-off and `wait-for-handoff` accepts it outright. Every `schedule` arm
+#   here is depot-only: the paths-filter skip, the `!= 'schedule'` gates on the per-commit
+#   checks, the events_json hours in build_django_matrix, the events schema recording and
+#   its upload, and POSTHOG_PYTEST_HARD_EXIT.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.

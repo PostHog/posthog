@@ -342,13 +342,6 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     backend(
-        { name: 'hourly schedule', github: schedule() },
-        {
-            runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
-            skipped: ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
-        }
-    ),
-    backend(
         { name: 'ready PR, superseded and cancelled', cancelled: true },
         {
             results: { django_tests: 'cancelled' },
@@ -482,16 +475,16 @@ const E2E_DISPATCH: Scenario = {
 }
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    {
+        file: 'ci-frontend.yml',
+        job: 'changes',
+        step: 'filter',
+        scenario: { name: 'hourly schedule', github: schedule() },
+        runs: false,
+    },
     ...PINNED_WORKFLOWS.flatMap((file) => [
         { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
         { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-        {
-            file,
-            job: 'changes',
-            step: 'filter',
-            scenario: { name: 'hourly schedule', github: schedule() },
-            runs: false,
-        },
         { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
         {
             file,
@@ -547,18 +540,14 @@ describe('.github/workflows run plans', () => {
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
     })
 
-    it('Backend CI runs once every hour and keeps the events_json leg on one of its crons', () => {
-        const backend = workflow('ci-backend.yml')
-        const crons = (backend.on as { schedule: { cron: string }[] }).schedule.map((entry) => entry.cron)
-        const cronHours = (field: string): number[] =>
-            field.startsWith('*/')
-                ? [...Array(24).keys()].filter((hour) => hour % Number(field.slice(2)) === 0)
-                : field.split(',').map(Number)
+    it('Backend CI runs once every hour, on Depot CI only', () => {
+        const crons = (file: string): string[] =>
+            ((loadWorkflow(path.join(REPO_ROOT, file)).on as { schedule?: { cron: string }[] }).schedule ?? []).map(
+                (entry) => entry.cron
+            )
 
-        expect(crons).toContain(backend.env?.EVENTS_JSON_SCHEDULE)
-        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1])).sort((a, b) => a - b)).toEqual([
-            ...Array(24).keys(),
-        ])
+        expect(crons('.depot/workflows/ci-backend.yml')).toEqual(['23 * * * *'])
+        expect(crons('.github/workflows/ci-backend.yml')).toEqual([])
     })
 
     it.each([

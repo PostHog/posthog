@@ -467,7 +467,7 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | ----------------------------------- | ------ |
 | `ci-frontend.yml`                   | 7      |
 | `ci-nodejs.yml`                     | 13     |
-| `ci-backend.yml`                    | 23     |
+| `.depot/workflows/ci-backend.yml`   | 23     |
 | `ci-dagster.yml`                    | 33     |
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
@@ -500,6 +500,9 @@ Any _step_ that reads a filter output needs the same `schedule` arm.
 
 A lane that stops producing runs is invisible to the master-red alerter: it reads run completions, so a dropped cron reads as unreadable and drops out of evaluation rather than paging.
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
+
+Backend CI's hourly run is the one cron on Depot CI: `.depot/workflows/ci-backend.yml` has the `schedule` trigger and `.github/workflows/ci-backend.yml` has none.
+GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter lists it under `DEPOT_SCHEDULED_GATING_WORKFLOWS`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
 
 ## Backwards-compat with unrebased PRs
 

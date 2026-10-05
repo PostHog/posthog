@@ -35,6 +35,8 @@
 // GitHub API rate-limit observability is handled by the separate
 // monitor-github-rate-limit workflow, which emits to PostHog as time series.
 
+const fs = require('node:fs')
+
 const SLACK_API = 'https://slack.com/api'
 const INCIDENT_EVENT_TYPE = 'master_ci_incident'
 // Per-workflow links point at the engineering analytics workflow-detail page (not GitHub), scoped
@@ -96,9 +98,19 @@ function buildLanes(env) {
         // active hours.
         countNeedsActivity: false,
     }))
-    for (const workflowFile of list(env.SCHEDULED_GATING_WORKFLOWS)) {
+    // A workflow whose cron runs on Depot CI has no GitHub runs to list. Its lane reads the file
+    // that .github/scripts/depot_scheduled_runs.py wrote, which holds the runs in GitHub's shape.
+    const scheduled = [
+        ...list(env.SCHEDULED_GATING_WORKFLOWS).map((workflowFile) => ({ workflowFile })),
+        ...list(env.DEPOT_SCHEDULED_GATING_WORKFLOWS).map((workflowFile) => ({
+            workflowFile,
+            runsFile: env.DEPOT_SCHEDULED_RUNS_FILE,
+        })),
+    ]
+    for (const { workflowFile, runsFile } of scheduled) {
         lanes.push({
             workflowFile,
+            runsFile,
             event: 'schedule',
             label: SCHEDULED_LANE_LABEL,
             maxLagMinutes: SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES,
@@ -141,11 +153,22 @@ async function fetchWorkflowRuns(
     repo,
     workflowFile,
     perPage,
-    { event = 'push', maxLagMinutes = RUN_INDEX_MAX_LAG_MINUTES, freshAsOf = null, sleep = defaultSleep } = {}
+    {
+        event = 'push',
+        maxLagMinutes = RUN_INDEX_MAX_LAG_MINUTES,
+        freshAsOf = null,
+        sleep = defaultSleep,
+        runsFile = undefined,
+    } = {}
 ) {
     for (let attempt = 0; ; attempt++) {
         try {
-            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, { event, maxLagMinutes, freshAsOf })
+            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, {
+                event,
+                maxLagMinutes,
+                freshAsOf,
+                runsFile,
+            })
         } catch (err) {
             if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) {throw err}
             await sleep(STALE_PAGE_RETRY_DELAY_MS)
@@ -153,19 +176,29 @@ async function fetchWorkflowRuns(
     }
 }
 
-async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { event, maxLagMinutes, freshAsOf }) {
+async function fetchSettledRuns(
+    github,
+    owner,
+    repo,
+    workflowFile,
+    perPage,
+    { event, maxLagMinutes, freshAsOf, runsFile }
+) {
     const MAX_PAGES = 5
     const settled = []
     for (let page = 1; page <= MAX_PAGES; page++) {
-        const { data } = await github.rest.actions.listWorkflowRuns({
-            owner,
-            repo,
-            workflow_id: workflowFile,
-            branch: 'master',
-            event,
-            per_page: perPage,
-            page,
-        })
+        // A missing or unparseable Depot file throws, so the lane reads as unreadable, never green.
+        const { data } = runsFile
+            ? { data: { workflow_runs: page === 1 ? JSON.parse(fs.readFileSync(runsFile, 'utf8')) : [] } }
+            : await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: workflowFile,
+                  branch: 'master',
+                  event,
+                  per_page: perPage,
+                  page,
+              })
         // Freshness is judged on the raw page-1 head (any status) before paging deeper; an empty
         // page is the same anomaly — every lane has master run history.
         if (page === 1 && freshAsOf) {
@@ -541,6 +574,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                           maxLagMinutes: lane.maxLagMinutes,
                           freshAsOf,
                           sleep,
+                          runsFile: lane.runsFile,
                       }).catch((err) => {
                           core.warning(`No usable ${lane.event} runs for ${lane.workflowFile}: ${err.message}`)
                           return null
