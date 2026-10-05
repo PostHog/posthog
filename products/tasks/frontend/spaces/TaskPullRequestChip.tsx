@@ -30,6 +30,12 @@ export function pullRequestLinkLabel(pullRequest: TaskPullRequest, state: PrStat
     return known ? `Open ${known.label.toLowerCase()} ${name} on GitHub` : `Open ${name} on GitHub`
 }
 
+/**
+ * A chip in the feed card footer, like PostHog Desktop's. `relative` lifts it above the card's full-card link.
+ * Regular weight, because RoundHog's medium "4" leaves a gap after it that reads as "#4 21".
+ */
+export const TASK_CHIP_CLASS = 'relative h-6 max-w-full shrink-0 gap-1.5 rounded-md px-2 text-xs font-normal'
+
 interface TaskPullRequestChipProps {
     pullRequest: TaskPullRequest
     label: string
@@ -47,8 +53,10 @@ export function TaskPullRequestChip({ pullRequest, label, dataAttr, state }: Tas
                         render={<LinkPrimitive to={pullRequest.url} target="_blank" />}
                         aria-label={pullRequestLinkLabel(pullRequest, state)}
                         data-attr={dataAttr}
-                        // `relative` lifts it above the feed card's full-card link, so it stays clickable.
-                        className="relative h-6 max-w-full shrink-0 gap-1 rounded-md border-border bg-fill-hover px-2 text-xs text-muted-foreground tabular-nums hover:bg-fill-selected hover:text-foreground"
+                        className={cn(
+                            TASK_CHIP_CLASS,
+                            'border-border bg-fill-hover text-muted-foreground hover:bg-fill-selected hover:text-foreground'
+                        )}
                     />
                 }
             >

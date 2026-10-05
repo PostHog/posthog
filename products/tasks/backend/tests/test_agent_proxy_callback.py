@@ -271,12 +271,16 @@ class TestAgentProxyCallback(TestCase):
             event_uuid=str(uuid5(NAMESPACE_URL, f"posthog-task-process-killed:{self.task_run.id}:5")),
         )
 
-    def test_heartbeat_dispatches_when_active(self) -> None:
+    @parameterized.expand([None, False, True])
+    def test_heartbeat_dispatches_when_active(self, activity_started: bool | None) -> None:
+        body = self._body(kind="heartbeat", agent_active=True)
+        if activity_started is not None:
+            body["activity_started"] = activity_started
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
-            response = self._post(self._body(kind="heartbeat", agent_active=True), token=self._token())
+            response = self._post(body, token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["dispatched"])
-        heartbeat.assert_called_once_with(agent_active=True)
+        heartbeat.assert_called_once_with(agent_active=True, force=bool(activity_started))
 
     def test_heartbeat_not_dispatched_when_inactive(self) -> None:
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:

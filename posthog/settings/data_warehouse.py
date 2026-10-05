@@ -114,6 +114,21 @@ DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES = get_from_env(
 # merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge
 # path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.
 DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD = get_from_env("DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100, type_cast=int)
+# A lite vacuum also runs once this many hours have passed since the last vacuum, whatever the commit
+# count. A checkpoint drops tombstones older than delta's 7-day `deletedFileRetentionDuration`, and a lite
+# vacuum cannot find a dead file without its tombstone. This interval plus the 24-hour vacuum retention
+# must stay below 7 days, so a table that commits slowly does not leak its dead files.
+DATA_WAREHOUSE_VACUUM_MAX_INTERVAL_HOURS = get_from_env("DATA_WAREHOUSE_VACUUM_MAX_INTERVAL_HOURS", 120, type_cast=int)
+# A full vacuum lists the whole table and deletes the files that the log does not name, with the same
+# 24-hour retention. It collects the files that a lite vacuum never finds: files that a crashed writer
+# left, and files whose tombstone a checkpoint dropped.
+DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS = get_from_env(
+    "DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS", 168, type_cast=int
+)
+# Compact Delta tables with deltalite's native `DeltaLiteTable.compact` instead of delta-rs
+# `optimize.compact`. deltalite streams each bin under the load slot's memory budget. A deltalite build
+# without `compact`, a table that deltalite refuses, or a deltalite failure falls back to delta-rs.
+DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COMPACTION", False, type_cast=str_to_bool)
 
 # delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
 # can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs
@@ -180,11 +195,4 @@ DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES = get_from_env("DATA_WAREHOUSE_V3_COALESC
 DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS", 500_000, type_cast=int)
 DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
-)
-# A set may span consecutive runs of one schema. Off keeps every set inside one run. Off by default
-# until every loader pod runs a build that reads the `members` commit tag: an older pod that
-# redelivers a later run's member of a cross-run set cannot find that member's commit, and on an
-# append table that loads its rows a second time.
-DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS = get_from_env(
-    "DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS", False, type_cast=str_to_bool
 )

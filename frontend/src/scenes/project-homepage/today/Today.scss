@@ -92,198 +92,80 @@
 
 // Sidebar
 
-.TodaySidebar__more {
-    display: block;
-    margin: 14px 11px 0;
-    font-size: 12px;
-}
-
 .TodaySidebar__list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 2px;
+}
+
+// Lines up with the row titles: the row padding plus the icon and its gap.
+.TodaySidebar__more {
+    align-self: flex-start;
+    padding-inline: 0;
+    margin: 2px 0 0 65px;
+    font-size: 12px;
+    color: var(--today-muted);
+
+    &:hover {
+        color: var(--today-ink);
+    }
+}
+
+.TodaySidebar__more--empty {
+    color: var(--today-faint);
+
+    &:hover {
+        color: var(--today-faint);
+    }
 }
 
 .TodayNavItem {
-    --report-color: #5c5c57;
-
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    width: 100%;
-    padding: 11px;
-    text-align: left;
     border-radius: 10px;
-    transition:
-        background 0.16s,
-        transform 0.2s var(--today-ease-nudge);
-
-    &[data-active='true'] {
-        background: var(--today-soft);
-        transform: translateX(3px);
-
-        .TodayNavItem__marker {
-            color: #fff;
-            background: var(--report-color);
-            border-color: var(--report-color);
-        }
-
-        .TodayNavItem__title {
-            color: var(--today-ink);
-        }
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            background: var(--today-soft);
-        }
-    }
 }
 
 .TodayNavItem__marker {
-    position: relative;
-    display: flex;
-    flex: 0 0 40px;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
+    width: 30px;
+    height: 30px;
     color: var(--report-color);
     background: color-mix(in sRGB, var(--report-color) 10%, var(--today-card));
     border: 1px solid color-mix(in sRGB, var(--report-color) 25%, var(--today-card));
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     transition:
         color 0.16s,
         background 0.16s,
         border-color 0.16s;
 
+    // Center the tile; quill nudges media down when an item has a description.
+    &.quill-item__media {
+        align-self: center;
+        translate: none;
+    }
+
     svg {
-        width: 21px;
-        height: 21px;
+        width: 16px;
+        height: 16px;
     }
 }
 
-.TodayNavItem__copy {
-    min-width: 0;
-}
-
-.TodayNavItem__title,
-.TodayNavItem__meta {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.TodayNavItem[data-active='true'] .TodayNavItem__marker {
+    color: #fff;
+    background: var(--report-color);
+    border-color: var(--report-color);
 }
 
 .TodayNavItem__title {
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--today-body-text);
-}
-
-.TodayNavItem__meta {
-    margin-top: 3px;
-    font-size: 11px;
-    color: var(--today-faint);
-}
-
-// Shared sidebar footer
-
-.TodaySidebarFooter {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px;
-    padding: 12px 4px 14px;
-    margin: 0 4px;
-    border-top: 1px solid var(--today-line);
-}
-
-.TodaySidebarFooter__project,
-.TodaySidebarFooter__settings {
-    min-height: 48px;
-    color: var(--today-body-text);
-    background: var(--today-soft-2);
-    border: 1px solid var(--today-line);
-    border-radius: 10px;
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            color: var(--today-ink);
-            background: var(--today-soft);
-        }
-    }
-}
-
-.TodaySidebarFooter__project {
-    display: flex;
-    gap: 9px;
-    align-items: center;
     min-width: 0;
-    padding: 6px 9px;
-    text-align: left;
-
-    > svg {
-        flex: 0 0 14px;
-        width: 14px;
-        height: 14px;
-        margin-left: auto;
-        color: #969690;
-    }
 }
 
-.TodaySidebarFooter__avatar {
-    display: flex;
-    flex: 0 0 32px;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    color: #b84413;
-    background: #ffe7da;
-    border: 1px solid #ffd4bf;
-    border-radius: 8px;
+.TodayNavItem[data-state='done'] .TodayNavItem__title,
+.TodayReportLink[data-state='done'] {
+    text-decoration: line-through;
 }
 
-.TodaySidebarFooter__projectText {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-
-    small {
-        font-family: var(--font-mono);
-        font-size: 8px;
-        color: var(--today-faint);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-    }
-
-    strong {
-        overflow: hidden;
-        font-size: 11.5px;
-        font-weight: 560;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-}
-
-.TodaySidebarFooter__settings {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    align-items: center;
-    justify-content: center;
-    width: 66px;
-    padding: 4px;
-    font-size: 9px;
-
-    svg {
-        width: 17px;
-        height: 17px;
-    }
+// Dismissed is not done: it stays readable, only quieter, and the left bar says why.
+.TodayNavItem[data-state='dismissed'] .quill-item__content,
+.TodayReportLink[data-state='dismissed'] {
+    opacity: 0.55;
 }
 
 // Home
@@ -296,14 +178,26 @@
     @container main-content (max-width: 900px) {
         width: min(100% - 72px, 700px);
     }
+
+    @container main-content (max-width: 600px) {
+        width: calc(100% - 40px);
+    }
 }
 
 .TodayHome {
     padding: 94px 0 140px;
+
+    @container main-content (max-width: 600px) {
+        padding: 20px 0 64px;
+    }
 }
 
 .TodayReport {
     padding: 56px 0 140px;
+
+    @container main-content (max-width: 600px) {
+        padding: 12px 0 64px;
+    }
 }
 
 .TodayHome__meta {
@@ -315,6 +209,7 @@
     time {
         font-variant-numeric: tabular-nums;
         color: var(--today-ink);
+        white-space: nowrap;
     }
 }
 
@@ -336,11 +231,27 @@
 }
 
 .TodayHome__greeting {
+    display: flex;
+    gap: 10px;
+    align-items: center;
     margin-bottom: 10px;
     font-size: 21px;
     font-weight: 560;
     color: var(--today-ink);
     letter-spacing: -0.015em;
+}
+
+.TodayHome__badge {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--today-faint);
+    letter-spacing: 0;
+    border: 1px solid color-mix(in sRGB, var(--today-ink) 12%, transparent);
+    border-radius: 999px;
 }
 
 .TodayChipStack {
@@ -427,6 +338,22 @@
         color: #ff4800;
         text-decoration: none;
     }
+
+    [theme='dark'] & {
+        background: #ff48002e;
+
+        .TodayReportLink,
+        .TodayReportLink:hover,
+        .TodayReportLink[data-active='true'] {
+            color: #ff9e7a;
+        }
+    }
+}
+
+.TodayHome__progress {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--today-faint);
 }
 
 .TodayHome__foot {
@@ -447,71 +374,8 @@
 // Ask box
 
 .TodayAsk {
-    display: flex;
-    gap: 8px;
-    align-items: center;
     max-width: 760px;
-    padding: 7px 8px 7px 20px;
     margin-top: 76px;
-    background: var(--today-card);
-    border: 1px solid var(--today-input-border);
-    border-radius: 16px;
-    box-shadow: var(--today-card-shadow);
-    transition:
-        border-color 0.16s,
-        box-shadow 0.16s;
-
-    &:focus-within {
-        border-color: var(--today-focus-border);
-        box-shadow:
-            0 0 0 3px #1515150d,
-            0 14px 36px -24px #0006;
-    }
-
-    input {
-        flex: 1;
-        min-width: 0;
-        height: 42px;
-        font-size: 14px;
-        color: var(--today-ink);
-        background: transparent;
-        border: 0;
-        outline: none;
-
-        &::placeholder {
-            color: #aaa9a4;
-        }
-    }
-}
-
-.TodaySend {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    color: var(--today-button-text);
-    background: var(--today-button);
-    border-radius: 11px;
-    transition:
-        opacity 0.16s,
-        transform 0.1s;
-
-    &:active {
-        transform: scale(0.97);
-    }
-
-    &:disabled {
-        cursor: default;
-        opacity: 0.18;
-    }
-
-    svg {
-        width: 17px;
-        height: 17px;
-        transform: rotate(-90deg);
-    }
 }
 
 // Report page
@@ -590,6 +454,16 @@
     from {
         opacity: 0;
         transform: translateY(2px);
+    }
+}
+
+@container main-content (max-width: 600px) {
+    .TodayHome__intro {
+        margin-top: 32px;
+    }
+
+    .TodayAsk {
+        margin-top: 40px;
     }
 }
 

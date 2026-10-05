@@ -40,6 +40,9 @@ export const HELPER_GATEWAY_MODEL = "claude-haiku-4-5";
 
 const FREE_TIER_GATEWAY_MODEL = "@cf/zai-org/glm-5.2";
 
+// The Messages API requires max_tokens; the Go gateway forwards the body as sent.
+const HELPER_DEFAULT_MAX_TOKENS = 4096;
+
 type GoRoute = Extract<GatewayRoute, { mode: "go" }>;
 
 export function desktopUsageUrl(apiHost: string, projectId: number): string {
@@ -57,9 +60,17 @@ type SendOptions = {
 
 // The Go gateway's model for a helper prompt, picked from the token's pin
 // so a free-tier token never spends a round trip on a refused model.
+// A paid pin is the whole product list; Go enforces it in canonical spelling,
+// which a bare requested id never string-matches.
 function pickGoModel(route: GoRoute, requested: string): string {
   const allowed = route.allowedModels;
-  if (allowed === null || allowed.includes(requested)) return requested;
+  if (
+    allowed === null ||
+    route.plan === "paid" ||
+    allowed.includes(requested)
+  ) {
+    return requested;
+  }
   if (route.plan === "free" && allowed.includes(FREE_TIER_GATEWAY_MODEL)) {
     return FREE_TIER_GATEWAY_MODEL;
   }
@@ -255,11 +266,8 @@ export class LlmGatewayService {
       model,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       stream: false,
+      max_tokens: maxTokens ?? HELPER_DEFAULT_MAX_TOKENS,
     };
-
-    if (maxTokens !== undefined) {
-      requestBody.max_tokens = maxTokens;
-    }
 
     if (system) {
       requestBody.system = system;

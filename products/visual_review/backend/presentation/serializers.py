@@ -4,10 +4,15 @@ DRF serializers for visual_review.
 Converts DTOs to/from JSON using DataclassSerializer.
 """
 
+from datetime import datetime
+
+from django.utils import timezone
+
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
+    AGENT_QUARANTINE_MAX_DAYS,
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
@@ -32,8 +37,10 @@ from ..facade.contracts import (
     FlakinessEntry,
     FlakinessOverview,
     FlakinessTotals,
+    LiftOnMergeInput,
     QuarantinedIdentifierEntry,
     QuarantineInput,
+    QuarantineLiftEntry,
     QuarantineSourceRun,
     RecomputeResult,
     Repo,
@@ -51,7 +58,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, ShiftBandKind
+from ..facade.enums import FlakinessState, QuarantineLiftState, RunPurpose, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -143,6 +150,14 @@ class SnapshotSerializer(DataclassSerializer):
 
 class RunSerializer(DataclassSerializer):
     approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    purpose = serializers.ChoiceField(
+        choices=[p.value for p in RunPurpose],
+        read_only=True,
+        help_text=(
+            "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are "
+            "tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved."
+        ),
+    )
     search_match_type = serializers.ChoiceField(
         choices=["exact", "similar"],
         allow_null=True,
@@ -327,6 +342,19 @@ class MarkToleratedInputSerializer(serializers.Serializer):
     )
 
 
+class CompleteRunInputSerializer(serializers.Serializer):
+    check_run_id = serializers.RegexField(
+        r"^\d+$",
+        max_length=32,
+        required=False,
+        help_text=(
+            "Numeric GitHub Actions job ID of the CI job that completes the run, from "
+            "`${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict "
+            "without capturing the snapshots again. Omit it outside GitHub Actions."
+        ),
+    )
+
+
 class QuarantineSourceRunSerializer(DataclassSerializer):
     class Meta:
         dataclass = QuarantineSourceRun
@@ -355,6 +383,14 @@ class BaselineQuarantineSummarySerializer(DataclassSerializer):
 class QuarantineInputSerializer(DataclassSerializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to quarantine.")
     reason = serializers.CharField(max_length=255, help_text="Why this snapshot is being quarantined.")
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later "
+            f"expiry becomes {AGENT_QUARANTINE_MAX_DAYS} days from now; anywhere else omitting it means no expiry."
+        ),
+    )
     source_run_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -363,13 +399,106 @@ class QuarantineInputSerializer(DataclassSerializer):
             "used to surface a 'view the failing run' link later."
         ),
     )
+    notify_owners = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Post the quarantine to the Slack channel of the team that owns the story, naming the user "
+            "who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when "
+            "the story has no owning team or the project has no Slack integration."
+        ),
+    )
 
     class Meta:
         dataclass = QuarantineInput
 
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would end the active quarantine and store one that is already over.
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("The expiry must be in the future.")
+        return value
+
 
 class UnquarantineQuerySerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
+
+
+class ErrorDetailSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What went wrong and what to do next.")
+    code = serializers.CharField(
+        required=False, help_text="A stable code for the error, such as `lift_commit_unknown` or `rate_limited`."
+    )
+
+
+class LiftOnMergeInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text=(
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's "
+            "picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot "
+            "uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never "
+            "approves a picture."
+        ),
+    )
+
+    class Meta:
+        dataclass = LiftOnMergeInput
+
+
+class QuarantineLiftEntrySerializer(DataclassSerializer):
+    id = serializers.UUIDField(help_text="UUID of the lift request.")
+    quarantine_id = serializers.UUIDField(
+        help_text="UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event."
+    )
+    identifier = serializers.CharField(help_text="Snapshot identifier under quarantine.")
+    run_type = serializers.CharField(help_text="Run type of the quarantine, for example storybook.")
+    pr_number = serializers.IntegerField(help_text="Pull request whose merge the lift waits for.")
+    expected_hash = serializers.CharField(
+        help_text=(
+            "Content hash a default-branch run must render, against a baseline entry with the same hash, "
+            "for the lift to apply."
+        )
+    )
+    state = serializers.ChoiceField(
+        choices=QuarantineLiftState.choices,
+        help_text=(
+            "`pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. "
+            "`cancelled` was withdrawn, or the pull request closed without merging into the run's branch. "
+            "`superseded` means the quarantine ended some other way, or another request lifted it."
+        ),
+    )
+    detail = serializers.CharField(help_text="The latest verification outcome, in plain words.")
+    created_at = serializers.DateTimeField(help_text="When the lift was requested.")
+    updated_at = serializers.DateTimeField(help_text="When the request last changed.")
+    resolved_at = serializers.DateTimeField(
+        allow_null=True, required=False, help_text="When the request left `pending`. Null while it waits."
+    )
+    source_run_id = serializers.UUIDField(
+        allow_null=True, required=False, help_text="Run the lift was requested from. Null after that run is deleted."
+    )
+    requested_by = UserBasicInfoSerializer(
+        allow_null=True, required=False, help_text="User who requested the lift, or on whose behalf an agent did."
+    )
+    merge_commit_sha = serializers.CharField(
+        allow_null=True, required=False, help_text="Merge commit of the pull request. Set when the lift applies."
+    )
+    lifted_at_sha = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that "
+            "does not contain it still treats the snapshot as quarantined."
+        ),
+    )
+
+    class Meta:
+        dataclass = QuarantineLiftEntry
+        # Declared here because a serializer attribute named `source` shadows `Field.source`.
+        extra_kwargs = {
+            "source": {
+                "help_text": "Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP."
+            },
+        }
 
 
 class CreateRepoInputSerializer(DataclassSerializer):
@@ -589,6 +718,41 @@ class FlakinessOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = FlakinessOverview
+
+
+class RunSnapshotsQuerySerializer(serializers.Serializer):
+    include_quarantined = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to include snapshots whose identifier is currently quarantined. "
+            "Defaults to false: quarantined snapshots are excluded from results and reported "
+            "in quarantined_count instead, since they are noise when reviewing real changes."
+        ),
+    )
+    exclude_unchanged = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to leave out snapshots whose result is `unchanged`. Defaults to false. "
+            "Pass true to list only the changed, new and removed snapshots, which is what a "
+            "review needs. A large run holds thousands of unchanged snapshots and few changes."
+        ),
+    )
+    snapshot_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Return only the snapshot with this id, read from the `id` field of a snapshot in "
+            "the run. Use it to fetch one snapshot without listing the whole run."
+        ),
+    )
+    quarantined_only = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to list only the snapshots whose identifier is currently quarantined. "
+            "Defaults to false. When true, `include_quarantined` is ignored and quarantined "
+            "snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined "
+            "story that rendered `unchanged`, which is the snapshot to request a lift on merge for."
+        ),
+    )
 
 
 class TolerationPileupsQuerySerializer(serializers.Serializer):
