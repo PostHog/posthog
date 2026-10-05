@@ -732,6 +732,15 @@ export interface hogFlowEditorLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -901,7 +910,6 @@ export interface hogFlowEditorLogicActions {
                                 | undefined
                             filters: any
                             window?: string | undefined
-                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
@@ -1589,6 +1597,15 @@ export interface hogFlowEditorLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1758,7 +1775,6 @@ export interface hogFlowEditorLogicActions {
                                 | undefined
                             filters: any
                             window?: string | undefined
-                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
@@ -2887,7 +2903,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
                 // Get the width of the wrapper
                 const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
-                const panelWidth = Math.min(values.panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH, wrapperWidth)
+                const panel = reactFlowWrapper.current.parentElement?.querySelector<HTMLElement>(
+                    '[data-attr="workflow-editor-panel"]'
+                )
+                const panelWidth =
+                    panel && getComputedStyle(panel).position === 'absolute'
+                        ? Math.min(panel.getBoundingClientRect().width, wrapperWidth)
+                        : 0
                 // Get the width of the thing we are going to fit to the view
                 const nodesWidth =
                     reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)
@@ -2899,9 +2921,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - panelWidth) / 2
 
                 reactFlowInstance.fitView({
-                    padding: {
-                        right: `${paddingRight}px`,
-                    },
+                    padding: panelWidth > 0 ? { right: `${paddingRight}px` } : 0.2,
                     maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
                     minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
                     nodes: values.selectedNode ? [values.selectedNode] : values.nodes,

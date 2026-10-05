@@ -23,6 +23,7 @@ from posthog.hogql import query_stats
 
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
+    MAX_QUERY_SIZE_BYTES,
     ClickHouseUser,
     QuerySummary,
     Workload,
@@ -266,7 +267,7 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
     )
 
 
-def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float) -> None:
+def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float, workload: Workload) -> None:
     """Add what this query read to the request's totals.
 
     Also runs after a failure, since a stopped query has still read rows. Never raises: the totals
@@ -278,7 +279,12 @@ def _record_query_stats(client: Any, query_info_before: Any, execute_start_time:
             return
         # elapsed_ns is 0 on old protocol revisions; fall back to the client-side round trip.
         duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
-        query_stats.record(rows_read=summary.rows, duration_ms=duration_ms, lookup=get_query_tags().lookup is not None)
+        query_stats.record(
+            rows_read=summary.rows,
+            duration_ms=duration_ms,
+            lookup=get_query_tags().lookup is not None,
+            workload=workload.value,
+        )
     except Exception:
         logger.warning("query_stats_record_failed", exc_info=True)
 
@@ -307,9 +313,7 @@ def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
-        # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
-        # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
-        "max_query_size": 1048576,
+        "max_query_size": MAX_QUERY_SIZE_BYTES,
     }
 
 
@@ -606,7 +610,7 @@ def sync_execute(
                 # in the outer finally, once the connection is back in the pool.
                 if tags.api_queries_budgeted and tags.team_id:
                     budgeted_query_info = _query_info_to_meter(client, query_info_before)
-                _record_query_stats(client, query_info_before, execute_start_time)
+                _record_query_stats(client, query_info_before, execute_start_time, workload)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")

@@ -53,16 +53,12 @@ from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
 _IMPLEMENTATION = TASK_RUN_TYPE_IMPLEMENTATION
-
-# Only PRs hosted on GitHub are billable. The PR URL is GitHub's `html_url`
-# (https://github.com/owner/repo/pull/N), so validate the host prefix to avoid charging
-# for malformed or non-GitHub values written into `output.pr_url`.
-_GITHUB_PR_URL_PREFIX = "https://github.com/"
 
 SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 
@@ -77,17 +73,21 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     `task__runs` relation, so the query never imports the tasks product's internals — it stays
     behind the tasks public interface. Postgres is free to drive the join from the run
     `created_at` index regardless, so the period scan stays bounded by PRs shipped, not by the
-    number of bridges.
+    number of bridges. `task_run_github_pr_run_idx` keeps that scan off the runs' `output` JSONB,
+    but only while the prefix test here stays spelled as the `GITHUB_PR_URL_PREFIX` its predicate
+    was built from.
 
     Fail closed: a bridge only counts when one of its runs carries a GitHub PR URL within the
     given `created_at` bound and the four teams in the chain — run, task, bridge, and report —
-    all agree. A malformed bridge whose teams disagree is excluded rather than charged to
-    whichever team_id happened to be on it. The run-level conditions sit in one `filter()` so
-    they all resolve against the same `TaskRun` row.
+    all agree. Only GitHub is billable, because the URL is GitHub's `html_url`, so the host
+    prefix test keeps malformed values written into `output.pr_url` from raising a charge. A
+    malformed bridge whose teams disagree is excluded rather than charged to whichever team_id
+    happened to be on it. The run-level conditions sit in one `filter()` so they all resolve
+    against the same `TaskRun` row.
     """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
-        task__runs__output__pr_url__startswith=_GITHUB_PR_URL_PREFIX,
+        task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
         # Fail closed on team disagreement across run / task / bridge / report.
         task__team_id=F("team_id"),
         report__team_id=F("team_id"),

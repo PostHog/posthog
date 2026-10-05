@@ -30,20 +30,24 @@ from products.growth.backend.enrichment.bridge import (
 from products.growth.backend.enrichment.clearbit import ClearbitInputs, clearbit_inputs_from_person_properties
 from products.growth.backend.enrichment.context import EnrichmentContext
 from products.growth.backend.enrichment.fields import EnrichmentFields
-from products.growth.backend.enrichment.fit_score import IcpFitResult, score_company
+from products.growth.backend.enrichment.fit_recomputation import latest_fetch, latest_matched_payload
+from products.growth.backend.enrichment.fit_score import IcpFitResult
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
 from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.providers import EnrichmentProvider, ProviderLookup
 from products.growth.backend.enrichment.score import IcpScoreInputs, compute_icp_score
-from products.growth.backend.enrichment.writer import archive_provider_fetch, write_organization_enrichment
+from products.growth.backend.enrichment.scoring_context import saved_wizard_ai_sdk, score_with_saved_inputs
+from products.growth.backend.enrichment.writer import (
+    archive_provider_fetch,
+    lock_organization_enrichment,
+    project_organization_enrichment,
+    write_organization_enrichment,
+)
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 # Placeholder archived for a not-found when the provider hands back no response body — records
 # the miss as a distinct observation, since absence at fetch time is evidence too.
 _MISS_PAYLOAD = {"companyFound": False}
-
-# How many archived fetches to walk back looking for the last matched payload on a miss.
-_MATCHED_PAYLOAD_LOOKBACK = 10
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,26 +99,6 @@ def _stored_country(organization_id: str) -> Optional[str]:
     return (record.data or {}).get("country") if record is not None else None
 
 
-def latest_matched_payload(organization_id: str) -> Optional[dict[str, Any]]:
-    """The org's most recent archived payload that was an actual match, or None.
-
-    The fit scorer consumes the raw payload (description, per-tag types, traction series —
-    all deliberately absent from EnrichmentFields), so on a provider miss the archive, not
-    the field record, is the scoring fallback. Public because the score backfill uses the
-    same lookback. Bounded walk: an org has a handful of fetches (signup + recheck +
-    occasional backfills), and a sentinel-only history is a real never-matched org.
-    """
-    payloads = (
-        OrganizationEnrichmentFetch.objects.filter(organization_id=organization_id)
-        .order_by("-fetched_at", "-id")
-        .values_list("payload", flat=True)[:_MATCHED_PAYLOAD_LOOKBACK]
-    )
-    for payload in payloads:
-        if isinstance(payload, dict) and payload and payload.get("companyFound") is not False:
-            return payload
-    return None
-
-
 def _latest_archived_urn(organization_id: str) -> Optional[str]:
     """The most recent enrichmentUrn Harmonic has given this org, or None.
 
@@ -152,12 +136,12 @@ async def _poll_prior_status(ctx: EnrichmentContext, provider: EnrichmentProvide
 
 async def _archive_lookup(
     ctx: EnrichmentContext, provider: EnrichmentProvider, lookup: ProviderLookup, enrichment_status: Optional[str]
-) -> None:
+) -> OrganizationEnrichmentFetch | None:
     base_payload = lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD
     archived_payload = {**base_payload, "enrichmentUrn": lookup.enrichment_urn}
     if ctx.is_recheck:
         archived_payload["enrichmentStatus"] = enrichment_status
-    await sync_to_async(archive_provider_fetch)(
+    return await sync_to_async(archive_provider_fetch)(
         organization_id=ctx.organization_id,
         provider=provider.name,
         payload=archived_payload,
@@ -278,8 +262,7 @@ def _read_bridge_inputs(
 
 def _persisted_wizard_ai_sdk(*, organization_id: str) -> bool:
     record = OrganizationEnrichment.objects.filter(organization_id=organization_id).only("data").first()
-    flags = record.data.get("icp_fit_flags") if record else None
-    return isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
+    return saved_wizard_ai_sdk(record.data if record else {})
 
 
 def _score_fit(
@@ -287,6 +270,7 @@ def _score_fit(
     *,
     bridge_inputs: Optional[OrganizationBridgeInputs],
     raw_payload: Optional[dict[str, Any]],
+    fetch: OrganizationEnrichmentFetch | None,
 ) -> tuple[Optional[IcpFitResult], Optional[str]]:
     """Evaluate one org under the ICP fit score.
 
@@ -322,14 +306,72 @@ def _score_fit(
         if payload is None:
             payload = normalize_graphql_company(latest_matched_payload(ctx.organization_id))
 
-        result = score_company(
-            payload, lists=lists, role=ctx.role_at_organization, domain=ctx.domain, wizard_ai_sdk=wizard_ai_sdk
+        result = score_with_saved_inputs(
+            payload,
+            fetch=fetch,
+            lists=lists,
+            role=ctx.role_at_organization,
+            domain=ctx.domain,
+            wizard_ai_sdk=wizard_ai_sdk,
         )
     except Exception as e:
         capture_exception(e, {"organization_id": ctx.organization_id})
         return None, None
 
     return result, ctx.distinct_id
+
+
+def _persist_lookup(
+    ctx: EnrichmentContext,
+    *,
+    lookup: ProviderLookup,
+    fields: Optional[EnrichmentFields],
+    bridge_inputs: Optional[OrganizationBridgeInputs],
+    fetch: OrganizationEnrichmentFetch | None,
+    pha_client: Client,
+    enrichment_status: Optional[str],
+) -> EnrichmentOutcome:
+    icp_score: Optional[int] = None
+    mirror_distinct_id: Optional[str] = None
+    if fields is not None:
+        icp_score, mirror_distinct_id = _score_and_mirror(ctx, bridge_inputs=bridge_inputs, fields=fields)
+    with lock_organization_enrichment(ctx.organization_id):
+        current_fetch = latest_fetch(ctx.organization_id)
+        if fetch is not None and (current_fetch is None or current_fetch.id != fetch.id):
+            return EnrichmentOutcome(provider_fields=lookup.fields, enrichment_status=enrichment_status)
+        fit, fit_mirror_distinct_id = _score_fit(
+            ctx, bridge_inputs=bridge_inputs, raw_payload=lookup.raw_payload, fetch=fetch
+        )
+        fit_evaluated_at = dt.datetime.now(dt.UTC) if fit is not None else None
+        if fields is not None or fit is not None:
+            write_organization_enrichment(
+                organization_id=ctx.organization_id,
+                fields=fields,
+                pha_client=pha_client,
+                icp_score=icp_score,
+                mirror_distinct_id=mirror_distinct_id,
+                fit=fit,
+                fit_evaluation_kind=ctx.phase.fit_evaluation_kind,
+                fit_evaluated_at=fit_evaluated_at,
+                fit_mirror_distinct_id=fit_mirror_distinct_id,
+                project=False,
+            )
+    if fields is not None or fit is not None:
+        project_organization_enrichment(
+            organization_id=ctx.organization_id,
+            fields=fields,
+            pha_client=pha_client,
+            icp_score=icp_score,
+            mirror_distinct_id=mirror_distinct_id,
+            fit=fit,
+            fit_mirror_distinct_id=fit_mirror_distinct_id,
+        )
+    return EnrichmentOutcome(
+        provider_fields=lookup.fields,
+        fit=fit,
+        fit_evaluated_at=fit_evaluated_at,
+        enrichment_status=enrichment_status,
+    )
 
 
 async def enrich_organization(
@@ -343,39 +385,16 @@ async def enrich_organization(
     workflow's matched and upgraded reporting reads.
     """
     enrichment_status = await _poll_prior_status(ctx, provider)
-
     lookup = await provider.enrich_by_domain(ctx.domain)
-    await _archive_lookup(ctx, provider, lookup, enrichment_status)
-
+    fetch = await _archive_lookup(ctx, provider, lookup, enrichment_status)
     fields = await _resolve_fields(ctx, lookup)
     bridge_inputs = await sync_to_async(_read_bridge_inputs)(ctx, fields)
-
-    icp_score: Optional[int] = None
-    mirror_distinct_id: Optional[str] = None
-    if fields is not None:
-        icp_score, mirror_distinct_id = await sync_to_async(_score_and_mirror)(
-            ctx, bridge_inputs=bridge_inputs, fields=fields
-        )
-
-    fit, fit_mirror_distinct_id = await sync_to_async(_score_fit)(
-        ctx, bridge_inputs=bridge_inputs, raw_payload=lookup.raw_payload
-    )
-    fit_evaluated_at = dt.datetime.now(dt.UTC) if fit is not None else None
-
-    if fields is None and fit is None:
-        return EnrichmentOutcome(provider_fields=None, fit=None, enrichment_status=enrichment_status)
-
-    await sync_to_async(write_organization_enrichment)(
-        organization_id=ctx.organization_id,
+    return await sync_to_async(_persist_lookup)(
+        ctx,
+        lookup=lookup,
         fields=fields,
+        bridge_inputs=bridge_inputs,
+        fetch=fetch,
         pha_client=pha_client,
-        icp_score=icp_score,
-        mirror_distinct_id=mirror_distinct_id,
-        fit=fit,
-        fit_evaluation_kind=ctx.phase.fit_evaluation_kind,
-        fit_evaluated_at=fit_evaluated_at,
-        fit_mirror_distinct_id=fit_mirror_distinct_id,
-    )
-    return EnrichmentOutcome(
-        provider_fields=lookup.fields, fit=fit, fit_evaluated_at=fit_evaluated_at, enrichment_status=enrichment_status
+        enrichment_status=enrichment_status,
     )

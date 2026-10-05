@@ -5,7 +5,7 @@ from typing import Any
 
 from django.db.models import Q
 
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cdp.backend.facade.models import HogFunction, HogFunctionType
 
 from .base import Recommendation
 

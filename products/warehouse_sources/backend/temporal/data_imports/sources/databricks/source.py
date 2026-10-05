@@ -190,6 +190,12 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             # Workspace-level entitlement, not a Unity Catalog grant — a separate admin setting from
             # PERMISSION_DENIED/INSUFFICIENT_PERMISSIONS above.
             "databricks-sql-access or workspace-consume entitlements": "Your Databricks credentials don't have the databricks-sql-access or workspace-consume entitlement. Grant one of those entitlements to the connecting user or service principal in your Databricks workspace admin settings, then resync.",
+            # Raised when a synced table is a Lakehouse Federation table/view backed by an external
+            # JDBC data source and Databricks itself can't open a connection to that upstream
+            # database — a connectivity problem on the customer's federated data source, not
+            # something PostHog's retries can fix. Matched on Databricks' own stable error class,
+            # not the redacted JDBC URL around it.
+            "[FAILED_JDBC.CONNECTION]": "Databricks couldn't connect to a federated database backing a table you're syncing (a Lakehouse Federation connection). Check that the underlying database is reachable and its connection details in Databricks are still correct, then resync.",
         }
 
     def validate_credentials(

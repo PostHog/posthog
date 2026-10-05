@@ -47,6 +47,12 @@ Few things to note:
 - Placeholders like `{where}` are just nodes of type `ast.Placeholder(field='where')`. You can leave them in, and call `stmt = replace_placeholders(stmt, { where: parse_expr('1') })` later.
 - We wrote one AST node ourselves: `ast.Constant(value=num_last_days)`. We did it to sanitize the value by make sure it's treated as a constant. We might simplify constants further (e.g. `parse_const` or just `{days: 2}`), but we're not there yet.
 
+Placeholder expansion allows at most 1,000 placeholders and shares a five-second deadline across the query.
+All placeholders also share a 64 MiB budget in Hog VM memory units, charged using each expression's peak stack usage, including temporary values.
+This accounting is not a limit on Python process memory.
+The `range()` builtin checks its result size against the remaining VM allowance before allocating the list.
+Queries that exceed these limits fail during expansion; reduce the number or size of the placeholder expressions to stay within them.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.
@@ -58,6 +64,18 @@ Regex matching uses RE2 syntax, so backreferences and lookaround are unsupported
 
 SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limits.
 For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
+
+## ClickHouse query errors
+
+`posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
+For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.
+Parsing, array, regular expression, scalar subquery, JOIN, and LIMIT errors use these explanations where raw details cannot be exposed safely.
+Unrecognized error codes stay internal.
+
+Do not assume an error code makes its raw message safe. ClickHouse can append expressions and query context after the initial exception.
+Those messages can contain storage credentials, signed URLs, settings, or source data values, including values that a shared insight does not otherwise reveal.
+Check both the throw sites and the exception enrichment paths before allowing raw text.
+Keep importable exception classes when adding a fixed explanation, and test the wrapped message as well as its string representation.
 
 ## AST nodes
 
@@ -143,3 +161,6 @@ If you access `poe.properties.$browser`, we will actually access the field `pers
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
+
+Internal marketing queries can read cached session dimensions from `posthog.web_sessions_dimensional_preaggregated`.
+Rows include a precompute job ID and the person ID at computation time; readers must resolve current identities separately.

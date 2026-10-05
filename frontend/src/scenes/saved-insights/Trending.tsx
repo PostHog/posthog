@@ -6,7 +6,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { InsightModel, SavedInsightsTabs } from '~/types'
 
 import { InsightRow } from './InsightRow'
 import { trendingInsightsLogic } from './trendingInsightsLogic'
@@ -43,7 +43,7 @@ export function Trending(): JSX.Element {
                 buttonTo: urls.savedInsights(SavedInsightsTabs.All),
             }}
             items={trendingInsights.slice(0, 5)}
-            renderRow={(insight: QueryBasedInsightModel) => (
+            renderRow={(insight: InsightModel) => (
                 <InsightRow
                     key={insight.short_id}
                     insight={insight}

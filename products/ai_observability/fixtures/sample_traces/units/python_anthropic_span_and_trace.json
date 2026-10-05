@@ -1,0 +1,179 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Travel agent reschedules a flight",
+  "scenario": "An autonomous travel agent built with posthog-python and Claude on Anthropic streams a response to a rebooking request, calls a reschedule_flight function against a workspace, then wraps the whole run in a trace and span.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_span": 1,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "anthropic"
+    ],
+    "frameworks": [],
+    "models": [
+      "claude-sonnet-4-6"
+    ],
+    "content_types": [
+      "function",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$geoip_disable": true,
+        "$is_server": true,
+        "$ai_http_status": 200,
+        "$ai_span_name": "pipeline_emfcw7pgZu",
+        "$os": "Linux",
+        "$ai_prompt_name": "route",
+        "$ai_session_id": "97b376f9-5fbb-7c31-6275-4da9906c6515",
+        "$ai_prompt_version": 1,
+        "activePromptName": "route",
+        "$ai_provider": "anthropic",
+        "$ai_model": "claude-sonnet-4-6",
+        "requestDescription": "itinerary change",
+        "$os_version": "13",
+        "$ai_parent_id": "c34fc6ad-3b6d-79e1-5c8a-e3465cd4a7ca",
+        "$ai_environment": "production",
+        "$lib": "posthog-python",
+        "$ai_tools_called": "itinerary-management-service",
+        "$ai_span_id": "f7229b92-6060-70fb-a148-ee40969db7c1",
+        "$ai_stream": true,
+        "$ai_base_url": "https://llm-gateway.wayvelle-travel.example.com/v1/anthropic",
+        "$ai_cache_creation_input_tokens": 3859,
+        "currentWorkspaceId": "8b1d5a4a-3533-7f7c-9a4e-607404010759",
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_output_tokens": 411,
+        "serviceRegion": "eu1",
+        "billingAccountId": "9d03ba6b-5435-706a-462a-792f268b0442",
+        "$python_version": "3.13.15",
+        "$lib_version": "7.45.3",
+        "$python_runtime": "CPython",
+        "$ai_cache_read_input_tokens": 350079,
+        "$ai_trace_id": "c34fc6ad-3b6d-79e1-5c8a-e3465cd4a7ca",
+        "$ai_input_tokens": 18,
+        "$ai_latency": 12.76514177199988,
+        "$ai_tool_call_count": 1,
+        "$ai_input": [
+          {
+            "content": "Change my flight to Friday, please",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "I've rescheduled your flight to Friday and confirmed the new booking with the airline.\n\nHere's what changed:\n- Departure: Fri, Oct 3 at 09:15 (was Wed, Oct 1 at 07:40)\n- Arrival: unchanged, still landing at 13:05 local time\n- Seat 14C retained, no fare difference on this fare class\n- Confirmation number: WL-88291\n\nI'll send the updated boarding pass and a revised itinerary PDF to your email once online check-in opens, 24 hours before departure.",
+                "type": "text"
+              },
+              {
+                "function": {
+                  "arguments": "{\"agent_id\": \"a51aa044-ebbe-719a-9fda-e3a420fe19c7\", \"contactEmail\": \"traveler.jordan42@example.com\", \"workspace_id\": \"8b1d5a4a-3533-7f7c-9a4e-607404010759\", \"promptTemplate\": \"route\"}",
+                  "name": "reschedule_flight"
+                },
+                "type": "function"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 45,
+      "distinct_id": "user-1",
+      "properties": {
+        "$python_runtime": "CPython",
+        "activePromptName": "route",
+        "$lib_version": "7.45.3",
+        "invocationType": "synchronous",
+        "$is_server": true,
+        "$lib": "posthog-python",
+        "$ai_parent_id": "f7229b92-6060-70fb-a148-ee40969db7c1",
+        "$ai_latency": 0,
+        "billingAccountId": "9d03ba6b-5435-706a-462a-792f268b0442",
+        "serviceRegion": "eu1",
+        "currentWorkspaceId": "8b1d5a4a-3533-7f7c-9a4e-607404010759",
+        "$os": "Linux",
+        "$os_version": "13",
+        "$os_distro": "Debian GNU/Linux",
+        "$geoip_disable": true,
+        "targetService": "itinerary-management-service",
+        "$ai_span_id": "ee32de0f-58f7-7590-f362-0a556c114446",
+        "$ai_span_name": "reschedule_flight",
+        "requestDescription": "itinerary change",
+        "$python_version": "3.13.15",
+        "invokedToolName": "reschedule_flight",
+        "$ai_trace_id": "c34fc6ad-3b6d-79e1-5c8a-e3465cd4a7ca",
+        "$ai_session_id": "97b376f9-5fbb-7c31-6275-4da9906c6515",
+        "$ai_input_state": {
+          "agent_id": "a51aa044-ebbe-719a-9fda-e3a420fe19c7",
+          "contactEmail": "traveler.jordan42@example.com",
+          "promptTemplate": "route",
+          "workspace_id": "8b1d5a4a-3533-7f7c-9a4e-607404010759"
+        },
+        "$ai_output_state": {
+          "agent_id": "a51aa044-ebbe-719a-9fda-e3a420fe19c7",
+          "message": "Flight rescheduled to Friday",
+          "status": "published"
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 86,
+      "distinct_id": "user-1",
+      "properties": {
+        "$os": "Linux",
+        "$python_runtime": "CPython",
+        "billingAccountId": "9d03ba6b-5435-706a-462a-792f268b0442",
+        "requestDescription": "itinerary change",
+        "$is_server": true,
+        "serviceRegion": "eu1",
+        "$python_version": "3.13.15",
+        "$os_distro": "Debian GNU/Linux",
+        "activePromptName": "route",
+        "$os_version": "13",
+        "$ai_span_name": "itinerary_agent_session",
+        "$ai_trace_id": "c34fc6ad-3b6d-79e1-5c8a-e3465cd4a7ca",
+        "$lib": "posthog-python",
+        "$geoip_disable": true,
+        "$ai_tools_called": "itinerary-management-service",
+        "currentWorkspaceId": "8b1d5a4a-3533-7f7c-9a4e-607404010759",
+        "$ai_latency": 12.76514177199988,
+        "$ai_session_id": "97b376f9-5fbb-7c31-6275-4da9906c6515",
+        "$lib_version": "7.45.3",
+        "$ai_input_state": [
+          {
+            "content": "Change my flight to Friday, please",
+            "role": "user"
+          }
+        ],
+        "$ai_output_state": [
+          {
+            "content": "I've rescheduled your flight to Friday and confirmed the new booking with the airline.\n\nHere's what changed:\n- Departure: Fri, Oct 3 at 09:15 (was Wed, Oct 1 at 07:40)\n- Arrival: unchanged, still landing at 13:05 local time\n- Seat 14C retained, no fare difference on this fare class\n- Confirmation number: WL-88291\n\nI'll send the updated boarding pass and a revised itinerary PDF to your email once online check-in opens, 24 hours before departure.",
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "Python SDK with explicit $ai_trace and $ai_span around a generation"
+}

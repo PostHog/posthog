@@ -102,7 +102,8 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         result = signals_facade.create_scout_for_source(
             team=canonical_team,
             user=request.user,
-            name=validated["name"],
+            name=validated.get("name"),
+            display_name=validated.get("display_name", ""),
             description=validated["description"],
             body=validated["body"],
             files=[],

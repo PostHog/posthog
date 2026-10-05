@@ -27,8 +27,8 @@ from posthog.dags.person_overrides import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
-from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.deletion_targets import EVENTS, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
 
@@ -270,22 +270,20 @@ def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(
 
 @pytest.mark.django_db
 def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(cluster: ClickhouseCluster):
-    # sharded_events_json and sharded_flag_evaluations may each sit on a cluster whose shards only
-    # its own handle enumerates. Running one of those rewrites over the job's handle would skip its
-    # rows, and the overrides that record the correct person_id are deleted in the very next op, so
-    # the divergence would be permanent. The assertion is keyed by table because a weaker one --
-    # that some mutation reached the sibling -- still passes when a target is dropped entirely.
+    # A squash target may sit on a cluster whose shards only its own handle enumerates. Running its
+    # rewrite over the job's handle would skip those rows, and the overrides that record the correct
+    # person_id are deleted in the very next op, so the divergence would be permanent. The assertion
+    # is keyed by table because a weaker one -- that some mutation reached the sibling -- still
+    # passes when a target is dropped entirely.
     dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3)])
     sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
     placements = [
         TargetPlacement(target=EVENTS, cluster=cluster),
-        TargetPlacement(target=EVENTS_JSON, cluster=sibling),
         TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
     ]
     calls = Mock()
     enqueued = {
         EVENTS_DATA_TABLE(): {0: Mock()},
-        EVENTS_JSON_DATA_TABLE: {0: Mock()},
         FLAG_EVALUATIONS_DATA_TABLE: {0: Mock()},
     }
 
@@ -303,12 +301,12 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
-    # This assertion names the targets literally instead of reusing SQUASH_TARGETS or EVENTS_TARGETS.
-    # Either constant would still match after someone drops a target from its definition.
-    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
+    # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
+    # would still match after someone adds sharded_events_json back to it, which would send the
+    # squash to the events cluster.
+    resolve_placements.assert_called_once_with(cluster, (EVENTS, FLAG_EVALUATIONS))
     assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueue_on_shards.call_args_list} == {
         EVENTS_DATA_TABLE(): cluster,
-        EVENTS_JSON_DATA_TABLE: sibling,
         FLAG_EVALUATIONS_DATA_TABLE: sibling,
     }
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
@@ -316,12 +314,11 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     wait_for_mutations.assert_has_calls(
         [
             call(cluster, enqueued[EVENTS_DATA_TABLE()]),
-            call(sibling, enqueued[EVENTS_JSON_DATA_TABLE]),
             call(sibling, enqueued[FLAG_EVALUATIONS_DATA_TABLE]),
         ],
         any_order=True,
     )
     # Waiting on each mutation as it is enqueued would cost the sum of their completion times
     # rather than the longest, which is the whole reason the op enqueues in one pass.
-    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 3 + ["wait"] * 3
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 2 + ["wait"] * 2
     cluster.any_host(dictionary.source.drop).result()

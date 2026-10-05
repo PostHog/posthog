@@ -10,6 +10,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
+from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_task_run_credential_user,
@@ -59,6 +60,7 @@ def forward_pending_user_message(run_id: str) -> None:
     failure to preserve recoverability.
     """
     from products.tasks.backend.logic.services.agent_command import send_user_message
+    from products.tasks.backend.logic.services.agent_instructions import refresh_agent_instructions_state
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
     from products.tasks.backend.logic.services.store_skills import refresh_store_skills_state
@@ -98,6 +100,8 @@ def forward_pending_user_message(run_id: str) -> None:
         if not pending_message and not pending_user_artifact_ids:
             return
 
+        check_organization_execution(task_run.team_id)
+
         if state.get("await_user_message"):
             from products.tasks.backend.exceptions import ComputeBillingLimitError
             from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
@@ -132,8 +136,10 @@ def forward_pending_user_message(run_id: str) -> None:
             )
             # A warm run listed its store skills when it was prepared, before anyone owned it.
             # The agent re-reads the run on this first message, so the list must be current first.
+            # Agent instructions too: their personal level belongs to whoever activates the run.
             if state.get("await_user_message"):
                 refresh_store_skills_state(task_run, actor_user, reason="warm_activation")
+                refresh_agent_instructions_state(task_run, actor_user, reason="warm_activation")
 
         from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
             measure_task_run_cpu_attribution,

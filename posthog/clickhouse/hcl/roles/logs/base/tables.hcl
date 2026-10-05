@@ -193,6 +193,9 @@ database "posthog" {
     column "severity_text" {
       type = "LowCardinality(String)"
     }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
+    }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
@@ -663,10 +666,10 @@ database "posthog" {
   table "logs_volume_buckets" {
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      ttl_only_drop_parts = "0"
     }
     column "team_id" {
       type = "Int32"
@@ -686,6 +689,9 @@ database "posthog" {
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -715,6 +721,9 @@ database "posthog" {
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"

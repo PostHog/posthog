@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, InsightShortId, QueryBasedInsightModel, ItemMode } from '~/types'
+import { AccessControlLevel, InsightShortId, InsightModel, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
@@ -27,7 +27,7 @@ jest.mock('scenes/max/useMaxTool', () => ({
 
 const SAVED_INSIGHT_ID = 'abc123' as InsightShortId
 
-const MOCK_INSIGHT_BASE: QueryBasedInsightModel = {
+const MOCK_INSIGHT_BASE: InsightModel = {
     id: 1,
     short_id: SAVED_INSIGHT_ID,
     name: 'Test Insight',
@@ -50,7 +50,7 @@ const MOCK_INSIGHT_BASE: QueryBasedInsightModel = {
     user_access_level: AccessControlLevel.Editor,
 }
 
-function makeInsight(overrides: Partial<QueryBasedInsightModel> = {}): QueryBasedInsightModel {
+function makeInsight(overrides: Partial<InsightModel> = {}): InsightModel {
     return { ...MOCK_INSIGHT_BASE, ...overrides }
 }
 
@@ -101,7 +101,7 @@ describe('InsightPageHeader', () => {
     function renderHeader(opts: {
         insightMode: ItemMode
         dashboardItemId: InsightShortId | 'new'
-        insight?: QueryBasedInsightModel
+        insight?: InsightModel
     }): {
         sceneLogic: ReturnType<typeof insightSceneLogic.build>
         iLogic: ReturnType<typeof insightLogic.build>

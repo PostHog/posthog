@@ -280,7 +280,7 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
   `related_name="+"` — the reverse-accessor ratchet blocks new unsealed ones.
 - Do not register a signal receiver on another boundary's sender; use the moves
   in "Signal coupling" above.
-- Keep contracts pure (no Django/DRF imports).
+- Keep contract files pure (no Django/DRF imports in `facade/contracts.py` or `facade/enums.py`). A choices enum there is a `LabeledStrEnum` / `LabeledIntEnum` from `posthog/enums.py`.
 - Filter by `team_id` in querysets.
 - Do not add product-specific fields to `Team`; use a Team Extension model.
 - Add request/response schema annotations on viewset endpoints (`@validated_request` or `@extend_schema`).

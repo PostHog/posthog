@@ -21,6 +21,7 @@ class PosthogJwtAudience(Enum):
     HOGQL_LANGUAGE_SERVICE = "hogql-language-service"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
+    REPLAY_PROXY = "posthog:replay_proxy"
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
@@ -31,6 +32,8 @@ class PosthogJwtAudience(Enum):
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
+    SECURITY_HUB_RULES = "posthog:security_hub:rules"
+    SECURITY_HUB_INTERNAL = "posthog:security_hub:internal"
 
 
 def signing_key_fingerprint(key: str) -> str:
