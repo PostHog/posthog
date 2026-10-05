@@ -1,11 +1,35 @@
+from typing import Any, cast
+
 import pytest
 
+from google.genai.types import Content, FunctionCall, FunctionResponse, Part
 from parameterized import parameterized
 
 from products.ai_observability.backend.providers.formatters.gemini_formatter import (
     MessageConversionError,
     convert_anthropic_messages_to_gemini,
 )
+
+
+def _convert(messages: list[dict[str, Any]]) -> list[Content]:
+    return cast(list[Content], convert_anthropic_messages_to_gemini(messages))
+
+
+def _part(content: Content, index: int) -> Part:
+    assert content.parts is not None
+    return content.parts[index]
+
+
+def _function_call(content: Content, index: int) -> FunctionCall:
+    function_call = _part(content, index).function_call
+    assert function_call is not None
+    return function_call
+
+
+def _function_response(content: Content, index: int) -> FunctionResponse:
+    function_response = _part(content, index).function_response
+    assert function_response is not None
+    return function_response
 
 
 class TestConvertAnthropicMessagesToGemini:
@@ -16,7 +40,7 @@ class TestConvertAnthropicMessagesToGemini:
         ]
     )
     def test_tool_use_becomes_function_call(self, _name, input_value, expected_args):
-        contents = convert_anthropic_messages_to_gemini(
+        contents = _convert(
             [
                 {
                     "role": "assistant",
@@ -30,8 +54,8 @@ class TestConvertAnthropicMessagesToGemini:
 
         content = contents[0]
         assert content.role == "model"
-        assert content.parts[0].text == "Checking the weather."
-        function_call = content.parts[1].function_call
+        assert _part(content, 0).text == "Checking the weather."
+        function_call = _function_call(content, 1)
         assert function_call.id == "call_1"
         assert function_call.name == "get_weather"
         assert function_call.args == expected_args
@@ -49,7 +73,7 @@ class TestConvertAnthropicMessagesToGemini:
         ]
     )
     def test_tool_result_becomes_function_response(self, _name, result_content, expected_response):
-        contents = convert_anthropic_messages_to_gemini(
+        contents = _convert(
             [
                 {
                     "role": "assistant",
@@ -63,7 +87,7 @@ class TestConvertAnthropicMessagesToGemini:
         )
 
         assert contents[1].role == "user"
-        function_response = contents[1].parts[0].function_response
+        function_response = _function_response(contents[1], 0)
         assert function_response.id == "call_1"
         assert function_response.name == "get_weather"
         assert function_response.response == expected_response
@@ -80,7 +104,7 @@ class TestConvertAnthropicMessagesToGemini:
             )
 
     def test_errored_tool_result_becomes_error_response(self):
-        contents = convert_anthropic_messages_to_gemini(
+        contents = _convert(
             [
                 {
                     "role": "user",
@@ -89,11 +113,11 @@ class TestConvertAnthropicMessagesToGemini:
             ]
         )
 
-        assert contents[0].parts[0].function_response.response == {"error": "boom"}
+        assert _function_response(contents[0], 0).response == {"error": "boom"}
 
     def test_tool_result_without_matching_tool_use_falls_back_to_call_id(self):
-        contents = convert_anthropic_messages_to_gemini(
+        contents = _convert(
             [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_9", "content": "ok"}]}]
         )
 
-        assert contents[0].parts[0].function_response.name == "call_9"
+        assert _function_response(contents[0], 0).name == "call_9"
