@@ -77,13 +77,19 @@ describe('agent API diff', () => {
         expect(changed).toContain('more')
     })
 
-    it('reports a description-only change', () => {
+    it('reports description and category changes', () => {
         const base = surface({ 'a-tool': {} })
         const head = surface({ 'a-tool': {} })
         base.definitions['a-tool']!.description = 'Old text'
         head.definitions['a-tool']!.description = 'New text'
 
-        expect(renderAgentApiDiff(diffToolSurfaces(base, head))).toContain('description changed')
+        base.definitions['a-tool']!.category = 'Old'
+        head.definitions['a-tool']!.category = 'New'
+
+        const markdown = renderAgentApiDiff(diffToolSurfaces(base, head))
+
+        expect(markdown).toContain('description changed')
+        expect(markdown).toContain('category changed')
     })
 
     it('reports a same-length schema change and neutralizes markup from PR-controlled names', () => {

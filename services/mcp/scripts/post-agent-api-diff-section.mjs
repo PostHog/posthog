@@ -31,7 +31,7 @@ if (!markdown) {
     process.exit(0)
 }
 
-const overLimit = markdown.includes('**Input schema now over')
+const overLimit = markdown.includes('**Input schema now at or over')
 await postSection({
     id: SECTION_ID,
     status: overLimit ? 'warn' : 'info',

@@ -17,6 +17,7 @@ const SCHEMA_DIR = 'services/mcp/schema'
 
 export interface ToolDefinition {
     title?: string
+    category?: string
     description?: string
     required_scopes?: string[]
     annotations?: Record<string, unknown>
@@ -37,6 +38,7 @@ export interface ToolChange {
     annotationChanges: string[]
     titleChanged: boolean
     descriptionChanged: boolean
+    categoryChanged: boolean
     // The schema differs although no listed field above shows it, for example a property type.
     schemaChanged: boolean
     sizeBefore: number | null
@@ -145,8 +147,8 @@ export function diffToolSurfaces(base: ToolSurface, head: ToolSurface): AgentApi
     for (const name of sorted(headNames)) {
         const sizeAfter = schemaSize(head, name)
         const sizeBefore = baseNames.has(name) ? schemaSize(base, name) : null
-        const wasOverLimit = sizeBefore !== null && sizeBefore > INPUT_SCHEMA_CHAR_LIMIT
-        if (sizeAfter !== null && sizeAfter > INPUT_SCHEMA_CHAR_LIMIT && !wasOverLimit) {
+        const wasOverLimit = sizeBefore !== null && sizeBefore >= INPUT_SCHEMA_CHAR_LIMIT
+        if (sizeAfter !== null && sizeAfter >= INPUT_SCHEMA_CHAR_LIMIT && !wasOverLimit) {
             diff.overLimit.push({ name, size: sizeAfter, wasSize: sizeBefore })
         }
         if (!baseNames.has(name)) {
@@ -168,6 +170,7 @@ export function diffToolSurfaces(base: ToolSurface, head: ToolSurface): AgentApi
                 head.definitions[name]?.annotations
             ),
             titleChanged: base.definitions[name]?.title !== head.definitions[name]?.title,
+            categoryChanged: base.definitions[name]?.category !== head.definitions[name]?.category,
             descriptionChanged: base.definitions[name]?.description !== head.definitions[name]?.description,
             // Snapshot files are key-sorted, so equal schemas serialize to equal text.
             schemaChanged: schemaText(base, name) !== schemaText(head, name),
@@ -182,6 +185,7 @@ export function diffToolSurfaces(base: ToolSurface, head: ToolSurface): AgentApi
             change.annotationChanges.length > 0 ||
             change.titleChanged ||
             change.descriptionChanged ||
+            change.categoryChanged ||
             change.schemaChanged
         if (hasChange) {
             diff.changed.push(change)
@@ -251,7 +255,7 @@ export function renderAgentApiDiff(diff: AgentApiDiff): string {
             note: `${chars(size)}, was ${chars(wasSize)}`,
         }))
         lines.push(
-            `**Input schema now over ${INPUT_SCHEMA_CHAR_LIMIT.toLocaleString('en-US')} chars (${diff.overLimit.length}):** ${listNames(items)}`
+            `**Input schema now at or over ${INPUT_SCHEMA_CHAR_LIMIT.toLocaleString('en-US')} chars (${diff.overLimit.length}):** ${listNames(items)}`
         )
     }
 
@@ -261,6 +265,7 @@ export function renderAgentApiDiff(diff: AgentApiDiff): string {
             const title = [
                 change.titleChanged ? 'title changed' : '',
                 change.descriptionChanged ? 'description changed' : '',
+                change.categoryChanged ? 'category changed' : '',
             ]
                 .filter(Boolean)
                 .join('; ')

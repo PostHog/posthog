@@ -402,7 +402,8 @@ jobs:
                   # MCP files that come from YAML and Zod only. They run after build:openapi so they
                   # read the regenerated tool files.
                   if [ "$NEEDS_MCP_LOCAL" = "true" ]; then
-                    bin/hogli build:schema-mcp
+                    # Same commands hogli build:schema-mcp runs, called directly: this path has no Python.
+                    (cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt schema/tool-inputs.json)
                     pnpm --filter=@posthog/mcp run generate:ui-apps
                   fi
 
