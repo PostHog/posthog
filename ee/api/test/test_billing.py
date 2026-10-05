@@ -2689,11 +2689,14 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
             response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
         )
 
-    def test_coupons_overview_still_accessible(self):
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_coupons_overview_still_accessible(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {"claimed_coupons": []}
+
         response = self.client.get("/api/billing/coupons/overview")
-        self.assertIn(
-            response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
-        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"claimed_coupons": []})
 
 
 class TestResolveTeamLabels(APIBaseTest):
