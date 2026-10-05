@@ -1,4 +1,4 @@
-import { getColumnInsertText, getSidebarAddJoinSourceTableName } from './QueryDatabase'
+import { getColumnInsertText, getSidebarAddJoinSourceTableName, getSidebarPreviewQuery } from './QueryDatabase'
 
 describe('QueryDatabase', () => {
     describe('getColumnInsertText', () => {
@@ -47,6 +47,40 @@ describe('QueryDatabase', () => {
             ['unknown row types do not expose add join', undefined, 'mystery', undefined, null],
         ])('%s', (_name, recordType, itemName, tableName, expected) => {
             expect(getSidebarAddJoinSourceTableName(recordType, itemName, tableName)).toEqual(expected)
+        })
+    })
+
+    describe('getSidebarPreviewQuery', () => {
+        test.each([
+            [
+                'tables query the same shape as views, so both open on the results tab',
+                { type: 'table' },
+                'events',
+                'SELECT * FROM events LIMIT 100',
+            ],
+            [
+                'a dotted table name quotes only the parts that need it',
+                { type: 'table' },
+                'my source.orders',
+                'SELECT * FROM "my source".orders LIMIT 100',
+            ],
+            ['views query their own name', { type: 'view' }, 'my_view', 'SELECT * FROM my_view LIMIT 100'],
+            [
+                'managed views query their own name',
+                { type: 'managed-view' },
+                'managed_view',
+                'SELECT * FROM managed_view LIMIT 100',
+            ],
+            [
+                'endpoints query the underlying table',
+                { type: 'endpoint', tableName: 'my_endpoint_v3' },
+                'my endpoint',
+                'SELECT * FROM my_endpoint_v3 LIMIT 100',
+            ],
+            ['columns have nothing to query', { type: 'column' }, 'id', null],
+            ['rows with no record have nothing to query', undefined, 'mystery', null],
+        ])('%s', (_name, record, itemName, expected) => {
+            expect(getSidebarPreviewQuery(record, itemName)).toEqual(expected)
         })
     })
 })
