@@ -680,6 +680,7 @@ the row lists both.
 | segment                          | HTTP                        | requests                                                        | ✅                          |
 | select_star                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | semantic_scholar                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| semaphore                        | HTTP                        | requests                                                        | ✅                          |
 | semgrep                          | HTTP                        | requests                                                        | ✅                          |
 | semrush                          | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                         | HTTP                        | requests                                                        | ✅                          |
@@ -1381,7 +1382,7 @@ doesn't conflict with concurrent PRs.
 - search_ads_360
 - sec_edgar
 - secureframe
-- semaphore
+- semrush
 - sendpulse
 - senseforce
 - service_fusion
