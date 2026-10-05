@@ -84,8 +84,9 @@ async function api(method, path, body, keepalive = false) {
     if (token) {
         headers['x-hoguin-token'] = token
     }
+    // Never from the browser cache: an old answer names a server that is gone.
     /** @type {RequestInit} */
-    const init = { method, headers, keepalive }
+    const init = { method, headers, keepalive, cache: 'no-store' }
     if (body !== undefined) {
         init.body = JSON.stringify(body)
     }
@@ -137,10 +138,17 @@ function connect() {
         if (!token) {
             return
         }
-        void api('GET', '/api/state').then((result) => {
-            if (result.status === 401) {
-                token = null
-                source.close()
+        void api('GET', '/api/state').then(async (result) => {
+            if (result.status !== 401) {
+                return
+            }
+            token = null
+            source.close()
+            // After a restart the server is a new one. The page starts over with it, without joining the old way first.
+            const described = await api('GET', '/api/world').catch(() => null)
+            if (described?.data && described.data.serverId !== world.serverId) {
+                window.location.reload()
+            } else {
                 void start_()
             }
         })

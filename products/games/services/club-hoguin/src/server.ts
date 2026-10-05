@@ -223,7 +223,9 @@ export function createClubHoguinServer({
             response.writeHead(200, {
                 ...SECURITY_HEADERS,
                 'content-type': 'application/json; charset=utf-8',
-                'cache-control': 'public, max-age=300',
+                // The description names this server process. A cached copy from before a restart makes
+                // every open page reload again and again, because its server id never matches.
+                'cache-control': 'no-store',
                 vary: 'accept-encoding',
                 ...(isCompressed ? { 'content-encoding': 'gzip' } : {}),
             })
