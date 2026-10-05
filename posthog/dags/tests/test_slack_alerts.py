@@ -8,6 +8,8 @@ from posthog.dags.common import JobOwners
 from posthog.dags.slack_alerts import (
     SLACK_SECTION_TEXT_LIMIT,
     _truncate_for_slack,
+    build_failure_alert_blocks,
+    get_alert_channel,
     get_job_owner_for_alert,
     send_slack_alert,
     should_suppress_alert,
@@ -15,6 +17,25 @@ from posthog.dags.slack_alerts import (
 
 
 class TestSlackAlertsRouting:
+    def test_query_log_archive_export_uses_query_performance_runbook(self):
+        assert get_alert_channel("export_query_log_archive_to_s3", JobOwners.TEAM_ANALYTICS_PLATFORM.value) == (
+            "#support-query-performance"
+        )
+
+        blocks = build_failure_alert_blocks(
+            "export_query_log_archive_to_s3",
+            "run-id",
+            "https://dagster.example.com/runs/run-id",
+            "{}",
+            "failed",
+            "US",
+        )
+
+        assert blocks[1]["text"] == {
+            "type": "mrkdwn",
+            "text": "*Runbook*: <https://github.com/PostHog/posthog/blob/master/posthog/dags/README.md#query-log-archive-export-failure-runbook|Recover the query log archive export>",
+        }
+
     def test_regular_job_uses_owner_tag(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "some_regular_job"

@@ -105,6 +105,15 @@ To set up a new team with their own Dagster definitions and Slack alerts, follow
 - Each team has a dedicated Slack channel where their alerts are routed based on job ownership
 - Failed jobs send a message to the appropriate team channel with a link to the Dagster run
 
+#### Query log archive export failure runbook
+
+The `export_query_log_archive_to_s3` job writes one day of query-log data to object storage. Its failure alert goes to `#support-query-performance` and includes this runbook.
+
+1. Open the Dagster run linked in the alert. Record the failed partition day and the error type.
+2. If the failure is transient, launch the same daily partition again after the dependent service recovers. The export overwrites the partition output, so do not remove objects manually.
+3. If the failure reports a ClickHouse memory or resource limit, do not increase the limit from the run. Send the run link, failed day, and error to the Query Performance team. They can adjust the job resource or query before the retry.
+4. Verify that the retry succeeds. For missed days, launch each missing daily partition after the underlying problem is fixed.
+
 #### Consecutive Failure Thresholds
 
 Some jobs are configured to only alert after multiple consecutive failures to avoid alert fatigue. Configure this in `slack_alerts.py`:

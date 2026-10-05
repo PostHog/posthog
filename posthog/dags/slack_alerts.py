@@ -31,6 +31,14 @@ notification_channel_per_team = {
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
 }
 
+JOB_ALERT_CHANNELS = {
+    "export_query_log_archive_to_s3": "#support-query-performance",
+}
+
+JOB_ALERT_RUNBOOK_URLS = {
+    "export_query_log_archive_to_s3": "https://github.com/PostHog/posthog/blob/master/posthog/dags/README.md#query-log-archive-export-failure-runbook",
+}
+
 CONSECUTIVE_FAILURE_THRESHOLDS = {
     "web_pre_aggregate_current_day_hourly_job": 3,
     "web_pre_aggregate_job": 3,
@@ -131,6 +139,50 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
     return job_owner
 
 
+def get_alert_channel(job_name: str, job_owner: str) -> str:
+    return JOB_ALERT_CHANNELS.get(
+        job_name, notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL)
+    )
+
+
+def build_failure_alert_blocks(
+    job_name: str,
+    run_id: str,
+    run_url: str,
+    tags_text: str,
+    error_text: str,
+    environment: str,
+) -> list[dict[str, object]]:
+    blocks: list[dict[str, object]] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags_text}",
+            },
+        }
+    ]
+
+    if runbook_url := JOB_ALERT_RUNBOOK_URLS.get(job_name):
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Runbook*: <{runbook_url}|Recover the query log archive export>"},
+            }
+        )
+
+    blocks.extend(
+        [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error_text}```"}},
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"Environment: {environment}"}],
+            },
+        ]
+    )
+    return blocks
+
+
 def should_suppress_alert(context: dagster.RunFailureSensorContext, job_name: str, threshold: int) -> bool:
     try:
         run_records = context.instance.get_run_records(
@@ -195,27 +247,14 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
         f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
     )
 
-    channel = notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL)
+    channel = get_alert_channel(job_name, job_owner)
 
     # Truncate so a single oversized field can't get the whole message rejected. The error is wrapped
     # in a ``` code fence, so leave headroom below the 3000-char section limit for the fence + label.
     tags_text = _truncate_for_slack(str(tags), 500)
     error_text = _truncate_for_slack(str(error), SLACK_SECTION_TEXT_LIMIT - 200)
 
-    blocks: list[dict[str, object]] = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags_text}",
-            },
-        },
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error_text}```"}},
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"Environment: {environment}"}],
-        },
-    ]
+    blocks = build_failure_alert_blocks(job_name, run_id, run_url, tags_text, error_text, environment)
 
     # Plain-text fallback carried on every message so the alert still lands (and renders in
     # notifications) even if the rich blocks are rejected.
