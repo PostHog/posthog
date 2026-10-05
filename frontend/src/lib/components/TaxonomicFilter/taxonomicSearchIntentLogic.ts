@@ -14,9 +14,9 @@ import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { legacyTaxonomicSurface } from './taxonomicFilterSurface'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from './types'
 
-export type SearchIntentVariant = 'control' | 'banner' | 'promote'
+export type SearchIntentVariant = 'control' | 'banner' | 'promote' | 'holdout'
 
-const SEARCH_INTENT_VARIANTS: SearchIntentVariant[] = ['control', 'banner', 'promote']
+const SEARCH_INTENT_VARIANTS: SearchIntentVariant[] = ['control', 'banner', 'promote', 'holdout']
 
 // Mirrors MIN_QUERY_CHARS and MAX_QUERY_CHARS in posthog/taxonomic_search_intent/classify.py.
 const MIN_QUERY_LENGTH = 2
@@ -219,7 +219,12 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 !!intent.group_type &&
                 intent.activeTab === TaxonomicFilterGroupType.SuggestedFilters
             // Promote only while the results still show skeletons, so no row moves under the cursor.
-            const promoted = canPromote && !values.revealBarrierOpen && values.activeTab === intent.activeTab
+            // The holdout arm still asks and records wouldPromote, so it is the baseline for the promoted arms.
+            const promoted =
+                canPromote &&
+                values.variant !== 'holdout' &&
+                !values.revealBarrierOpen &&
+                values.activeTab === intent.activeTab
             if (promoted) {
                 actions.setIntentPromotedGroupType(intent.group_type as TaxonomicFilterGroupType)
             }

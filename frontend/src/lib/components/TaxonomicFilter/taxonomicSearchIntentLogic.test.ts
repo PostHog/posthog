@@ -186,19 +186,23 @@ describe('taxonomicSearchIntentLogic', () => {
         }
     )
 
-    it.each(['control', 'banner'])('promotes the predicted group on the All tab in the %s arm too', async (variant) => {
+    it.each([
+        ['control', TaxonomicFilterGroupType.PersonProperties, true],
+        ['banner', TaxonomicFilterGroupType.PersonProperties, true],
+        ['holdout', TaxonomicFilterGroupType.EventProperties, false],
+    ])('on the All tab, the %s arm puts %s first', async (variant, first, shown) => {
         enroll(variant)
         answer = { ...PERSON_PROPERTIES_ANSWER, suggests_switch: false }
         const captureSpy = jest.spyOn(posthog, 'capture')
         await search('email')
 
-        expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(TaxonomicFilterGroupType.PersonProperties)
+        expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(first)
         expect(captureSpy).toHaveBeenCalledWith(
             'taxonomic filter search intent predicted',
             expect.objectContaining({
                 variant,
                 wouldPromote: true,
-                shown: true,
+                shown,
             })
         )
     })
