@@ -12,7 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendarific import (
     CalendarificSourceConfig,
@@ -40,15 +43,16 @@ class CalendarificClient:
             if probe:
                 params.update({"month": 1, "day": 1})
 
+        endpoint_config: Endpoint = {
+            "path": endpoint,
+            "params": params,
+            "data_selector": f"response.{endpoint}",
+            "data_selector_required": True,
+        }
         endpoint_resource: EndpointResource = {
             "name": endpoint,
             "write_disposition": "replace",
-            "endpoint": {
-                "path": endpoint,
-                "params": params,
-                "data_selector": f"response.{endpoint}",
-                "data_selector_required": True,
-            },
+            "endpoint": endpoint_config,
         }
         rest_config: RESTAPIConfig = {
             "client": {
