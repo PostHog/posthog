@@ -55,8 +55,10 @@ class PublicLeakedKeyReport(APIView):
     if it matches a real credential, it's revoked immediately and the owner is
     notified — even if the submitted OAuth access token has itself already expired,
     since the paired refresh token it protects may still be live. The one exception
-    is a legacy feature flags secure API key, which cannot be rotated automatically:
-    its mirror PSAK row is deleted and the project admins are emailed to rotate it.
+    is a legacy feature flags secure API key, matched through its migrated PSAK row:
+    that row is deleted and the project admins are emailed to rotate the key, which
+    cannot be rotated automatically. A legacy key with no migrated row (none exists
+    before the #63111 backfill) is simply not found.
     Safety relies on possession of the plaintext token, not a signature — see
     secret_revocation.py.
 
@@ -88,8 +90,9 @@ class PublicLeakedKeyReport(APIView):
             "OAuth access/refresh token. If the token matches a real credential, it is revoked "
             "immediately and the owner is notified by email. This includes an expired OAuth "
             "access token: the paired refresh token it protects may still be live. A legacy "
-            "feature flags secure API key cannot be rotated automatically: its project admins "
-            "get an email to rotate it.\n\n"
+            "feature flags secure API key is matched through its migrated project secret API "
+            "key row; it cannot be rotated automatically, so its project admins get an email "
+            "to rotate it.\n\n"
             'This endpoint only checks the region it is running on. `"found": false` does not '
             "guarantee the token is safe. If you're not sure which region issued it, check "
             "both: https://app.posthog.com/api/revoke_leaked_key and "

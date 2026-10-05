@@ -30,7 +30,7 @@ from posthog.scopes import (
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
     scopes_not_covered,
 )
-from posthog.tasks.email import send_project_secret_api_key_exposed
+from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
@@ -202,6 +202,25 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     send_project_secret_api_key_exposed(
         project_secret_api_key.team_id, project_secret_api_key.id, old_mask_value, more_info
     )
+
+
+def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> bool:
+    """Revoke an exposed key the right way for what it actually is, and return whether it
+    was a mirrored legacy team token.
+
+    A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
+    is the revocation (rolling would mint an unrelated key that later rotation cannot
+    clean up), and the admins must still rotate the legacy token itself. Any other key
+    gets the ordinary roll-and-notify.
+    """
+    team = project_secret_api_key.team
+    for token in (team.secret_api_token, team.secret_api_token_backup):
+        if token and project_secret_api_key.secure_value == hash_key_value(token):
+            project_secret_api_key.delete()
+            send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+            return True
+    roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
+    return False
 
 
 @extend_schema(extensions={"x-product": "core"})

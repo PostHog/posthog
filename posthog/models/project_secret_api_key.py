@@ -67,3 +67,9 @@ def find_project_secret_api_key(token: str) -> Optional["ProjectSecretAPIKey"]:
         return ProjectSecretAPIKey.objects.select_related("team").get(secure_value=secure_value)
     except ProjectSecretAPIKey.DoesNotExist:
         return None
+
+
+def delete_project_secret_api_keys_for_token(team_id: int, token: str) -> None:
+    """A PSAK row whose hash equals a retired legacy token IS that credential: it must
+    stop authenticating when the token does (#63111 backfill)."""
+    ProjectSecretAPIKey.objects.filter(team_id=team_id, secure_value=hash_key_value(token)).delete()

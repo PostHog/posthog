@@ -67,6 +67,28 @@ class TestSigningSecret(BaseTest):
         self.assertEqual(cached.secret_api_token_backup, "phs_expired_backup")
         self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=backup_row.pk).exists())
 
+    def test_failed_backup_cleanup_rolls_the_deletion_back(self):
+        self.team.secret_api_token = "phs_current_primary_value"
+        self.team.secret_api_token_backup = "phs_backup_pending_deletion"
+        self.team.save()
+        backup_row, _ = create_project_secret_api_key(
+            self.team, label="Migrated legacy key (backup)", value="phs_backup_pending_deletion"
+        )
+
+        with patch(
+            "posthog.models.team.team.delete_project_secret_api_keys_for_token",
+            side_effect=OperationalError("connection lost"),
+        ):
+            with self.assertRaises(OperationalError):
+                self.team.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+
+        # The rollback must restore the instance and the cache, so a retry actually retries.
+        self.assertEqual(self.team.secret_api_token_backup, "phs_backup_pending_deletion")
+        cached = get_team_in_cache(self.team.api_token)
+        assert cached is not None
+        self.assertEqual(cached.secret_api_token_backup, "phs_backup_pending_deletion")
+        self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=backup_row.pk).exists())
+
     def test_child_environment_keeps_its_own_team_on_save(self):
         # Environment-scoped by design: a canonicalizing save() (RootTeamMixin) would rewrite
         # the child's row to the parent team, sharing one secret across sibling environments

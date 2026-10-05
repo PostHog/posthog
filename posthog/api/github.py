@@ -23,6 +23,7 @@ from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_REFRESH_TOKEN,
     CANONICAL_PERSONAL_API_KEY,
     CANONICAL_PROJECT_SECRET_API_KEY,
+    CANONICAL_TEAM_SECRET_TOKEN,
     revoke_leaked_secret,
 )
 from posthog.egress.github.transport import github_request
@@ -268,7 +269,7 @@ class SecretAlert(APIView):
                     try:
                         team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                         local_found = True
-                        key_kind = "team_secret_token"
+                        key_kind = CANONICAL_TEAM_SECRET_TOKEN
                         send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
 
                     except Team.DoesNotExist:

@@ -204,15 +204,17 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
 
-    @patch("posthog.api.secret_revocation.send_feature_flags_secure_api_key_exposed")
+    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
+    @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
     def test_team_token_with_backfilled_psak_deletes_the_row_and_notifies_admins(
-        self, mock_psak_exposed, mock_ff_exposed
+        self, _name, token_field, mock_psak_exposed, mock_ff_exposed
     ) -> None:
         # The backfilled row IS the leaked legacy credential: revocation deletes it and
         # tells the admins to rotate the still-valid team token.
         token = "phs_legacy_team_secret_token_with_migrated_row"
-        self.team.secret_api_token = token
+        self.team.secret_api_token = "phs_some_current_primary_value" if token_field != "secret_api_token" else token
+        setattr(self.team, token_field, token)
         self.team.save()
         row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
 
@@ -222,7 +224,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertEqual(response.json(), {"found": True, "type": "team_secret_token"})
         self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
         self.team.refresh_from_db()
-        self.assertEqual(self.team.secret_api_token, token)
+        self.assertEqual(getattr(self.team, token_field), token)
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
 
