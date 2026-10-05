@@ -15,7 +15,7 @@ import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
@@ -244,10 +244,11 @@ describe('EmailService', () => {
                 queries.mock.calls.some(
                     ([, sql]) => typeof sql === 'string' && sql.includes('posthog_organizationmembership')
                 )
-            let sandboxRedisClient: Redis.Redis | undefined
+            let sandboxRedisClients: Redis.Redis[]
+            let dailyCapLimiter: RateLimiterService
             const createSandboxLimiter = async (name: string): Promise<RateLimiterService> => {
-                sandboxRedisClient = await hub.redisPool.acquire()
-                const client = sandboxRedisClient
+                const client = await hub.redisPool.acquire()
+                sandboxRedisClients.push(client)
                 defineLuaTokenBucketV2(client)
                 defineLuaTokenBucketV3(client)
                 const redis: RedisV2 = {
@@ -262,9 +263,21 @@ describe('EmailService', () => {
             }
             const createSandboxService = (
                 enabled: boolean,
-                tierLimiter: RateLimiterService | null = null,
-                messageAssetsService?: MessageAssetsService,
-                membersPostgres: PostgresRouter = hub.postgres
+                {
+                    tierLimiter = null,
+                    messageAssetsService,
+                    membersPostgres = hub.postgres,
+                    capLimiter = dailyCapLimiter,
+                    dailyTeamCap = 100,
+                    dailyRecipientCap = 100,
+                }: {
+                    tierLimiter?: RateLimiterService | null
+                    messageAssetsService?: MessageAssetsService
+                    membersPostgres?: PostgresRouter
+                    capLimiter?: RateLimiterService | null
+                    dailyTeamCap?: number
+                    dailyRecipientCap?: number
+                } = {}
             ): EmailService => {
                 const sandboxService = new EmailService(
                     {
@@ -294,8 +307,11 @@ describe('EmailService', () => {
                             tenantName: 'sandbox-tenant',
                             configurationSetName: 'sandbox-email',
                             fromAddress: 'fixed-sandbox@example.com',
+                            dailyTeamCap,
+                            dailyRecipientCap,
                         },
-                        hub.teamManager
+                        hub.teamManager,
+                        capLimiter
                     ),
                     new OrganizationMembersService(membersPostgres)
                 )
@@ -306,6 +322,8 @@ describe('EmailService', () => {
 
             beforeEach(async () => {
                 capture = jest.spyOn(posthog, 'captureTeamEvent').mockImplementation(() => {})
+                sandboxRedisClients = []
+                dailyCapLimiter = await createSandboxLimiter('sandbox-daily-cap-test')
                 memberIds = []
                 extraOrganizationIds = []
                 memberId = await createMember(memberEmail())
@@ -353,9 +371,8 @@ describe('EmailService', () => {
                     'test:delete-sandbox-organizations'
                 )
                 capture.mockRestore()
-                if (sandboxRedisClient) {
-                    await hub.redisPool.release(sandboxRedisClient)
-                    sandboxRedisClient = undefined
+                for (const client of sandboxRedisClients) {
+                    await hub.redisPool.release(client)
                 }
             })
 
@@ -402,7 +419,7 @@ describe('EmailService', () => {
                     if (checkFailed) {
                         await membersPostgres.end()
                     }
-                    service = createSandboxService(true, null, undefined, membersPostgres)
+                    service = createSandboxService(true, { membersPostgres })
                     invocation.queueParameters = createSandboxParams({
                         from: { integrationId: 4 },
                         cc: outside.slice(0, 100).join(', '),
@@ -686,7 +703,7 @@ describe('EmailService', () => {
                             [team.id],
                             'test:own-sandbox-team-lookup'
                         )
-                        service = createSandboxService(true, null, undefined, membersPostgres)
+                        service = createSandboxService(true, { membersPostgres })
                         if (warm) {
                             const first = await service.executeSendEmail(invocation, isTest)
                             expect(first.error).toBeUndefined()
@@ -789,7 +806,7 @@ describe('EmailService', () => {
                     .spyOn(Date, 'now')
                     .mockImplementation(() => now + (hasQueriedMembers(queries) ? 5_000 : 0))
                 try {
-                    service = createSandboxService(true, null, undefined, membersPostgres)
+                    service = createSandboxService(true, { membersPostgres })
                     const first = await service.executeSendEmail(invocation)
                     expect(first.error).toBeUndefined()
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)
@@ -842,7 +859,7 @@ describe('EmailService', () => {
                         .spyOn(Date, 'now')
                         .mockImplementation(() => now + (hasQueriedMembers(memberQueries) ? memberQueryMs : 0))
                     try {
-                        service = createSandboxService(true, null, undefined, membersPostgres)
+                        service = createSandboxService(true, { membersPostgres })
 
                         const result = await service.executeSendEmail(invocation, isTest)
 
@@ -887,7 +904,7 @@ describe('EmailService', () => {
                     const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
                     let databaseClosed = false
                     try {
-                        service = createSandboxService(true, null, undefined, membersPostgres)
+                        service = createSandboxService(true, { membersPostgres })
                         const params = createSandboxParams({ from: { integrationId: 4 } })
                         const first = await service.executeSendEmail(invocation)
                         expect(first.error).toBeUndefined()
@@ -1115,7 +1132,7 @@ describe('EmailService', () => {
                             'DEFAULT'
                         ),
                     })
-                    service = createSandboxService(true, null, new MessageAssetsService(outputs))
+                    service = createSandboxService(true, { messageAssetsService: new MessageAssetsService(outputs) })
                     invocation.state.actionId = 'send-email'
                     invocation.queueParameters = createSandboxParams({
                         from: { integrationId: 4, email: 'override@example.com', name: 'Custom sender' },
@@ -1256,7 +1273,10 @@ describe('EmailService', () => {
                         ),
                     })
                     const limiter = await createSandboxLimiter('sandbox-rejected-html-budget-test')
-                    service = createSandboxService(true, limiter, new MessageAssetsService(outputs))
+                    service = createSandboxService(true, {
+                        tierLimiter: limiter,
+                        messageAssetsService: new MessageAssetsService(outputs),
+                    })
                     invocation.state.actionId = 'send-email'
                     const params = createSandboxParams({ from: { integrationId: 4 }, text, html })
                     invocation.queueParameters = params
@@ -1352,7 +1372,7 @@ describe('EmailService', () => {
 
             it('bypasses an exhausted sending tier and leaves its budget for own senders', async () => {
                 const limiter = await createSandboxLimiter('sandbox-tier-budget-test')
-                service = createSandboxService(true, limiter)
+                service = createSandboxService(true, { tierLimiter: limiter })
                 const sandbox = await service.executeSendEmail(invocation)
                 expect(sandbox).toMatchObject({ finished: true })
                 expect(sandbox.error).toBeUndefined()
@@ -1373,6 +1393,119 @@ describe('EmailService', () => {
                 expect(afterExhaustion).toMatchObject({ finished: true })
                 expect(afterExhaustion.error).toBeUndefined()
                 expect(sendEmailSpy).toHaveBeenCalledTimes(3)
+            })
+
+            describe('daily caps', () => {
+                const TEAM_CAP_REACHED =
+                    "Skipping send: this project reached the sandbox sender's daily limit. Verify your own domain to send more."
+                const recipientCapReached = (addresses: string): string =>
+                    `Skipping send: these addresses reached the sandbox sender's daily limit per address: ${addresses}. Verify your own domain to send more.`
+                const CAP_CHECK_FAILED =
+                    "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more."
+
+                const send = async (
+                    isTest: boolean,
+                    params: Partial<CyclotronInvocationQueueParametersEmailType>
+                ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> => {
+                    invocation.state.vmState = { stack: [] } as any
+                    invocation.queueParameters = createSandboxParams({ from: { integrationId: 4 }, ...params })
+                    return await service.executeSendEmail(invocation, isTest)
+                }
+                const expectSent = (result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>): void => {
+                    expect(result.error).toBeUndefined()
+                    expect(result.skipped).not.toBe(true)
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                }
+                const expectSkipped = (
+                    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+                    isTest: boolean,
+                    message: string,
+                    blocked: { reason: 'cap_reached' | 'check_failed'; blocked_recipient_count: number }
+                ): void => {
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                    expect(result.logs).toContainEqual(expect.objectContaining({ level: 'info', message }))
+                    expect(capture).toHaveBeenLastCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        { ...blocked, is_test: isTest }
+                    )
+                }
+
+                it.each([false, true])(
+                    'holds the project to its daily cap without charging denied or own-sender sends (isTest=%s)',
+                    async (isTest) => {
+                        service = createSandboxService(true, { dailyTeamCap: 3 })
+
+                        expectSent(await send(isTest, { from: { integrationId: 1 } }))
+                        expectSent(await send(isTest, { to: { email: memberEmail() } }))
+                        expectSkipped(
+                            await send(isTest, {
+                                to: { email: memberEmail() },
+                                cc: memberEmail('cc'),
+                                bcc: memberEmail('bcc'),
+                            }),
+                            isTest,
+                            TEAM_CAP_REACHED,
+                            { reason: 'cap_reached', blocked_recipient_count: 3 }
+                        )
+                        expectSent(await send(isTest, { to: { email: memberEmail('cc') } }))
+                        expectSent(await send(isTest, { to: { email: memberEmail('bcc') } }))
+                        expectSkipped(await send(isTest, { to: { email: memberEmail() } }), isTest, TEAM_CAP_REACHED, {
+                            reason: 'cap_reached',
+                            blocked_recipient_count: 1,
+                        })
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(4)
+                    }
+                )
+
+                it.each([false, true])(
+                    'skips a send with one recipient at the daily cap and leaves the others their budget (isTest=%s)',
+                    async (isTest) => {
+                        service = createSandboxService(true, { dailyRecipientCap: 1 })
+
+                        expectSent(await send(isTest, { to: { email: memberEmail('cc') } }))
+                        expectSkipped(
+                            await send(isTest, { to: { email: memberEmail() }, cc: memberEmail('cc').toUpperCase() }),
+                            isTest,
+                            recipientCapReached(memberEmail('cc').toUpperCase()),
+                            { reason: 'cap_reached', blocked_recipient_count: 1 }
+                        )
+                        expectSent(await send(isTest, { to: { email: memberEmail() } }))
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                    }
+                )
+
+                it.each([
+                    [
+                        'the limiter is unreachable',
+                        false,
+                        {
+                            capLimiter: new RateLimiterService(
+                                {
+                                    useClient: () => Promise.reject(new Error('Connection is closed.')),
+                                    usePipeline: () => Promise.reject(new Error('Connection is closed.')),
+                                },
+                                { name: 'sandbox-unreachable-test' }
+                            ),
+                        },
+                    ],
+                    ['no limiter is configured', true, { capLimiter: null }],
+                    ['the project cap is unset', false, { dailyTeamCap: NaN }],
+                    ['the recipient cap is unset', true, { dailyRecipientCap: NaN }],
+                    ['the project cap is zero', true, { dailyTeamCap: 0 }],
+                    ['the recipient cap is fractional', false, { dailyRecipientCap: 1.5 }],
+                ] as const)('skips every send when %s (isTest=%s)', async (_name, isTest, options) => {
+                    service = createSandboxService(true, options)
+
+                    expectSkipped(await send(isTest, { cc: memberEmail('cc') }), isTest, CAP_CHECK_FAILED, {
+                        reason: 'check_failed',
+                        blocked_recipient_count: 2,
+                    })
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                })
             })
         })
         describe('integration validation', () => {
