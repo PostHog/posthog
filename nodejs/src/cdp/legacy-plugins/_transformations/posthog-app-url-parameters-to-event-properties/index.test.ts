@@ -515,6 +515,17 @@ describe('ParamsToPropertiesPlugin', () => {
             }
         })
 
+        it.each([
+            ['relative', '/test?myUrlParameter=1'],
+            ['malformed', 'not a url?myUrlParameter=1'],
+        ])('should return the event unchanged when $current_url is %s', (_, $current_url) => {
+            const sourceEvent = buildPageViewEvent($current_url)
+
+            const processedEvent = processEvent(sourceEvent, mockMeta)
+
+            expect(processedEvent.properties).toEqual({ $current_url })
+        })
+
         it("shouldn't add properties when properties is undefined", () => {
             const sourceEvent = {
                 ...buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1'),
