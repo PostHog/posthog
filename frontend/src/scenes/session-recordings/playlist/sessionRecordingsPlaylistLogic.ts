@@ -130,6 +130,17 @@ function isValidRecordingOrderDirection(direction: unknown): boolean {
     return !!direction && isString(direction) && ['ASC', 'DESC'].includes(direction)
 }
 
+/**
+ * A playlist that syncs with the URL can stay mounted after the user opens another page.
+ * Other pages use the same `filters` search param for their own filters, so the playlist syncs
+ * only on the page where it first read the URL.
+ */
+function isOnOwnPage(cache: Record<string, any>): boolean {
+    const pathname = router.values.location.pathname
+    cache.ownPathname ??= pathname
+    return cache.ownPathname === pathname
+}
+
 const isReplayURLSearchParams = (x: ReplayURLSearchParamTypes): x is ReplayURLSearchParams => {
     const replayURLSearchParams = x as ReplayURLSearchParams
     return (
@@ -322,7 +333,7 @@ const handleLoadCollectionRecordings = (shortId: string): void => {
  * @returns True if the filters are valid, false otherwise.
  */
 export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
-    if (!filters || typeof filters !== 'object') {
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
         return false
     }
 
@@ -2420,20 +2431,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     }),
 
-    actionToUrl(({ props, values }) => {
+    actionToUrl(({ props, values, cache }) => {
         if (!props.updateSearchParams) {
             return {}
         }
         const buildURL = (
             replace: boolean
-        ): [
-            string,
-            ReplayURLSearchParamTypes,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
+        ):
+            | [
+                  string,
+                  ReplayURLSearchParamTypes,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  },
+              ]
+            | undefined => {
+            if (!isOnOwnPage(cache)) {
+                return undefined
+            }
             const params: ReplayURLSearchParamTypes = objectClean({
                 ...router.values.searchParams,
                 filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
@@ -2465,9 +2481,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
     }),
 
-    urlToAction(({ actions, values, props }) => {
+    urlToAction(({ actions, values, props, cache }) => {
         const urlToAction = (_: any, params: ReplayURLSearchParamTypes): void => {
-            if (!props.updateSearchParams) {
+            if (!props.updateSearchParams || !isOnOwnPage(cache)) {
                 return
             }
 

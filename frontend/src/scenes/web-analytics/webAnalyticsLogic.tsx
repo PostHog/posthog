@@ -3719,7 +3719,14 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 }
             })
             if (diverged) {
-                router.actions.replace(canonicalUrl)
+                // The `replace()` re-runs this `urlToAction` synchronously. Without the guard, another logic
+                // that writes the same param back can make the two logics rewrite the URL until the stack overflows.
+                cache.isReconcilingUrl = true
+                try {
+                    router.actions.replace(canonicalUrl)
+                } finally {
+                    cache.isReconcilingUrl = false
+                }
             }
         }
 
@@ -3736,7 +3743,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 cache.applyUrlStateDepth -= 1
             }
             // Only reconcile once unwound to the outermost restore, so a nested restore doesn't fire its own.
-            if (cache.applyUrlStateDepth === 0) {
+            if (cache.applyUrlStateDepth === 0 && !cache.isReconcilingUrl) {
                 reconcileUrlAfterRestore()
             }
         }
