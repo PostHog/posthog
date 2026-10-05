@@ -25,6 +25,8 @@ export const AgenticAuthorize = (): JSX.Element => {
         pendingAuthLoading,
         state,
         partnerName,
+        paysForCustomers,
+        partnerOrganizationName,
         agenticAuthorization,
         isAgenticAuthorizationSubmitting,
     } = useValues(agenticAuthorizeLogic)
@@ -52,46 +54,70 @@ export const AgenticAuthorize = (): JSX.Element => {
                         Authorize <strong>{partnerName}</strong>
                     </h2>
                     <p className="text-muted mt-2 text-sm sm:text-base">
-                        {partnerName} is requesting access to your PostHog project.
+                        {paysForCustomers
+                            ? `${partnerName} is requesting access to PostHog.`
+                            : `${partnerName} is requesting access to your PostHog project.`}
                     </p>
                 </div>
 
                 <Form logic={agenticAuthorizeLogic} formKey="agenticAuthorization">
                     <LemonCard hoverEffect={false} className="p-4 sm:p-6">
-                        <div className="flex flex-col gap-2">
-                            <LemonLabel>Select organization</LemonLabel>
-                            <LemonField name="scoped_organizations">
-                                {({ value, onChange }) => (
-                                    <OrganizationSelector
-                                        organizations={allOrganizations}
-                                        mode="single"
-                                        value={value?.length > 0 ? [value[0]] : []}
-                                        onChange={(val: string[]) => {
-                                            onChange(val.length > 0 ? [val[0]] : [])
-                                            setAgenticAuthorizationValue('scoped_teams', [])
-                                        }}
-                                    />
-                                )}
-                            </LemonField>
-                        </div>
+                        {paysForCustomers ? (
+                            <div>
+                                <div className="text-sm font-semibold uppercase text-muted mb-2">Organization</div>
+                                <p className="m-0">
+                                    {partnerOrganizationName ? (
+                                        <>
+                                            {partnerName} connects to <strong>{partnerOrganizationName}</strong>, the
+                                            organization it already set up for you.
+                                        </>
+                                    ) : (
+                                        `PostHog creates a new organization for you. ${partnerName} pays for it.`
+                                    )}
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex flex-col gap-2">
+                                    <LemonLabel>Select organization</LemonLabel>
+                                    <LemonField name="scoped_organizations">
+                                        {({ value, onChange }) => (
+                                            <OrganizationSelector
+                                                organizations={allOrganizations}
+                                                mode="single"
+                                                value={value?.length > 0 ? [value[0]] : []}
+                                                onChange={(val: string[]) => {
+                                                    onChange(val.length > 0 ? [val[0]] : [])
+                                                    setAgenticAuthorizationValue('scoped_teams', [])
+                                                }}
+                                            />
+                                        )}
+                                    </LemonField>
+                                </div>
 
-                        <div className="flex flex-col gap-2 mt-4">
-                            <LemonLabel>Select project</LemonLabel>
-                            <LemonField name="scoped_teams">
-                                {({ value, onChange }) => (
-                                    <TeamSelector
-                                        teams={filteredTeams}
-                                        organizations={allOrganizations}
-                                        mode="single"
-                                        value={value?.length > 0 ? [String(value[0])] : []}
-                                        onChange={(val: string[]) => onChange(val.length > 0 ? [parseInt(val[0])] : [])}
-                                    />
-                                )}
-                            </LemonField>
-                            {!selectedOrgId && (
-                                <p className="text-xs text-muted">Select an organization first to see its projects.</p>
-                            )}
-                        </div>
+                                <div className="flex flex-col gap-2 mt-4">
+                                    <LemonLabel>Select project</LemonLabel>
+                                    <LemonField name="scoped_teams">
+                                        {({ value, onChange }) => (
+                                            <TeamSelector
+                                                teams={filteredTeams}
+                                                organizations={allOrganizations}
+                                                mode="single"
+                                                value={value?.length > 0 ? [String(value[0])] : []}
+                                                onChange={(val: string[]) =>
+                                                    onChange(val.length > 0 ? [parseInt(val[0])] : [])
+                                                }
+                                            />
+                                        )}
+                                    </LemonField>
+                                    {!selectedOrgId && (
+                                        <p className="text-xs text-muted">
+                                            Select an organization first to see its projects.
+                                        </p>
+                                    )}
+                                </div>
+                            </>
+                        )}
 
                         {scopeDescriptions.length > 0 && (
                             <>

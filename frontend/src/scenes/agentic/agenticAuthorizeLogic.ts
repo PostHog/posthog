@@ -18,6 +18,13 @@ export type AgenticAuthorizationFormValues = {
     access_type: 'teams'
 }
 
+export type AgenticPendingAuth = {
+    partner_name: string
+    scopes: string[]
+    pays_for_customers: boolean
+    partner_organization_name: string | null
+}
+
 // A stuck confirm request left the button spinning with no way out, so bound it.
 const CONFIRM_TIMEOUT_MS = 20000
 
@@ -120,10 +127,9 @@ export interface agenticAuthorizeLogicValues {
     isAgenticAuthorizationSubmitting: boolean
     isAgenticAuthorizationValid: boolean
     partnerName: string
-    pendingAuth: {
-        partner_name: string
-        scopes: string[]
-    } | null
+    partnerOrganizationName: string | null
+    paysForCustomers: boolean
+    pendingAuth: AgenticPendingAuth | null
     pendingAuthLoading: boolean
     scopeDescriptions: string[]
     scopes: string[]
@@ -160,16 +166,10 @@ export interface agenticAuthorizeLogicActions {
         errorObject?: any
     }
     loadPendingAuthSuccess: (
-        pendingAuth: {
-            partner_name: string
-            scopes: string[]
-        } | null,
+        pendingAuth: AgenticPendingAuth | null,
         payload?: any
     ) => {
-        pendingAuth: {
-            partner_name: string
-            scopes: string[]
-        } | null
+        pendingAuth: AgenticPendingAuth | null
         payload?: any
     }
     resetAgenticAuthorization: (values?: AgenticAuthorizationFormValues) => {
@@ -220,18 +220,10 @@ export interface agenticAuthorizeLogicMeta {
             allTeams: TeamBasicType[] | null,
             agenticAuthorization: AgenticAuthorizationFormValues
         ) => TeamBasicType[]
-        partnerName: (
-            pendingAuth: {
-                partner_name: string
-                scopes: string[]
-            } | null
-        ) => string
-        scopes: (
-            pendingAuth: {
-                partner_name: string
-                scopes: string[]
-            } | null
-        ) => string[]
+        partnerName: (pendingAuth: AgenticPendingAuth | null) => string
+        paysForCustomers: (pendingAuth: AgenticPendingAuth | null) => boolean
+        partnerOrganizationName: (pendingAuth: AgenticPendingAuth | null) => string | null
+        scopes: (pendingAuth: AgenticPendingAuth | null) => string[]
         scopeDescriptions: (scopes: string[]) => string[]
     }
 }
@@ -263,7 +255,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             },
         ],
         pendingAuth: [
-            null as { partner_name: string; scopes: string[] } | null,
+            null as AgenticPendingAuth | null,
             {
                 loadPendingAuth: async () => {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
@@ -287,10 +279,23 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                 scoped_teams: [],
                 access_type: 'teams',
             } as AgenticAuthorizationFormValues,
-            errors: ({ scoped_organizations, scoped_teams }: AgenticAuthorizationFormValues) => ({
-                scoped_organizations: !scoped_organizations?.length ? ('Select an organization' as any) : undefined,
-                scoped_teams: !scoped_teams?.length ? ('Select a project' as any) : undefined,
-            }),
+            // Selector-style errors so validation recomputes when the pending request resolves,
+            // not only when form values change: a paying partner's form has no fields to fill.
+            errors: [
+                (s) => [s.agenticAuthorization, s.pendingAuth],
+                (
+                    { scoped_organizations, scoped_teams }: AgenticAuthorizationFormValues,
+                    pendingAuth: AgenticPendingAuth | null
+                ) =>
+                    pendingAuth?.pays_for_customers
+                        ? {}
+                        : {
+                              scoped_organizations: !scoped_organizations?.length
+                                  ? ('Select an organization' as any)
+                                  : undefined,
+                              scoped_teams: !scoped_teams?.length ? ('Select a project' as any) : undefined,
+                          },
+            ],
             submit: async (formValues: AgenticAuthorizationFormValues) => {
                 const controller = new AbortController()
                 const timeoutId = window.setTimeout(() => controller.abort(), CONFIRM_TIMEOUT_MS)
@@ -360,13 +365,21 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
         ],
         partnerName: [
             (s) => [s.pendingAuth],
-            (pendingAuth: { partner_name: string; scopes: string[] } | null): string => {
+            (pendingAuth: AgenticPendingAuth | null): string => {
                 return pendingAuth?.partner_name ?? 'the requesting app'
             },
         ],
+        paysForCustomers: [
+            (s) => [s.pendingAuth],
+            (pendingAuth: AgenticPendingAuth | null): boolean => pendingAuth?.pays_for_customers ?? false,
+        ],
+        partnerOrganizationName: [
+            (s) => [s.pendingAuth],
+            (pendingAuth: AgenticPendingAuth | null): string | null => pendingAuth?.partner_organization_name ?? null,
+        ],
         scopes: [
             (s) => [s.pendingAuth],
-            (pendingAuth: { partner_name: string; scopes: string[] } | null): string[] => {
+            (pendingAuth: AgenticPendingAuth | null): string[] => {
                 return pendingAuth?.scopes ?? []
             },
         ],

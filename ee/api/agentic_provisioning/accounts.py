@@ -16,6 +16,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization import Organization
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -32,6 +33,7 @@ from ee.api.agentic_provisioning.constants import (
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
+from ee.api.agentic_provisioning.tokens import user_can_access_team
 from ee.api.agentic_provisioning.wizard import (
     apply_provisioned_onboarding_flags,
     create_wizard_run,
@@ -47,6 +49,11 @@ def partner_label(partner: OAuthApplication | None) -> str:
     if partner is None or not partner.name:
         return "Partner"
     return partner.name
+
+
+def partner_organization_name(partner: OAuthApplication | None, email: str) -> str:
+    # Organization.name is a varchar(64), so a long app name or email would fail the insert.
+    return f"{partner_label(partner)} ({email})"[:64]
 
 
 def get_callback_url(app: OAuthApplication | None) -> str | None:
@@ -136,7 +143,8 @@ def handle_existing_user(
     touched provisioning, so silently linking it is the takeover.
 
     Consent also picks the project (see agentic_authorize), so nothing the partner sends can
-    select a team for an account it did not create.
+    select a team for an account it did not create. For a partner that pays for its customers,
+    consent picks no project: see get_or_create_partner_organization_team.
     """
     if partner.provisioning.skip_existing_user_consent:
         capture_provisioning_event(
@@ -214,6 +222,47 @@ def require_user_consent(
     }
 
 
+def find_partner_organization_team(user: User, partner: OAuthApplication) -> Team | None:
+    # Only a project the partner provisioned, so reusing an organization never gives the
+    # partner a project that a user created there.
+    configs = (
+        TeamProvisioningConfig.objects.filter(
+            application=partner,
+            team__organization__partner_provisioning__application=partner,
+            team__organization__membership__user=user,
+            team__is_demo=False,
+        )
+        .select_related("team__organization")
+        .order_by("team_id")
+    )
+    return next((config.team for config in configs if user_can_access_team(user, config.team)), None)
+
+
+def get_or_create_partner_organization_team(user: User, partner: OAuthApplication) -> tuple[Team, bool]:
+    """Billing works per organization, so the project of a partner that pays for its customers
+    must not go in one of the user's own organizations, where the user would pay for the
+    partner's usage. It goes in an organization the partner provisioned: one the user already
+    belongs to, or a new one the user owns.
+    """
+    with transaction.atomic():
+        # Serializes one user's consents, so two concurrent confirms cannot both miss the
+        # organization that the other one is creating and each create one.
+        User.objects.select_for_update(no_key=True).only("id").get(pk=user.pk)
+        team = find_partner_organization_team(user, partner)
+        if team is not None:
+            return team, False
+        organization, _, team = Organization.objects.bootstrap(
+            user, name=partner_organization_name(partner, user.email)
+        )
+        TeamProvisioningConfig.objects.create(team=team, application=partner)
+        OrganizationProvisioning.objects.create(
+            organization=organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=partner,
+        )
+    return team, True
+
+
 def handle_new_user(
     request_id: str,
     data: dict,
@@ -233,7 +282,7 @@ def handle_new_user(
         configuration = {}
 
     label = partner_label(partner)
-    org_name = configuration.get("organization_name") or f"{label} ({email})"
+    org_name = configuration.get("organization_name") or partner_organization_name(partner, email)
 
     try:
         with transaction.atomic():
