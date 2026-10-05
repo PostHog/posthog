@@ -126,6 +126,32 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         assert result.republished_persons == 1
         assert self._ch_person_state(uuid) == (1, 3)
 
+    def test_a_failed_batch_leaves_earlier_batches_published(self):
+        uuids = [str(uuid4()), str(uuid4())]
+        for uuid in uuids:
+            self._seed_ch_only_person(uuid, [], version=2)
+        orphans = find_orphaned_ch_persons(self.team.pk, uuids)
+        fake = get_active_fake()
+        ensure_floors = fake.ensure_person_version_floors
+        requests = []
+
+        def fail_the_second_batch(request, timeout=None):
+            requests.append(request)
+            if len(requests) == 2:
+                raise RuntimeError("personhog down")
+            return ensure_floors(request, timeout)
+
+        with (
+            patch("posthog.models.person.deletion.PERSONHOG_BATCH_SIZE", 1),
+            patch.object(fake, "ensure_person_version_floors", side_effect=fail_the_second_batch),
+            self.assertRaises(RuntimeError),
+        ):
+            tombstone_orphaned_ch_persons(self.team.pk, orphans, dry_run=False)
+
+        first, second = (r.floors[0].person_uuid for r in requests)
+        assert (self._stored(first), self._ch_person_state(first)) == ((True, 3), (1, 3))
+        assert (self._stored(second), self._ch_person_state(second)) == (None, (0, 2))
+
     def test_dry_run_writes_nothing(self):
         uuid = str(uuid4())
         self._seed_ch_only_person(uuid, ["did-a"], version=3)

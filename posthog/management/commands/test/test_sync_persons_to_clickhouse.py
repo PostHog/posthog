@@ -31,6 +31,32 @@ from posthog.persons_seed import insert_seed_distinct_id, insert_seed_group, ins
 
 pytestmark = pytest.mark.persons_db_direct
 
+SYNC_MODULE = posthog.management.commands.sync_persons_to_clickhouse.__name__
+
+
+def _raise_distinct_id_version_in_postgres(
+    team_id: int, distinct_id: str, min_version: int, *, revive: bool = False
+) -> None:
+    # The personhog fake keeps its own store, so apply the floor RPC's update to the persons DB the sync reads.
+    with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE posthog_persondistinctid SET version = %s, is_deleted = is_deleted AND NOT %s "
+            "WHERE team_id = %s AND distinct_id = %s AND COALESCE(version, 0) < %s",
+            [min_version, revive, team_id, distinct_id, min_version],
+        )
+
+
+def _fail_the_second_call(method):
+    requests = []
+
+    def call(request, timeout=None):
+        requests.append(request)
+        if len(requests) == 2:
+            raise RuntimeError("personhog down")
+        return method(request, timeout)
+
+    return call, requests
+
 
 @pytest.mark.ee
 class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
@@ -44,6 +70,15 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         sync_execute(TRUNCATE_PERSON_TABLE_SQL)
         sync_execute(TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL)
         sync_execute(TRUNCATE_GROUPS_TABLE_SQL)
+
+    def _seed_tombstoned_person(self, person_uuid: UUID, version: int) -> None:
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            insert_seed_person(conn, team_id=self.team.pk, properties={}, version=version, uuid=person_uuid)
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE posthog_person SET is_deleted = true WHERE team_id = %s AND uuid = %s",
+                    [self.team.pk, person_uuid],
+                )
 
     def test_persons_sync(self):
         person_uuid = uuid4()
@@ -124,10 +159,19 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(ch_persons, [(5, False)])
 
-    def test_a_person_live_on_the_postgres_primary_is_not_tombstoned(self):
+    @parameterized.expand(
+        [
+            # (name, version of the replica's tombstone, or None when the replica has no row)
+            ("missing_from_the_replica", None),
+            ("tombstoned_in_the_replica_above_clickhouse", 9),
+        ]
+    )
+    def test_a_person_live_on_the_postgres_primary_is_not_tombstoned(self, _name, replica_tombstone_version):
         uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123})
+        if replica_tombstone_version is not None:
+            self._seed_tombstoned_person(UUID(uuid), replica_tombstone_version)
 
-        # The sync's replica read misses the person; the primary, which the floor call reads, holds it live.
+        # The sync's replica read misses the live person; the primary, which the floor call reads, holds it live.
         with fake_personhog_client() as personhog:
             personhog.add_person(team_id=self.team.pk, person_id=1, uuid=uuid, version=5)
             run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
@@ -146,16 +190,11 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
     )
     def test_persons_tombstoned_in_postgres_publish_the_stored_version(self, _name, ch_version, expected):
         person_uuid = uuid4()
-        with persons_db_connection(writer=True, autocommit=True) as conn:
-            insert_seed_person(conn, team_id=self.team.pk, properties={}, version=9, uuid=person_uuid)
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "UPDATE posthog_person SET is_deleted = true WHERE team_id = %s AND uuid = %s",
-                    [self.team.pk, person_uuid],
-                )
+        self._seed_tombstoned_person(person_uuid, 9)
         create_person(uuid=str(person_uuid), team_id=self.team.pk, version=ch_version, properties={"abc": 123})
 
-        with fake_personhog_client():
+        with fake_personhog_client() as personhog:
+            personhog.add_person(team_id=self.team.pk, person_id=1, uuid=str(person_uuid), version=9, is_deleted=True)
             run_person_sync(self.team.pk, live_run=True, deletes=True)
 
         ch_persons = sync_execute(
@@ -169,6 +208,25 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         self.assertEqual(
             ch_persons, [(person_uuid, self.team.pk, "{}" if is_deleted else properties, version, is_deleted)]
         )
+
+    def test_a_failed_person_batch_leaves_earlier_batches_published(self):
+        for _ in range(2):
+            create_person(uuid=str(uuid4()), team_id=self.team.pk, version=2, properties={})
+
+        with fake_personhog_client() as personhog:
+            ensure_floors, requests = _fail_the_second_call(personhog.ensure_person_version_floors)
+            with (
+                mock.patch(f"{SYNC_MODULE}.PERSONHOG_BATCH_SIZE", 1),
+                mock.patch.object(personhog, "ensure_person_version_floors", side_effect=ensure_floors),
+                self.assertRaises(RuntimeError),
+            ):
+                run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
+
+        first, second = (UUID(r.floors[0].person_uuid) for r in requests)
+        ch_persons = sync_execute(
+            "SELECT id, version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
+        self.assertCountEqual(ch_persons, [(first, 3, True), (second, 2, False)])
 
     def test_distinct_ids_sync(self):
         person_uuid = uuid4()
@@ -227,12 +285,13 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            # (name, ClickHouse live version, expected version and is_deleted after the sync)
-            ("stored_version_wins", 3, (7, True)),
-            ("clickhouse_ahead_is_left_for_the_sweep", 7, (7, False)),
+            # (name, ClickHouse live version, mapping revives during the raise, expected version and is_deleted)
+            ("stored_version_wins", 3, False, (7, True)),
+            ("clickhouse_ahead_is_raised_above", 7, False, (8, True)),
+            ("revived_during_the_raise_is_published_live", 7, True, (8, False)),
         ]
     )
-    def test_distinct_ids_tombstoned_in_postgres_publish_the_stored_version(self, _name, ch_version, expected):
+    def test_distinct_ids_tombstoned_in_postgres_publish_the_primary_row(self, _name, ch_version, revives, expected):
         person_uuid = uuid4()
         with persons_db_connection(writer=True, autocommit=True) as conn:
             person_id = insert_seed_person(conn, team_id=self.team.pk, properties={}, version=0, uuid=person_uuid)
@@ -250,7 +309,11 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             version=ch_version,
         )
 
-        run_distinct_id_sync(self.team.pk, live_run=True, deletes=True)
+        with mock.patch(
+            f"{SYNC_MODULE}.set_distinct_id_version_floor",
+            side_effect=lambda *args: _raise_distinct_id_version_in_postgres(*args, revive=revives),
+        ):
+            run_distinct_id_sync(self.team.pk, live_run=True, deletes=True)
 
         ch_person_distinct_ids = sync_execute(
             f"""
@@ -260,6 +323,12 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
         version, is_deleted = expected
         self.assertEqual(ch_person_distinct_ids, [(person_uuid, self.team.pk, "test-id", version, is_deleted)])
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT version, is_deleted FROM posthog_persondistinctid WHERE team_id = %s AND distinct_id = %s",
+                [self.team.pk, "test-id"],
+            )
+            self.assertEqual(cursor.fetchall(), [(version, is_deleted)])
 
     @mock.patch(
         f"{posthog.management.commands.sync_persons_to_clickhouse.__name__}.raw_create_group_ch",

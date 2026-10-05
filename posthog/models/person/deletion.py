@@ -9,6 +9,7 @@ from rest_framework.exceptions import NotFound
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
 from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
     PersonTombstone,
     PersonTombstonePublication,
     PersonVersionFloor,
@@ -351,28 +352,30 @@ def tombstone_orphaned_ch_persons(
         return result
 
     created_at_by_uuid = {o.uuid: o.created_at for o in orphans}
-    floors = ensure_person_version_floors(
-        team_id, [PersonVersionFloor(uuid=UUID(o.uuid), min_version=o.ch_max_version + 1) for o in orphans]
-    )
-    to_publish: list[tuple[PersonTombstone, Optional[dt.datetime]]] = []
-    for floor in floors:
-        uuid = str(floor.uuid)
-        if floor.outcome == VersionFloorOutcome.LIVE:
-            result.skipped_live_persons += 1
-            continue
-        stored = stored_by_uuid.get(uuid)
-        if stored is None:
-            result.tombstoned_persons += 1
-        else:
-            result.republished_persons += 1
-        tombstone = PersonTombstone(
-            uuid=floor.uuid, version=floor.version, distinct_ids=stored.distinct_ids if stored else []
-        )
-        to_publish.append((tombstone, created_at_by_uuid[uuid]))
-
+    floors = [PersonVersionFloor(uuid=UUID(o.uuid), min_version=o.ch_max_version + 1) for o in orphans]
     publication = PersonTombstonePublication(team_id=team_id, source="orphan_repair")
-    publication.publish(to_publish)
-    publication.await_and_ack()
+    try:
+        # Each batch commits on its own, so it is published before the next batch starts, and a later failure
+        # leaves no committed tombstone unpublished.
+        for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
+            to_publish: list[tuple[PersonTombstone, Optional[dt.datetime]]] = []
+            for floor in ensure_person_version_floors(team_id, floors[i : i + PERSONHOG_BATCH_SIZE]):
+                uuid = str(floor.uuid)
+                if floor.outcome == VersionFloorOutcome.LIVE:
+                    result.skipped_live_persons += 1
+                    continue
+                stored = stored_by_uuid.get(uuid)
+                if stored is None:
+                    result.tombstoned_persons += 1
+                else:
+                    result.republished_persons += 1
+                tombstone = PersonTombstone(
+                    uuid=floor.uuid, version=floor.version, distinct_ids=stored.distinct_ids if stored else []
+                )
+                to_publish.append((tombstone, created_at_by_uuid[uuid]))
+            publication.publish(to_publish)
+    finally:
+        publication.await_and_ack()
     if publication.failures:
         raise publication.failures[0].error
     return result

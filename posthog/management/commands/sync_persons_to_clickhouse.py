@@ -19,11 +19,13 @@ from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person.deletion import orphan_share_refusal
 from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
     PersonVersionFloor,
     VersionFloorOutcome,
     create_person,
     create_person_distinct_id,
     ensure_person_version_floors,
+    set_distinct_id_version_floor,
 )
 from posthog.persons_db import persons_db_connection
 
@@ -142,23 +144,15 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, force: bool = F
     if deletes:
         logger.info("Processing person deletions")
         postgres_uuids = {person["uuid"] for person in persons}
-        tombstone_versions = _postgres_person_tombstone_versions(team_id)
-        stored: list[tuple[UUID, int]] = []
+        postgres_tombstones = _postgres_person_tombstones(team_id)
         floors: list[PersonVersionFloor] = []
         for uuid, version in ch_persons_to_version.items():
             if uuid in postgres_uuids:
                 continue
             ch_version = int(version or 0)
-            tombstone_version = tombstone_versions.get(uuid)
-            if tombstone_version is not None and tombstone_version > ch_version:
-                logger.info(f"Deleting person with uuid={uuid} at version {tombstone_version}")
-                stored.append((uuid, tombstone_version))
-                continue
-            # No Postgres row outranks ClickHouse, so Postgres takes a tombstone above it first; publishing
-            # above Postgres alone would hide the next revival.
             logger.info(f"Deleting person with uuid={uuid} at version {ch_version + 1} or above")
             floors.append(PersonVersionFloor(uuid=UUID(str(uuid)), min_version=ch_version + 1))
-        missing = sum(1 for floor in floors if floor.uuid not in tombstone_versions)
+        missing = sum(1 for floor in floors if floor.uuid not in postgres_tombstones)
         refusal = orphan_share_refusal(team_id, missing, len(ch_persons_to_version))
         if refusal:
             if live_run and not force:
@@ -166,40 +160,104 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, force: bool = F
                 exit(1)
             logger.warning(refusal)
         if live_run:
-            for uuid, tombstone_version in stored:
-                _publish_person_tombstone(team_id, uuid, tombstone_version)
-        if live_run and floors:
-            for result in ensure_person_version_floors(team_id, floors):
+            _tombstone_persons_above_clickhouse(team_id, floors)
+
+
+def _tombstone_persons_above_clickhouse(team_id: int, floors: list[PersonVersionFloor]) -> None:
+    """Raise each person's Postgres tombstone above its ClickHouse version, then publish the version Postgres stores.
+
+    Publishing above Postgres alone would hide the next revival. The floor call reads the primary, and a person it
+    holds live is skipped. Each batch commits on its own and is published before the next batch starts, so a later
+    failure leaves no committed tombstone unpublished.
+    """
+    skipped_live = 0
+    try:
+        for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
+            for result in ensure_person_version_floors(team_id, floors[i : i + PERSONHOG_BATCH_SIZE]):
                 if result.outcome == VersionFloorOutcome.LIVE:
                     logger.warning(f"Skipping person uuid={result.uuid}: the Postgres primary holds it live")
+                    skipped_live += 1
                     continue
                 _publish_person_tombstone(team_id, result.uuid, result.version)
+    finally:
+        flush_all_producers(5 * 60)
+    if skipped_live:
+        logger.warning(f"Skipped {skipped_live} persons that the Postgres primary holds live")
 
 
 def _publish_person_tombstone(team_id: int, uuid: UUID, version: int) -> None:
     create_person(uuid=str(uuid), team_id=team_id, properties={}, version=version, is_deleted=True)
 
 
-def _postgres_person_tombstone_versions(team_id: int) -> dict[UUID, int]:
-    """The version each tombstoned person holds in Postgres, so its ClickHouse tombstone matches."""
+def _postgres_person_tombstones(team_id: int) -> set[UUID]:
+    """The persons Postgres holds as tombstones, which the share guard does not count as missing."""
+    with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT uuid FROM posthog_person WHERE team_id = %s AND is_deleted = true", [team_id])
+        return {uuid for (uuid,) in cursor.fetchall()}
+
+
+def _postgres_distinct_id_tombstone_versions(team_id: int) -> dict[str, int]:
+    """The version each tombstoned mapping holds in the replica."""
     with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
         cursor.execute(
-            "SELECT uuid, version FROM posthog_person WHERE team_id = %s AND is_deleted = true",
+            "SELECT distinct_id, version FROM posthog_persondistinctid WHERE team_id = %s AND is_deleted = true",
             [team_id],
         )
-        return {uuid: int(version or 0) for uuid, version in cursor.fetchall()}
+        return {distinct_id: int(version or 0) for distinct_id, version in cursor.fetchall()}
 
 
-def _postgres_distinct_id_tombstones(team_id: int) -> dict[str, tuple[UUID, int]]:
-    """The person and version each tombstoned mapping holds in Postgres."""
-    with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+def _primary_distinct_id_rows(team_id: int, distinct_ids: list[str]) -> dict[str, tuple[UUID, bool, int]]:
+    """The owner, tombstone flag and version the Postgres primary holds for each distinct id.
+
+    The floor RPC does not return this, and personhog's primary reads list only live mappings.
+    """
+    with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
         cursor.execute(
-            "SELECT pdi.distinct_id, p.uuid, pdi.version "
+            "SELECT pdi.distinct_id, p.uuid, pdi.is_deleted, pdi.version "
             "FROM posthog_persondistinctid pdi JOIN posthog_person p ON p.id = pdi.person_id "
-            "WHERE pdi.team_id = %s AND pdi.is_deleted = true",
-            [team_id],
+            "WHERE pdi.team_id = %s AND pdi.distinct_id = ANY(%s)",
+            [team_id, distinct_ids],
         )
-        return {distinct_id: (uuid, int(version or 0)) for distinct_id, uuid, version in cursor.fetchall()}
+        return {
+            distinct_id: (uuid, bool(is_deleted), int(version or 0))
+            for distinct_id, uuid, is_deleted, version in cursor.fetchall()
+        }
+
+
+def _tombstone_distinct_ids_above_clickhouse(
+    team_id: int, ch_versions: dict[str, int], tombstone_versions: dict[str, int]
+) -> None:
+    """Raise each mapping tombstone above its ClickHouse version, then publish the row the Postgres primary holds.
+
+    A mapping revived since the replica read is published live at its stored version, and a tombstone is
+    published only when the primary still holds it.
+    """
+    distinct_ids = list(ch_versions)
+    try:
+        for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
+            batch = distinct_ids[i : i + PERSONHOG_BATCH_SIZE]
+            for distinct_id in batch:
+                if tombstone_versions[distinct_id] <= ch_versions[distinct_id]:
+                    set_distinct_id_version_floor(team_id, distinct_id, ch_versions[distinct_id] + 1)
+            primary_rows = _primary_distinct_id_rows(team_id, batch)
+            for distinct_id in batch:
+                person_uuid, is_deleted, version = primary_rows.get(distinct_id, (None, False, 0))
+                if person_uuid is None or version <= ch_versions[distinct_id]:
+                    logger.warning(
+                        f"Skipping distinct ID {distinct_id}: the Postgres primary holds no row above "
+                        f"ClickHouse version {ch_versions[distinct_id]}"
+                    )
+                    continue
+                logger.info(f"Publishing distinct ID {distinct_id} at version {version} (is_deleted={is_deleted})")
+                create_person_distinct_id(
+                    team_id=team_id,
+                    distinct_id=distinct_id,
+                    person_id=str(person_uuid),
+                    version=version,
+                    is_deleted=is_deleted,
+                )
+    finally:
+        flush_all_producers(5 * 60)
 
 
 def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
@@ -256,32 +314,21 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
     if deletes:
         logger.info("Processing distinct id deletions")
         postgres_distinct_ids = {pdi["distinct_id"] for pdi in person_distinct_ids}
-        tombstones = _postgres_distinct_id_tombstones(team_id)
+        tombstone_versions = _postgres_distinct_id_tombstone_versions(team_id)
+        ch_versions: dict[str, int] = {}
         for distinct_id, version in ch_distinct_id_to_version.items():
             if distinct_id in postgres_distinct_ids:
                 continue
-            tombstone = tombstones.get(distinct_id)
-            if tombstone is None:
+            if distinct_id not in tombstone_versions:
                 # Without a Postgres row there is no version to publish at; the sweep removes the mapping once
                 # it deletes the owner.
                 logger.warning(f"Skipping distinct ID {distinct_id}: Postgres has no row for it")
                 continue
-            person_uuid, tombstone_version = tombstone
-            if tombstone_version <= int(version or 0):
-                logger.warning(
-                    f"Skipping distinct ID {distinct_id}: ClickHouse is at version {version}, "
-                    f"the Postgres tombstone only at {tombstone_version}"
-                )
-                continue
-            logger.info(f"Deleting distinct ID {distinct_id} at version {tombstone_version}")
-            if live_run:
-                create_person_distinct_id(
-                    team_id=team_id,
-                    distinct_id=distinct_id,
-                    person_id=str(person_uuid),
-                    version=tombstone_version,
-                    is_deleted=True,
-                )
+            ch_versions[distinct_id] = int(version or 0)
+            target_version = max(tombstone_versions[distinct_id], ch_versions[distinct_id] + 1)
+            logger.info(f"Deleting distinct ID {distinct_id} at version {target_version} or above")
+        if live_run:
+            _tombstone_distinct_ids_above_clickhouse(team_id, ch_versions, tombstone_versions)
 
 
 def run_group_sync(team_id: int, live_run: bool):
