@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatView, overlayBottom, shimmer } from "./chatView";
 import { IMAGES_DIR } from "./images";
+import { blue } from "./theme";
 import type { TranscriptLine } from "./transcript";
 
 const plain = (lines: string[]): string[] =>
@@ -154,6 +155,21 @@ describe("ChatView", () => {
       "",
       " After.",
     ]);
+  });
+
+  it("colours inline code and links PostHog blue", () => {
+    const chat = new ChatView();
+    chat.setTranscript([
+      {
+        kind: "assistant",
+        id: "a",
+        text: "Run `pnpm test` and read [the docs](https://posthog.com/docs).",
+      },
+    ]);
+    const row = chat.render(70, 1)[0];
+
+    expect(row).toContain(blue("pnpm test"));
+    expect(row).toContain(blue("the docs"));
   });
 
   it("opens a tool group on a click to show each call and its output", () => {
