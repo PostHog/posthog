@@ -99,6 +99,14 @@ class TestOrganization(BaseTest):
         self.assertEqual(organization.slug, expected_slug)
         self.assertEqual(organization.name, expected_name)
 
+    def test_get_or_create_generates_unique_slugs(self):
+        first, _ = Organization.objects.get_or_create(name="Acme Corp")
+        second, _ = Organization.objects.get_or_create(name="Acme Corp!")
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.slug, "acme-corp")
+        self.assertRegex(second.slug, r"^acme-corp-[a-z]{4}$")
+
     def test_organization_active_invites(self):
         self.assertEqual(self.organization.invites.count(), 0)
         self.assertEqual(self.organization.active_invites.count(), 0)
