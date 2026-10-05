@@ -81,8 +81,8 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
-| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two branded `flowchart` blocks, before first              |
+| A visual change (any UI a person sees, including a flow through screens)             | Screenshot, before and after. Mandatory, not optional     |
+| A change to architecture or topology (CI wiring, pipelines, services, request paths) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
 | Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
@@ -107,6 +107,12 @@ Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The
 Touching UI code without a visible change is common, and the mandate has to be dischargeable. When nothing looks different, say so in one line. A reviewer cannot tell that case from a missing screenshot, and silence reads as the second.
 
 ### Mermaid
+
+Draw a diagram only for an architecture or topology change:
+CI wiring, pipelines, services and the calls between them, module or package boundaries, a state machine with several states, or a request path across systems.
+A UI flow or a linear sequence of screens is not a topology. It gets screenshots, not a diagram.
+A diagram must show something a reader could not get from one sentence.
+A chain of three or four boxes in one line fails that test, so write the sentence.
 
 Keep diagrams simple. A syntax error renders as an error block. Pick `TD` for tall pipelines, `LR` for wide paths. Mermaid cannot read CSS vars, so use the hex directly, and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
 
@@ -259,7 +265,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 10. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
 11. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
 12. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
-13. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+13. Does the PR change architecture or topology, as listed under Mermaid? Include branded before-and-after diagrams. Delete any diagram that shows a UI flow or only what one sentence says.
 14. Does prose compare several values across the same dimensions? Replace it with a table.
 15. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 16. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
