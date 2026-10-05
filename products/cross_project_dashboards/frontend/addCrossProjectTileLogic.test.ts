@@ -5,11 +5,18 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { insightsList } from 'products/product_analytics/frontend/generated/api'
+
 import { addCrossProjectTileLogic } from './addCrossProjectTileLogic'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
 import { crossProjectDashboardsRetrieve } from './generated/api'
 
 jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
+
+jest.mock('products/product_analytics/frontend/generated/api', () => ({
+    __esModule: true,
+    insightsList: jest.fn(),
+}))
 
 jest.mock('./generated/api', () => ({
     __esModule: true,
@@ -17,6 +24,7 @@ jest.mock('./generated/api', () => ({
 }))
 
 const mockedDialogOpen = LemonDialog.open as jest.Mock
+const mockedInsightsList = insightsList as jest.Mock
 const mockedRetrieve = crossProjectDashboardsRetrieve as jest.Mock
 
 const DASHBOARD_ID = '01a0f19d-1c44-715a-a679-188869bd033f'
@@ -29,6 +37,7 @@ describe('addCrossProjectTileLogic', () => {
 
     beforeEach(async () => {
         mockedDialogOpen.mockReset()
+        mockedInsightsList.mockReset()
         mockedRetrieve.mockResolvedValue({ id: DASHBOARD_ID, name: 'Across projects', filters: {}, tiles: [TILE] })
         initKeaTests()
         organizationLogic.mount()
@@ -58,5 +67,38 @@ describe('addCrossProjectTileLogic', () => {
 
         expect(logic.values.isOpen).toBe(true)
         expect(dashboardLogic.values.layoutEditMode).toBe(false)
+    })
+
+    it('finds an insight past the first page by searching the selected project and loading more', async () => {
+        // One insight per page, numbered by offset, with a second page only for the search.
+        mockedInsightsList.mockImplementation(async (_projectId, params) => ({
+            results: [{ id: params.offset + 1, name: `${params.search ?? 'all'} ${params.offset + 1}` }],
+            next: params.search && params.offset === 0 ? 'next-page' : null,
+        }))
+
+        logic.actions.setProjectId(54)
+        logic.actions.setInsightSearch('signups')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockedInsightsList).toHaveBeenLastCalledWith(
+            '54',
+            expect.objectContaining({ search: 'signups', offset: 0 })
+        )
+        expect(logic.values.insightPage).toEqual({ insights: [{ id: 1, name: 'signups 1' }], hasMore: true })
+
+        logic.actions.loadMoreInsights()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockedInsightsList).toHaveBeenLastCalledWith(
+            '54',
+            expect.objectContaining({ search: 'signups', offset: 1 })
+        )
+        expect(logic.values.insightPage).toEqual({
+            insights: [
+                { id: 1, name: 'signups 1' },
+                { id: 2, name: 'signups 2' },
+            ],
+            hasMore: false,
+        })
     })
 })

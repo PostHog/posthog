@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -12,9 +12,18 @@ export interface AddCrossProjectTileModalProps {
 
 export function AddCrossProjectTileModal({ dashboardId }: AddCrossProjectTileModalProps): JSX.Element {
     const logic = addCrossProjectTileLogic({ dashboardId })
-    const { isOpen, projectId, insightId, projectOptions, insightOptions, insightsLoading, canAdd, isAdding } =
-        useValues(logic)
-    const { closeModal, setProjectId, setInsightId, addTile } = useActions(logic)
+    const {
+        isOpen,
+        projectId,
+        selectedInsight,
+        projectOptions,
+        insightPage,
+        insightOptions,
+        insightPageLoading,
+        canAdd,
+        isAdding,
+    } = useValues(logic)
+    const { closeModal, setProjectId, setInsight, setInsightSearch, loadMoreInsights, addTile } = useActions(logic)
 
     return (
         <LemonModal
@@ -51,13 +60,30 @@ export function AddCrossProjectTileModal({ dashboardId }: AddCrossProjectTileMod
                     />
                 </LemonField.Pure>
                 <LemonField.Pure label="Insight">
-                    <LemonSelect
-                        value={insightId}
-                        onChange={setInsightId}
+                    <LemonInputSelect
+                        mode="single"
+                        value={selectedInsight ? [String(selectedInsight.id)] : []}
+                        onChange={(keys) =>
+                            setInsight(insightPage.insights.find((insight) => String(insight.id) === keys[0]) ?? null)
+                        }
+                        onInputChange={setInsightSearch}
                         options={insightOptions}
-                        placeholder={projectId ? 'Select an insight' : 'Select a project first'}
+                        // The search runs on the server, so the list is already the answer to it.
+                        disableFiltering
+                        // Loaded pages can pass the 100 options the plain list stops at.
+                        virtualized
+                        placeholder={projectId ? 'Search insights' : 'Select a project first'}
                         disabledReason={!projectId ? 'Select a project first' : undefined}
-                        loading={insightsLoading}
+                        loading={insightPageLoading}
+                        action={
+                            insightPage.hasMore
+                                ? {
+                                      children: 'Load more insights',
+                                      onClick: loadMoreInsights,
+                                      disabledReason: insightPageLoading ? 'Loading insights' : undefined,
+                                  }
+                                : undefined
+                        }
                         data-attr="cross-project-add-tile-insight"
                         fullWidth
                     />
