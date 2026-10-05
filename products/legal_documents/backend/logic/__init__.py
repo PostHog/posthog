@@ -26,9 +26,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.storage import object_storage
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, StartupProgramLabel
 
-from ..facade.enums import DocumentType
+from ..facade.enums import BaaBlockReason, DocumentType
 from ..models import LegalDocument
 from ..storage import signed_pdf_storage_key
 from . import pandadoc as pandadoc_client
@@ -37,6 +37,11 @@ logger = structlog.get_logger(__name__)
 
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
+
+# Startup program organizations always pay with credits, and credits do not cover
+# a BAA, whatever addon they hold. YC organizations keep BAA access. Staff who
+# impersonate a startup organization that pays for a BAA generate it on its behalf.
+BAA_BLOCKED_STARTUP_PROGRAM_LABEL: StartupProgramLabel = "Startup"
 
 # Attribute `annotate_signed_baa` writes onto each Organization row.
 SIGNED_BAA_ANNOTATION = "has_signed_baa"
@@ -76,13 +81,16 @@ def template_id_matches_document(document: LegalDocument, template_id: str) -> b
     return not expected or expected == template_id
 
 
-def has_qualifying_baa_addon(organization: Organization) -> bool:
+def get_baa_block_reason(organization: Organization, impersonated: bool) -> BaaBlockReason | None:
     billing = BillingManager(get_cached_instance_license()).get_billing(organization)
+    on_startup_program = billing.get("startup_program_label") == BAA_BLOCKED_STARTUP_PROGRAM_LABEL
+    if on_startup_program and not impersonated:
+        return BaaBlockReason.STARTUP_PROGRAM
     for product in billing.get("products") or []:
         for addon in product.get("addons") or []:
             if addon.get("type") in BAA_ADDON_TYPES and addon.get("subscribed"):
-                return True
-    return False
+                return None
+    return BaaBlockReason.NO_QUALIFYING_ADDON
 
 
 def _signed_baa_subquery() -> QuerySet[LegalDocument]:
