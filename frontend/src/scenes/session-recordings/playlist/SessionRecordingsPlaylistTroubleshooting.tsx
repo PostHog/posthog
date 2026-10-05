@@ -48,11 +48,11 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                       : 'No recordings found'}
             </h3>
             {startsInFuture && dateFrom ? (
-                <p className="text-secondary mb-0" data-attr="replay-empty-state-future-start-date">
+                <p className="text-secondary mb-0">
                     {`The range starts at ${dateFrom.format('MMMM D, h:mm A')} in the project time zone (${timeZoneLabel}). That time has not come yet, so no recordings can match. Pick an earlier start time.`}
                 </p>
             ) : dateRangeText ? (
-                <p className="text-secondary mb-0" data-attr="replay-empty-state-date-range">
+                <p className="text-secondary mb-0">
                     {`Date range: ${dateRangeText} (${timeZoneLabel})`}
                 </p>
             ) : null}
