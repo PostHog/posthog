@@ -825,12 +825,15 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         ...configuredValues.map(({ expression }) => expression),
         ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
     ]
-    const usedAliases = new Set([
-        ...rowDimensions.map(({ alias }) => alias),
-        ...columnDimensions.map(({ alias }) => alias),
-        'bi_rows',
-        'bi_columns',
-    ])
+    const usedAliases = new Set(['bi_rows', 'bi_columns'])
+    for (const dimension of [...rowDimensions, ...columnDimensions]) {
+        const preferred = dimension.alias
+        let suffix = 2
+        while (usedAliases.has(dimension.alias)) {
+            dimension.alias = `${preferred}_${suffix++}`
+        }
+        usedAliases.add(dimension.alias)
+    }
     const reservedAliases = new Set(configuredValues.map(({ value }, index) => aggregationAlias(value, index)))
     configuredValues.forEach((configuredValue, index) => {
         const preferred = aggregationAlias(configuredValue.value, index)

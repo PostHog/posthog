@@ -970,6 +970,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 delete chartSettings.xAxisLabel
                 delete chartSettings.yAxis
                 delete chartSettings.seriesBreakdownColumn
+                delete chartSettings.showLegend
             }
             editorLogic.actions.setQueryInput(values.generatedQuery.query)
             editorLogic.actions.setSourceQuery({

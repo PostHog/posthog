@@ -288,6 +288,20 @@ describe('BI editor query generation', () => {
         expect(result.query).toContain('properties.revenue AS bi_column_revenue')
     })
 
+    it.each(['rows', 'columns'] as const)('disambiguates colliding dimension aliases on %s', (shelf) => {
+        const result = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsStackedBar,
+            [shelf]: [{ ...eventField, name: 'browser_2' }, browserField],
+        })!
+
+        const { xAxis, seriesBreakdownColumn } = result.node.chartSettings!
+        expect(xAxis!.column).not.toBe(seriesBreakdownColumn)
+        expect(result.query).toContain(`event AS ${xAxis!.column}`)
+        expect(result.query).toContain(`properties.$browser AS ${seriesBreakdownColumn}`)
+    })
+
     it.each([100, 1000, 10000, 50000] as const)(
         'maps every BI row and column dimension to pivot table axes with limit %i',
         (limit) => {

@@ -2388,6 +2388,7 @@ describe('sqlEditorLogic', () => {
             biLogic.actions.removeFieldFromShelf('rows', 0)
             expect(logic.values.sourceQuery.chartSettings?.seriesBreakdownColumn).toBeUndefined()
             expect(logic.values.sourceQuery.chartSettings?.xAxis).toBeUndefined()
+            expect(logic.values.sourceQuery.chartSettings?.showLegend).toBeUndefined()
             biLogic.unmount()
         })
 
