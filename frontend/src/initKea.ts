@@ -1,4 +1,4 @@
-import { KeaPlugin, resetContext } from 'kea'
+import { BuiltLogic, KeaPlugin, resetContext } from 'kea'
 import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
@@ -89,7 +89,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
-    'loadFeatureFlag', // The flag scene renders its own retry banner instead of the not-found screen
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
     'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
     'refreshFeatureFlag', // featureFlagLogic's refreshFeatureFlagFailure listener shows a notice with a reload
@@ -97,6 +96,20 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
 ]
+
+/*
+Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use. Only the logic
+whose path is given here handles its own failures, so the same action elsewhere still toasts.
+*/
+const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
+}
+
+// A keyed logic's path ends with its key, so match the owner path as a prefix.
+function isErrorSelfHandledByLogic(actionKey: string, logicPath: string): boolean {
+    const ownerPath = ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH[actionKey]
+    return !!ownerPath && (logicPath === ownerPath || logicPath.startsWith(`${ownerPath}.`))
+}
 
 /*
 Write actions that show their own friendly message for access-denied 403s
@@ -190,7 +203,17 @@ export function initKea({
         }),
         formsPlugin,
         loadersPlugin({
-            onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+            onFailure({
+                error,
+                reducerKey,
+                actionKey,
+                logic,
+            }: {
+                error: any
+                reducerKey: string
+                actionKey: string
+                logic: BuiltLogic
+            }) {
                 // A request aborted by us (superseded query, unmount, manual cancel) is not a
                 // failure — don't toast, log, or report it.
                 if (error?.name === 'AbortError') {
@@ -207,6 +230,7 @@ export function initKea({
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
+                    !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
