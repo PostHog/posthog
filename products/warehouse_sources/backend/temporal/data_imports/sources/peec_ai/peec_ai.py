@@ -69,7 +69,7 @@ def peec_ai_source(
 ) -> SourceResponse:
     definition = schema_for_resource(ENDPOINTS, endpoint)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    params = dict(definition["params"])
+    params: dict[str, Any] = dict(definition["params"])
     if config.project_id:
         params["project_id"] = config.project_id
 
