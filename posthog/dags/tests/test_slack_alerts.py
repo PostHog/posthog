@@ -43,7 +43,7 @@ class TestSlackAlertsRouting:
             notify_slack_on_failure(context, slack=slack)
 
         call_kwargs = client.chat_postMessage.call_args.kwargs
-        assert call_kwargs["channel"] == "#team-query-performance"
+        assert call_kwargs["channel"] == "#alerts-query-performance"
         assert call_kwargs["blocks"][1]["text"] == {
             "type": "mrkdwn",
             "text": "*Runbook*: <https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export|Recover the query log archive export>",
