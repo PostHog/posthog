@@ -438,6 +438,9 @@ tools:
     logs-metric-rules-update:
         operation: logs_metric_rules_update
         enabled: false
+    logs-natural-language-query-create:
+        operation: logs_natural_language_query_create
+        enabled: false
     logs-patterns:
         operation: logs_patterns_create
         enabled: true
