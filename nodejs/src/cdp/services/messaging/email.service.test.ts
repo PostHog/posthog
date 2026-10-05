@@ -240,6 +240,10 @@ describe('EmailService', () => {
                 extraOrganizationIds.push(id)
                 return id
             }
+            const hasQueriedMembers = (queries: jest.SpyInstance): boolean =>
+                queries.mock.calls.some(
+                    ([, sql]) => typeof sql === 'string' && sql.includes('posthog_organizationmembership')
+                )
             let sandboxRedisClient: Redis.Redis | undefined
             const createSandboxLimiter = async (name: string): Promise<RateLimiterService> => {
                 sandboxRedisClient = await hub.redisPool.acquire()
@@ -783,15 +787,7 @@ describe('EmailService', () => {
                 const now = Date.now()
                 const clock = jest
                     .spyOn(Date, 'now')
-                    .mockImplementation(
-                        () =>
-                            now +
-                            (queries.mock.calls.some(
-                                ([, sql]) => typeof sql === 'string' && sql.includes('posthog_organizationmembership')
-                            )
-                                ? 5_000
-                                : 0)
-                    )
+                    .mockImplementation(() => now + (hasQueriedMembers(queries) ? 5_000 : 0))
                 try {
                     service = createSandboxService(true, null, undefined, membersPostgres)
                     const first = await service.executeSendEmail(invocation)
@@ -828,40 +824,58 @@ describe('EmailService', () => {
                 }
             })
 
-            it.each([false, true])(
-                'fails closed on a member lookup failure and bypasses it for own senders (isTest=%s)',
-                async (isTest) => {
+            it.each(
+                [
+                    { failure: 'a closed member connection', closeConnection: true, memberQueryMs: 0 },
+                    { failure: 'a member query that takes a minute', closeConnection: false, memberQueryMs: 60_000 },
+                ].flatMap((failure) => [false, true].map((isTest) => ({ ...failure, isTest })))
+            )(
+                'fails closed on $failure and bypasses it for own senders (isTest=$isTest)',
+                async ({ closeConnection, memberQueryMs, isTest }) => {
                     const membersPostgres = new PostgresRouter(hub)
-                    await membersPostgres.end()
+                    if (closeConnection) {
+                        await membersPostgres.end()
+                    }
                     const memberQueries = jest.spyOn(membersPostgres, 'query')
-                    service = createSandboxService(true, null, undefined, membersPostgres)
+                    const now = Date.now()
+                    const clock = jest
+                        .spyOn(Date, 'now')
+                        .mockImplementation(() => now + (hasQueriedMembers(memberQueries) ? memberQueryMs : 0))
+                    try {
+                        service = createSandboxService(true, null, undefined, membersPostgres)
 
-                    const result = await service.executeSendEmail(invocation, isTest)
+                        const result = await service.executeSendEmail(invocation, isTest)
 
-                    expect(sendEmailSpy).not.toHaveBeenCalled()
-                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
-                    expect(result.error).toBeUndefined()
-                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
-                    expect(result.logs).toContainEqual(
-                        expect.objectContaining({
-                            level: 'info',
-                            message: `Skipping send: could not check organization members for these addresses: ${memberEmail()}. Try again, or verify your own domain to send to anyone.`,
-                        })
-                    )
-                    expect(capture).toHaveBeenCalledWith(
-                        expect.objectContaining({ id: team.id }),
-                        'workflows sandbox email blocked',
-                        { reason: 'check_failed', is_test: isTest, blocked_recipient_count: 1 }
-                    )
+                        expect(sendEmailSpy).not.toHaveBeenCalled()
+                        expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
+                        expect(result.error).toBeUndefined()
+                        expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                        expect(result.logs).toContainEqual(
+                            expect.objectContaining({
+                                level: 'info',
+                                message: `Skipping send: could not check organization members for these addresses: ${memberEmail()}. Try again, or verify your own domain to send to anyone.`,
+                            })
+                        )
+                        expect(capture).toHaveBeenCalledWith(
+                            expect.objectContaining({ id: team.id }),
+                            'workflows sandbox email blocked',
+                            { reason: 'check_failed', is_test: isTest, blocked_recipient_count: 1 }
+                        )
 
-                    invocation.queueParameters = createSandboxParams({ from: { integrationId: 1 } })
-                    memberQueries.mockClear()
-                    const ownSender = await service.executeSendEmail(invocation, isTest)
-                    expect(ownSender.error).toBeUndefined()
-                    expect(ownSender.skipped).not.toBe(true)
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                    expect(memberQueries).not.toHaveBeenCalled()
-                    memberQueries.mockRestore()
+                        invocation.queueParameters = createSandboxParams({ from: { integrationId: 1 } })
+                        memberQueries.mockClear()
+                        const ownSender = await service.executeSendEmail(invocation, isTest)
+                        expect(ownSender.error).toBeUndefined()
+                        expect(ownSender.skipped).not.toBe(true)
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                        expect(memberQueries).not.toHaveBeenCalled()
+                    } finally {
+                        clock.mockRestore()
+                        memberQueries.mockRestore()
+                        if (!closeConnection) {
+                            await membersPostgres.end()
+                        }
+                    }
                 }
             )
 
