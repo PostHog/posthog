@@ -45,7 +45,9 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             )
 
             expect(
-                screen.getByText('The recording script failed to load, likely blocked by an ad blocker')
+                screen.getByText(
+                    'The recording script failed to load. An ad blocker, proxy, or firewall may have blocked it'
+                )
             ).toBeInTheDocument()
         })
 
