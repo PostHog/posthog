@@ -18,7 +18,8 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML — enable tools, add scopes, annotations, descriptions
+# 2. Configure the YAML — enable tools, add descriptions, and annotations for PATCH/POST/PUT
+#    (scopes come from the API when omitted)
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
@@ -26,6 +27,14 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 
 # 4. Generate handlers and schemas
 hogli build:openapi
+
+# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
+# A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
+# true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
+
+# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+pnpm --filter=@posthog/mcp run generate:ui-apps
 ```
 
 ## Before you scaffold: fix the backend first
@@ -87,7 +96,7 @@ Without action trimming, `experiment-freeze-exposure` can advertise the
 redundant domain `experiment-freeze` instead of `experiment`.
 
 Whenever you add or rename an action tool, check the
-[`TRAILING_ACTIONS`](services/mcp/src/lib/instructions.ts) set in the
+[`TRAILING_ACTIONS`](../../../services/mcp/src/lib/instructions.ts) set in the
 same change. If a rendered domain can end in an operation verb that is not
 already present, add the verb. Cover it in
 `services/mcp/tests/unit/instructions.test.ts`. This applies even when the verb
@@ -142,14 +151,13 @@ tools:
   your-tool-name: # kebab-case
     operation: operationId_from_openapi
     enabled: true
-    scopes:
+    # Optional:
+    scopes: # defaults to the scopes the API requires (from the OpenAPI spec)
       - your_product:read
-    annotations:
+    annotations: # defaults for GET and DELETE; required for PATCH, POST and PUT
       readOnly: true
       destructive: false
       idempotent: true
-    # Optional:
-    mcp_version: 1 # 2 for create/update/delete ops, 1 for read/list if available via HogQL
     title: List things
     description: >
       Human-friendly description for the LLM.
@@ -171,6 +179,15 @@ tools:
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```
+
+When `scopes` is omitted, the generator uses the scopes the API requires, so the tool cannot drift from the endpoint.
+Set `scopes` by hand only when the API computes them per request (the generator fails and says so) or to gate a tool more tightly.
+A `scopes` list that misses a scope the API requires prints a warning, and a GitHub annotation on CI.
+`annotations` default to the HTTP method for GET (read-only) and DELETE (destructive).
+PATCH, POST and PUT vary too much (a PATCH can be a soft delete or non-idempotent), so declare `annotations` for them.
+
+When a tool needs custom logic around the request, set `hooks: <path under src/tools/>` and default-export an object with `beforeRequest`, `afterResponse` or `onError` from that module, written `export default { onError } satisfies ToolHooks<Params>` so a typo fails typecheck (see `ToolHooks` in `src/tools/tool-hooks.ts`).
+Use it to read state before a write or to turn a known error into a result, rather than shadowing the generated tool with a hand-written one.
 
 Unknown keys are rejected at build time (Zod `.strict()`).
 
@@ -252,20 +269,10 @@ These descriptions are what agents read to understand tool parameters.
 
 Every list/get endpoint should have a corresponding HogQL system table
 in [`posthog/hogql/database/schema/system.py`](../../../posthog/hogql/database/schema/system.py).
-This lets agents query data via SQL in v2 of the MCP.
+This lets agents query data via SQL.
 
 Each system table **must include a `team_id` column** for data isolation.
-
-Use `mcp_version: 1` on read/list YAML tools when a system table covers the same data —
-v2 agents use SQL instead.
 
 When adding a system table, also add a model reference file
 (`models-<domain>.md`) in [`products/posthog_ai/skills/querying-posthog-data/references/`](../../../products/posthog_ai/skills/querying-posthog-data/references/)
 and register it in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](../../../products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
-
-## Two MCP versions
-
-- **v1 (legacy)**: all CRUD tools exposed, for clients without skill support.
-- **v2 (SQL-first)**: read/list tools replaced by HogQL, create/update/delete tools kept. For coding agents.
-
-Control per-tool availability with `mcp_version: 1/2` in the YAML definition.

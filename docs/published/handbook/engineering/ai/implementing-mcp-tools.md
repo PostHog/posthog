@@ -18,7 +18,7 @@ see [Writing skills](/handbook/engineering/ai/writing-skills).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
+# 2. Configure the YAML – enable tools, add descriptions, and annotations for PATCH/POST/PUT
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. For read/list tools backed by PostHog database rows, add a HogQL system table
@@ -28,7 +28,15 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 # 4. Generate handlers and schemas
 hogli build:openapi
 
-# 5. Merge to master – CI builds and distributes automatically
+# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
+# A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
+# true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
+
+# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+pnpm --filter=@posthog/mcp run generate:ui-apps
+
+# 7. Merge to master – CI builds and distributes automatically
 ```
 
 ## Tool design principles
@@ -252,7 +260,8 @@ Product teams own their definitions and control which operations are exposed as 
        --output ../../products/your_product/mcp/tools.yaml
    ```
 
-2. **Configure** the YAML – enable tools, add scopes, annotations, and descriptions.
+2. **Configure** the YAML – enable tools and add descriptions.
+   Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -285,14 +294,13 @@ Product teams own their definitions and control which operations are exposed as 
      domain-action: # e.g. feature-flags-list, experiments-create
        operation: your_product_endpoint_list # must match an OpenAPI operationId
        enabled: true # false excludes from generation
-       # --- required when enabled: ---
-       scopes: # API scopes
+       # --- optional: ---
+       scopes: # defaults to the scopes the API requires; a list that misses one warns
          - your_product:read
-       annotations:
+       annotations: # defaults for GET and DELETE; required for PATCH, POST and PUT
          readOnly: true
          destructive: false
          idempotent: true
-       # --- optional: ---
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
@@ -356,35 +364,34 @@ Product teams own their definitions and control which operations are exposed as 
    The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
 
-   #### Hand-written override of a generated tool
+   #### Hooks for custom request logic
 
    The two overrides above reshape a generated tool's schema.
-   Neither can change what happens before the request goes out.
+   Neither can change what happens around the request.
    `validators` runs as a synchronous `superRefine`, so it cannot await anything;
    `inject_body` supplies static values; `rename_params` only renames.
 
-   When a tool has to read current state before writing, export a hand-written tool under the generated tool's own name.
-   `mergeToolFactories` gives hand-written entries precedence on a name collision, so the hand-written tool replaces the generated one everywhere:
-   the Hono catalog, the CLI, `getToolsFromContext`, and `posthog-connection-call`.
+   When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
+   The value is a module path relative to `src/tools/`, without the extension:
 
-   `src/tools/featureFlags/updateFeatureFlag.ts` is the reference.
-   It spreads the generated tool so the name, schema and any field codegen adds later carry over, replaces only the handler, and delegates back to the generated handler to make the request:
-
-   ```ts
-   const generated = GENERATED_TOOLS['update-feature-flag']!()
-
-   return {
-     ...generated,
-     handler: async (context, params) => {
-       const existing = await context.api.request({ method: 'GET', path: `...` })
-       return generated.handler(context, { ...params, filters: merge(existing, params.filters) })
-     },
-   }
+   ```yaml
+   update-feature-flag:
+     operation: feature_flags_partial_update
+     enabled: true
+     hooks: featureFlags/updateFeatureFlagHooks
    ```
 
-   Reach for this only when a read-modify-write is genuinely needed.
-   Every override is a name collision that has to stay deliberate, which `tests/unit/tool-name-validation.test.ts` enforces by pinning the set of shadowed names.
-   If a second tool needs the same treatment, add support for a `before_request:` hook to the YAML config instead of a second shadow.
+   The module default-exports an object with any of these functions, written `export default { beforeRequest } satisfies ToolHooks<Params>` so a misspelled name fails typecheck:
+
+   - `beforeRequest(context, params)` returns the params the request should use.
+   - `afterResponse(context, params, result)` returns the result to send to the client.
+   - `onError(context, params, error)` returns a result that handles the error, or rethrows it.
+
+   Codegen wraps the generated handler with them, so the name, schema and metadata stay generated.
+   A `beforeRequest` that throws stops the request, and `onError` does not see that error.
+   `hooks` cannot be combined with `confirmed_action`.
+   `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
+   Do not shadow a generated tool with a hand-written tool of the same name.
 
    #### Typed-confirm paradigm for destructive tools
 
