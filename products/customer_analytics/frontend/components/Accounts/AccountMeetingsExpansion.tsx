@@ -16,8 +16,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { dayjs } from 'lib/dayjs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import gongIcon from 'public/services/gong.png'

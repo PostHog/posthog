@@ -1670,7 +1670,10 @@ class MeetingSerializer(DataclassSerializer):
     title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
     is_recurring = serializers.BooleanField(
         read_only=True,
-        help_text="Whether the meeting is an occurrence of a recurring series. Only the next upcoming occurrence of a series is listed.",
+        help_text=(
+            "Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences "
+            "and only the next upcoming, non-canceled occurrence of each series."
+        ),
     )
     gong_url = serializers.URLField(
         read_only=True,
