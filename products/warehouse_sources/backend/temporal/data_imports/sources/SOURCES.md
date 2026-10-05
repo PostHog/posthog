@@ -737,6 +737,7 @@ the row lists both.
 | supabase                         | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey                     | HTTP                        | requests                                                        | ✅                          |
 | surveysparrow                    | HTTP                        | requests                                                        | ✅                          |
+| survicate                        | HTTP                        | requests                                                        | ✅                          |
 | svix                             | HTTP                        | requests                                                        | ✅                          |
 | swarmia                          | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
@@ -790,6 +791,7 @@ the row lists both.
 | uptimerobot                      | HTTP                        | requests                                                        | ✅                          |
 | us_bea                           | HTTP                        | requests                                                        | ✅                          |
 | us_census                        | HTTP                        | requests                                                        | ✅                          |
+| us_eia                           | HTTP                        | requests                                                        | ✅                          |
 | usersnap                         | HTTP                        | requests + PyJWT                                                | ✅                          |
 | uservoice                        | HTTP                        | requests                                                        | ✅                          |
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
@@ -1424,7 +1426,6 @@ doesn't conflict with concurrent PRs.
 - sumsub
 - superwall
 - surveymonkey
-- survicate
 - svix
 - swan
 - swonkie
@@ -1472,7 +1473,6 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_bls
-- us_eia
 - us_treasury_fiscal_data
 - uservoice
 - vanta

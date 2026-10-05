@@ -4032,11 +4032,13 @@ Today (5): `collections`, `groups`, `project_runs`, `projects`, `users`
 
 Diffed against: <https://learn.hex.tech/docs/api-integrations/api/reference>
 
-- [ ] `ListDataConnections` — lookup table resolving the data connection ids referenced by projects and queried tables (high)
-- [ ] `GetQueriedTables` — per-project list of warehouse tables a project queries — the lineage table Hex users actually want (high)
+- [x] `ListDataConnections` — lookup table resolving the data connection ids referenced by projects and queried tables (high)
+- [x] `GetQueriedTables` — per-project list of warehouse tables a project queries — the lineage table Hex users actually want (high)
 - [ ] `ListTopics` — semantic layer topic lookup, resolves topic references on semantic projects (medium)
-- [ ] `ListCells / GetCell` — the cells that make up each project we already sync, needed to analyze notebook composition (medium)
-- [ ] `ListThreads / GetThreadMessages` — Hex agent threads and their messages — a genuine event stream of analyst questions (medium)
+- [x] `ListCells` — the cells that make up each project we already sync, needed to analyze notebook composition (medium)
+- [ ] `GetCell` — skipped: returns the same cell object as `ListCells`, which the cells table already syncs (low)
+- [x] `ListThreads` — Hex agent threads (title, intent, summary, topics, feedback) — a genuine event stream of analyst questions (medium)
+- [ ] `GetThreadMessages` — skipped: rows are rendered text blocks with no stable id to key on, fetched per thread under a 30 requests per minute limit (low)
 - [ ] `ListDraftGuides` — draft guides alongside the projects and collections we sync (low)
 
 Note: learn.hex.tech renders the reference client-side from Docusaurus; the operation list above was parsed out of the page's rendered headings (operation ids), not from a raw OpenAPI file — Hex does not publish one at a guessable URL. GetProjectRuns, ListProjects, ListUsers, ListGroups and ListCollections are already covered.
@@ -4395,14 +4397,14 @@ Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked
 
 ## Invoiced — gaps
 
-Today (9): `coupons`, `credit_notes`, `customers`, `estimates`, `invoices`, `items`, `payments`, `plans`, `subscriptions`
+Today (13): `coupons`, `credit_balance_adjustments`, `credit_notes`, `customers`, `estimates`, `events`, `invoices`, `items`, `payments`, `plans`, `subscriptions`, `tasks`, `tax_rates`
 
 Diffed against: <https://developer.invoiced.com/api/coupons>
 
-- [ ] `GET /events` — object change/audit event stream — the only way to get invoice and subscription state transitions (high)
-- [ ] `GET /tax_rates` — lookup table resolving the tax rate IDs carried on invoices, items and line items we already sync (high)
-- [ ] `GET /credit_balance_adjustments` — customer credit balance transactions, missing from the AR picture (medium)
-- [ ] `GET /tasks` — AR collection tasks and chasing cadence per customer (medium)
+- [x] `GET /events` — object change/audit event stream — the only way to get invoice and subscription state transitions (high)
+- [x] `GET /tax_rates` — lookup table resolving the tax rate IDs carried on invoices, items and line items we already sync (high)
+- [x] `GET /credit_balance_adjustments` — customer credit balance transactions, missing from the AR picture (medium)
+- [x] `GET /tasks` — AR collection tasks and chasing cadence per customer (medium)
 - [ ] `GET /customers/{id}/contacts` — contact-level lookup for the customers we sync (billing vs technical recipients) (medium)
 - [ ] `GET /customers/{id}/pending_line_items` — metered billing usage accrued but not yet invoiced (medium)
 - [ ] `GET /invoices/{id}/payment_plan` — installment schedule attached to an invoice; explains partial payments (medium)
