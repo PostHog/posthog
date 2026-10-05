@@ -71,7 +71,8 @@ async function depotBilledMinutes(startAt, endAt) {
         signal: AbortSignal.timeout(60_000),
     })
     if (!res.ok) {
-        throw new Error(`Depot GetUsage -> ${res.status}: ${(await res.text()).slice(0, 200)}`)
+        // The response body stays out of the message, because the message goes to the public Actions log.
+        throw new Error(`Depot GetUsage -> ${res.status}`)
     }
     const usage = await res.json()
     if (!Array.isArray(usage.githubActionsJobs)) {
@@ -285,7 +286,6 @@ function buildBlocks(weekStart, weekEnd, rows, contract) {
         },
     ]
     if (contract) {
-        // A dry run prints the blocks to the Actions log, which is public, so it leaves the contract terms out.
         const text = DRY_RUN ? 'Depot contract line hidden in dry runs.' : contractSummary(contract, weekEnd)
         blocks.push({ type: 'section', text: { type: 'mrkdwn', text } })
     }
@@ -343,12 +343,15 @@ async function main() {
     }
     const contract = await depotContractUsage(weekStart, weekEnd)
     if (contract) {
-        rows.push([
-            cell('Depot runner min, all repos'),
-            cell(fmtMinutes(contract.lastWeek)),
-            cell(fmtMinutes(contract.priorWeek)),
-            cell(fmtDelta(contract.lastWeek, contract.priorWeek)),
-        ])
+        // A dry run prints the blocks to the Actions log, which is public, so it prints no figure from Depot's API.
+        const figures = DRY_RUN
+            ? Array(3).fill(cell('hidden in dry runs'))
+            : [
+                  cell(fmtMinutes(contract.lastWeek)),
+                  cell(fmtMinutes(contract.priorWeek)),
+                  cell(fmtDelta(contract.lastWeek, contract.priorWeek)),
+              ]
+        rows.push([cell('Depot runner min, all repos'), ...figures])
     }
     const blocks = buildBlocks(weekStart, weekEnd, rows, contract)
     if (DRY_RUN) {
