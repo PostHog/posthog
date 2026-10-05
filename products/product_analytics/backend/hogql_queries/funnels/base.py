@@ -44,6 +44,74 @@ class FunnelBase(ABC):
     _extra_event_fields: list[ColumnName]
     _extra_event_properties: list[PropertyName]
 
+    def _with_capture_order_key(self, inner_event_query: ast.Expr) -> ast.Expr:
+        """Add `capture_order_key`, the instant each event was captured on its own device.
+
+        `$client_capture_time` is the device's own clock reading, written by capture. It carries
+        that device's clock error rather than the request's delivery delay, so it orders one
+        device's events correctly but is not comparable between two devices whose clocks differ.
+        Anchoring each device on the smallest offset it was seen with cancels the clock error and
+        leaves the device's constant floor latency, which is comparable.
+
+        A row without the property, or without a device to anchor it to, keeps its stored
+        timestamp and contributes nothing to the minimum.
+        """
+        if not self.context.modifiers.funnelUseClientCaptureOrder:
+            return inner_event_query
+
+        return parse_select(
+            """
+            SELECT
+                *,
+                if(
+                    isNotNull(capture_ms)
+                    AND isNotNull(device_offset_ms)
+                    AND ifNull(capture_device, '') != ''
+                    AND device_rows_with_capture = device_rows,
+                    (capture_ms + device_offset_ms) / 1000,
+                    stored_ms / 1000
+                ) AS capture_order_key
+            FROM (
+                SELECT
+                    *,
+                    min(stored_ms - capture_ms) OVER (
+                        PARTITION BY aggregation_target, capture_device
+                    ) AS device_offset_ms,
+                    count(capture_ms) OVER (
+                        PARTITION BY aggregation_target, capture_device
+                    ) AS device_rows_with_capture,
+                    count() OVER (
+                        PARTITION BY aggregation_target, capture_device
+                    ) AS device_rows
+                FROM (
+                    SELECT
+                        *,
+                        toUnixTimestamp64Milli(client_capture_time) AS capture_ms,
+                        toUnixTimestamp64Milli(toDateTime64(timestamp, 3)) AS stored_ms
+                    FROM {inner_event_query}
+                )
+            )
+            """,
+            {"inner_event_query": inner_event_query},
+        )
+
+    def step_order_key(self) -> str:
+        """The expression funnel steps are ordered by.
+
+        The stored timestamp is the capture instant plus that request's delivery latency, so two
+        requests from one device order by how long each took to arrive rather than by when the
+        events happened. `$client_capture_time` is the device's own clock reading at capture, which
+        has the device's clock error in it instead; that error is constant within a device, so it
+        cannot reorder that device's own events.
+
+        Anchoring each device on the smallest offset it was seen with cancels the clock error and
+        leaves the device's constant floor latency, which orders correctly within a device and
+        stays comparable across the devices of one person.
+        """
+        if not self.context.modifiers.funnelUseClientCaptureOrder:
+            return "toFloat(timestamp)"
+        return "toFloat(capture_order_key)"
+
     def __init__(self, context: FunnelQueryContext):
         self.context = context
 

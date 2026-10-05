@@ -196,6 +196,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select: list[ast.Expr] = [
             ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
             ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
+            *self._capture_order_cols(),
             *all_step_cols,
         ]
 
@@ -258,6 +259,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 expr=timestamp_expr,
             ),
             ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.aggregation_target_field)),
+            *self._capture_order_cols(is_warehouse=True),
             *all_step_cols,
         ]
 
@@ -585,6 +587,61 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
 
         return [ast.Alias(alias=field, expr=_expr_for(field)) for field in self.extra_fields]
+
+    def _capture_order_cols(self, is_warehouse: bool = False) -> list[ast.Expr]:
+        """Columns the capture-order key needs, or nothing when the modifier is off.
+
+        `$client_capture_time` is written by capture when the client sent enough to derive it,
+        so it is absent on some events and always absent on warehouse-sourced rows, which have
+        no device at all. Both cases resolve to NULL and fall back to the stored timestamp.
+        """
+        if not self.context.modifiers.funnelUseClientCaptureOrder:
+            return []
+        if is_warehouse:
+            return [
+                ast.Alias(alias="capture_device", expr=ast.Constant(value="")),
+                # Same expression shape as the events branch so the UNION column types match.
+                ast.Alias(
+                    alias="client_capture_time",
+                    expr=ast.Call(
+                        name="parseDateTimeBestEffort",
+                        args=[ast.Constant(value=""), ast.Constant(value="UTC")],
+                    ),
+                ),
+            ]
+        return [
+            ast.Alias(
+                alias="capture_device",
+                expr=ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, "properties", "$device_id"])],
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                ),
+            ),
+            ast.Alias(
+                alias="client_capture_time",
+                expr=ast.Call(
+                    name="parseDateTimeBestEffort",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, "properties", "$client_capture_time"])],
+                        ),
+                        # The second argument is load-bearing, and it is the timezone: the
+                        # printer supplies precision itself. With one argument it resolves this
+                        # to the throwing parser, which fails the whole query on any row that
+                        # has no capture instant rather than letting it fall back. The value is
+                        # an absolute instant, so the zone only picks the nullable overload.
+                        ast.Constant(value="UTC"),
+                    ],
+                ),
+            ),
+        ]
 
     def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
