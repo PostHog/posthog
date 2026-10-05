@@ -61,6 +61,34 @@ describe('computeSankeyLayout', () => {
         expect([columnOf('right', 'start'), columnOf('right', 'a'), columnOf('right', 'ended')]).toEqual([0, 1, 2])
     })
 
+    it('pins a node to its own column and widens the graph to fit it', () => {
+        // A late stage with no link from the earlier stages: depth alone would put `late` in the
+        // first column, and the graph would have three columns instead of five.
+        const nodes: SankeyNodeInput[] = [...NODES, { id: 'late', column: 3 }, { id: 'last', column: 4 }]
+        const links: SankeyLinkInput[] = [...LINKS, { source: 'late', target: 'last', value: 2 }]
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        const columnOf = (id: string): number | undefined => layout.nodes.find((n) => n.id === id)?.column
+        expect([columnOf('start'), columnOf('done'), columnOf('late'), columnOf('last')]).toEqual([0, 2, 3, 4])
+        expect(layout.columnCount).toBe(5)
+    })
+
+    it('lays out a pinned graph with an empty column between the pins', () => {
+        // Only two nodes, pinned three columns apart with nothing to naturally fill the columns
+        // between them: the graph must not crash spacing out a column with zero nodes in it.
+        const nodes: SankeyNodeInput[] = [
+            { id: 'x', column: 0 },
+            { id: 'y', column: 3 },
+        ]
+        const links: SankeyLinkInput[] = [{ source: 'x', target: 'y', value: 5 }]
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).not.toThrow()
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        const columnOf = (id: string): number | undefined => layout.nodes.find((n) => n.id === id)?.column
+        expect([columnOf('x'), columnOf('y')]).toEqual([0, 3])
+        expect(layout.columnCount).toBe(4)
+        // Headers over the empty columns need an x too, evenly spaced between the pinned ones.
+        expect(layout.columnX).toEqual([0, 590 / 3, (2 * 590) / 3, 590])
+    })
+
     it('resolves node colors by label and defaults link color to the source node', () => {
         const layout = layoutOf({
             nodes: [...NODES.slice(0, 3), { id: 'done', label: 'Completed', color: 'var(--success)' }],

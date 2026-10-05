@@ -50,6 +50,29 @@ describe('SankeyChart', () => {
         expect(chart.canvas.getAttribute('aria-label')).toBe('Sankey chart with 3 nodes and 2 links')
     })
 
+    it('drops the label of a thin node that would print over its larger neighbor', () => {
+        // Two thin nodes stacked in one column: their boxes are a pixel or two tall, so their label
+        // centers sit closer than a line of text. The larger flow keeps its label.
+        const { chart } = renderHogChart(
+            <SankeyChart
+                nodes={[
+                    { id: 'start', label: 'Start' },
+                    { id: 'a', label: 'Big' },
+                    { id: 'b', label: 'Thin' },
+                    { id: 'c', label: 'Thinner' },
+                ]}
+                links={[
+                    { source: 'start', target: 'a', value: 400 },
+                    { source: 'start', target: 'b', value: 2 },
+                    { source: 'start', target: 'c', value: 1 },
+                ]}
+                theme={THEME}
+                config={{ nodePadding: 0 }}
+            />
+        )
+        expect(chart.sankeyNodeLabels()).toEqual(['Start', 'Big', 'Thin'])
+    })
+
     it('shows the hovered node in the tooltip, reports it once, and fires onNodeClick for it', async () => {
         const onNodeClick = jest.fn()
         const onHoverChange = jest.fn()
