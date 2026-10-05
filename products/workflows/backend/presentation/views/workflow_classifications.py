@@ -1,6 +1,7 @@
 import json
 from typing import Any, cast
 
+import httpx
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -103,7 +104,8 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 description="This deployment has no AI gateway configured",
             ),
             422: OpenApiResponse(
-                response=WorkflowClassificationErrorSerializer, description="The model rejected the request"
+                response=WorkflowClassificationErrorSerializer,
+                description="The model rejected the request or returned an unusable answer",
             ),
             503: OpenApiResponse(
                 response=WorkflowClassificationErrorSerializer,
@@ -145,10 +147,10 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
             return _error("Jev is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
         except SystemOneRequestFailed as error:
             logger.warning("workflow_classification_failed", team_id=team.id, status_code=error.status_code)
-            # A 429 or 5xx is load or an outage and a missing status is a network error, so the worker retries
-            # those. The worker also retries 502, so a rejection gets 422 to fail the step without a retry.
-            if error.status_code is None or error.status_code == 429 or error.status_code >= 500:
+            if _is_transient(error):
                 return _error("Jev is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
+            if error.status_code is None:
+                return _error("Jev returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY)
             return _error(
                 f"Jev refused the request (gateway status {error.status_code}).", status.HTTP_422_UNPROCESSABLE_ENTITY
             )
@@ -159,6 +161,12 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 {"category": answer.choice, "confidence": answer.confidence, "probabilities": answer.probabilities}
             ).data
         )
+
+
+def _is_transient(error: SystemOneRequestFailed) -> bool:
+    if error.status_code is None:
+        return isinstance(error.__cause__, httpx.HTTPError)
+    return error.status_code == 429 or error.status_code >= 500
 
 
 def _error(detail: str, http_status: int) -> Response:

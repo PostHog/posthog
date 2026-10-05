@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import httpx
 from parameterized import parameterized
 from rest_framework import status
 
@@ -28,6 +29,12 @@ def _token(team_id: int, audience: PosthogJwtAudience = PosthogJwtAudience.WORKF
     return encode_jwt(
         {"team_id": team_id, "hog_flow_id": str(uuid4())}, timedelta(minutes=5), audience, signing_key=SECRET
     )
+
+
+def _unreachable() -> SystemOneRequestFailed:
+    error = SystemOneRequestFailed("The ai-gateway was not reached")
+    error.__cause__ = httpx.ConnectError("Connection refused")
+    return error
 
 
 @override_settings(WORKFLOW_CLASSIFY_JWT_SECRETS=[SECRET], TASKS_CREATE_JWT_SECRETS=[SECRET])
@@ -81,7 +88,13 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         [
             ("not_configured", SystemOneNotConfigured(), None, status.HTTP_501_NOT_IMPLEMENTED),
             ("rate_limited", None, SystemOneRequestFailed("429", status_code=429), status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("unreachable", None, SystemOneRequestFailed("down"), status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("unreachable", None, _unreachable(), status.HTTP_503_SERVICE_UNAVAILABLE),
+            (
+                "malformed_answer",
+                None,
+                SystemOneRequestFailed("malformed choice"),
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            ),
             (
                 "gateway_error",
                 None,
@@ -130,3 +143,13 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         response = self._post(token=_token(self.team.id, audience=PosthogJwtAudience.TASKS_CREATE))
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_rejects_a_token_without_a_workflow_claim(self) -> None:
+        token = encode_jwt(
+            {"team_id": self.team.id}, timedelta(minutes=5), PosthogJwtAudience.WORKFLOW_CLASSIFY, signing_key=SECRET
+        )
+        with patch(_BUILD) as build:
+            response = self._post(token=token)
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        build.assert_not_called()
