@@ -28,8 +28,21 @@ PERSON_ORGANIZATION_KEYS = ("org__name", "organization_name", "organization", "c
 PERSON_NAME_KEYS = ("name", "full_name")
 PERSON_NAME_PART_KEYS = ("first_name", "last_name")
 
-# Every property the identity query reads, in the column order it returns them.
+# Every person property the identity query reads, in the column order it returns them.
 PERSON_IDENTITY_KEYS = ("email", *PERSON_NAME_KEYS, *PERSON_NAME_PART_KEYS, *PERSON_ORGANIZATION_KEYS)
+
+# Event-level location of the recorded session, read off the subject's own events. Mirrors the location
+# columns the sessions table keeps, so Vision agrees with replay filters on where a session happened.
+SESSION_GEOIP_KEYS = (
+    "$geoip_country_code",
+    "$geoip_subdivision_1_code",
+    "$geoip_subdivision_1_name",
+    "$geoip_city_name",
+    "$geoip_time_zone",
+)
+
+# Every column the identity query returns, in order.
+SESSION_SUBJECT_COLUMNS = (*PERSON_IDENTITY_KEYS, *SESSION_GEOIP_KEYS)
 
 # Person and group properties are customer-controlled free text of unbounded length, and they render into a prompt
 # that is cached and re-sent on every turn. No real name, email, or company needs more than this.
@@ -41,9 +54,9 @@ IDENTITY_TIMESTAMP_SLACK = dt.timedelta(hours=1)
 
 
 def _person_identity_query() -> str:
-    """`SELECT` over the subject's events in the session, one aggregate per identity property.
+    """`SELECT` over the subject's events in the session, one aggregate per identity and location property.
 
-    Built from `PERSON_IDENTITY_KEYS` so the columns and the readers below cannot drift apart.
+    Built from `SESSION_SUBJECT_COLUMNS` so the columns and the readers below cannot drift apart.
 
     The `distinct_id` clause is load-bearing, not an optimization. A project's write token is public by design,
     so anyone who knows a session id can post an event carrying it under a `distinct_id` of their choosing.
@@ -51,8 +64,16 @@ def _person_identity_query() -> str:
     be persisted as the subject and shown as authoritative. Bind to the distinct id the replay metadata names.
     """
     selects = ", ".join(
-        f"any(person.properties.{escape_hogql_identifier(key)}) AS {escape_hogql_identifier(key)}"
-        for key in PERSON_IDENTITY_KEYS
+        [
+            *(
+                f"any(person.properties.{escape_hogql_identifier(key)}) AS {escape_hogql_identifier(key)}"
+                for key in PERSON_IDENTITY_KEYS
+            ),
+            *(
+                f"any(properties.{escape_hogql_identifier(key)}) AS {escape_hogql_identifier(key)}"
+                for key in SESSION_GEOIP_KEYS
+            ),
+        ]
     )
     return (
         f"SELECT {selects} FROM events WHERE `$session_id` = {{session_id}} "
@@ -67,7 +88,7 @@ SESSION_PERSON_IDENTITY_QUERY = _person_identity_query()
 def fetch_session_person_properties(
     *, team: Team, session_id: str, distinct_id: str | None, start: dt.datetime, end: dt.datetime
 ) -> dict[str, Any]:
-    """Identity properties of the person the recording is of, keyed by property name.
+    """Identity properties of the person the recording is of, plus the session's location, keyed by property name.
 
     `distinct_id` is the subject named by the replay metadata; without one there is no subject to attribute to,
     so the caller gets nothing rather than whatever else shares the session id.
@@ -96,7 +117,12 @@ def person_properties_from_row(row: Sequence[Any]) -> dict[str, Any]:
     Unset properties are dropped: the query aggregates, so a session with no matching person still returns one
     row of nulls rather than no rows, and a dict of nulls would read as a person who carries every property blank.
     """
-    return {key: value for key, value in zip(PERSON_IDENTITY_KEYS, row) if value is not None}
+    return {key: value for key, value in zip(SESSION_SUBJECT_COLUMNS, row) if value is not None}
+
+
+def session_geoip(properties: Mapping[str, Any]) -> dict[str, str]:
+    """The session's location keys the subject's events carried, ready to stamp on the emitted event."""
+    return {key: value for key in SESSION_GEOIP_KEYS if (value := clean_identity_value(properties.get(key)))}
 
 
 def clean_identity_value(value: Any) -> str | None:

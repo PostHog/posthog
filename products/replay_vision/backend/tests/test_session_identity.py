@@ -10,6 +10,7 @@ from products.replay_vision.backend.queries.session_identity import (
     fetch_session_person_properties,
     person_display_name,
     person_organization,
+    session_geoip,
 )
 
 _START = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
@@ -30,7 +31,7 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
             event="$pageview",
             distinct_id="user-1",
             timestamp=_START,
-            properties={"$session_id": session_id},
+            properties={"$session_id": session_id, "$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"},
         )
         flush_persons_and_events()
 
@@ -41,6 +42,9 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
         assert properties["email"] == "rene@customer.example"
         assert properties["name"] == "Rene Diaz"
         assert properties["org__name"] == "Customer Co"
+        assert properties["$geoip_country_code"] == "US"
+        assert properties["$geoip_subdivision_1_code"] == "CA"
+        assert "$geoip_city_name" not in properties
 
     @pytest.mark.django_db
     def test_ignores_events_another_person_posted_under_the_same_session_id(self, team) -> None:
@@ -127,3 +131,19 @@ class TestPersonDisplayName:
         # Each part is capped, so the join has to be capped too or it lands at twice the limit.
         joined = person_display_name({"first_name": "x" * 5000, "last_name": "y" * 5000})
         assert joined is not None and len(joined) == MAX_IDENTITY_VALUE_LEN
+
+
+class TestSessionGeoip:
+    @pytest.mark.parametrize(
+        "properties,expected",
+        [
+            (
+                {"email": "rene@customer.example", "$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"},
+                {"$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"},
+            ),
+            ({"$geoip_country_code": "  ", "$geoip_city_name": None, "$geoip_time_zone": 42}, {}),
+            ({}, {}),
+        ],
+    )
+    def test_keeps_only_the_location_keys_with_a_usable_value(self, properties, expected) -> None:
+        assert session_geoip(properties) == expected
