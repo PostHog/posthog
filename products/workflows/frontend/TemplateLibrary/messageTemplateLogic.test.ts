@@ -11,6 +11,7 @@ import type { ResourceEditedEvent } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
+import { NEW_TEMPLATE } from './constants'
 import { messageTemplateLogic } from './messageTemplateLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -132,7 +133,7 @@ describe('messageTemplateLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.saveTemplate({ id: 'existing-id', name: 'Existing' })
+                logic.actions.saveTemplate({ ...NEW_TEMPLATE, id: 'existing-id', name: 'Existing' })
             }).toDispatchActions(['saveTemplateFailure'])
 
             if (withButton) {

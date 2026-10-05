@@ -155,7 +155,7 @@ export interface messageTemplateLogicActions {
             updated_at: string | null
         }
     }
-    saveTemplate: (template: any) => any
+    saveTemplate: (template: MessageTemplate) => MessageTemplate
     saveTemplateFailure: (
         error: string,
         errorObject?: any
@@ -165,10 +165,10 @@ export interface messageTemplateLogicActions {
     }
     saveTemplateSuccess: (
         savedTemplate: MessageTemplate,
-        payload?: any
+        payload?: MessageTemplate
     ) => {
         savedTemplate: MessageTemplate
-        payload?: any
+        payload?: MessageTemplate
     }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
@@ -418,7 +418,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         savedTemplate: [
             null as MessageTemplate | null,
             {
-                saveTemplate: (template) => {
+                saveTemplate: (template: MessageTemplate) => {
                     if (template.id === 'new') {
                         return api.messaging.createTemplate(template)
                     }
