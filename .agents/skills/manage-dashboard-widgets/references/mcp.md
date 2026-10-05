@@ -6,15 +6,17 @@ Tool config: `products/dashboards/mcp/tools.yaml` — regenerate MCP handlers af
 
 ## Tool map
 
-| Goal                                  | MCP tool                              | Notes                                                                                          |
-| ------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Discover widget types + config schema | `dashboard-widget-catalog-list`       | Read-only catalog; per-type `config_schema` = Pydantic JSON schema (bounds, choices, defaults) |
-| Read dashboard tiles + widget config  | `dashboard-get`                       | Widget tiles have `widget.widget_type` and `widget.config`; no live data                       |
-| Add widget tile(s)                    | `dashboard-widgets-batch-add`         | Atomic batch via `POST .../widgets/batch/` (1–10 tiles; one tile = single-element `widgets`)   |
-| Update widget tile(s)                 | `dashboard-update`                    | PATCH dashboard with `tiles[]`: each tile `id` + `widget.id` + fields to change                |
-| Run widget queries                    | `dashboard-widgets-run`               | Query: `tile_ids` comma-separated from dashboard-get                                           |
-| Copy widget tile to another dashboard | `dashboard-tile-copy`                 | Deep-clones widget; destination is path dashboard ID                                           |
-| Move widget tile between dashboards   | `dashboards-move-tile-partial-update` | Source dashboard is path `id`; pass `to_dashboard` and `tile.id` from dashboard-get            |
+| Goal                                  | MCP tool                        | Notes                                                                                          |
+| ------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Discover widget types + config schema | `dashboard-widget-catalog-list` | Read-only catalog; per-type `config_schema` = Pydantic JSON schema (bounds, choices, defaults) |
+| Read dashboard tiles + widget config  | `dashboard-get`                 | Widget tiles have `widget.widget_type` and `widget.config`; no live data                       |
+| Add widget tile(s)                    | `dashboard-widgets-batch-add`   | Atomic batch via `POST .../widgets/batch/` (1–10 tiles; one tile = single-element `widgets`)   |
+| Update widget tile(s)                 | `dashboard-update`              | PATCH dashboard with `tiles[]`: each tile `id` + `widget.id` + fields to change                |
+| Run widget queries                    | `dashboard-widgets-run`         | Query: `tile_ids` comma-separated from dashboard-get                                           |
+| Copy widget tile to another dashboard | `dashboard-tile-copy`           | Deep-clones widget; destination is path dashboard ID                                           |
+| Move widget tile between dashboards   | `dashboard-transfer-tile`       | Source dashboard is path `id`; pass `to_dashboard` and `tile.id` from dashboard-get            |
+
+The transfer tool does not resize or reposition tiles. Use `dashboard-update` for layout changes.
 
 There is no dedicated single-tile create or per-tile `PATCH .../widgets/:tile_id/` REST endpoint — the UI and MCP use batch add and dashboard PATCH respectively.
 
@@ -31,14 +33,14 @@ Multi-tile add from the UI uses `POST .../widgets/batch/` (`addWidgetTiles`), sa
 
 ## REST equivalents
 
-| MCP tool                              | Endpoint                                                      |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `dashboard-widget-catalog-list`       | `GET .../dashboards/widget_catalog/`                          |
-| `dashboard-widgets-batch-add`         | `POST .../dashboards/:id/widgets/batch/` (1–10 tiles, atomic) |
-| `dashboard-update` (widget tiles)     | `PATCH .../dashboards/:id` with `tiles[]` and nested `widget` |
-| `dashboard-widgets-run`               | `GET .../dashboards/:id/run_widgets/?tile_ids=`               |
-| `dashboard-tile-copy`                 | `POST .../dashboards/:id/copy_tile/`                          |
-| `dashboards-move-tile-partial-update` | `PATCH .../dashboards/:id/move_tile/`                         |
+| MCP tool                          | Endpoint                                                      |
+| --------------------------------- | ------------------------------------------------------------- |
+| `dashboard-widget-catalog-list`   | `GET .../dashboards/widget_catalog/`                          |
+| `dashboard-widgets-batch-add`     | `POST .../dashboards/:id/widgets/batch/` (1–10 tiles, atomic) |
+| `dashboard-update` (widget tiles) | `PATCH .../dashboards/:id` with `tiles[]` and nested `widget` |
+| `dashboard-widgets-run`           | `GET .../dashboards/:id/run_widgets/?tile_ids=`               |
+| `dashboard-tile-copy`             | `POST .../dashboards/:id/copy_tile/`                          |
+| `dashboard-transfer-tile`         | `PATCH .../dashboards/:id/move_tile/`                         |
 
 UI multi-select add uses `POST .../widgets/batch/` (not PATCH dashboard `tiles[]` for create).
 
