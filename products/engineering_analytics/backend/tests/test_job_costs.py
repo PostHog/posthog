@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 import pandas as pd
 from parameterized import parameterized
@@ -23,7 +24,14 @@ from products.engineering_analytics.backend.logic.cost import (
     estimate_job_cost_usd,
 )
 from products.engineering_analytics.backend.logic.sources import JobSourceTables
-from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs, depot_ci, job_costs
+from products.engineering_analytics.backend.logic.views import (
+    ci_jobs,
+    ci_runs,
+    depot_ci,
+    job_costs,
+    workflow_jobs,
+    workflow_runs,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -33,7 +41,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     repo_id,
     seeding_object_storage,
 )
-from products.engineering_analytics.backend.tests._logic_helpers import _ago
+from products.engineering_analytics.backend.tests._logic_helpers import _STORED_VIEW, _ago
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.job_costs"
@@ -249,6 +257,38 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         assert [tuple(row) for row in response.results] == [
             (run_id, source.source_id, source.repository, 1) for run_id in expected_run_ids
         ]
+
+    def test_stored_read_returns_the_columns_of_the_builder_it_stands_in_for(self) -> None:
+        source = self._source_with_runs_and_jobs([_JobOfRun(9000, created=_ago(1), run_started=_ago(1))])
+        stored_reads = [
+            (
+                "runs",
+                ci_runs,
+                ci_runs.build_read_query,
+                workflow_runs.build_query(source.runs_source, pull_requests_table=source.pull_requests),
+            ),
+            ("jobs", ci_jobs, ci_jobs.build_jobs_read_query, workflow_jobs.build_query(source.jobs_source)),
+            (
+                "job_costs",
+                ci_jobs,
+                ci_jobs.build_job_costs_read_query,
+                job_costs.build_query(jobs_table=source.jobs_source, runs_table=source.runs_source),
+            ),
+        ]
+
+        def columns(query: str) -> list[str]:
+            response = execute_hogql_query(
+                query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
+            )
+            return sorted(response.columns or [])
+
+        for name, view, build_stored_read, raw_read in stored_reads:
+            # No table is materialized here, so the stored rows are the view body itself.
+            view_body = f"({view.build_source_query(source)})"
+            with self.subTest(name), patch(f"{_STORED_VIEW}.stored_rows", return_value=view_body):
+                stored_read = build_stored_read(source_id=source.source_id, repository=source.repository)
+
+                assert columns(stored_read) == columns(raw_read)
 
     def test_view_matches_python_cost_model(self) -> None:
         jobs_table = self._create_table(

@@ -1,32 +1,58 @@
-"""When the stored CI views rebuild.
+"""When the stored CI views rebuild, and when a read may take their tables.
 
 A rebuild costs the same whether or not anyone reads its table. So a rebuild starts only while a
 person or an agent uses the product: the first request after an idle period starts one, and each
 data load starts the next one for as long as the requests continue. An idle product starts none.
 
 The managed-view schedule of data_modeling also rebuilds each view, whether or not the product is in use.
+
+A read takes a table only while the table is recent. Any other read takes the raw tables, so a view
+that stopped rebuilding makes the product slower, never out of date.
 """
 
 from collections.abc import Collection
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.core.cache import cache
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
+from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.models.team import Team
 
 from products.data_modeling.backend.facade import api as data_modeling
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.engineering_analytics.backend.facade.contracts import STORED_READS_FEATURE_FLAG
+from products.engineering_analytics.backend.logic.feature_flags import team_flag
 from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs
+from products.engineering_analytics.backend.logic.views.stored_view import identity_columns, lowest_stored_date
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
 STORED_VIEWS = (ci_runs, ci_jobs)
 
+_WINDOWS = {view.VIEW_NAME: view.WINDOW for view in STORED_VIEWS}
+
 _IN_USE_SECONDS = 60 * 60
 _MIN_REBUILD_GAP_SECONDS = 10 * 60
+
+# Each load starts a rebuild. Sized for a source that loads every 15 minutes: a table older than this
+# missed more than one load, so a read takes the raw tables until a rebuild lands again.
+_MAX_TABLE_AGE = timedelta(minutes=45)
+
+# A table built from the view of an earlier load has no row for a raw table that landed after it. A
+# rebuild that started before the raw table landed can still finish after it, so a table answers for a
+# raw table only when it was built this long after the raw table landed.
+_MIN_BUILD_AFTER_RAW_TABLE = timedelta(minutes=30)
 
 
 def _in_use_key(team_id: int) -> str:
@@ -97,3 +123,50 @@ def _start_rebuilds(team_id: int, view_names: Collection[str]) -> None:
         except Exception as e:
             logger.exception("rebuild_engineering_analytics_view_failed", team_id=team_id, view_name=saved_query.name)
             capture_exception(e)
+
+
+@frozen
+class StoredTables:
+    """The tables of the stored CI views that a read may take. ``built_at`` is the build time of the
+    table that was built first."""
+
+    built_at: datetime
+
+    def answers(self, view_name: str, floor: str) -> bool:
+        """True when the table of the view holds every row at or above the date-only scan ``floor``."""
+        return floor >= lowest_stored_date(self.built_at, _WINDOWS[view_name])
+
+
+def stored_tables_for(
+    team: Team, user: "User | None", *, source_id: str, repository: str, raw_tables: Collection[str]
+) -> StoredTables | None:
+    """The tables that a read of one repository of one source may take. None sends the read to the
+    raw tables.
+
+    ``raw_tables`` are the warehouse tables that the stored rows of that repository are built from.
+    """
+    distinct_id = user.distinct_id if user else None
+    if not team_flag(STORED_READS_FEATURE_FLAG, team, distinct_id=distinct_id, only_evaluate_locally=True):
+        return None
+    views = list(managed_views(team.pk, list(_WINDOWS)).filter(is_materialized=True))
+    if len(views) != len(_WINDOWS):
+        return None
+    # A view takes a source when the first load of the source lands. Before that, its table has no row
+    # for the source, and a read cannot tell that from a repository with no CI.
+    identity = identity_columns(source_id, repository)
+    if any(identity not in ((view.query or {}).get("query") or "") for view in views):
+        return None
+    builds = [built for view in views if (built := data_modeling.saved_query_materialized_at(view)) is not None]
+    if len(builds) != len(views):
+        return None
+    built_at = min(builds)
+    if timezone.now() - built_at > _MAX_TABLE_AGE:
+        return None
+    newest_raw_table = (
+        DataWarehouseTable.objects.filter(team_id=team.pk, name__in=raw_tables)
+        .exclude(deleted=True)
+        .aggregate(newest=Max("created_at"))["newest"]
+    )
+    if newest_raw_table is None or built_at < newest_raw_table + _MIN_BUILD_AFTER_RAW_TABLE:
+        return None
+    return StoredTables(built_at=built_at)

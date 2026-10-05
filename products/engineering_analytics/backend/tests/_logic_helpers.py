@@ -7,18 +7,28 @@ from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
 import pandas as pd
 
+from posthog.hogql.database.models import BooleanDatabaseField
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.models.team import Team
+
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX
 from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
+from products.engineering_analytics.backend.logic.stored_views import STORED_VIEWS, StoredTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
+from products.engineering_analytics.backend.logic.views.stored_view import stored_rows
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     _pr_row,
@@ -290,3 +300,74 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 ),
             ],
         )
+
+
+_CURATED = "products.engineering_analytics.backend.logic.queries._curated"
+_STORED_VIEW = "products.engineering_analytics.backend.logic.views.stored_view"
+_VIEWS_BY_NAME = {view.VIEW_NAME: view for view in STORED_VIEWS}
+
+
+def _add_stored_views_to_catalog(team: Team) -> None:
+    for view_name in _VIEWS_BY_NAME:
+        DataWarehouseSavedQuery.objects.create(
+            team=team, name=view_name, query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+
+
+class _StoredCiTablesMixin(_WarehouseMixin):
+    """Runs the ``STORED_READ_TESTS`` of a warehouse test class with their floored CI sources read
+    through the stored views, so the assertions of those tests also hold for a stored read. The other
+    tests of the class are not collected. A listed test fails when it runs no stored read, or when a
+    stored read fails and the raw tables answer in its place.
+
+    Nothing is materialized. Each view is inlined with its columns coerced the way a materialized
+    table stores them: every column nullable, and a boolean as an integer.
+    """
+
+    STORED_READ_TESTS: tuple[str, ...] = ()
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        missing = [name for name in cls.STORED_READ_TESTS if not callable(getattr(cls, name, None))]
+        assert cls.STORED_READ_TESTS and not missing, f"{cls.__name__} lists tests that do not exist: {missing}"
+        for name in dir(cls):
+            if name.startswith("test") and name not in cls.STORED_READ_TESTS:
+                setattr(cls, name, None)
+
+    def setUp(self) -> None:
+        super().setUp()
+        _add_stored_views_to_catalog(self.team)
+        self._stored_reads = 0
+        self._failed_stored_reads = 0
+        for patcher in (
+            patch(f"{_CURATED}.stored_tables_for", return_value=StoredTables(built_at=timezone.now())),
+            patch(f"{_STORED_VIEW}.stored_rows", side_effect=self._inlined_stored_rows),
+            patch(f"{_CURATED}.execute_hogql_query", side_effect=self._execute),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(self._assert_stored_reads_answered)
+
+    def _inlined_stored_rows(self, view_name: str, *, source_id: str, repository: str) -> str:
+        view = _VIEWS_BY_NAME[view_name]
+        columns = ", ".join(
+            f"toNullable({f'toInt({name})' if isinstance(field, BooleanDatabaseField) else name}) AS {name}"
+            for name, field in view.FIELDS.items()
+        )
+        table = f"(SELECT {columns} FROM ({view.build_team_view(self.team)}))"
+        return stored_rows(table, source_id=source_id, repository=repository)
+
+    def _execute(self, **kwargs: Any) -> Any:
+        if not kwargs["query_type"].endswith(STORED_QUERY_TYPE_SUFFIX):
+            return execute_hogql_query(**kwargs)
+        try:
+            response = execute_hogql_query(**kwargs)
+        except Exception:
+            self._failed_stored_reads += 1
+            raise
+        self._stored_reads += 1
+        return response
+
+    def _assert_stored_reads_answered(self) -> None:
+        assert not self._failed_stored_reads, "a stored read failed, and the raw tables answered in its place"
+        assert self._stored_reads, "this test ran no stored read, so its second run proves nothing"

@@ -61,6 +61,8 @@ ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 # spends the team's warehouse compute, so no team gets one without opting in.
 MATERIALIZED_VIEWS_FEATURE_FLAG = "engineering-analytics-friction"
 
+STORED_READS_FEATURE_FLAG = "engineering-analytics-stored-reads"
+
 
 class CISignalsSyncStatus(StrEnum):
     RUNNING = "running"

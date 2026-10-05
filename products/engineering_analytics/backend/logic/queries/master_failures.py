@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     UNPAGED_SCAN_LIMIT,
+    run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
 
@@ -64,12 +65,17 @@ def query_master_failures(
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "branch": ast.Constant(value=branch),
+        "run_started_floor": run_started_floor_constant(date_from),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 
+    # The runs carry the floor that the jobs read below carries, so both reads take the same tables. A
+    # run from the raw tables with its jobs from an older stored table would show no failed job.
     runs_response = curated.run(
-        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
+        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True)).replace(
+            "__DATE_TO__", date_to_clause
+        ),
         query_type="engineering_analytics.master_failures_runs",
         placeholders=placeholders,
     )
