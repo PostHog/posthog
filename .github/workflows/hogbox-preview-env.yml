@@ -130,7 +130,6 @@ jobs:
         outputs:
             build: ${{ steps.decide.outputs.build }}
             teardown: ${{ steps.decide.outputs.teardown }}
-            flags: ${{ steps.flags.outputs.flags }}
         steps:
             # A blip empties the outputs, so every downstream job skips: no preview, still green.
             - name: Decide build vs teardown vs skip
@@ -226,42 +225,6 @@ jobs:
                       return decide(build, false, build
                           ? `eligible (label=${hasPreviewLabel}, frontend=${frontend}) → build`
                           : 'no hogbox-preview label and no frontend changes → skip');
-
-            # Only the detector script is checked out; this job still holds no credentials.
-            - name: Check out the flag detector
-              if: steps.decide.outputs.build == 'true'
-              continue-on-error: true
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: .github/scripts/preview-flags.js
-                  sparse-checkout-cone-mode: false
-                  persist-credentials: false
-
-            # A failure here only means the preview opens without extra flags.
-            - name: Detect the feature flags the PR needs
-              id: flags
-              if: steps.decide.outputs.build == 'true'
-              continue-on-error: true
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
-              with:
-                  script: |
-                      const { CONSTANTS_PATH, detectPreviewFlags } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/preview-flags.js`);
-                      const pull_number = Number(process.env.PR);
-                      const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number });
-                      const files = await github.paginate(github.rest.pulls.listFiles,
-                          { ...context.repo, pull_number, per_page: 100 });
-                      let constantsSource = '';
-                      try {
-                          const { data } = await github.rest.repos.getContent({
-                              ...context.repo, path: CONSTANTS_PATH, ref: pr.head.sha,
-                          });
-                          constantsSource = Buffer.from(data.content, 'base64').toString('utf8');
-                      } catch (e) {
-                          core.warning(`could not read ${CONSTANTS_PATH}: ${e.message}`);
-                      }
-                      const flags = detectPreviewFlags({ body: pr.body, files, constantsSource });
-                      core.info(`preview flags: ${flags.join(', ') || '(none)'}`);
-                      core.setOutput('flags', flags.join(','));
 
     # ----------------------------------------------------------------------------
     # Trusted, tiny, no-checkout: open a GitHub Deployment (in_progress) and the
@@ -485,7 +448,6 @@ jobs:
         env:
             SHA: ${{ needs.announce.outputs.sha }}
             DEP: ${{ needs.announce.outputs.deployment_id }}
-            FLAGS: ${{ needs.decide.outputs.flags }}
         steps:
             # SECURITY GATE — same fork check as build-frontend, duplicated here
             # because deploy no longer `needs` that job: without its own guard, a
@@ -587,7 +549,7 @@ jobs:
                     --snapshot "alias:posthog-preview-golden" \
                     --cpus 8 --memory-mib 16384 --disk-gib 100 \
                     --ttl-seconds 1800 \
-                    up --branch "pull/${PR}/head" --no-seed --enable-flags "$FLAGS")
+                    up --branch "pull/${PR}/head" --no-seed)
                   echo "$out"
                   {
                     echo "url=$(echo "$out" | sed -n 's/^url=//p')"
@@ -735,10 +697,6 @@ jobs:
                       const adminUrl = (consoleHost && pen && pen !== 'None')
                           ? `https://${consoleHost}/console/fleet/pens/${pen}`
                           : null;
-                      const flags = (process.env.FLAGS || '').split(',').filter(Boolean);
-                      const flagsCell = flags.length
-                          ? `enabled for this PR: ${flags.map(f => `\`${f}\``).join(', ')}`
-                          : 'none detected. Add a \`Preview flags: my-flag\` line to the PR description to enable one';
                       const marker = '<!-- hogbox-preview-comment -->';
                       const body =
                           `${marker}\n### 🦔 Hogbox preview &middot; ✅ ready\n\n` +
@@ -746,7 +704,6 @@ jobs:
                           `| | |\n|--|--|\n` +
                           `| 🔑 **Login** | \`test@posthog.com\` / \`12345678\` (demo data) |\n` +
                           `| 🧩 **Running** | ${running} |\n` +
-                          `| 🚩 **Flags** | ${flagsCell} |\n` +
                           `| 🔗 **Link** | **stable across rebuilds** — a re-push swaps the box underneath, the URL stays |\n` +
                           `| 🔒 **Access** | tailnet only (PostHog VPN) |\n` +
                           (adminUrl ? `| 🛠️ **Admin** | [inspect & debug state in hogland](${adminUrl}) |\n` : ``) +

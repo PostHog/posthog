@@ -28,9 +28,7 @@ Recipe (mount-over-image — the default, ~minutes per PR):
 
 from __future__ import annotations
 
-import re
 import sys
-import shlex
 import secrets
 
 from . import timing
@@ -57,8 +55,6 @@ _CSRF_TRUSTED_ORIGINS = ",".join(f"https://*.boxes.hogland.{env}.posthog.dev" fo
 # the seed defaults ever change, change these too.
 _DEMO_EMAIL = "test@posthog.com"
 _DEMO_PASSWORD = "12345678"
-
-_FLAG_KEY = re.compile(r"[a-z0-9][a-z0-9_-]{0,99}")
 
 # PostHog's prod settings refuse to boot on the default SECRET_KEY, so the
 # override must supply one (the migrate `run --rm web` one-off needs it too).
@@ -136,7 +132,6 @@ class PostHogPreviewStack:
         reset_db: bool = False,
         mount: bool = True,
         frontend_dist_tar: str | None = None,
-        enable_flags: list[str] | None = None,
     ):
         self.backend = backend
         # One random Django SECRET_KEY per stack (i.e. per provisioned box). Pinned
@@ -161,7 +156,6 @@ class PostHogPreviewStack:
         # Turbo cache). When set, swap_frontend serves the PR's own frontend
         # instead of the golden image's :master SPA. None => keep :master.
         self.frontend_dist_tar = frontend_dist_tar
-        self.enable_flags = [key for key in (enable_flags or []) if _FLAG_KEY.fullmatch(key)]
 
     # --- public API ----------------------------------------------------------
     def bring_up(self) -> str:
@@ -186,6 +180,10 @@ class PostHogPreviewStack:
         self.migrate()
         self.start_cdp_service()
         self.sync_hog_function_templates()
+        try:
+            self.sync_feature_flags()
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[hogbox-preview] feature flag sync skipped (preview still usable): {e}\n")
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
             # otherwise-good preview — it just opens empty.
@@ -193,11 +191,6 @@ class PostHogPreviewStack:
                 self.generate_demo_data()
             except Exception as e:  # noqa: BLE001
                 sys.stderr.write(f"[hogbox-preview] demo-data seeding skipped (preview still usable): {e}\n")
-        if self.enable_flags:
-            try:
-                self.enable_feature_flags()
-            except Exception as e:  # noqa: BLE001
-                sys.stderr.write(f"[hogbox-preview] enabling feature flags skipped (preview still usable): {e}\n")
         if self.frontend_dist_tar:
             # Serve the PR's frontend (else it's the golden's :master SPA). Must
             # run before up_web so the fresh web container reads the new index
@@ -670,6 +663,14 @@ class PostHogPreviewStack:
             timeout=900,
         )
 
+    def sync_feature_flags(self) -> None:
+        timing.stage("sync feature flags")
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py sync_feature_flags"),
+            name="sync-flags",
+            timeout=600,
+        )
+
     def generate_demo_data(self) -> None:
         # Same command hobby-ci uses (bin/hobby-ci.py). Seeds a demo org + the
         # test@posthog.com / 12345678 login so the preview opens populated.
@@ -679,15 +680,6 @@ class PostHogPreviewStack:
             self._compose("run --rm -T web python manage.py generate_demo_data"),
             name="seed",
             timeout=1800,
-        )
-
-    def enable_feature_flags(self) -> None:
-        timing.stage("enable PR feature flags")
-        keys = shlex.quote(",".join(self.enable_flags))
-        self.backend.run_long(
-            self._compose(f"run --rm -T web python manage.py sync_feature_flags --keys {keys}"),
-            name="flags",
-            timeout=600,
         )
 
     def swap_frontend(self) -> None:
