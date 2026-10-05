@@ -14,7 +14,12 @@ from products.warehouse_sources_queue.backend.core.batch_consumer import (
     OwnershipLostError,
     PermanentBatchApplyError,
 )
-from products.warehouse_sources_queue.backend.core.generic_jobs import Job, JobsTable
+from products.warehouse_sources_queue.backend.core.generic_jobs import (
+    JOB_CLAIM_ELIGIBILITY,
+    Job,
+    JobsTable,
+    RetryHistory,
+)
 from products.warehouse_sources_queue.backend.core.health import HealthState, start_health_server
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     BATCH_TABLE,
@@ -40,6 +45,7 @@ from products.warehouse_sources_queue.backend.core.scheduler_state import (
     SchedulerStateTable,
 )
 from products.warehouse_sources_queue.backend.sdk.jobs import (
+    EngineFailureHandler,
     Fail,
     FollowerSpec,
     GenericJobAdapter,
@@ -53,6 +59,7 @@ from products.warehouse_sources_queue.backend.sdk.jobs import (
 
 __all__ = [
     "BATCH_TABLE",
+    "JOB_CLAIM_ELIGIBILITY",
     "DELTA_CONSUMER_METRICS",
     "LEASE_TABLE",
     "MAX_ATTEMPTS",
@@ -68,6 +75,7 @@ __all__ = [
     "ConsumerMetrics",
     "DecisionRecord",
     "DueSchedule",
+    "EngineFailureHandler",
     "Fail",
     "FollowerSpec",
     "GenericJobAdapter",
@@ -84,6 +92,7 @@ __all__ = [
     "PendingBatch",
     "PermanentBatchApplyError",
     "Retry",
+    "RetryHistory",
     "RunActivitySummary",
     "SchedulerStateTable",
     "Success",
