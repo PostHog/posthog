@@ -74,6 +74,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
+from products.warehouse_sources.backend.facade.sources import NamingConvention
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceType,
     IncrementalFieldType,
@@ -1096,7 +1097,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
-                    max_value = instance.table.get_max_value_for_column(incremental_field)
+                    # The stored data carries the cursor under its normalized name, so looking it up
+                    # by the source's own spelling finds nothing and silently forces a full resync.
+                    max_value = instance.table.get_max_value_for_column(
+                        NamingConvention.normalize_identifier(incremental_field)
+                    )
                     if max_value:
                         instance.update_incremental_field_value(max_value, save=False)
                     else:
