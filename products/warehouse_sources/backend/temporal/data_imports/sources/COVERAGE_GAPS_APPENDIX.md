@@ -4045,18 +4045,18 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (3): `employees`, `tasks`, `time_off_calendars`
+Today (7): `candidates`, `employee_employment`, `employee_lifecycle`, `employee_salaries`, `employees`, `tasks`, `time_off_calendars`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
 - [x] `POST /timeoff/calendars/employees/search` — the holiday calendar resolved per employee (employment override or site default); fans out over employee ids, full refresh (medium)
-- [ ] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
-- [ ] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
-- [ ] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
+- [x] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
+- [x] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
+- [x] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
 - [ ] `GET /timeoff/requests/changes` — time off request event stream plus GET /timeoff/employees/{id}/balance for balances (high)
 - [ ] `POST /attendance/entries/search` — clock in/out entries; also /attendance/daily-breakdown/search and /attendance/summaries/search for rollups (high)
 - [ ] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high)
-- [ ] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
+- [x] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
 - [ ] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high)
 - [ ] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high)
 - [ ] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium)
@@ -4080,15 +4080,16 @@ Note: The Redoc page at hightouch.com/docs/api-reference loads its spec from htt
 
 ## Honeybadger — gaps
 
-Today (5): `deploys`, `faults`, `notices`, `projects`, `sites`
+Today (9): `affected_users`, `deploys`, `environments`, `faults`, `notices`, `occurrences`, `outages`, `projects`, `sites`
 
 Diffed against: <https://docs.honeybadger.io/api/>
 
-- [ ] `projects/{id}/faults/{id}/occurrences (and projects/{id}/occurrences)` — error occurrence counts over time - Honeybadger's headline volume metric, and we already sync faults (high)
+- [x] `projects/{id}/occurrences` — error occurrence counts over time - Honeybadger's headline volume metric, and we already sync faults (high)
+- [ ] `projects/{id}/faults/{id}/occurrences` — per-fault occurrence counts over time; skipped, one request per fault for a rolling window, and per-fault history is derivable from `notices` (low)
 - [ ] `projects/{id}/sites/{id}/uptime_checks` — the actual uptime measurements behind the sites table we already sync (high)
-- [ ] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
-- [ ] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)
-- [ ] `projects/{id}/environments` — lookup table resolving the environment names carried on faults and deploys (high)
+- [x] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
+- [x] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)
+- [x] `projects/{id}/environments` — lookup table resolving the environment names carried on faults and deploys (high)
 - [ ] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium)
 - [ ] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium)
 - [ ] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium)
@@ -4101,14 +4102,14 @@ Note: Static endpoint list; source dir products/warehouse_sources/backend/tempor
 
 ## Honeycomb — gaps
 
-Today (9): `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `slos`, `triggers`
+Today (11): `board_views`, `boards`, `burn_alerts`, `columns`, `datasets`, `derived_columns`, `markers`, `recipients`, `slo_counts_history`, `slos`, `triggers`
 
 Diffed against: <https://api-docs.honeycomb.io/api/openapi-public.yaml>
 
-- [ ] `/1/slos/{datasetSlug}/{sloId}/counts/history` — hourly SLI good/bad event counts - the data behind SLO compliance and burn, and we already sync slos (high)
-- [ ] `/1/slos/{datasetSlug}/{sloId}/counts` — current SLO budget/compliance counts, Honeycomb's headline reliability metric (high)
-- [ ] `/2/teams/{teamSlug}/environments` — lookup table for the environments that own the datasets we already sync (high)
-- [ ] `/1/boards/{boardId}/views` — the views that make up each board we sync - board content is otherwise opaque (medium)
+- [x] `/1/slos/{datasetSlug}/{sloId}/counts/history` — hourly SLI good/bad event counts - the data behind SLO compliance and burn, and we already sync slos (high). Added as `slo_counts_history` (incremental on `start_time`; Enterprise plan only, off by default).
+- [ ] `/1/slos/{datasetSlug}/{sloId}/counts` — current SLO budget/compliance counts, Honeycomb's headline reliability metric (high). Skipped: it returns per-minute deltas for the current clock hour only, a realtime feed rather than a table; `slo_counts_history` holds the same counts per hour.
+- [ ] `/2/teams/{teamSlug}/environments` — lookup table for the environments that own the datasets we already sync (high). Skipped: it is a v2 Management API endpoint that needs a management key and a team slug, and the source authenticates with an environment-scoped configuration key.
+- [x] `/1/boards/{boardId}/views` — the views that make up each board we sync - board content is otherwise opaque (medium). Added as `board_views` (fan-out over `boards`).
 - [ ] `/1/dataset_definitions/{datasetSlug}` — lookup mapping dataset definition types (duration, trace id, span kind) to actual column names (medium)
 - [ ] `/1/recipients/{recipientId}/triggers` — join table between recipients and triggers, both of which we already sync (medium)
 - [ ] `/1/reporting/slos/historical` — weekly historical SLO breakdown across multiple SLOs in one call (medium)
@@ -4151,19 +4152,19 @@ Note: Diffed the Sections/\*.md files in the official hubplanner/API repo agains
 
 ## HuggingFace — **thin**
 
-Today (3): `datasets`, `models`, `spaces`
+Today (8): `collections`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `spaces`
 
 Diffed against: <https://huggingface.co/.well-known/openapi.json>
 
-- [ ] `/api/{repoType}/{namespace}/{repo}/discussions` — discussions and pull requests per repo - the main community activity signal on repos we already sync (high)
-- [ ] `/api/collections` — curated collections grouping models, datasets and spaces we already sync (high)
-- [ ] `/api/models-tags-by-type and /api/datasets-tags-by-type` — lookup tables resolving the tag strings carried on every model and dataset row (high)
+- [x] `/api/{repoType}/{namespace}/{repo}/discussions` — discussions and pull requests per repo - the main community activity signal on repos we already sync (high)
+- [x] `/api/collections` — curated collections grouping models, datasets and spaces we already sync (high)
+- [x] `/api/models-tags-by-type and /api/datasets-tags-by-type` — lookup tables resolving the tag strings carried on every model and dataset row (high)
 - [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium)
 - [ ] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium)
 - [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium)
 - [ ] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium)
 - [ ] `/api/spaces/{namespace}/{repo}/metrics` — runtime usage metrics for spaces we already sync (medium)
-- [ ] `/api/users/{username}/likes` — per-user likes, the engagement edge between users and repos (medium)
+- [x] `/api/users/{username}/likes` — per-user likes, the engagement edge between users and repos (medium)
 - [ ] `/api/jobs/{namespace} (and /{jobId}/metrics)` — compute job runs and their metrics for cost/usage analysis (low)
 - [ ] `/api/models|datasets/{namespace}/{repo}/refs` — branches and tags per repo, needed to interpret revision-scoped data (low)
 - [ ] `/api/models|datasets/{namespace}/{repo}/lfs-files` — per-file storage footprint for repo size analysis (low)
@@ -4189,10 +4190,10 @@ Today (8): `actions`, `activities`, `advisors`, `candidates`, `employers`, `job_
 
 Diffed against: <https://docs.huntr.co>
 
-- [ ] `/org/events` — the job state transition log (JOB_CREATED, JOB_MOVED, JOB_OFFER_DATE_SET, interview dates) - the pipeline history behind jobs we already sync (high)
-- [ ] `/org/activity-categories` — lookup resolving the category ID on every activity row we already sync (high)
-- [ ] `/org/tags` — lookup resolving tag IDs applied across members, jobs and candidates (high)
-- [ ] `/org/candidates/{id}/action-metrics` — per-candidate activity metrics - the engagement measure for candidates we already sync (high)
+- [ ] `/org/events` — the job state transition log (JOB_CREATED, JOB_MOVED, JOB_OFFER_DATE_SET, interview dates) - the pipeline history behind jobs we already sync (high) — skipped: deprecated by Huntr in favor of `/org/actions` and `/org/activities`, which we already sync
+- [x] `/org/activity-categories` — lookup resolving the category ID on every activity row we already sync (high). Added as `activity_categories`.
+- [x] `/org/tags` — lookup resolving tag IDs applied across members, jobs and candidates (high). Added as `tags`.
+- [x] `/org/candidates/{id}/action-metrics` — per-candidate activity metrics - the engagement measure for candidates we already sync (high). Added as `candidate_action_metrics` (fan-out over `candidates`, one row per candidate and action type).
 - [ ] `/org/goals` — goal definitions and targets that member progress is measured against (medium)
 - [ ] `/org/member-groups` — cohort/group membership for the members table, the main breakdown dimension (medium)
 - [ ] `/org/member-fields (and /org/members/{id}/member-fields)` — custom field definitions plus per-member values, the org's own segmentation attributes (medium)
@@ -4231,17 +4232,17 @@ Note: docs.imagga.com is a JS SPA that ships no server-rendered resource list, n
 
 ## IncidentIo — gaps
 
-Today (12): `alerts`, `custom_fields`, `escalations`, `follow_ups`, `incident_roles`, `incident_statuses`, `incident_types`, `incident_updates`, `incidents`, `schedules`, `severities`, `users`
+Today (17): `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalations`, `follow_ups`, `incident_alerts`, `incident_roles`, `incident_statuses`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `schedules`, `severities`, `users`
 
 Diffed against: <https://api-docs.incident.io/>
 
-- [ ] `/v2/incident_alerts` — join table linking alerts to the incidents they triggered - without it the synced `alerts` and `incidents` tables cannot be related at all (high)
-- [ ] `/v1/custom_field_options` — lookup resolving the option IDs stored inside the custom field values on every incident; `custom\_fields` alone only gives definitions (high)
-- [ ] `/v2/incident_timestamps` — lookup naming the timestamp IDs carried in incident timestamp_values - required to compute MTTA/MTTR from the incidents table (high)
+- [x] `/v2/incident_alerts` — join table linking alerts to the incidents they triggered - without it the synced `alerts` and `incidents` tables cannot be related at all (high)
+- [x] `/v1/custom_field_options` — lookup resolving the option IDs stored inside the custom field values on every incident; `custom\_fields` alone only gives definitions (high). Added as `custom_field_options` (fan-out over `custom_fields`, since `custom_field_id` is a required query param).
+- [x] `/v2/incident_timestamps` — lookup naming the timestamp IDs carried in incident timestamp_values - required to compute MTTA/MTTR from the incidents table (high)
 - [ ] `/v2/escalation_paths` — lookup resolving the escalation path IDs referenced by the already-synced `escalations` rows (high)
 - [ ] `/v2/alert_sources` — lookup resolving alert_source_config IDs on `alerts`, so alert volume can be attributed to Datadog/Sentry/etc (high)
 - [ ] `/v2/schedule_entries` — the actual on-call shifts; `schedules` today is only the rota config, so no one can query who was on call when (high)
-- [ ] `/v3/catalog_types and /v3/catalog_entries` — the service/team catalog that custom fields, alert routes and escalation paths all reference by ID - the master lookup for the whole account (high)
+- [x] `/v3/catalog_types and /v3/catalog_entries` — the service/team catalog that custom fields, alert routes and escalation paths all reference by ID - the master lookup for the whole account (high). Added as `catalog_types` and `catalog_entries` (fan-out over `catalog_types`, since `catalog_type_id` is a required query param).
 - [ ] `/v3/teams` — team lookup for attributing incidents, escalations and follow-ups to owning teams (medium)
 - [ ] `/v2/actions` — per-incident action items during the response, complementing the already-synced follow_ups (medium)
 - [ ] `/v2/incident_participants and /v2/incident_participant_workloads` — membership table of who participated in each incident plus incident.io's on-call workload metric (medium)
@@ -4252,16 +4253,16 @@ Note: The Mintlify docs site serves the same 537KB SPA shell for every path (inc
 
 ## Infisical — gaps
 
-Today (5): `audit_logs`, `identities`, `organization_memberships`, `project_memberships`, `projects`
+Today (11): `audit_logs`, `group_members`, `groups`, `identities`, `organization_memberships`, `organization_roles`, `project_group_memberships`, `project_memberships`, `project_roles`, `projects`, `secret_scanning_findings`
 
 Diffed against: <https://app.infisical.com/api/docs/json>
 
-- [ ] `/api/v1/organization/roles and /api/v2/workspace/{projectId}/roles` — lookup resolving the role IDs already carried on the synced organization_memberships and project_memberships rows (high)
-- [ ] `/api/v1/groups (+ /{id}/users, /{id}/machine-identities, /{id}/projects)` — org group membership - the main way access is actually granted, invisible today (high)
-- [ ] `/api/v2/workspace/{projectId}/groups` — which groups are attached to which project, the group half of project access (high)
+- [x] `/api/v1/organization/roles and /api/v2/workspace/{projectId}/roles` — lookup resolving the role IDs already carried on the synced organization_memberships and project_memberships rows (high)
+- [x] `/api/v1/groups (+ /{id}/users, /{id}/machine-identities, /{id}/projects)` — org group membership - the main way access is actually granted, invisible today (high)
+- [x] `/api/v2/workspace/{projectId}/groups` — which groups are attached to which project, the group half of project access (high)
 - [ ] `/api/v2/workspace/{projectId}/identity-memberships` — machine identities scoped per project; `identities` today is org-level only, so no one can see which CI identity can read which project (high)
 - [ ] `/api/v1/projects/{projectId}/environments/{envId}` — lookup resolving the environment IDs/slugs that audit_logs, folders and secrets all key on (also embedded in the project detail payload) (high)
-- [ ] `/api/v2/secret-scanning/findings` — leaked-credential findings - the headline security metric of the product and the most obviously dashboardable table (high)
+- [x] `/api/v2/secret-scanning/findings` — leaked-credential findings - the headline security metric of the product and the most obviously dashboardable table (high)
 - [ ] `/api/v2/folders` — the secret path tree; without it secret/audit rows referencing folderId cannot be resolved to a path (medium)
 - [ ] `/api/v2/secret-rotations` — rotation configs and last/next rotation timestamps - compliance reporting on stale credentials (medium)
 - [ ] `/api/v1/secret-syncs` — sync destinations and their last sync status, for pipeline health reporting (medium)
@@ -4273,15 +4274,15 @@ Note: Endpoint count is a wildly misleading measure of this API's size: of ~800 
 
 ## Inflowinventory — gaps
 
-Today (5): `customers`, `products`, `purchase_orders`, `sales_orders`, `vendors`
+Today (9): `categories`, `customers`, `locations`, `manufacturing_orders`, `products`, `purchase_orders`, `sales_orders`, `stock_transfers`, `vendors`
 
 Diffed against: <https://cloudapi.inflowinventory.com/docs/api/swagger.json>
 
 - [ ] `/{companyId}/stock-adjustments` — inventory write-offs and corrections - the transaction table that explains why on-hand quantities move outside of orders (high)
-- [ ] `/{companyId}/stock-transfers` — inter-location inventory movements, required for any multi-warehouse stock analysis (high)
-- [ ] `/{companyId}/manufacturing-orders` — production/assembly orders - the third order type alongside the sales and purchase orders already synced (high)
-- [ ] `/{companyId}/locations` — lookup resolving the locationId carried on orders, transfers and product quantities (high)
-- [ ] `/{companyId}/categories` — lookup resolving product categoryId - the primary breakdown dimension for any sales or inventory report (high)
+- [x] `/{companyId}/stock-transfers` — inter-location inventory movements, required for any multi-warehouse stock analysis (high)
+- [x] `/{companyId}/manufacturing-orders` — production/assembly orders - the third order type alongside the sales and purchase orders already synced (high)
+- [x] `/{companyId}/locations` — lookup resolving the locationId carried on orders, transfers and product quantities (high)
+- [x] `/{companyId}/categories` — lookup resolving product categoryId - the primary breakdown dimension for any sales or inventory report (high)
 - [ ] `/{companyId}/stock-counts` — physical count cycles and their variances, for shrinkage and count-accuracy reporting (medium)
 - [ ] `/{companyId}/product-cost-adjustments` — cost basis changes over time, needed for correct COGS and margin on historical orders (medium)
 - [ ] `/{companyId}/product-groups (+ /{productGroupId}/quantities/{locationId})` — product grouping lookup plus per-location on-hand quantities, the current-stock view products alone does not give (medium)
@@ -4294,17 +4295,17 @@ Note: inFlow publishes a clean ReDoc/Swagger spec and even advertises it in a st
 
 ## Inngest — gaps
 
-Today (7): `cancellations`, `environments`, `event_keys`, `events`, `function_runs`, `signing_keys`, `webhooks`
+Today (12): `cancellations`, `environments`, `event_keys`, `events`, `function_runs`, `functions`, `runs`, `session_keys`, `session_runs`, `sessions`, `signing_keys`, `webhooks`
 
 Diffed against: <https://api-docs.inngest.com/api-specs/v2.json>
 
-- [ ] `GET /v2/apps/{appId}/functions` — lookup resolving the function IDs on every run row - today there is no way to get a function's name or app from the warehouse (high)
-- [ ] `GET /v1/runs/{runID}/jobs` — per-step execution history within a run (attempts, step outputs, failures) - the grain needed to find which step fails (high)
-- [ ] `GET /v2/runs and GET /v2/apps/{appId}/functions/{functionId}/runs` — direct run listings; today function_runs is walked as /v1/events/{internal_id}/runs per event, so cron- and invoke-triggered runs are never captured and the walk costs one request per event (high)
+- [x] `GET /v2/apps/{appId}/functions` — lookup resolving the function IDs on every run row - today there is no way to get a function's name or app from the warehouse (high). Added as `functions` (fan-out over the `GET /v2/apps` list).
+- [ ] `GET /v1/runs/{runID}/jobs` — skipped: the endpoint returns only the run's jobs still in the function queue (`at`, `position`, `attempt`), cached for 5 seconds, not step outputs or failure history. `GET /v2/runs/{runId}/trace` is the step-level source.
+- [x] `GET /v2/runs and GET /v2/apps/{appId}/functions/{functionId}/runs` — direct run listings; today function_runs is walked as /v1/events/{internal_id}/runs per event, so cron- and invoke-triggered runs are never captured and the walk costs one request per event (high). Added as `runs` (incremental on `queuedAt`). The per-function list is skipped: it returns the same rows filtered to one function.
 - [ ] `GET /v2/runs/{runId}/trace` — step-level span/timing tree for a run, for latency and retry analysis (medium)
 - [ ] `GET /v2/experiments and GET /v2/apps/{appId}/functions/{functionId}/experiments/{experimentId}` — experiment definitions plus per-experiment aggregates, Inngest's own rollout metric (medium)
-- [ ] `GET /v2/apps/{appId}` — app metadata to resolve appId on functions and runs (note: fetch-by-id only, there is no list-apps endpoint, so it needs an ID walk) (medium)
-- [ ] `GET /v2/sessions, /v2/sessions/{sessionKey}, /v2/sessions/{sessionKey}/{sessionId}/runs` — AgentKit session grouping and the runs belonging to each session, for agent-workflow analysis (medium)
+- [ ] `GET /v2/apps/{appId}` — app metadata to resolve appId on functions and runs (medium). The current spec also has a `GET /v2/apps` list, which `functions` already pages, so no ID walk is needed.
+- [x] `GET /v2/sessions, /v2/sessions/{sessionKey}, /v2/sessions/{sessionKey}/{sessionId}/runs` — AgentKit session grouping and the runs belonging to each session, for agent-workflow analysis (medium). Added as `session_keys`, `sessions` and `session_runs`.
 
 Note: Inngest ships two real OpenAPI specs (v1 at /api-specs/v1.json, v2 at /api-specs/v2.json) plus llms.txt / llms-full.txt; I diffed both. The existing source already mixes versions (environments and both key tables use v2, everything else v1), so pulling runs and functions from v2 fits. Excluded as config: /v2/account, /v2/partner/accounts, and the POST-only invoke/sync/rerun/scores actions. The most valuable single change here is probably switching function_runs off the per-event v1 walk onto GET /v2/runs.
 
@@ -4314,10 +4315,10 @@ Today (11): `Contacts`, `Emails`, `Events`, `Leads`, `Notes`, `Opportunities`, `
 
 Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 
-- [ ] `/PipelineStages` — lookup resolving PIPELINE_STAGE_ID on Opportunities and Projects - Pipelines is synced but its stages are not, so no funnel breakdown is possible (high)
-- [ ] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
-- [ ] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
-- [ ] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
+- [x] `/PipelineStages` — lookup resolving PIPELINE_STAGE_ID on Opportunities and Projects - Pipelines is synced but its stages are not, so no funnel breakdown is possible (high)
+- [x] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
+- [x] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
+- [x] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
 - [ ] `/LeadStatuses` — lookup resolving LEAD_STATUS_ID on Leads, needed for any lead funnel (high)
 - [ ] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high)
 - [ ] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium)
@@ -4356,10 +4357,10 @@ Today (10): `accounts`, `campaign_analytics`, `campaign_daily_analytics`, `campa
 
 Diffed against: <https://developer.instantly.ai/api-reference/openapi.json>
 
-- [ ] `GET /api/v2/campaigns/analytics/steps` — per-sequence-step send/open/reply breakdown; the dimension that explains campaign performance (high)
-- [ ] `GET /api/v2/accounts/analytics/daily` — daily per-sending-account volume and deliverability; we sync accounts but no account time series (high)
-- [ ] `GET /api/v2/custom-tag-mappings` — junction resolving the custom_tags we already sync to campaigns/accounts/leads (high)
-- [ ] `GET /api/v2/subsequences` — follow-up sequences attached to campaigns; missing branch of the campaign tree (medium)
+- [x] `GET /api/v2/campaigns/analytics/steps` — per-sequence-step send/open/reply breakdown; the dimension that explains campaign performance (high)
+- [x] `GET /api/v2/accounts/analytics/daily` — daily per-sending-account volume and deliverability; we sync accounts but no account time series (high)
+- [x] `GET /api/v2/custom-tag-mappings` — junction resolving the custom_tags we already sync to campaigns/accounts/leads (high)
+- [x] `GET /api/v2/subsequences` — follow-up sequences attached to campaigns; missing branch of the campaign tree (medium)
 - [ ] `GET /api/v2/block-lists-entries` — suppression list explaining why leads were never contacted (medium)
 - [ ] `POST /api/v2/accounts/warmup-analytics` — read-shaped per-account warmup health scores (medium)
 - [ ] `GET /api/v2/inbox-placement-analytics + /inbox-placement-reports` — inbox vs spam placement results per deliverability test (medium)
@@ -4372,14 +4373,14 @@ Note: Full OpenAPI 3.1 spec is public and unauthenticated. Note /leads and /lead
 
 ## Instatus — gaps
 
-Today (9): `audience_groups`, `components`, `incidents`, `maintenances`, `metrics`, `pages`, `subscribers`, `team`, `templates`
+Today (11): `audience_groups`, `components`, `generic_notices`, `incidents`, `maintenances`, `metrics`, `outages`, `pages`, `subscribers`, `team`, `templates`
 
 Diffed against: <https://instatus.com/help/api>
 
-- [ ] `GET /v1/{page_id}/outages` — component outage history — the uptime metric a status page exists to report (high)
-- [ ] `GET /v1/{page_id}/incidents/{incident_id}/incident-updates` — incident status transition history (investigating -> identified -> resolved); needed for MTTR (high)
-- [ ] `GET /v1/{page_id}/maintenances/{maintenance_id}/maintenance-updates` — maintenance state transitions matching the maintenances we already sync (medium)
-- [ ] `GET /v1/{page_id}/generic-notices` — banner notices posted on the status page outside the incident model (low)
+- [x] `GET /v1/{page_id}/outages` — component outage history — the uptime metric a status page exists to report (high). Added as `outages` (fan-out over `pages`).
+- [ ] `GET /v1/{page_id}/incidents/{incident_id}/incident-updates` — skipped: the API has no list route here, only `GET .../incident-updates/{incident_update_id}`. Every update is already embedded in the `updates` array of each `incidents` row.
+- [ ] `GET /v1/{page_id}/maintenances/{maintenance_id}/maintenance-updates` — skipped: the API has no list route here, only `GET .../maintenance-updates/{maintenance_update_id}`. Every update is already embedded in the `updates` array of each `maintenances` row.
+- [x] `GET /v1/{page_id}/generic-notices` — banner notices posted on the status page outside the incident model (low). Added as `generic_notices` (fan-out over `pages`).
 
 Note: Existing 'team' table maps to the teammates endpoint (GET /v1/{page_id}/team) and 'pages' to GET /v2/pages, so those are covered. Metric data points are POST/DELETE only — there is no GET for metric datapoints, so metric time series is not fetchable. escalation-policies, monitors, on-call-schedules, routing-rules and monitoring-integrations doc pages expose no GET list endpoints.
 

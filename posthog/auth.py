@@ -839,9 +839,9 @@ class SharingAccessTokenAuthentication(ActivityCredentialMixin, authentication.B
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q()).get(
-                    access_token=sharing_access_token
-                )
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    SharingConfiguration.tokens_active_q(), SharingConfiguration.without_retired_resources_q()
+                ).get(access_token=sharing_access_token)
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -897,7 +897,8 @@ class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentica
                 SharePassword.objects.select_related("sharing_configuration")
                 .filter(
                     models.Q(sharing_configuration__expires_at__isnull=True)
-                    | models.Q(sharing_configuration__expires_at__gt=timezone.now())
+                    | models.Q(sharing_configuration__expires_at__gt=timezone.now()),
+                    SharingConfiguration.without_retired_resources_q(prefix="sharing_configuration__"),
                 )
                 .get(
                     id=payload["share_password_id"],

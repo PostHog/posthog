@@ -16,6 +16,7 @@ const TITLE_SCROLL_THRESHOLD = 56
 export function TodayPhoneHeader(): JSX.Element {
     const { sceneBreadcrumbs } = useValues(breadcrumbsLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
+    const { onAiPage } = useValues(todayShellLogic)
     const { goBackOnPhone } = useActions(todayShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const [scrolled, setScrolled] = useState(false)
@@ -34,13 +35,7 @@ export function TodayPhoneHeader(): JSX.Element {
 
     return (
         <header className="TodayPhoneHeader" data-scrolled={scrolled} data-quill>
-            <Button
-                size="icon-lg"
-                className="rounded-full"
-                aria-label="Back"
-                data-attr="today-phone-back"
-                onClick={goBackOnPhone}
-            >
+            <Button size="icon-lg" aria-label="Back" data-attr="today-phone-back" onClick={goBackOnPhone}>
                 <IconChevronLeft />
             </Button>
             <Text
@@ -51,15 +46,16 @@ export function TodayPhoneHeader(): JSX.Element {
             >
                 {title}
             </Text>
-            <Button
-                size="icon-lg"
-                className="rounded-full"
-                aria-label="Open context panel"
-                data-attr="today-phone-context-panel"
-                onClick={() => openSidePanel(scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max)}
-            >
-                <IconSidePanel />
-            </Button>
+            {!onAiPage && (
+                <Button
+                    size="icon-lg"
+                    aria-label="Open context panel"
+                    data-attr="today-phone-context-panel"
+                    onClick={() => openSidePanel(scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max)}
+                >
+                    <IconSidePanel />
+                </Button>
+            )}
         </header>
     )
 }

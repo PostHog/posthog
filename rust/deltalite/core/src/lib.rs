@@ -1,9 +1,10 @@
 //! deltalite -- a purpose-built streaming partition upsert on top of the `deltalake`
 //! crate, replacing delta-rs's SQL MERGE for PostHog's warehouse-sync incremental path.
 //!
-//! Storage and protocol (log, checkpoints, Parquet writing, Add-action statistics,
-//! S3 conditional-put commits, conflict resolution) all come from `deltalake`. Only the
-//! *merge execution* is replaced: MERGE runs a DataFusion hash join whose memory scales
+//! Storage and protocol (log, checkpoints, Parquet encoding, S3 conditional-put
+//! commits, conflict resolution) all come from `deltalake`; output files go through
+//! the `writer` module's streaming writer, which matches delta-rs's `RecordBatchWriter` file for
+//! file. Only the *merge execution* is replaced: MERGE runs a DataFusion hash join whose memory scales
 //! with the scanned target and which deadlocks under a bounded memory pool
 //! (delta-io/delta-rs#4614); deltalite builds a PK hash set over the (small) source,
 //! streams the (large) target a row group at a time, drops replaced rows, writes
@@ -34,9 +35,11 @@ pub mod limits;
 pub mod pkset;
 pub mod prefetch;
 pub mod schema;
+mod stats;
 pub mod store;
 pub mod table;
 pub mod upsert;
+mod writer;
 
 pub use errors::{Error, Result};
 pub use handle::{LiveFile, TableHandle};
