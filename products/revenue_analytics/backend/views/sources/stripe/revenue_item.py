@@ -119,7 +119,9 @@ def build(handle: SourceHandle) -> BuiltQuery:
     invoice_table: RevenueSourceTable | None = None
     charge_table: RevenueSourceTable | None = None
 
-    if invoice_schema is not None and invoice_schema.table is not None:
+    # The invoice query explodes the `lines.data` column chain, so a synced invoice table without
+    # a `lines` column can only produce a view that fails to resolve
+    if invoice_schema is not None and invoice_schema.table is not None and "lines" in invoice_schema.table.columns:
         invoice_table = invoice_schema.table
 
     if charge_schema is not None and charge_schema.table is not None:

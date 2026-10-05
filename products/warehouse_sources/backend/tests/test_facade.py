@@ -39,6 +39,7 @@ class TestWarehouseSourcesFacade(BaseTest):
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             url_pattern="https://bucket/x/*",
             external_data_source=self.source,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
         )
         self.schema = ExternalDataSchema.objects.create(
             team_id=self.team.pk,
@@ -125,7 +126,7 @@ class TestWarehouseSourcesFacade(BaseTest):
                 schemas=(
                     contracts.RevenueSourceSchema(
                         name="users",
-                        table=contracts.RevenueSourceTable(id=self.table.id, name="my_table"),
+                        table=contracts.RevenueSourceTable(id=self.table.id, name="my_table", columns=("id",)),
                     ),
                 ),
             ),

@@ -93,6 +93,38 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
         # Print and snapshot the generated HogQL query
         self.assertQueryMatchesSnapshot(query.query.to_hogql(), replace_all_numbers=True)
 
+    def test_build_with_invoice_table_without_lines_column(self):
+        """Test that build falls back to an empty view when the synced invoice table has no `lines` column."""
+        self.setup_stripe_external_data_source_with_specific_schemas(
+            [{"name": INVOICE_RESOURCE_NAME, "columns": ["id", "created", "customer"]}]
+        )
+
+        query = build(self.stripe_handle)
+
+        self.assertQueryContainsFields(query.query, REVENUE_ITEM_SCHEMA)
+        self.assertBuiltQueryStructure(
+            query,
+            str(self.stripe_handle.source.id),  # type: ignore
+            f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_table",
+        )
+
+    def test_build_with_invoice_table_without_lines_column_and_charge_table(self):
+        """Test that build still uses charges when the synced invoice table has no `lines` column."""
+        self.setup_stripe_external_data_source_with_specific_schemas(
+            [
+                {"name": INVOICE_RESOURCE_NAME, "columns": ["id", "created", "customer"]},
+                {"name": CHARGE_RESOURCE_NAME},
+            ]
+        )
+
+        query = build(self.stripe_handle)
+        query_sql = query.query.to_hogql()
+
+        self.assertQueryContainsFields(query.query, REVENUE_ITEM_SCHEMA)
+        self.assertNotIn("lines", query_sql)
+        self.assertIn("stripe_charge", query_sql)
+
     def test_build_with_no_source(self):
         """Test that build returns none when source is None."""
         handle = self.create_stripe_handle_without_source()
