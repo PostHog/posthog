@@ -17,6 +17,7 @@ logger = structlog.get_logger(__name__)
     retry_backoff=True,
     soft_time_limit=300,
     time_limit=330,
+    name="products.canvas.backend.tasks.process_canvas_build",
 )
 def process_canvas_build(team_id: int, build_id: str) -> None:
     """Run one queued canvas build (idempotent — finished builds are a no-op)."""
@@ -34,6 +35,7 @@ def process_canvas_build(team_id: int, build_id: str) -> None:
     retry_backoff=True,
     soft_time_limit=60,
     time_limit=90,
+    name="products.canvas.backend.tasks.cleanup_notebook_canvas_draft",
 )
 def cleanup_notebook_canvas_draft(team_id: int, canvas_id: str, version_id: str) -> None:
     from products.canvas.backend.notebook_integration import cleanup_discarded_notebook_canvas_draft  # noqa: PLC0415
@@ -49,6 +51,7 @@ def cleanup_notebook_canvas_draft(team_id: int, canvas_id: str, version_id: str)
     retry_backoff=True,
     soft_time_limit=60,
     time_limit=90,
+    name="products.canvas.backend.tasks.cleanup_canvas_source_uploads",
 )
 def cleanup_canvas_source_uploads(team_id: int, canvas_id: str, object_keys: list[str]) -> None:
     from products.canvas.backend.build_service import cleanup_unreferenced_source_uploads  # noqa: PLC0415
@@ -56,7 +59,11 @@ def cleanup_canvas_source_uploads(team_id: int, canvas_id: str, object_keys: lis
     cleanup_unreferenced_source_uploads(team_id, UUID(canvas_id), object_keys)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    name="products.canvas.backend.tasks.sweep_canvas_builds",
+)
 def sweep_canvas_builds() -> None:
     """Recover builds stuck in flight (every 2 minutes)."""
     from products.canvas.backend.build_service import sweep_canvas_builds as run_sweep  # noqa: PLC0415
@@ -70,7 +77,9 @@ def sweep_canvas_builds() -> None:
         capture_exception(error, additional_properties={"task": "sweep_canvas_builds"})
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(
+    ignore_result=True, queue=CeleryQueue.DEFAULT.value, name="products.canvas.backend.tasks.cleanup_canvas_builds"
+)
 def cleanup_canvas_builds() -> None:
     """Apply the canvas artifact retention policy (daily)."""
     from products.canvas.backend.build_service import cleanup_canvas_builds as run_cleanup  # noqa: PLC0415
