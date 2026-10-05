@@ -155,3 +155,9 @@ class TestLinearIntegrationModel(BaseTest):
 
         assert members == [{"id": "u1", "name": "ada"}]
         assert mock_query.call_args.kwargs["variables"] == {"teamId": "team-id"}
+
+    def test_list_team_members_raises_on_graphql_errors(self):
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "forbidden"}]}):
+            with self.assertRaises(ValidationError):
+                linear.list_team_members("team-id")

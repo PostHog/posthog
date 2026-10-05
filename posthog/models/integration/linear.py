@@ -32,11 +32,13 @@ class LinearIntegration:
         body = self.query(
             """
             query TeamMembers($teamId: String!) {
-                team(id: $teamId) { members(first: 250) { nodes { id name displayName active } } }
+                team(id: $teamId) { members(first: 100) { nodes { id name displayName active } } }
             }
             """,
             variables={"teamId": team_id},
         )
+        if body.get("errors"):
+            raise ValidationError("Failed to list the Linear team members")
         members = common.dot_get(body, "data.team.members.nodes") or []
         return [
             {"id": member["id"], "name": member.get("displayName") or member["name"]}

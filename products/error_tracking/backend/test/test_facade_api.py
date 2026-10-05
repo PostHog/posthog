@@ -346,6 +346,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         [
             ("username_instead_of_id", "alice"),
             ("non_string", 42),
+            ("non_ascii_digit", "\u00b2"),
         ]
     )
     @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")

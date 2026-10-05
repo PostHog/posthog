@@ -89,7 +89,7 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
         assignee
         and assignee.strip()
         and integration.kind == Integration.IntegrationKind.GITLAB
-        and not assignee.strip().isdigit()
+        and not re.fullmatch(r"[0-9]+", assignee.strip())
     ):
         raise ErrorTrackingExternalReferenceValidationError("GitLab assignee must be a numeric user ID.")
 

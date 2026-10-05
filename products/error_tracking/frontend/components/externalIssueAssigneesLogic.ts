@@ -37,10 +37,10 @@ export interface externalIssueAssigneesLogicActions {
         errorObject?: any
     }
     loadUsersSuccess: (
-        users: IntegrationAssigneeApi[] | null,
+        users: IntegrationAssigneeApi[],
         payload?: any
     ) => {
-        users: IntegrationAssigneeApi[] | null
+        users: IntegrationAssigneeApi[]
         payload?: any
     }
 }
