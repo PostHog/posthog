@@ -28,7 +28,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, quarantine, runs
+from products.visual_review.backend.logic import artifact_store, github_api, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
@@ -89,7 +89,13 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_expire_quarantine_takes_only_an_identifier(self):
+    @parameterized.expand(
+        [
+            ("head_known", "abc123", status.HTTP_204_NO_CONTENT, []),
+            ("head_unknown", None, status.HTTP_503_SERVICE_UNAVAILABLE, ["Button"]),
+        ]
+    )
+    def test_expire_quarantine_takes_only_an_identifier(self, _name, head_sha, expected_status, expected_active):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
         quarantine.quarantine_identifier(
             repo_id=repo.id,
@@ -100,14 +106,16 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
-            {"identifier": "Button"},
-            format="json",
-        )
+        with patch.object(github_api, "default_branch_head_sha", return_value=head_sha):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+                {"identifier": "Button"},
+                format="json",
+            )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+        assert response.status_code == expected_status
+        active = quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        assert [entry.identifier for entry in active] == expected_active
 
     @parameterized.expand(
         [
