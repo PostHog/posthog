@@ -17,8 +17,8 @@ ui_apps:
         app_name: Query Results
         description: Interactive visualization for PostHog query results
         render_ui:
-            component_import: ../components/TrackedComponent
-            view_component: TrackedComponent
+            component_import: ../components/Component
+            view_component: Component
             view_prop: data
     render-ui:
         type: custom

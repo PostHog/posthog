@@ -22,6 +22,7 @@ import {
     buildTrendsSeries,
 } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
+import { captureInsightDisplayChanged } from '../analytics/posthog'
 import { ChartHeader } from './ChartHeader'
 import { BigNumber, Select } from './charts'
 import { colorAt, useMcpChartTheme } from './charts/theme'
@@ -71,7 +72,7 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
-export function TrendsVisualizer({ query, results, onDisplayChange }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState(() => chartConfigFromTrendsFilter(query?.trendsFilter))
@@ -136,7 +137,7 @@ export function TrendsVisualizer({ query, results, onDisplayChange }: TrendsVisu
     const { slopeAvailable, effectiveType } = resolveChartView(chartType, labels.length)
     const handleChartTypeChange = (next: ChartType): void => {
         const from = effectiveType === defaultChartType(displayType) ? displayType : displayForChartType(effectiveType)
-        onDisplayChange?.({ from, to: displayForChartType(next) })
+        captureInsightDisplayChanged({ from, to: displayForChartType(next) })
         setChartType(next)
     }
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS
