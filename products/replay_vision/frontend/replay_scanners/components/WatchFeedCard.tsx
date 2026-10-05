@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconFlag, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -18,7 +18,7 @@ import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from 
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
 import { ScannerType } from '../types'
-import type { WatchFeedView } from '../watchFeedLogic'
+import { type WatchFeedView, watchFeedLogic } from '../watchFeedLogic'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
 
@@ -442,6 +442,166 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                 </LemonButton>
             </div>
         </div>
+    )
+}
+
+/**
+ * The one sentence a jev-arm card leads with. The scan's notability sentence names the finding, so
+ * it outranks prose derived from the result; the derived headline covers scans from before
+ * notability shipped, and the scanner's name covers scans with no prose at all.
+ */
+export function jevCardSentence(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string {
+    if (reason.notability_reason) {
+        return reason.notability_reason
+    }
+    const headline = watchCardHeadline(observation)
+    return headline?.title ?? ((observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)')
+}
+
+/**
+ * One muted line of context under the sentence: the scan's prose the sentence did not use. A card
+ * leading with the notability sentence gets the whole derived narration; a card already leading
+ * with the derived headline gets the prose after it. A filler row gets none, so it stays small.
+ */
+export function jevCardContext(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string | null {
+    if (FILLER_REASON_KINDS.has(reason.kind)) {
+        return null
+    }
+    const headline = watchCardHeadline(observation)
+    if (reason.notability_reason) {
+        return [headline?.title, headline?.body?.text].filter(Boolean).join(' ') || null
+    }
+    return headline?.body?.text ?? null
+}
+
+function JevCardScannerChip({
+    observation,
+    scannerName,
+}: {
+    observation: ReplayObservationApi
+    scannerName: string
+}): JSX.Element {
+    const { setScannerIdsFilter } = useActions(watchFeedLogic)
+    const verdict = readResult(observation)?.verdict
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-0.5">
+                    <span className="font-semibold">{scannerName}</span>
+                    {observation.prompt_question && (
+                        <span>
+                            {observation.prompt_question}
+                            {typeof verdict === 'string' && verdict ? ` Answered ${verdict}.` : ''}
+                        </span>
+                    )}
+                    <span className="italic">Click to show only this scanner's clips</span>
+                </div>
+            }
+        >
+            <LemonTag
+                className="max-w-60 cursor-pointer"
+                forceClickable
+                onClick={() => setScannerIdsFilter([observation.scanner_id])}
+                data-attr="vision-watch-feed-scanner-chip"
+            >
+                <span className="truncate">{scannerName}</span>
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
+/** The jev arm's card body: one sentence plus one meta line. The scanner's question, verdict, and
+ * remaining prose sit behind the chip's tooltip and the observation page, so the feed stays scannable. */
+function JevCardBody({ item, data }: { item: WatchFeedItemApi; data: WatchFeedCardData }): JSX.Element {
+    const { observation, reason } = item
+    // A filler row carries no finding, so it must not read like one.
+    const filler = FILLER_REASON_KINDS.has(reason.kind)
+    const context = jevCardContext(observation, reason)
+    return (
+        <>
+            <Link
+                to={data.observationUrl}
+                onClick={data.captureObservationOpened}
+                className="text-default after:absolute after:inset-0 after:content-['']"
+                data-attr="vision-watch-feed-card-body"
+            >
+                <h3 className={`text-sm m-0 line-clamp-2 ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}>
+                    {!observation.viewed && <span className="sr-only">New: </span>}
+                    {jevCardSentence(observation, reason)}
+                </h3>
+            </Link>
+            {context && <p className="text-muted text-xs m-0 line-clamp-1">{context}</p>}
+            <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                <JevCardScannerChip observation={observation} scannerName={data.scannerName} />
+                <WatchCardPerson observation={observation} person={data.person} />
+            </div>
+        </>
+    )
+}
+
+/** The jev arm's list card. Same shell and affordances as WatchFeedCard, with the body cut to
+ * JevCardBody's three lines and the poster sized down so the card hugs its content. */
+export function JevWatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Element {
+    const { observation } = item
+    const data = useWatchFeedCardData(item, position, 'list')
+    return (
+        <div
+            className="@container relative border rounded bg-bg-light p-3 flex gap-3 hover:border-accent"
+            data-attr="vision-watch-feed-card"
+        >
+            {!observation.viewed && <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />}
+            <div className="relative hidden @md:block w-44 shrink-0 self-start">
+                <WatchClipPoster
+                    observation={observation}
+                    keyMomentMs={data.keyMomentMs}
+                    onWatch={data.watchClipInModal}
+                />
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="absolute top-1 left-1 z-10 pointer-events-none" />
+                )}
+            </div>
+            <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                <JevCardBody item={item} data={data} />
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    icon={<IconPlay />}
+                    onClick={data.watchClipInModal}
+                    className="@md:hidden self-start relative z-10"
+                    data-attr="vision-watch-clip"
+                >
+                    Watch clip
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+/** The jev arm's grid card: the same shell as WatchFeedGridCard with the body cut to two lines. */
+export function JevWatchFeedGridCard({ item, position }: WatchFeedCardProps): JSX.Element {
+    const { observation } = item
+    const data = useWatchFeedCardData(item, position, 'grid')
+    return (
+        <LemonCard
+            className="relative flex flex-col rounded-lg p-0 overflow-hidden hover:border-accent"
+            data-attr="vision-watch-feed-grid-card"
+        >
+            {!observation.viewed && <span className="absolute inset-x-0 top-0 h-1 z-20 bg-accent" aria-hidden />}
+            <div className="relative">
+                <WatchClipPoster
+                    observation={observation}
+                    keyMomentMs={data.keyMomentMs}
+                    onWatch={data.watchClipInModal}
+                    className="rounded-none border-0"
+                />
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
+                )}
+            </div>
+            <div className="flex flex-col gap-2 p-3 min-w-0 flex-1">
+                <JevCardBody item={item} data={data} />
+            </div>
+        </LemonCard>
     )
 }
 

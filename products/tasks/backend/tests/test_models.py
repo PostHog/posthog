@@ -1,5 +1,6 @@
 import json
 import uuid
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import ClassVar
 
@@ -126,6 +127,70 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
         self.assertEqual(task_run.task, task)
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+
+    @parameterized.expand([("committed", False), ("rolled_back", True)])
+    def test_create_and_run_captures_only_committed_tasks(self, _name: str, rolled_back: bool) -> None:
+        user = User.objects.create(email="task-creator@example.com")
+
+        def before_dispatch(_run_id: uuid.UUID) -> None:
+            if rolled_back:
+                raise RuntimeError("Synthetic preparation failure")
+
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                expected_error = (
+                    self.assertRaisesRegex(RuntimeError, "Synthetic preparation failure")
+                    if rolled_back
+                    else nullcontext()
+                )
+                with expected_error:
+                    Task.create_and_run(
+                        team=self.team,
+                        title="Task creation capture",
+                        description="Test description",
+                        origin_product=Task.OriginProduct.USER_CREATED,
+                        user_id=user.id,
+                        start_workflow=False,
+                        before_task_dispatch=before_dispatch,
+                    )
+                self.assertFalse(any(call.kwargs["event"] == "task_created" for call in capture.call_args_list))
+
+            created = [call for call in capture.call_args_list if call.kwargs["event"] == "task_created"]
+            self.assertEqual(len(created), 0 if rolled_back else 1)
+        self.assertEqual(Task.objects.filter(team=self.team, title="Task creation capture").exists(), not rolled_back)
+
+    @parameterized.expand(
+        [
+            ("unresolved", {}, True, True),
+            ("null", {"use_dedicated_stream": None}, True, True),
+            ("pinned_true", {"use_dedicated_stream": True}, True, False),
+            ("pinned_false", {"use_dedicated_stream": False}, False, False),
+        ]
+    )
+    def test_create_and_run_resolves_stream_routing_before_saving(
+        self, _name: str, extra_state: dict[str, bool | None], expected_routing: bool, evaluate: bool
+    ) -> None:
+        user = User.objects.create(email="stream-routing@example.com", distinct_id="synthetic-stream-routing-user")
+
+        def evaluate_flag(*, organization_id: str, distinct_id: str) -> bool:
+            self.assertEqual(organization_id, str(self.organization.id))
+            self.assertEqual(distinct_id, user.distinct_id)
+            self.assertFalse(Task.objects.filter(team=self.team, title="Stream routing task").exists())
+            return True
+
+        with patch("products.tasks.backend.models.evaluate_dedicated_stream_flag", side_effect=evaluate_flag) as flag:
+            task = Task.create_and_run(
+                team=self.team,
+                title="Stream routing task",
+                description="Test description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                start_workflow=False,
+                extra_run_state=extra_state,
+            )
+
+        self.assertEqual(flag.call_count, int(evaluate))
+        self.assertIs(TaskRun.objects.get(task=task).state["use_dedicated_stream"], expected_routing)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_accepts_a_repository_list(self, mock_execute_workflow):

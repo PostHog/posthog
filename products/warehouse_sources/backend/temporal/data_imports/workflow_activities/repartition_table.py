@@ -54,11 +54,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
-    WAREHOUSE_AUTO_REPARTITION_FLAG,
     base_event_props,
     capture_repartition_event,
-    is_auto_coarsen_enabled,
-    is_auto_repartition_enabled,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     target_partition_bytes,
@@ -125,8 +122,8 @@ def _rewrite_deadline(activity_started: float) -> float | None:
 
     `activity_started` is the `time.monotonic()` reading taken when the activity began. The deadline
     is anchored to it, not to now: the budget is measured from `start_to_close_timeout`, which Temporal
-    counts from the same start, so the pre-rewrite work (job fetch, flag evaluation, the pre-extraction
-    Delta-log measurement, temp validation) has to be charged against it too. Anchoring to now instead
+    counts from the same start, so the pre-rewrite work (job fetch, the pre-extraction Delta-log
+    measurement, temp validation) has to be charged against it too. Anchoring to now instead
     hands the rewrite a deadline later than the activity's own timeout by however long that pre-work
     took, so on the heavily-fragmented tables this path exists to rescue — where reading the log alone
     runs into minutes — Temporal kills the rewrite mid-stream before it can record an outcome, and the
@@ -209,26 +206,22 @@ def _maybe_flag_pre_extraction(
     job: ExternalDataJob,
     table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
-    enabled: bool,
 ) -> dict[str, Any] | None:
     """Measure the on-disk table before extraction and flag a repartition if it's over budget.
 
     The post-load detector (`maybe_flag_for_repartition`) only runs after a merge completes, so a table
     whose merge OOMs every run can never flag itself for repair — the classic chicken-and-egg. Running
-    the same detection (same feature-flag, budget, and cooldown gating) here, pre-extraction, closes
+    the same detection (same budget and cooldown gating) here, pre-extraction, closes
     that gap: the on-disk table already reflects the over-budget layout, so we can flag and — in this
     same run — rewrite it before the merge that would OOM. Returns the pending target set by detection,
     or None if nothing was flagged (or the table couldn't be measured). Never raises.
-
-    `enabled` is the already-evaluated rollout-flag verdict, threaded through so detection reuses it
-    instead of paying for a second flag evaluation.
     """
     try:
         delta_table = async_to_sync(table_ref.get_delta_table)()
         if delta_table is None:
             logger.debug("repartition: no delta table on disk, cannot measure for repartition")
             return None
-        async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger, enabled=enabled)
+        async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger)
     except Exception as e:
         # Detection is best-effort; a failure here must not block the sync. `get_delta_table` re-raises
         # transient object-store blips (S3/credential-provider timeouts) rather than swallowing them —
@@ -269,7 +262,7 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
 def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: FilteringBoundLogger) -> None:
     # Anchor the rewrite deadline to when the activity began, so the pre-rewrite work below (job fetch,
-    # flag evaluation, pre-extraction Delta-log measurement) is charged against the activity's timeout
+    # pre-extraction Delta-log measurement) is charged against the activity's timeout
     # rather than handed to the rewrite on top of it. See `_rewrite_deadline`.
     activity_started = time.monotonic()
     try:
@@ -304,19 +297,13 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         )
         return
 
-    # Log the rollout-flag verdict (and the recorded/budget sizes) so it's clear from the Syncs UI why a
-    # table does or doesn't repartition — a disabled flag is the most common reason for a no-op. Note
+    # Log the recorded and budget sizes so the Syncs UI shows what the controller started from. Note
     # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate does not trust
-    # it, the live size is read below. Evaluate the flag once and thread the result into the
-    # pre-extraction detection path so it isn't re-evaluated inside maybe_flag_for_repartition.
-    enabled = is_auto_repartition_enabled(schema)
+    # it, the live size is read below.
     recorded_max_partition_bytes = schema.max_partition_bytes
     budget = target_partition_bytes()
     logger.info(
-        f"repartition: feature flag evaluated flag={WAREHOUSE_AUTO_REPARTITION_FLAG} enabled={enabled} "
-        f"max_partition_bytes={recorded_max_partition_bytes} target_partition_bytes={budget}",
-        flag=WAREHOUSE_AUTO_REPARTITION_FLAG,
-        enabled=enabled,
+        f"repartition: evaluating max_partition_bytes={recorded_max_partition_bytes} target_partition_bytes={budget}",
         max_partition_bytes=recorded_max_partition_bytes,
         target_partition_bytes=budget,
     )
@@ -324,34 +311,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     pending = schema.repartition_pending
     swap = schema.repartition_swap
 
-    # The flag has to stop a queued rewrite too, not only detection. Once a table is flagged, the
-    # rewrite runs ahead of extraction on every sync, so a rewrite that can't finish delays the sync
-    # by the full activity budget indefinitely; the flag is the only lever support has to release
-    # such a table, and it does nothing here if it only gates detection. Each auto-staged trigger
-    # family answers to the flag that staged it, and any other reason fails open: operator-staged
-    # work (admin, coarsening nominations) was queued knowing that syncing on the old layout is the
-    # worse option, so it must never dead-end on a rollout flag. A staged swap is always driven to
-    # completion because temp is the source of truth in that window and live may already be deleted.
-    if pending is not None and swap is None:
-        reason = pending.get("trigger_reason")
-        if reason in ("proactive_threshold", "oom_history"):
-            release = not enabled
-        elif reason == "coarsening":
-            release = not is_auto_coarsen_enabled(schema)
-        else:
-            release = False
-        if release:
-            logger.info(
-                f"repartition: queued rewrite skipped, controller disabled by feature flag schema_id={schema.id}",
-                schema_id=str(schema.id),
-                trigger_reason=reason,
-            )
-            return
-
-    # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (flag off, or
-    # CDC). Return here — before fetching the job and reading the delta log — so the common healthy
-    # invocation avoids all on-disk I/O. Flagged tables fall through and measure the live size below.
-    if pending is None and swap is None and not needs_pre_extraction_detection(schema, enabled):
+    # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (CDC).
+    # Return here — before fetching the job and reading the delta log — so the common healthy
+    # invocation avoids all on-disk I/O. Other tables fall through and measure the live size below.
+    if pending is None and swap is None and not needs_pre_extraction_detection(schema):
         logger.info("repartition: nothing queued and no detection needed, nothing to do")
         return
 
@@ -394,10 +357,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=logger)
 
     if pending is None and swap is None:
-        # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
-        # on-disk measurement. Measure now and self-flag if it's over budget — the only path that can
-        # rescue a table which OOMs its merge every run (and so never reaches post-load detection).
-        pending = _maybe_flag_pre_extraction(schema, job, table_ref, logger, enabled)
+        # Nothing was queued by a prior run's post-load detection. Measure now and self-flag if it's
+        # over budget — the only path that can rescue a table which OOMs its merge every run (and so
+        # never reaches post-load detection).
+        pending = _maybe_flag_pre_extraction(schema, job, table_ref, logger)
         if pending is None:
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return

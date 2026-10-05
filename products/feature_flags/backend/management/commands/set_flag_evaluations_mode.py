@@ -4,8 +4,8 @@ New organizations take FLAG_EVALUATIONS_NEW_ORG_MODE when they are created. This
 the organizations that existed before that setting changed: a list of ids, or every organization
 created after an instant.
 
-Ingestion does not act on mode 2 yet. An organization set to 2 now behaves as mode 1, and it stops
-writing $feature_flag_called to events on its own when that support deploys.
+On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams in
+the ingestion allowlist.
 """
 
 import argparse
@@ -43,9 +43,11 @@ class Command(BaseCommand):
             required=True,
             choices=FlagEvaluationsMode.values,
             help=(
-                "0 reads events, 1 reads flag_evaluations, 2 also stops writing flag calls to events. "
-                "Ingestion does not act on mode 2 yet, so an organization on mode 2 behaves as mode 1 "
-                "until that ships. "
+                "0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is "
+                "available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for "
+                "events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab "
+                "log. On 2, ingestion stops writing $feature_flag_called to events for teams in the ingestion "
+                "allowlist. "
                 "flag_evaluations holds rows only from the day ingestion started writing them "
                 "(2026-09-09 for PostHog Cloud), so on mode 1 or 2 the Usage tab shows no data for earlier days."
             ),
@@ -69,8 +71,9 @@ class Command(BaseCommand):
             "--allow-downgrade",
             action="store_true",
             help=(
-                "Also lower organizations that are above --mode. Once ingestion acts on mode 2, lowering "
-                "from mode 2 leaves a gap in the events table."
+                "Also lower organizations that are above --mode. Lowering an organization from mode 2 restarts "
+                "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events "
+                "table keeps a gap for those teams for the time the organization spent on 2."
             ),
         )
 

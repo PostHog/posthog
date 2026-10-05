@@ -151,6 +151,9 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
 # Target about 60 chart buckets.
 _TARGET_BUCKET_COUNT = 60
 
+# Upper bound on buckets in one query. A finer interval is coarsened to stay under it.
+_MAX_BUCKET_COUNT = 10000
+
 # List intervals from finest to coarsest.
 _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
     ("second", dt.timedelta(seconds=1), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=1)])),
@@ -171,6 +174,24 @@ def _pick_interval(date_from: dt.datetime, date_to: dt.datetime) -> str:
         if span / step <= _TARGET_BUCKET_COUNT:
             return name
     return _INTERVAL_LADDER[-1][0]
+
+
+def _resolve_interval(
+    date_from: dt.datetime, date_to: dt.datetime, interval: str | None, min_interval: str | None
+) -> str:
+    """Return the requested interval (or the auto pick), raised to `min_interval` and then
+    to the finest step that keeps the bucket count within `_MAX_BUCKET_COUNT`."""
+    names = [name for name, _, _ in _INTERVAL_LADDER]
+    for name in (interval, min_interval):
+        if name is not None and name not in names:
+            raise ValueError(f"Unknown interval: {name!r}")
+    index = names.index(interval or _pick_interval(date_from, date_to))
+    if min_interval is not None:
+        index = max(index, names.index(min_interval))
+    span = date_to - date_from
+    while index < len(names) - 1 and span / _INTERVAL_LADDER[index][1] > _MAX_BUCKET_COUNT:
+        index += 1
+    return names[index]
 
 
 def _interval_expr(name: str) -> ast.Call:
@@ -443,6 +464,7 @@ class MetricQueryRunner:
         interval: str | None = None,
         quantile: float | None = None,
         metric_type: str | None = None,
+        min_interval: str | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
@@ -452,15 +474,6 @@ class MetricQueryRunner:
             raise ValueError("date_to must be after date_from")
         if date_to - date_from > MAX_QUERY_SPAN:
             raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
-        if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
-            raise ValueError(f"Unknown interval: {interval!r}")
-        if interval is not None:
-            step = _interval_step(interval)
-            if (date_to - date_from) / step > _ROW_LIMIT:
-                raise ValueError(
-                    f"interval {interval!r} produces more than {_ROW_LIMIT} buckets over this range; "
-                    "use a coarser interval or a narrower range"
-                )
         if aggregation == "histogram_quantile":
             if quantile is None or not 0.0 < quantile < 1.0:
                 raise ValueError("histogram_quantile requires a quantile in (0, 1)")
@@ -468,7 +481,7 @@ class MetricQueryRunner:
         self.team = team
         self.metric_name = metric_name
         self.aggregation = aggregation
-        self.interval = interval or _pick_interval(date_from, date_to)
+        self.interval = _resolve_interval(date_from, date_to, interval, min_interval)
         # Start at the bucket boundary so the first bucket is complete.
         self.date_from = _align_to_interval(date_from, self.interval, tzinfo=team.timezone_info)
         self.date_to = date_to

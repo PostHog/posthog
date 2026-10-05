@@ -18,9 +18,15 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    ItemMenuItem,
+    ItemSeparator,
+    cn,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import { useTodaySheetMenu } from './todaySheetMenuContext'
+import { TodaySheetSub } from './TodaySheetSub'
 
 export interface TodayMenuItemProps {
     children: ReactNode
@@ -34,6 +40,7 @@ export interface TodayMenuItemProps {
 
 export interface TodayMenuSubProps {
     label: ReactNode
+    title: string
     dataAttr: string
     children: ReactNode
 }
@@ -93,6 +100,38 @@ export const CONTEXT_PARTS: TodayMenuParts = {
             <ContextMenuSubTrigger data-attr={dataAttr}>{label}</ContextMenuSubTrigger>
             <ContextMenuSubContent className={SUB_CONTENT_CLASS}>{children}</ContextMenuSubContent>
         </ContextMenuSub>
+    ),
+}
+
+function SheetItem({ children, dataAttr, onClick, to, disabled, variant }: TodayMenuItemProps): JSX.Element {
+    const sheet = useTodaySheetMenu()
+    return (
+        <ItemMenuItem
+            className={cn(
+                'no-underline',
+                variant === 'destructive' ? 'text-destructive-foreground' : 'text-foreground'
+            )}
+            disabled={disabled}
+            onClick={() => {
+                onClick?.()
+                sheet?.close()
+            }}
+            {...(to ? { render: <LinkPrimitive to={to} /> } : {})}
+            data-attr={dataAttr}
+        >
+            {children}
+        </ItemMenuItem>
+    )
+}
+
+export const SHEET_PARTS: TodayMenuParts = {
+    Item: SheetItem,
+    Separator: () => <ItemSeparator className="my-1" />,
+    Shortcut: () => <></>,
+    Sub: ({ label, title, dataAttr, children }) => (
+        <TodaySheetSub label={label} title={title} dataAttr={dataAttr}>
+            {children}
+        </TodaySheetSub>
     ),
 }
 

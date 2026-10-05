@@ -4,11 +4,13 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -183,6 +185,15 @@ class SearchTool(MaxTool):
 
     async def _search_business_knowledge(self, query: str) -> str:
         results = await async_search_knowledge_for_team(self._team, query)
+        try:
+            await database_sync_to_async(posthoganalytics.capture)(
+                distinct_id=str(self._team.uuid),
+                event="business knowledge searched",
+                properties={"result_count": len(results), "surface": "posthog_ai"},
+                groups=groups(team=self._team),
+            )
+        except Exception:
+            logger.warning("bk_search_capture_failed", team_id=self._team.id, exc_info=True)
         logger.info(
             "bk_search_results",
             team_id=self._team.id,

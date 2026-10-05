@@ -950,7 +950,7 @@ def _count_through(
     """Survivors on ``table``, or None when no attempt could complete.
 
     None is deliberately not zero: a count that errored or ran out of time says nothing about
-    whether rows remain, and mark_deletions_verified refuses to mark on it. Each attempt gets the
+    whether rows remain, so mark_deletions_verified logs the table as unchecked. Each attempt gets the
     full time budget, and the runner picks a host per call, so a retry also routes around a single
     slow or sick host.
     """
