@@ -5394,9 +5394,9 @@ class FeatureFlagViewSet(
                         if len(value) > 200:
                             raise serializers.ValidationError("Search term cannot exceed 200 characters")
 
-                        # Escape regex metacharacters first, then replace spaces with word boundary pattern
-                        escaped_value = re.escape(value)
-                        regex_pattern = escaped_value.replace(r"\ ", r"[\s\-_]*")
+                        # Treat spaces, hyphens, and underscores as one separator class, so a pasted
+                        # MY_FLAG_KEY finds my-flag-key
+                        regex_pattern = r"[\s\-_]*".join(re.escape(part) for part in re.split(r"[\s\-_]+", value))
                         queryset = queryset.filter(
                             Q(key__iregex=regex_pattern)
                             | Q(name__iregex=regex_pattern)
