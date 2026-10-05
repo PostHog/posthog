@@ -17,13 +17,21 @@ WAIT_SECONDS = 10
 
 
 @pytest.mark.parametrize(
-    "activity_fn,rpc,purge",
+    "activity_fn,rpc,purge,finished_rpcs",
     [
-        (delete_team_persons_activity, "delete_persons_batch_for_team", "_delete_persons_for_teams"),
-        (delete_groups_activity, "delete_groups_batch_for_team", "_delete_groups_for_teams"),
+        (delete_team_persons_activity, "delete_persons_batch_for_team", "_delete_persons_for_teams", []),
+        (delete_groups_activity, "delete_groups_batch_for_team", "_delete_groups_for_teams", []),
+        (
+            delete_groups_activity,
+            "delete_group_type_mappings_batch_for_team",
+            "_delete_group_type_mappings_for_teams",
+            ["delete_groups_batch_for_team"],
+        ),
     ],
 )
-async def test_a_cancelled_purge_sends_no_batch_after_the_cancel(activity_fn: Any, rpc: str, purge: str) -> None:
+async def test_a_cancelled_purge_sends_no_batch_after_the_cancel(
+    activity_fn: Any, rpc: str, purge: str, finished_rpcs: list[str]
+) -> None:
     first_batch_sent = threading.Event()
     cancel_delivered = threading.Event()
     purge_ended = threading.Event()
@@ -37,6 +45,8 @@ async def test_a_cancelled_purge_sends_no_batch_after_the_cancel(activity_fn: An
         return MagicMock(deleted_count=1)
 
     client = MagicMock()
+    for finished in finished_rpcs:
+        getattr(client, finished).return_value = MagicMock(deleted_count=0)
     getattr(client, rpc).side_effect = send_batch
     real_purge = getattr(team_util, purge)
 

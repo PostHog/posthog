@@ -54,7 +54,9 @@ async def delete_groups_activity(inputs: TeamDataActivityInputs) -> None:
         await database_sync_to_async_pool(_delete_groups_for_teams)(
             inputs.team_ids, should_stop=temporalio.activity.is_cancelled
         )
-        await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(inputs.team_ids)
+        await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
 
 
 @temporalio.activity.defn
