@@ -22,19 +22,21 @@ export function BrowserNotificationsSection(): JSX.Element | null {
                         Get notified in your browser when new support messages arrive.
                     </p>
                 </div>
-                {isPermissionDenied ? (
-                    <LemonBanner type="info">
-                        Browser notifications are blocked. To enable them, click the lock icon in your browser's address
-                        bar and allow notifications for this site.
-                    </LemonBanner>
-                ) : permission === 'default' ? (
-                    <LemonButton type="secondary" onClick={requestPermission}>
-                        Enable browser notifications
-                    </LemonButton>
-                ) : (
-                    <LemonSwitch checked={enabled} onChange={setEnabled} />
-                )}
+                {!isPermissionDenied &&
+                    (permission === 'default' ? (
+                        <LemonButton type="secondary" onClick={requestPermission}>
+                            Enable browser notifications
+                        </LemonButton>
+                    ) : (
+                        <LemonSwitch checked={enabled} onChange={setEnabled} />
+                    ))}
             </div>
+            {isPermissionDenied && (
+                <LemonBanner type="info" className="mb-2">
+                    Browser notifications are blocked. To enable them, click the lock icon in your browser's address bar
+                    and allow notifications for this site.
+                </LemonBanner>
+            )}
             {enabled && (
                 <LemonBanner type="info" className="mb-2">
                     Not seeing notifications? Make sure notifications are enabled for your browser in your operating
