@@ -11,6 +11,7 @@ import { PersonMergeCallFailedError, createDefaultSyncMergeMode } from './person
 import { EventOps, extractEventOps } from './person-update'
 import { mergeOpIdFromRequest } from './person-uuid'
 import {
+    HELD_LANES_LIMIT,
     PersonhogPersonsStore,
     PersonhogUnsupportedFieldError,
     personhogStoreCachePurgeCounter,
@@ -1091,6 +1092,47 @@ describe('PersonhogPersonsStore', () => {
                 expect.objectContaining({ personId: '9', setProperties: { a: '1' } }),
                 expect.any(String)
             )
+        })
+
+        it('sheds the earliest-held lane, counted, once held lanes pass the cap', async () => {
+            personhogStoreFlushCounter.reset()
+            for (let i = 0; i <= HELD_LANES_LIMIT; i++) {
+                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0)
+            }
+
+            expect(store.hasHeldOps(1, 'held-0')).toBe(false)
+            expect(store.hasHeldOps(1, 'held-1')).toBe(true)
+            expect(store.hasHeldOps(1, `held-${HELD_LANES_LIMIT}`)).toBe(true)
+            const shed = (await personhogStoreFlushCounter.get()).values.find(
+                (entry) => entry.labels.outcome === 'held_dropped_limit'
+            )
+            expect(shed?.value).toBe(1)
+        })
+
+        it('a lane that found its owner no longer counts toward the cap', async () => {
+            // 'waiting' is held before 'owned', so only the owned lane leaving the count keeps 'waiting' under the cap.
+            store.holdEventOps(1, 'waiting', ops({ $set: { a: '1' } }), 0)
+            store.holdEventOps(1, 'owned', ops({ $set: { a: '1' } }), 0)
+            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
+                Promise.resolve(
+                    keys.map(({ distinctId }) => ({
+                        teamId: 1,
+                        distinctId,
+                        person: distinctId === 'owned' ? { ...person, id: '9' } : null,
+                    }))
+                )) as never)
+            await store.forBatch(0).flush()
+            personhogStoreFlushCounter.reset()
+
+            for (let i = 0; i < HELD_LANES_LIMIT - 1; i++) {
+                store.holdEventOps(1, `held-${i}`, ops({ $set: { a: '1' } }), 0)
+            }
+
+            expect(store.hasHeldOps(1, 'waiting')).toBe(true)
+            const shed = (await personhogStoreFlushCounter.get()).values.find(
+                (entry) => entry.labels.outcome === 'held_dropped_limit'
+            )
+            expect(shed).toBeUndefined()
         })
 
         it('drops held ops, counted, once nobody has owned the distinct id for the whole window', async () => {

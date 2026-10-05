@@ -168,6 +168,12 @@ const HELD_LANE_MAX_AGE_MS = 60_000
 const HELD_RESOLVE_INTERVAL_MS = 5_000
 
 /**
+ * The most held lanes one store keeps. Expired lanes stay through an identity outage so the first resolve after it
+ * can place them, so this bound is what keeps the outage from growing memory; past it the earliest-held lane is shed.
+ */
+export const HELD_LANES_LIMIT = 10_000
+
+/**
  * The personhog person store: resolution and creation through the identity
  * service, person state through the leader's strong reads, and property
  * updates buffered as per-person lanes of folded ops the leader resolves
@@ -191,6 +197,8 @@ export class PersonhogPersonsStore implements PersonsStore {
      * batch released must not record for a batch nothing can release again.
      */
     private prefetchingBatches: Set<number> = new Set()
+    /** Keys of the held lanes still waiting for an owner, earliest hold first. */
+    private heldLaneOrder: Set<string> = new Set()
     /** Prefetches still resolving, by distinct key. */
     private pendingPrefetches: Map<string, Promise<void>> = new Map()
 
@@ -708,6 +716,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 unresolved: true,
                 heldSince: Date.now(),
             })
+            this.trackHeldLane(laneKey)
             return
         }
         // Ops held into a lane a flush emptied are a new hold, resolved afresh: the owner a past flush found may
@@ -716,8 +725,31 @@ export class PersonhogPersonsStore implements PersonsStore {
             existing.unresolved = true
             existing.heldSince = Date.now()
             existing.lastResolvedAt = undefined
+            this.trackHeldLane(laneKey)
         }
         this.appendSegment(existing, ops)
+    }
+
+    /** Records a new hold as the latest, then sheds the earliest-held lanes past the cap, counted. */
+    private trackHeldLane(laneKey: string): void {
+        this.heldLaneOrder.delete(laneKey)
+        this.heldLaneOrder.add(laneKey)
+        for (const oldest of this.heldLaneOrder) {
+            if (this.heldLaneOrder.size <= HELD_LANES_LIMIT) {
+                return
+            }
+            this.heldLaneOrder.delete(oldest)
+            const entry = this.entries.get(oldest)
+            // A key whose lane resolved or went since is only removed.
+            if (!entry?.unresolved || entry.segments.length === 0) {
+                continue
+            }
+            personhogStoreFlushCounter.inc({ outcome: 'held_dropped_limit' })
+            entry.segments.length = 0
+            if (!this.entryHeldByAnyBatch(oldest)) {
+                this.entries.delete(oldest)
+            }
+        }
     }
 
     /** Whether ops held for this distinct id are still unwritten; later ops for the id must queue behind them. */
@@ -1460,6 +1492,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     distinct_id: entry.distinctId,
                 })
                 entry.segments.length = 0
+                this.heldLaneOrder.delete(laneKey)
                 if (!this.entryHeldByAnyBatch(laneKey)) {
                     this.entries.delete(laneKey)
                 }
@@ -1471,6 +1504,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             entry.personId = owner.id
             entry.unresolved = false
+            this.heldLaneOrder.delete(laneKey)
         }
     }
 
@@ -1538,6 +1572,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 entry.segments.length = 0
             }
             this.entries.delete(personKey)
+            this.heldLaneOrder.delete(personKey)
         }
         this.releaseBatchId(batchId)
     }
