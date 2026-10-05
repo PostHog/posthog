@@ -49,7 +49,11 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
 5. **Sync HogFunction templates** - start the CDP service and load destination
    templates into the restored database before the preview becomes available.
-6. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
+6. **Enable the PR's feature flags** - the `decide` job reads the PR and turns on each flag at 100% for every team in the box (`sync_feature_flags --keys`).
+   It finds flag keys on the added lines of the diff: new `FEATURE_FLAGS` entries, `FEATURE_FLAGS.NAME` references, and Python `feature_enabled("key"` calls.
+   Add a `Preview flags: key-a, key-b` line to the PR description to enable more flags, or `Preview flags: none` to stop the scan.
+   The PR comment lists the flags that the preview enabled.
+7. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
 
 Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
 — **keyless** (GitHub OIDC → hogplane token over the tailnet), no `hogland` CLI

@@ -56,6 +56,7 @@ def build_stack(backend: HoglandBackend, args: argparse.Namespace) -> PostHogPre
         seed_demo_data=not getattr(args, "no_seed", False),
         reset_db=getattr(args, "reset_db", False),
         frontend_dist_tar=getattr(args, "frontend_dist", None),
+        enable_flags=[key for key in (getattr(args, "enable_flags", None) or "").split(",") if key],
     )
 
 
@@ -221,6 +222,11 @@ def main(argv: list[str] | None = None) -> int:
         "--frontend-dist",
         default=None,
         help="path to a gzipped tar of a prebuilt frontend/dist; serves the PR's own frontend (else the image's :master SPA)",
+    )
+    up.add_argument(
+        "--enable-flags",
+        default="",
+        help="comma-separated feature flag keys to turn on at 100% for every team in the box",
     )
     up.set_defaults(func=cmd_up)
 

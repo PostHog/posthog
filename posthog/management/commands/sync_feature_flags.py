@@ -73,11 +73,22 @@ def load_feature_flags() -> dict[str, FeatureFlagDefinition]:
 class Command(BaseCommand):
     help = "Add and enable all feature flags in frontend/src/lib/constants.tsx for all projects"
 
+    def add_arguments(self, parser) -> None:
+        parser.add_argument(
+            "--keys",
+            default="",
+            help="Comma-separated flag keys to enable, including flags that are off or missing from constants.tsx",
+        )
+
     def handle(self, *args, **options) -> None:
         flags = load_feature_flags()
         first_user = cast(User, User.objects.first())
+        keys = [key for key in options["keys"].split(",") if key]
         for team in Team.objects.all():
-            self.sync_team_feature_flags(team, first_user, flags)
+            if keys:
+                self.enable_team_feature_flags(team, first_user, keys, flags)
+            else:
+                self.sync_team_feature_flags(team, first_user, flags)
 
         print("Feature flag sync complete.")
 
@@ -93,6 +104,19 @@ class Command(BaseCommand):
                 self.restore_feature_flag(team, flag, is_enabled)
             elif flag not in existing_flags:
                 self.create_feature_flag(team, first_user, flag, flag_type, is_enabled)
+
+    def enable_team_feature_flags(
+        self, team: Team, first_user: User, keys: list[str], flags: dict[str, FeatureFlagDefinition]
+    ) -> None:
+        for flag in keys:
+            feature_flag = FeatureFlag.objects_including_soft_deleted.filter(team=team, key=flag).first()
+            if feature_flag is None:
+                self.create_feature_flag(team, first_user, flag, flags.get(flag, "boolean"), True)
+            elif feature_flag.deleted or not feature_flag.active:
+                feature_flag.deleted = False
+                feature_flag.active = True
+                feature_flag.save()
+                print(f"Enabled feature flag '{flag}' for team {team.id}")
 
     def restore_feature_flag(self, team: Team, flag: str, is_enabled: bool) -> None:
         feature_flag = FeatureFlag.objects_including_soft_deleted.filter(team=team, key=flag).first()

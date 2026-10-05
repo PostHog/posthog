@@ -69,3 +69,22 @@ class TestSyncFeatureFlags(BaseTest):
         assert not bluebird.deleted
         assert bluebird.active
         assert FeatureFlag.objects_including_soft_deleted.filter(team=self.team).count() == count
+
+    def test_keys_enable_only_the_named_flags(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flagged-feature-indicator",
+            created_by=self.user,
+            active=False,
+            deleted=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        call_command("sync_feature_flags", keys="flagged-feature-indicator,backend-only-flag")
+        call_command("sync_feature_flags", keys="flagged-feature-indicator,backend-only-flag")
+
+        flags = FeatureFlag.objects_including_soft_deleted.filter(team=self.team)
+        assert {(f.key, f.active, f.deleted) for f in flags} == {
+            ("flagged-feature-indicator", True, False),
+            ("backend-only-flag", True, False),
+        }

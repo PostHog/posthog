@@ -191,3 +191,15 @@ class AttachResolvesExistingBoxTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class EnableFeatureFlagsTest(unittest.TestCase):
+    def test_enables_only_valid_flag_keys(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend, enable_flags=["new-flag", "other_flag", "$(touch x)", "Bad"])
+
+        stack.enable_feature_flags()
+
+        self.assertIn("manage.py sync_feature_flags --keys new-flag,other_flag", backend.long_runs["flags"])
+        self.assertNotIn("touch", backend.long_runs["flags"])
