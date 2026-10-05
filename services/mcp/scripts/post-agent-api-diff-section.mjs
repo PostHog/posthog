@@ -6,7 +6,13 @@ import { clearSectionIfPresent, postSection } from '../../../frontend/bin/ci-rep
 const SECTION_ID = 'mcp-agent-api'
 const [markdownPath] = process.argv.slice(2)
 
-const markdown = markdownPath && fs.existsSync(markdownPath) ? fs.readFileSync(markdownPath, 'utf-8').trim() : ''
+// No output file means the comparison never ran. Leave the report alone.
+if (!markdownPath || !fs.existsSync(markdownPath)) {
+    console.info('No agent API diff output - leaving the report unchanged.')
+    process.exit(0)
+}
+
+const markdown = fs.readFileSync(markdownPath, 'utf-8').trim()
 
 if (!markdown) {
     // A change that a later push reverted must not leave a stale table behind.

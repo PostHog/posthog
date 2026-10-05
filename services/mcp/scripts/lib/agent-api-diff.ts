@@ -32,6 +32,8 @@ export interface ToolChange {
     scopesRemoved: string[]
     annotationChanges: string[]
     titleChanged: boolean
+    // The schema differs although no listed field above shows it, for example a property type.
+    schemaChanged: boolean
     sizeBefore: number | null
     sizeAfter: number | null
 }
@@ -75,6 +77,12 @@ export function loadToolSurface(root: string): ToolSurface | null {
     return { definitions, schemas }
 }
 
+// Names, params and scopes come from PR-controlled YAML and go into a shared bot comment, so
+// anything that could close a code span or forge a report marker is replaced.
+function safe(value: string): string {
+    return value.replace(/[^A-Za-z0-9_:.\-/ ]/g, '?')
+}
+
 function sorted(values: Iterable<string>): string[] {
     return [...values].sort()
 }
@@ -87,15 +95,31 @@ function paramNames(surface: ToolSurface, name: string): Set<string> {
     return new Set(Object.keys(surface.schemas[name]?.properties ?? {}))
 }
 
-function schemaSize(surface: ToolSurface, name: string): number | null {
+// The server drops these root keys before advertising a schema (see toMcpInputSchema), so the
+// size counts without them to stay close to what Claude's registry measures.
+function advertisedSchema(surface: ToolSurface, name: string): object | null {
     const schema = surface.schemas[name]
+    if (!schema) {
+        return null
+    }
+    const { $schema: _schema, additionalProperties: _additional, ...rest } = schema as Record<string, unknown>
+    return rest
+}
+
+function schemaSize(surface: ToolSurface, name: string): number | null {
+    const schema = advertisedSchema(surface, name)
     return schema ? JSON.stringify(schema).length : null
+}
+
+function schemaText(surface: ToolSurface, name: string): string | null {
+    const schema = advertisedSchema(surface, name)
+    return schema ? JSON.stringify(schema) : null
 }
 
 function diffAnnotations(before: Record<string, unknown> = {}, after: Record<string, unknown> = {}): string[] {
     return sorted(new Set([...Object.keys(before), ...Object.keys(after)]))
         .filter((key) => before[key] !== after[key])
-        .map((key) => `${key}: ${String(before[key] ?? 'unset')} -> ${String(after[key] ?? 'unset')}`)
+        .map((key) => `${safe(key)}: ${safe(String(before[key] ?? 'unset'))} -> ${safe(String(after[key] ?? 'unset'))}`)
 }
 
 function toolNames(surface: ToolSurface): Set<string> {
@@ -139,6 +163,8 @@ export function diffToolSurfaces(base: ToolSurface, head: ToolSurface): AgentApi
                 head.definitions[name]?.annotations
             ),
             titleChanged: base.definitions[name]?.title !== head.definitions[name]?.title,
+            // Snapshot files are key-sorted, so equal schemas serialize to equal text.
+            schemaChanged: schemaText(base, name) !== schemaText(head, name),
             sizeBefore,
             sizeAfter,
         }
@@ -149,7 +175,7 @@ export function diffToolSurfaces(base: ToolSurface, head: ToolSurface): AgentApi
             change.scopesRemoved.length > 0 ||
             change.annotationChanges.length > 0 ||
             change.titleChanged ||
-            sizeBefore !== sizeAfter
+            change.schemaChanged
         if (hasChange) {
             diff.changed.push(change)
         }
@@ -164,13 +190,13 @@ function chars(size: number | null): string {
 function listNames(items: { name: string; note?: string }[]): string {
     const shown = items.slice(0, MAX_NAMES_LISTED)
     const more = items.length > shown.length ? `, and ${items.length - shown.length} more` : ''
-    return shown.map(({ name, note }) => `\`${name}\`${note ? ` (${note})` : ''}`).join(', ') + more
+    return shown.map(({ name, note }) => `\`${safe(name)}\`${note ? ` (${note})` : ''}`).join(', ') + more
 }
 
 function paramsCell(change: ToolChange): string {
     const parts = [
-        ...change.paramsAdded.map((param) => `+\`${param}\``),
-        ...change.paramsRemoved.map((param) => `-\`${param}\``),
+        ...change.paramsAdded.map((param) => `+\`${safe(param)}\``),
+        ...change.paramsRemoved.map((param) => `-\`${safe(param)}\``),
     ]
     const looksRenamed = change.paramsAdded.length > 0 && change.paramsRemoved.length > 0
     return parts.join(' ') + (looksRenamed ? ' (rename?)' : '')
@@ -178,13 +204,16 @@ function paramsCell(change: ToolChange): string {
 
 function scopesCell(change: ToolChange): string {
     return [
-        ...change.scopesAdded.map((scope) => `+\`${scope}\``),
-        ...change.scopesRemoved.map((scope) => `-\`${scope}\``),
+        ...change.scopesAdded.map((scope) => `+\`${safe(scope)}\``),
+        ...change.scopesRemoved.map((scope) => `-\`${safe(scope)}\``),
     ].join(' ')
 }
 
 function sizeCell(change: ToolChange): string {
-    return change.sizeBefore === change.sizeAfter ? '' : `${chars(change.sizeBefore)} -> ${chars(change.sizeAfter)}`
+    if (change.sizeBefore !== change.sizeAfter) {
+        return `${chars(change.sizeBefore)} -> ${chars(change.sizeAfter)}`
+    }
+    return change.schemaChanged ? 'schema changed' : ''
 }
 
 /** Compact markdown for a PR comment. Empty string when nothing changed for agents. */
@@ -218,7 +247,7 @@ export function renderAgentApiDiff(diff: AgentApiDiff): string {
         const rows = diff.changed.slice(0, MAX_ROWS).map((change) => {
             const annotations = change.annotationChanges.join('; ')
             const title = change.titleChanged ? 'title changed' : ''
-            return `| \`${change.name}\` | ${paramsCell(change)} | ${scopesCell(change)} | ${[annotations, title].filter(Boolean).join('; ')} | ${sizeCell(change)} |`
+            return `| \`${safe(change.name)}\` | ${paramsCell(change)} | ${scopesCell(change)} | ${[annotations, title].filter(Boolean).join('; ')} | ${sizeCell(change)} |`
         })
         lines.push(
             '',
