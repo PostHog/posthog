@@ -13,7 +13,7 @@ import {
     useStoreApi,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconMinus, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -40,7 +40,7 @@ const NO_NODES: Node[] = []
 const NO_EDGES: Edge[] = []
 // A large workflow is drawn small inside its tile, so reaching one of its shards takes a deep zoom.
 const MAX_ZOOM = 400
-const MIN_ZOOM = 0.1
+const OVERVIEW_ZOOM_FLOOR = 0.5
 const BUTTON_ZOOM = 1.6
 // Past this zoom a tile's graph is readable, so the tile fades and its jobs become reachable.
 const JOBS_ZOOM = 1.8
@@ -110,6 +110,7 @@ function CIExplorerCanvasContent(): JSX.Element {
     const stage = useRef<HTMLDivElement>(null)
     const world = useRef<HTMLDivElement>(null)
     const [deep, setDeep] = useState(false)
+    const [pastOverview, setPastOverview] = useState(false)
 
     const rows = useMemo(
         () => tileRows(workflows.length, stageWidth - OVERVIEW_MARGIN_X, stageHeight - OVERVIEW_MARGIN_Y),
@@ -120,12 +121,31 @@ function CIExplorerCanvasContent(): JSX.Element {
     const rail = useMemo(() => railPaths(workflows.length, rows), [workflows.length, rows])
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+    const overviewZoom = Math.max(
+        0.6,
+        Math.min(1.1, (stageWidth - OVERVIEW_MARGIN_X) / grid.width, (stageHeight - OVERVIEW_MARGIN_Y) / grid.height)
+    )
+    const duration = reducedMotion ? 0 : CAMERA_MOVE_MS
+    const frameOverview = useCallback(
+        (): void =>
+            void setViewport(
+                {
+                    zoom: overviewZoom,
+                    x: Math.max(24, (stageWidth - grid.width * overviewZoom) / 2),
+                    y: Math.max(24, (stageHeight - 80 - grid.height * overviewZoom) / 2),
+                },
+                { duration }
+            ),
+        [setViewport, overviewZoom, stageWidth, stageHeight, grid.width, grid.height, duration]
+    )
+
     // The zoom reaches the styles as a custom property, without a render on every frame of a camera move.
     useEffect(() => {
         const showZoom = (zoom: number): void => {
             stage.current?.style.setProperty('--k', String(zoom))
             stage.current?.setAttribute('data-deep', String(zoom >= JOBS_ZOOM))
             setDeep(zoom >= JOBS_ZOOM)
+            setPastOverview(zoom > overviewZoom * 1.05)
         }
         showZoom(store.getState().transform[2])
         return store.subscribe((state, previous) => {
@@ -133,7 +153,7 @@ function CIExplorerCanvasContent(): JSX.Element {
                 showZoom(state.transform[2])
             }
         })
-    }, [store])
+    }, [store, overviewZoom])
 
     const layoutsReady = workflows.every((workflow) => workflow.items === null || workflow.id in layouts)
 
@@ -141,27 +161,11 @@ function CIExplorerCanvasContent(): JSX.Element {
         if (!stageWidth || !stageHeight || !world.current) {
             return
         }
-        const duration = reducedMotion ? 0 : CAMERA_MOVE_MS
         const target = focusedNodeId
             ? world.current.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(focusedNodeId)}"]`)
             : null
         if (!target) {
-            const zoom = Math.max(
-                0.6,
-                Math.min(
-                    1.1,
-                    (stageWidth - OVERVIEW_MARGIN_X) / grid.width,
-                    (stageHeight - OVERVIEW_MARGIN_Y) / grid.height
-                )
-            )
-            void setViewport(
-                {
-                    zoom,
-                    x: Math.max(24, (stageWidth - grid.width * zoom) / 2),
-                    y: Math.max(24, (stageHeight - 80 - grid.height * zoom) / 2),
-                },
-                { duration }
-            )
+            frameOverview()
             return
         }
         // A workflow is framed by its graph. A shard is the deepest level, so the camera stays on its matrix.
@@ -194,26 +198,21 @@ function CIExplorerCanvasContent(): JSX.Element {
             { duration }
         )
         // `layoutsReady` and `rows` are dependencies because both move what the camera frames.
-    }, [
-        focusedNodeId,
-        layoutsReady,
-        rows,
-        stageWidth,
-        stageHeight,
-        grid.width,
-        grid.height,
-        reducedMotion,
-        setViewport,
-        getViewport,
-    ])
+    }, [focusedNodeId, layoutsReady, rows, stageWidth, stageHeight, duration, frameOverview, setViewport, getViewport])
 
-    const zoomOut = (): void => setFocus(focusLevels[focusLevels.length - 2]?.id ?? null)
+    const zoomOut = (): void => {
+        if (focusLevels.length) {
+            setFocus(focusLevels[focusLevels.length - 2]?.id ?? null)
+        } else {
+            frameOverview()
+        }
+    }
     const onKeyDown = (event: KeyboardEvent): void => {
         if (event.key === 'Escape' && focusLevels.length) {
             zoomOut()
         }
     }
-    const above = focusLevels[focusLevels.length - 2]?.name ?? 'Overview'
+    const above = focusLevels.length ? (focusLevels[focusLevels.length - 2]?.name ?? 'Overview') : 'Zoom out'
 
     return (
         // eslint-disable-next-line jsx-a11y/no-static-element-interactions
@@ -222,7 +221,8 @@ function CIExplorerCanvasContent(): JSX.Element {
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={NO_NODES}
                 edges={NO_EDGES}
-                minZoom={MIN_ZOOM}
+                // The overview is the outermost level, so a zoom out stops at half its size.
+                minZoom={overviewZoom * OVERVIEW_ZOOM_FLOOR}
                 maxZoom={MAX_ZOOM}
                 // A scroll pans and a pinch zooms, as on a map.
                 panOnScroll
@@ -258,14 +258,14 @@ function CIExplorerCanvasContent(): JSX.Element {
                         ))}
                     </div>
                 </ViewportPortal>
-                {focusLevels.length > 0 && (
+                {(focusLevels.length > 0 || pastOverview) && (
                     <Panel position="top-left">
                         <LemonButton
                             type="secondary"
                             size="small"
                             icon={<IconArrowLeft />}
                             onClick={zoomOut}
-                            aria-label={`Zoom out to ${above}`}
+                            aria-label={focusLevels.length ? `Zoom out to ${above}` : 'Zoom out'}
                             data-attr="ci-explorer-zoom-out-level"
                         >
                             {above}
@@ -301,7 +301,10 @@ function CIExplorerCanvasContent(): JSX.Element {
                             type="secondary"
                             size="small"
                             tooltip="Fit everything in view"
-                            onClick={() => setFocus(null)}
+                            onClick={() => {
+                                setFocus(null)
+                                frameOverview()
+                            }}
                             data-attr="ci-explorer-fit"
                         >
                             Fit
