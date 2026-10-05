@@ -2079,20 +2079,20 @@ async fn test_delete_persons_with_multiple_distinct_ids() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_large_batch_triggers_parallel() {
+async fn test_delete_persons_large_batch_tombstones_every_chunk() {
     let ctx = TestContext::new().await;
 
-    // Create 150 persons — with chunk_size=50, this triggers 3 parallel chunks
+    // 150 persons with chunk_size=50 make 3 chunks in one transaction, and every chunk must be tombstoned
     let mut uuids = Vec::new();
     for i in 0..150 {
         let p = ctx
-            .insert_person(&format!("parallel_del_{i}"), None)
+            .insert_person(&format!("large_batch_del_{i}"), None)
             .await
             .unwrap();
         // Give some persons extra distinct_ids to exercise bin-packing
         if i % 10 == 0 {
             for j in 0..5 {
-                ctx.add_distinct_id_to_person(p.id, &format!("parallel_del_{i}_extra_{j}"))
+                ctx.add_distinct_id_to_person(p.id, &format!("large_batch_del_{i}_extra_{j}"))
                     .await
                     .unwrap();
             }
@@ -2113,7 +2113,7 @@ async fn test_delete_persons_large_batch_triggers_parallel() {
     for i in 0..150 {
         assert!(
             ctx.storage
-                .get_person_by_distinct_id(ctx.team_id, &format!("parallel_del_{i}"))
+                .get_person_by_distinct_id(ctx.team_id, &format!("large_batch_del_{i}"))
                 .await
                 .unwrap()
                 .is_none(),

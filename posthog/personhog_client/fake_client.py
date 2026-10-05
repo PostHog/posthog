@@ -645,6 +645,8 @@ class FakePersonHogClient:
         self.calls.append(_Call("delete_persons", request))
         if request.mode == person_pb2.DELETE_PERSONS_MODE_HARD:
             raise ValueError("DELETE_PERSONS_MODE_HARD is not supported")
+        if request.mode not in (person_pb2.DELETE_PERSONS_MODE_UNSPECIFIED, person_pb2.DELETE_PERSONS_MODE_TOMBSTONE):
+            raise ValueError(f"Unknown DeletePersonsMode {request.mode}")
         response = person_pb2.DeletePersonsResponse(tombstoned=True)
         for uuid in request.person_uuids:
             person = self._persons_by_uuid.get((request.team_id, uuid))

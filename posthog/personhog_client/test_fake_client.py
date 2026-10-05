@@ -623,12 +623,17 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert resp == person_pb2.DeleteTombstonedPersonsResponse()
         assert self._present("tombstoned")
 
-    def test_delete_persons_rejects_hard_mode(self):
-        with pytest.raises(ValueError, match="HARD"):
+    @pytest.mark.parametrize(
+        "mode,message",
+        [
+            (person_pb2.DELETE_PERSONS_MODE_HARD, "HARD"),
+            (99, "Unknown DeletePersonsMode 99"),
+        ],
+    )
+    def test_delete_persons_rejects_hard_and_unknown_modes(self, mode, message):
+        with pytest.raises(ValueError, match=message):
             self.client.delete_persons(
-                person_pb2.DeletePersonsRequest(
-                    team_id=self.TEAM_ID, person_uuids=["live"], mode=person_pb2.DELETE_PERSONS_MODE_HARD
-                )
+                person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["live"], mode=mode)
             )
 
         stored = self.client.stored_person(self.TEAM_ID, "live")
