@@ -29,9 +29,10 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     SKIP_REASONS,
     SYNC_EXTRACT_KIND,
     TICK_SLOT_KEY,
+    InScopeSchema,
     SchemaCadence,
     evaluate_due,
-    fetch_in_scope_schemas,
+    fetch_in_scope_schema_page,
     next_due_after,
     schedule_offset,
 )
@@ -39,7 +40,7 @@ from products.warehouse_sources_queue.backend.sdk import DueSchedule, JobsTable,
 
 logger = structlog.get_logger(__name__)
 
-UPSERT_BATCH_SIZE = 1000
+REFRESH_PAGE_SIZE = 1000
 
 WOULD_FIRE_TOTAL = Counter(
     "warehouse_pg_scheduler_would_fire_total",
@@ -100,6 +101,7 @@ class ShadowSchedulerConfig:
     refresh_interval_seconds: float = 300.0
     claim_limit: int = 1000
     decision_retention_days: int = 30
+    refresh_page_size: int = REFRESH_PAGE_SIZE
 
 
 class ShadowScheduler:
@@ -230,25 +232,49 @@ class ShadowScheduler:
             refresh_start = row[0]
 
         now_epoch = int(time.time())
-        rows = await database_sync_to_async_pool(fetch_in_scope_schemas)()
-        upserts: list[DueSchedule] = []
-        for schema_row in rows:
-            schema_id, team_id, interval, sync_time_of_day = (
-                schema_row.schema_id,
-                schema_row.team_id,
-                schema_row.interval,
-                schema_row.sync_time_of_day,
+        in_scope = 0
+        after_id: str | None = None
+        # One page in memory at a time: fleet size must not set the pod's RSS.
+        while True:
+            page = await database_sync_to_async_pool(fetch_in_scope_schema_page)(
+                after_id, self._config.refresh_page_size
             )
-            interval_seconds = int(interval.total_seconds())
+            if not page:
+                break
+            after_id = page[-1].schema_id
+            upserts = self._build_upserts(page, now_epoch)
+            await SchedulerStateTable.upsert_states(conn, upserts)
+            in_scope += len(upserts)
+
+        deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, SYNC_EXTRACT_KIND, refresh_start)
+        pruned = await SchedulerStateTable.prune_decisions(
+            conn, kind=SYNC_EXTRACT_KIND, older_than_days=self._config.decision_retention_days
+        )
+
+        SCHEMAS_IN_SCOPE.set(in_scope)
+        SCAN_DURATION_SECONDS.observe(time.monotonic() - started)
+        logger.info(
+            "scheduler_refresh",
+            in_scope=in_scope,
+            stale_deleted=deleted,
+            decisions_pruned=pruned,
+            duration_seconds=round(time.monotonic() - started, 3),
+        )
+
+    @staticmethod
+    def _build_upserts(page: list[InScopeSchema], now_epoch: int) -> list[DueSchedule]:
+        upserts: list[DueSchedule] = []
+        for schema_row in page:
+            interval_seconds = int(schema_row.interval.total_seconds())
             if interval_seconds <= 0:
                 continue
-            offset_seconds = schedule_offset(schema_id, interval, sync_time_of_day)
+            offset_seconds = schedule_offset(schema_row.schema_id, schema_row.interval, schema_row.sync_time_of_day)
             cadence = SchemaCadence(interval_seconds=interval_seconds, offset_seconds=offset_seconds)
             upserts.append(
                 DueSchedule(
                     kind=SYNC_EXTRACT_KIND,
-                    schedule_key=schema_id,
-                    team_id=team_id,
+                    schedule_key=schema_row.schema_id,
+                    team_id=schema_row.team_id,
                     interval_seconds=interval_seconds,
                     offset_seconds=offset_seconds,
                     # Only lands for new or re-cadenced rows; a schema is never
@@ -256,20 +282,4 @@ class ShadowScheduler:
                     next_due_at=datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC),
                 )
             )
-
-        for start in range(0, len(upserts), UPSERT_BATCH_SIZE):
-            await SchedulerStateTable.upsert_states(conn, upserts[start : start + UPSERT_BATCH_SIZE])
-        deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, SYNC_EXTRACT_KIND, refresh_start)
-        pruned = await SchedulerStateTable.prune_decisions(
-            conn, kind=SYNC_EXTRACT_KIND, older_than_days=self._config.decision_retention_days
-        )
-
-        SCHEMAS_IN_SCOPE.set(len(upserts))
-        SCAN_DURATION_SECONDS.observe(time.monotonic() - started)
-        logger.info(
-            "scheduler_refresh",
-            in_scope=len(upserts),
-            stale_deleted=deleted,
-            decisions_pruned=pruned,
-            duration_seconds=round(time.monotonic() - started, 3),
-        )
+        return upserts

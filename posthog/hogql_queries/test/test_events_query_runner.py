@@ -26,6 +26,7 @@ from posthog.schema import (
     EventsQuery,
     EventsQueryActionStep,
     GroupPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
     PropertyOperator,
 )
@@ -1289,12 +1290,23 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "person_property_filter",
                 [PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT)],
                 False,
+                None,
             ),
-            ("test_account_filter", [], True),
+            ("test_account_filter", [], True, None),
+            (
+                "person_id_pushdown_turned_off",
+                [PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT)],
+                False,
+                False,
+            ),
         ]
     )
     def test_flag_evaluations_only_organization_reads_flag_calls_from_flag_evaluations(
-        self, _name: str, person_filters: list[PersonPropertyFilter], filter_test_accounts: bool
+        self,
+        _name: str,
+        person_filters: list[PersonPropertyFilter],
+        filter_test_accounts: bool,
+        person_id_pushdown: bool | None,
     ):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         self.team.test_account_filters = [
@@ -1353,6 +1365,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
                 filterTestAccounts=filter_test_accounts,
                 after="-30d",
+                modifiers=HogQLQueryModifiers(personIdPushdown=person_id_pushdown),
             )
             with self.capture_select_queries() as queries:
                 response = EventsQueryRunner(query=query, team=self.team).run()
@@ -1362,6 +1375,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(re.findall(r"\bAS\s+flag_evaluations__person\s+ON\b", page_queries[0])) == 1
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
+        expect_pushdown = person_id_pushdown is not False
+        assert ("SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
+        assert response.modifiers is not None
+        assert response.modifiers.personIdPushdown is expect_pushdown
         assert "properties.$feature_flag," not in response.hogql
         assert len(response.results) == 1
         star, *columns = response.results[0]

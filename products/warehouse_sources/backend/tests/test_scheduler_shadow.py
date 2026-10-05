@@ -1,7 +1,9 @@
 import io
 import time
 import uuid
+import socket
 import importlib
+import urllib.request
 from datetime import (
     UTC,
     datetime,
@@ -35,7 +37,7 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     EvaluationResult,
     SchemaCadence,
     evaluate_due,
-    fetch_in_scope_schemas,
+    fetch_in_scope_schema_page,
     latest_fire_at,
     next_due_after,
     schedule_offset,
@@ -47,7 +49,7 @@ from products.warehouse_sources_queue.backend.core.scheduler_state import (
     DecisionRecord,
     SchedulerStateTable,
 )
-from products.warehouse_sources_queue.backend.sdk import DueSchedule
+from products.warehouse_sources_queue.backend.sdk import DueSchedule, HealthState, start_health_server
 from products.warehouse_sources_queue.backend.testing import ensure_scheduler_tables, get_test_database_url
 
 # The product-structure lint reads a direct import of another product's logic
@@ -185,7 +187,7 @@ class TestScopePredicate:
         source = _create_source(team, **source_overrides)
         schema = _create_schema(team, source, **schema_overrides)
 
-        in_scope_ids = {row.schema_id for row in fetch_in_scope_schemas()}
+        in_scope_ids = {row.schema_id for row in fetch_in_scope_schema_page(None, 100)}
         assert (str(schema.id) in in_scope_ids) == expected_in_scope
 
 
@@ -368,6 +370,79 @@ class TestShadowSchedulerTick:
         skips.labels.assert_not_called()
         lateness.observe.assert_not_called()
         duplicate_windows.inc.assert_called_once_with(1)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestShadowSchedulerRefresh:
+    def _refresh(self, db_url: str, page_size: int) -> None:
+        async def run() -> None:
+            scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, refresh_page_size=page_size))
+            async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as conn:
+                await scheduler._refresh(conn)
+
+        async_to_sync(run)()
+
+    def _state_keys(self, db_url: str) -> set[str]:
+        with psycopg.Connection.connect(db_url) as conn:
+            rows = conn.execute(
+                f"SELECT schedule_key FROM {SCHEDULER_STATE_TABLE} WHERE kind = %s", (SYNC_EXTRACT_KIND,)
+            ).fetchall()
+        return {row[0] for row in rows}
+
+    def _reset_state(self) -> str:
+        db_url = get_test_database_url()
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_scheduler_tables(conn)
+            conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}, {SCHEDULER_STATE_TABLE}")
+        return db_url
+
+    @pytest.mark.parametrize("page_size", [1, 2, 3, 100])
+    @pytest.mark.parametrize("schema_count", [0, 1, 2, 5])
+    def test_paged_refresh_upserts_every_in_scope_schema(self, team, monkeypatch, schema_count, page_size):
+        db_url = self._reset_state()
+        source = _create_source(team)
+        schema_ids = {str(_create_schema(team, source, name=f"table_{i}").id) for i in range(schema_count)}
+        _create_schema(team, source, name="out_of_scope", should_sync=False)
+        in_scope_gauge = MagicMock()
+        monkeypatch.setattr(scheduler_runner, "SCHEMAS_IN_SCOPE", in_scope_gauge)
+
+        self._refresh(db_url, page_size)
+
+        assert self._state_keys(db_url) == schema_ids
+        in_scope_gauge.set.assert_called_once_with(schema_count)
+
+    @pytest.mark.parametrize("page_size", [1, 2, 10])
+    def test_paged_refresh_deletes_schemas_that_left_scope(self, team, page_size):
+        db_url = self._reset_state()
+        source = _create_source(team)
+        schemas = [_create_schema(team, source, name=f"table_{i}") for i in range(5)]
+        self._refresh(db_url, page_size)
+        assert self._state_keys(db_url) == {str(schema.id) for schema in schemas}
+
+        schemas[0].should_sync = False
+        schemas[0].save()
+        ExternalDataSchema.objects.filter(pk=schemas[4].pk).update(deleted=True)
+        self._refresh(db_url, page_size)
+
+        assert self._state_keys(db_url) == {str(schema.id) for schema in schemas[1:4]}
+
+
+class TestSchedulerMetricsEndpoint:
+    def test_metrics_endpoint_serves_scheduler_metrics(self):
+        scheduler_runner.TICKS_TOTAL.labels(outcome="follower").inc()
+        free_port = _free_port()
+        start_health_server(port=free_port, health_state=HealthState(timeout_seconds=60))
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{free_port}/_metrics", timeout=5) as response:
+            body = response.read().decode()
+
+        assert "warehouse_pg_scheduler_ticks_total" in body
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 @pytest.mark.django_db

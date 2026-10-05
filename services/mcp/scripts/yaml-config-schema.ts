@@ -154,6 +154,15 @@ export const ToolConfigSchema = z
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
         /**
+         * Module with custom request logic, relative to `src/tools/` and without extension
+         * (e.g. `featureFlags/updateFeatureFlagHooks`). Its default export is an object with
+         * `beforeRequest`, `afterResponse` and `onError`; see `ToolHooks` in `src/tools/tool-hooks.ts`.
+         */
+        hooks: z
+            .string()
+            .regex(/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/, 'hooks must be a path like "featureFlags/myToolHooks"')
+            .optional(),
+        /**
          * When true or a string, the tool issues PATCH instead of DELETE.
          * `true` sends `{ deleted: true }` (for ForbidDestroyModel endpoints).
          * A string value specifies a custom field name, e.g. `"archived"` sends
@@ -334,6 +343,13 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.confirmed_action && data.ui_app), {
         message:
             '`confirmed_action` cannot be combined with `ui_app` yet — the codegen does not wrap the generated -execute factory with withUiApp. Drop one or extend buildConfirmedActionFactories to opt in.',
+        path: ['confirmed_action'],
+    })
+    // The confirmed-action codegen builds its own prepare/execute handlers, so hooks would
+    // wrap neither of them.
+    .refine((data) => !(data.confirmed_action && data.hooks), {
+        message:
+            '`confirmed_action` cannot be combined with `hooks` yet — the prepare and execute handlers are not wrapped.',
         path: ['confirmed_action'],
     })
 

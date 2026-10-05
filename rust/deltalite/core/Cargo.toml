@@ -43,6 +43,17 @@ arrow-schema = { version = "58" }
 arrow-select = { version = "58" }
 parquet = { version = "58", features = ["async", "object_store"] }
 object_store = { version = "0.13.2" }
+arrow-ord = { version = "58" }
+
+# Named only by the streaming writer and the stats code vendored from delta-rs
+# (src/stats.rs), which must build the exact `Add` actions `RecordBatchWriter` built.
+# All four are the crates `deltalake` already links -- delta_kernel is published as
+# `buoyant_kernel` and pinned to the version `deltalake` resolves -- so they add no
+# new code to the build.
+delta_kernel = { package = "buoyant_kernel", version = "=0.22.2", default-features = false }
+chrono = { workspace = true }
+indexmap = "2"
+sqlparser = "0.61"
 
 async-trait = { workspace = true }
 bytes = { workspace = true }

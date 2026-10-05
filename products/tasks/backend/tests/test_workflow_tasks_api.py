@@ -928,11 +928,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert teammate_response.status_code == status.HTTP_200_OK, teammate_response.json()
         assert "initial_prompt_override" not in teammate_response.json()["state"]
 
-        sandbox_response = self._sandbox_client(task_id).get(run_url)
+        sandbox_response = self._sandbox_client(task_id, run_id).get(run_url)
         assert sandbox_response.status_code == status.HTTP_200_OK, sandbox_response.json()
         assert "private alert" in sandbox_response.json()["state"]["initial_prompt_override"]
 
-    def _sandbox_client(self, task_id: str) -> APIClient:
+    def _sandbox_client(self, task_id: str, run_id: str) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Task agent",
             client_id=ARRAY_APP_CLIENT_ID_DEV,
@@ -952,6 +952,9 @@ class TestWorkflowTasksAPI(APIBaseTest):
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id,
         )
+        run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=self.team.id)
+        run.state = {**(run.state or {}), "sandbox_oauth_token_ids": [str(access_token.id)]}
+        run.save(update_fields=["state"])
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client

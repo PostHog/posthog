@@ -20,7 +20,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.alerts.backend.facade.contracts import (
+from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
+from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
     AlertDestinationConfig,
     AlertDestinationData,
@@ -28,7 +29,6 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationValidationError,
     OwnedAlertDestination,
 )
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, url_hostname
 from products.cdp.backend.facade.api import create_hog_functions
 from products.cdp.backend.facade.models import HogFunction
 
