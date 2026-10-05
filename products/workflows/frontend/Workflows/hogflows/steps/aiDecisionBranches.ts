@@ -5,7 +5,7 @@ export type AiDecisionConfig = AiDecisionAction['config']
 export type AiDecisionAnswerType = AiDecisionConfig['answer_type']
 export type AiDecisionOption = NonNullable<AiDecisionConfig['options']>[number]
 
-export const AI_DECISION_FAILED_LABEL = 'If the decision fails'
+const AI_DECISION_FAILED_LABEL = 'If the decision fails'
 export const AI_DECISION_UNSURE_LABEL = 'Unsure'
 export const MIN_AI_DECISION_OPTIONS = 2
 export const MAX_AI_DECISION_OPTIONS = 16
@@ -17,7 +17,7 @@ const DEFAULT_YES_THRESHOLD = 50
 const DEFAULT_NO_THRESHOLD = 20
 const DEFAULT_MIN_PICK_PROBABILITY = 60
 
-export interface AiDecisionThresholds {
+interface AiDecisionThresholds {
     yesThreshold: number
     noThreshold: number
     minPickProbability: number
@@ -44,7 +44,7 @@ export function getAiDecisionAnswerLabels(config: AiDecisionConfig): string[] {
 }
 
 /** One label per branch edge: the answers, then Unsure when it is on. */
-export function getAiDecisionBranchLabels(config: AiDecisionConfig): string[] {
+function getAiDecisionBranchLabels(config: AiDecisionConfig): string[] {
     const answers = getAiDecisionAnswerLabels(config)
     return config.unsure_enabled ? [...answers, AI_DECISION_UNSURE_LABEL] : answers
 }

@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -58,6 +58,7 @@ export interface stepAiDecisionLogicValues {
     personTestOutcome: AiDecisionTestOutcome | null
     personTestOutcomeLoading: boolean
     removeOptionDisabledReasons: (string | undefined)[]
+    requestPreviewVisible: boolean
     unsureOffDisabledReason: string | undefined
 }
 
@@ -135,6 +136,9 @@ export interface stepAiDecisionLogicActions {
             description?: string | undefined
             name: string
         }>
+    }
+    setRequestPreviewVisible: (visible: boolean) => {
+        visible: boolean
     }
     setUnsureEnabled: (enabled: boolean) => {
         enabled: boolean
@@ -362,6 +366,10 @@ export const stepAiDecisionLogic = kea<stepAiDecisionLogicType>([
         removeOption: (index: number) => ({ index }),
         setAnswerType: (answerType: AiDecisionAnswerType) => ({ answerType }),
         setUnsureEnabled: (enabled: boolean) => ({ enabled }),
+        setRequestPreviewVisible: (visible: boolean) => ({ visible }),
+    }),
+    reducers({
+        requestPreviewVisible: [false, { setRequestPreviewVisible: (_, { visible }) => visible }],
     }),
     loaders(({ values, props }) => {
         const runTestInvocation = async (mockAsyncFunctions: boolean): Promise<HogflowTestResult> => {
@@ -534,6 +542,11 @@ export const stepAiDecisionLogic = kea<stepAiDecisionLogicType>([
             setAnswerType: ({ answerType }) => {
                 if (values.config) {
                     applyConfig(withAiDecisionAnswerType(values.config, answerType))
+                }
+            },
+            setRequestPreviewVisible: ({ visible }) => {
+                if (visible) {
+                    actions.loadContextPreview()
                 }
             },
             setUnsureEnabled: ({ enabled }) => {

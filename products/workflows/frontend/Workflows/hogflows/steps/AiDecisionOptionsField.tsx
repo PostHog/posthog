@@ -54,7 +54,6 @@ export function AiDecisionOptionsField({
                             onChange={(description) => setOption(index, { description })}
                             placeholder="Describe who belongs here"
                             minRows={1}
-                            maxLength={500}
                         />
                     </HogFlowBranchCard>
                 ))}

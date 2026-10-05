@@ -424,7 +424,7 @@ function DictionaryField({
                         <LemonInput
                             value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
                             disabled={key === EXTEND_OBJECT_KEY}
-                            className="flex-1 min-w-60"
+                            className="flex-1 min-w-24"
                             onChange={(key) => {
                                 setEntries((prev) => {
                                     const newEntries = [...prev]

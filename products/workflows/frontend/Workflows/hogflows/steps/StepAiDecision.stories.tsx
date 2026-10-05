@@ -182,7 +182,7 @@ type PanelStoryProps = {
 
 function TestRunTrigger({ actionId, testRun }: { actionId: string; testRun: 'person' | 'context' }): null {
     const { config } = useValues(stepAiDecisionLogic({ workflowLogicProps: LOGIC_PROPS, actionId }))
-    const { runPersonTest, loadContextPreview } = useActions(
+    const { runPersonTest, setRequestPreviewVisible } = useActions(
         stepAiDecisionLogic({ workflowLogicProps: LOGIC_PROPS, actionId })
     )
     const hasConfig = !!config
@@ -194,9 +194,9 @@ function TestRunTrigger({ actionId, testRun }: { actionId: string; testRun: 'per
         if (testRun === 'person') {
             runPersonTest()
         } else {
-            loadContextPreview()
+            setRequestPreviewVisible(true)
         }
-    }, [hasConfig, testRun, runPersonTest, loadContextPreview])
+    }, [hasConfig, testRun, runPersonTest, setRequestPreviewVisible])
 
     return null
 }

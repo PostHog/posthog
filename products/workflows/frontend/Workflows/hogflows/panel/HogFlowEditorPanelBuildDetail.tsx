@@ -73,6 +73,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const isAiTaskAction = action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
     // A live call of an AI decision spends AI credits, so the result fields are typed instead of picked.
     const isAiDecisionAction = action.type === 'ai_decision'
+    const exitsOnError = action.on_error === 'abort'
 
     const isBranchingStep = ['conditional_branch', 'wait_until_condition', 'random_cohort_branch'].includes(action.type)
     const actionFilters = action.filters ?? {}
@@ -442,11 +443,8 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     header: (
                                         <>
                                             <span className="flex-1">Error handling</span>
-                                            <LemonTag
-                                                size="small"
-                                                type={action.on_error === 'continue' ? 'success' : 'danger'}
-                                            >
-                                                {action.on_error === 'continue' ? 'Continue on error' : 'Exit on error'}
+                                            <LemonTag size="small" type={exitsOnError ? 'danger' : 'success'}>
+                                                {exitsOnError ? 'Exit on error' : 'Continue on error'}
                                             </LemonTag>
                                         </>
                                     ),

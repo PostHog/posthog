@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconCode } from '@posthog/icons'
 
@@ -39,16 +38,8 @@ function formatKilobytes(bytes: number): string {
 export function AiDecisionContextField({ config }: { config: AiDecisionConfig }): JSX.Element {
     const { workflow, logicProps } = useValues(workflowLogic)
     const { sampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
-    const { contextPreview, contextPreviewLoading } = useValues(stepAiDecisionLogic)
-    const { updateConfig, loadContextPreview } = useActions(stepAiDecisionLogic)
-    const [showRequest, setShowRequest] = useState(false)
-
-    const toggleRequest = (): void => {
-        if (!showRequest) {
-            loadContextPreview()
-        }
-        setShowRequest(!showRequest)
-    }
+    const { contextPreview, contextPreviewLoading, requestPreviewVisible } = useValues(stepAiDecisionLogic)
+    const { updateConfig, setRequestPreviewVisible } = useActions(stepAiDecisionLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -66,13 +57,16 @@ export function AiDecisionContextField({ config }: { config: AiDecisionConfig })
                     type="tertiary"
                     size="small"
                     icon={<IconCode />}
-                    onClick={toggleRequest}
+                    onClick={() => setRequestPreviewVisible(!requestPreviewVisible)}
                     loading={contextPreviewLoading}
                     tooltip="Runs this step with mocks for the test person. It doesn't ask the model and spends no AI credits."
                     data-attr="workflow-ai-decision-show-request"
                 >
-                    {showRequest ? 'Hide what is sent' : 'Show what is sent'}
+                    {requestPreviewVisible ? 'Hide what is sent' : 'Show what is sent'}
                 </LemonButton>
+                {!contextPreview && (
+                    <span className="text-xs text-secondary">{`Up to ${formatKilobytes(CONTEXT_LIMIT_BYTES)}`}</span>
+                )}
                 {contextPreview?.status === 'rendered' && (
                     <div className="flex min-w-40 flex-1 items-center gap-2 text-xs text-secondary">
                         <LemonProgress
@@ -84,10 +78,10 @@ export function AiDecisionContextField({ config }: { config: AiDecisionConfig })
                     </div>
                 )}
             </div>
-            {showRequest && contextPreview?.status === 'failed' && (
+            {requestPreviewVisible && contextPreview?.status === 'failed' && (
                 <LemonBanner type="error">{contextPreview.message}</LemonBanner>
             )}
-            {showRequest && contextPreview?.status === 'rendered' && (
+            {requestPreviewVisible && contextPreview?.status === 'rendered' && (
                 <pre className="m-0 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded border bg-surface-secondary p-2 text-xs">
                     {buildAiDecisionRequestPreview(config, contextPreview.context)}
                 </pre>

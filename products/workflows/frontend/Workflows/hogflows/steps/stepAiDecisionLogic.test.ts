@@ -355,7 +355,7 @@ describe('stepAiDecisionLogic', () => {
                 },
             })
 
-            await expectLogic(logic, () => logic.actions.loadContextPreview()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.setRequestPreviewVisible(true)).toFinishAllListeners()
 
             expect(invocationBodies).toEqual([
                 expect.objectContaining({ mock_async_functions: true, current_action_id: DECISION_ID }),

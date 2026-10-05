@@ -53,7 +53,6 @@ function StepAiDecisionFields({ action }: { action: AiDecisionAction }): JSX.Ele
                     onChange={(question) => updateConfig({ question })}
                     placeholder="Which onboarding track fits this person best?"
                     minRows={2}
-                    maxLength={2000}
                     data-attr="workflow-ai-decision-question"
                 />
             </LemonField.Pure>
