@@ -11,6 +11,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -55,6 +56,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
         setTileOverride,
         setTileColor,
         setProperties,
+        updateDashboard,
+        deleteDashboard,
     } = useActions(crossProjectDashboardLogic)
     const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
 
@@ -68,9 +71,16 @@ export function CrossProjectDashboardScene(): JSX.Element {
                 name={dashboard?.name ?? ''}
                 description={dashboard?.description ?? null}
                 resourceType={{ type: 'dashboard' }}
+                onNameChange={(name) => updateDashboard({ name })}
+                onDescriptionChange={(description) => updateDashboard({ description })}
+                canEdit={!!dashboard}
+                isLoading={dashboardLoading && !dashboard}
+                saveOnBlur
+                renameDebounceMs={0}
+                descriptionMaxLength={4000}
                 actions={
                     dashboard ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <DateFilter
                                 dateFrom={dashboardFilters.date_from ?? null}
                                 dateTo={dashboardFilters.date_to ?? null}
@@ -99,6 +109,19 @@ export function CrossProjectDashboardScene(): JSX.Element {
                             >
                                 Add insight
                             </LemonButton>
+                            <More
+                                data-attr="cross-project-dashboard-more"
+                                overlay={
+                                    <LemonButton
+                                        status="danger"
+                                        fullWidth
+                                        onClick={deleteDashboard}
+                                        data-attr="cross-project-dashboard-delete"
+                                    >
+                                        Delete dashboard
+                                    </LemonButton>
+                                }
+                            />
                         </div>
                     ) : undefined
                 }

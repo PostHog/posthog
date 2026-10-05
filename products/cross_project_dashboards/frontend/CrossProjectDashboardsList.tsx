@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
 import { crossProjectDashboardsListLogic } from './crossProjectDashboardsListLogic'
@@ -13,7 +14,9 @@ export function CrossProjectDashboardsList(): JSX.Element {
     const { dashboards, dashboardsLoading, isNewModalOpen, newName, isCreating } = useValues(
         crossProjectDashboardsListLogic
     )
-    const { openNewModal, closeNewModal, setNewName, createDashboard } = useActions(crossProjectDashboardsListLogic)
+    const { openNewModal, closeNewModal, setNewName, createDashboard, deleteDashboard } = useActions(
+        crossProjectDashboardsListLogic
+    )
 
     const columns: LemonTableColumn<
         CrossProjectDashboardListItemApi,
@@ -23,7 +26,11 @@ export function CrossProjectDashboardsList(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             render: (_, dashboard) => (
-                <LemonTableLink to={`/cross-project-dashboards/${dashboard.id}`} title={dashboard.name} />
+                <LemonTableLink
+                    to={`/cross-project-dashboards/${dashboard.id}`}
+                    title={dashboard.name}
+                    description={dashboard.description}
+                />
             ),
         },
         {
@@ -33,6 +40,24 @@ export function CrossProjectDashboardsList(): JSX.Element {
         {
             title: 'Tiles',
             dataIndex: 'tile_count',
+        },
+        {
+            width: 48,
+            render: (_, dashboard) => (
+                <More
+                    data-attr="cross-project-dashboard-list-more"
+                    overlay={
+                        <LemonButton
+                            status="danger"
+                            fullWidth
+                            onClick={() => deleteDashboard(dashboard)}
+                            data-attr="cross-project-dashboard-list-delete"
+                        >
+                            Delete dashboard
+                        </LemonButton>
+                    }
+                />
+            ),
         },
     ]
 

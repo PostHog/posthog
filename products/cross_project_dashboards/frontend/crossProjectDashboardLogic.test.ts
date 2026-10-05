@@ -1,24 +1,32 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
 import {
+    crossProjectDashboardsDestroy,
     crossProjectDashboardsPartialUpdate,
     crossProjectDashboardsRetrieve,
     crossProjectDashboardsTilesPartialUpdate,
 } from './generated/api'
 
+jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
+
 jest.mock('./generated/api', () => ({
     __esModule: true,
+    crossProjectDashboardsDestroy: jest.fn(),
     crossProjectDashboardsRetrieve: jest.fn(),
     crossProjectDashboardsPartialUpdate: jest.fn(),
     crossProjectDashboardsTilesDestroy: jest.fn(),
     crossProjectDashboardsTilesPartialUpdate: jest.fn(),
 }))
 
+const mockedDialogOpen = LemonDialog.open as jest.Mock
+const mockedDestroy = crossProjectDashboardsDestroy as jest.Mock
 const mockedRetrieve = crossProjectDashboardsRetrieve as jest.Mock
 const mockedPartialUpdate = crossProjectDashboardsPartialUpdate as jest.Mock
 const mockedTilePartialUpdate = crossProjectDashboardsTilesPartialUpdate as jest.Mock
@@ -48,6 +56,8 @@ describe('crossProjectDashboardLogic', () => {
     }
 
     beforeEach(() => {
+        mockedDialogOpen.mockReset()
+        mockedDestroy.mockReset()
         mockedRetrieve.mockReset()
         mockedPartialUpdate.mockReset()
         mockedTilePartialUpdate.mockReset()
@@ -139,6 +149,27 @@ describe('crossProjectDashboardLogic', () => {
         expect(mockedTilePartialUpdate).toHaveBeenCalledWith('org-1', DASHBOARD_ID, 'tile-1', body)
         expect(mockedRetrieve).toHaveBeenCalledTimes(1)
         expect(logic.values.tiles[0]).toMatchObject(body)
+    })
+    it.each([
+        ['opens the cross-project tab of the dashboards page', async () => undefined, true],
+        [
+            'stays on the dashboard when the delete fails',
+            async () => {
+                throw { detail: 'You cannot delete this dashboard.' }
+            },
+            false,
+        ],
+    ])('a confirmed delete %s', async (_label, destroy, navigates) => {
+        mockedDestroy.mockImplementation(destroy)
+        await mountWith({})
+
+        logic.actions.deleteDashboard()
+        expect(mockedDestroy).not.toHaveBeenCalled()
+        await mockedDialogOpen.mock.calls[0][0].primaryButton.onClick().catch(() => {})
+
+        expect(mockedDestroy).toHaveBeenCalledWith('org-1', DASHBOARD_ID)
+        expect(router.values.location.pathname.endsWith('/dashboard')).toBe(navigates)
+        expect(router.values.searchParams.tab).toEqual(navigates ? 'cross-project' : undefined)
     })
     const MOVED = { sm: [{ i: 'tile-1', x: 6, y: 0, w: 6, h: 5 }] }
 
