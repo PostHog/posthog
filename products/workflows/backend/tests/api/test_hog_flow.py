@@ -1223,6 +1223,23 @@ class TestHogFlowAPI(APIBaseTest):
         changed_response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": changed})
         assert changed_response.status_code == 400, changed_response.json()
 
+    def test_retrieve_renders_a_stored_edge_without_a_target(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_conditional_branch_flow({})
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a legacy row, bypassing the serializer that now requires 'to' on every edge.
+        flow = HogFlow.objects.get(id=flow_id)
+        malformed_edge = {"from": flow.actions[0]["id"], "type": "continue"}
+        flow.edges = [*flow.edges, malformed_edge]
+        flow.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert response.status_code == 200, response.json()
+        assert response.json()["edges"][-1] == malformed_edge
+
     @parameterized.expand(
         [
             ("bare_string", "greeting", {"key": "greeting"}),
