@@ -370,7 +370,7 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
                 "last_full_run_at": "2026-10-05T12:00:00+00:00",
             },
         )
-        stale.set_repartition_claim({"token": "zombie", "claimed_at": "2026-10-05T11:59:00+00:00"})
+        assert not stale.set_repartition_claim({"token": "zombie", "claimed_at": "2026-10-05T11:59:00+00:00"})
 
         schema.refresh_from_db()
         assert schema.sync_type_config["repartition_claim"] == {
@@ -380,7 +380,7 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         assert schema.sync_type_config["repartition_pending"] == {}
         assert schema.sync_type_config["last_full_run_at"] == "2026-10-05T12:00:00+00:00"
 
-        stale.set_repartition_claim({"token": "latest", "claimed_at": "2026-10-05T12:02:00+00:00"})
+        assert stale.set_repartition_claim({"token": "latest", "claimed_at": "2026-10-05T12:02:00+00:00"})
         schema.refresh_from_db()
         assert schema.sync_type_config["repartition_claim"]["token"] == "latest"
 

@@ -433,9 +433,11 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # the predecessor is only heartbeat-timed-out, and that one keeps running as a zombie holding
         # the claim it minted; standing down without rotating it would leave the zombie free to swap
         # the live table while the sync this run releases merges into it.
-        schema.set_repartition_claim(
+        if not schema.set_repartition_claim(
             {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-        )
+        ):
+            logger.info("repartition: killed-attempt stand-down superseded by a newer claim")
+            return
         logger.warning(
             f"repartition: the attempt this run retries wrote nothing before it stopped, standing "
             f"down until the next sync schema_id={schema.id}",
@@ -455,9 +457,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # makes every claim re-check inside the rewrite/swap raise RepartitionSupersededError in the
     # zombie, so exactly one writer ever touches the table's S3 state.
     claim_token = str(uuid.uuid4())
-    schema.set_repartition_claim(
+    if not schema.set_repartition_claim(
         {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-    )
+    ):
+        logger.info("repartition: rewrite superseded before it claimed the schema")
+        _capture_stood_down(schema, inputs, trigger_reason, "claim_superseded", logger)
+        return
 
     # Charged before the rewrite and refunded on the stand-down paths below. Charging on failure
     # instead bounds nothing: a worker killed mid-rewrite records no outcome, so the cap never moves.
@@ -664,9 +669,11 @@ def _defer_to_full_refresh(
     """
     try:
         claim_token = str(uuid.uuid4())
-        schema.set_repartition_claim(
+        if not schema.set_repartition_claim(
             {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-        )
+        ):
+            logger.info("repartition: full-refresh deferral superseded before it claimed the schema")
+            return
         result = async_to_sync(defer_repartition_to_full_refresh)(
             table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token=claim_token
         )
@@ -946,9 +953,11 @@ def _give_up(
     # Stake a fresh claim before clearing anything. This runs before the activity mints its own, so a
     # timed-out predecessor may still be running and still hold the old token; leaving it valid would
     # let it pass `ensure_claim` and go on mutating live after we declared the rewrite abandoned.
-    schema.set_repartition_claim(
+    if not schema.set_repartition_claim(
         {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-    )
+    ):
+        logger.info("repartition: give-up superseded by a newer claim")
+        return
     schema.clear_repartition_pending()
     schema.clear_repartition_swap()
     schema.clear_repartition_rewrite()

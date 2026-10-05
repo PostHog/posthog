@@ -1220,15 +1220,10 @@ async def defer_repartition_to_full_refresh(
 
     A full-refresh sync deletes the table and writes every row again, so a rewrite only copies data
     the next sync throws away. Its live version also moves on every sync. The scheme is staged for
-    that sync to write (see `stage_partition_scheme_for_full_refresh`), and any temp table an earlier
-    rewrite left behind is swept, because no later rewrite of this table will sweep it.
+    that sync to write (see `stage_partition_scheme_for_full_refresh`). Temp tables are not swept
+    here: a newer claimant can begin a recovery while this activity awaits S3, and wildcard cleanup
+    cannot be fenced by the database claim for the duration of that operation.
     """
-    try:
-        live_uri = await table_ref.get_table_uri()
-        async with aget_s3_client(fresh_instance=True) as s3:
-            await _purge_stale_temp_tables(s3, live_uri)
-    except Exception:
-        await logger.awarning("repartition: could not sweep stale temp tables", exc_info=True)
 
     def _write() -> bool:
         return stage_partition_scheme_for_full_refresh(

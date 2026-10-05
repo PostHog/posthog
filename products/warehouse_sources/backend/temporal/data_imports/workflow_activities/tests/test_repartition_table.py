@@ -86,9 +86,14 @@ def _schema(
     schema.repartition_swap = swap
     schema.repartition_pending = pending
     schema.repartition_rewrite = rewrite
+
     # The failure bookkeeping re-reads the claim to check it still owns the schema, so the mock has
     # to actually remember the token the activity just staked.
-    schema.set_repartition_claim.side_effect = lambda claim: setattr(schema, "repartition_claim", claim)
+    def set_repartition_claim(claim: dict) -> bool:
+        schema.repartition_claim = claim
+        return True
+
+    schema.set_repartition_claim.side_effect = set_repartition_claim
     # Same for the pending marker: the attempt is charged before the rewrite and refunded after, and
     # the refund only fires when it reads back the count it wrote.
     schema.set_repartition_pending.side_effect = lambda p: setattr(schema, "repartition_pending", p)
@@ -1154,6 +1159,23 @@ class TestMaybeFlagPreExtraction:
 
 
 class TestFullRefreshDeferral:
+    @patch(f"{MODULE}.defer_repartition_to_full_refresh", new_callable=AsyncMock)
+    def test_rejected_claim_stops_before_storage_work(self, mock_defer: AsyncMock) -> None:
+        schema = _schema(name="contacts", s3_folder_name="contacts")
+        schema.set_repartition_claim.side_effect = None
+        schema.set_repartition_claim.return_value = False
+
+        _defer_to_full_refresh(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            schema,
+            MagicMock(),
+            MagicMock(),
+            "proactive_threshold",
+            MagicMock(),
+        )
+
+        mock_defer.assert_not_awaited()
+
     @patch(f"{MODULE}.defer_repartition_to_full_refresh", new_callable=AsyncMock)
     def test_wrapped_cancellation_is_propagated(self, mock_defer: AsyncMock) -> None:
         wrapped_cancelled_error = type("CancelledError", (Exception,), {})
