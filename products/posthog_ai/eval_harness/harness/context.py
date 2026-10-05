@@ -42,6 +42,9 @@ class EvalContext:
     skill_delivery: SkillDelivery
     """Whether the run uses native bundled skills or MCP exec distribution."""
 
+    mcp_flags: tuple[str, ...]
+    """Feature flags forced on in the MCP server, from ``--mcp-flag``."""
+
     reasoning_effort: str | None
     """Agent reasoning effort override; ``None`` keeps the agent server's default."""
 
