@@ -294,6 +294,7 @@ describe("transcriptFrom last turn", () => {
     expect(transcriptFrom("pi", PI_LOG).lastTurn).toEqual({
       durationMs: 5000,
       endedAt: 6000,
+      stopReason: "stop",
     });
     expect(transcriptFrom("pi", PI_LOG.slice(0, -1)).lastTurn).toBeNull();
   });

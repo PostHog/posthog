@@ -49,8 +49,8 @@ export interface Transcript {
   lines: TranscriptLine[];
   // The agent is mid-turn: a prompt it has not finished answering.
   turnOpen: boolean;
-  // The latest turn once it has finished: how long it took and when it ended (epoch ms).
-  lastTurn: { durationMs: number; endedAt: number } | null;
+  // The latest turn once it has finished: how long it took, when it ended (epoch ms) and why it stopped.
+  lastTurn: { durationMs: number; endedAt: number; stopReason?: string } | null;
   // When the open turn started (epoch ms), or null between turns.
   turnStartedAt: number | null;
 }
@@ -83,6 +83,7 @@ export function transcriptFrom(
       ? {
           durationMs: built.lastTurnInfo.durationMs,
           endedAt: built.lastActivityAt,
+          stopReason: built.lastTurnInfo.stopReason,
         }
       : null;
   // The sandbox echoes a new chat's first message only once it boots, so show it until then.
@@ -215,6 +216,7 @@ export function toolSummary(tools: ToolLine[]): string {
 }
 
 // A message the user just sent shows at once, until the run's log echoes it back as its latest user message.
+export const PENDING_ID = "pending";
 export function withPending(
   lines: TranscriptLine[],
   pending: string | null,
@@ -222,7 +224,7 @@ export function withPending(
   if (!pending) return lines;
   const lastUser = lines.findLast((line) => line.kind === "user");
   if (lastUser?.kind === "user" && lastUser.text === pending) return lines;
-  return [...lines, { kind: "user", id: "pending", text: pending }];
+  return [...lines, { kind: "user", id: PENDING_ID, text: pending }];
 }
 
 // How many runs of a command the transcript already shows.

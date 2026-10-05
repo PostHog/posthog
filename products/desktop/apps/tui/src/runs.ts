@@ -8,7 +8,12 @@ import type {
   TaskRunStatus,
 } from "@posthog/shared";
 import type { ChatNotice } from "./chatView";
-import { activityOf, type Transcript, type TranscriptLine } from "./transcript";
+import {
+  activityOf,
+  PENDING_ID,
+  type Transcript,
+  type TranscriptLine,
+} from "./transcript";
 
 export interface RunView {
   loaded: boolean;
@@ -126,7 +131,10 @@ export function runNotice(
     return { text: view.runError || "The run failed.", tone: "error" };
   }
   const running = view.status === "queued" || view.status === "in_progress";
-  const waiting = lines.at(-1)?.kind === "user";
+  // A message the chat has echoed opens its own turn, so outside a turn only an unsent message waits.
+  const waiting =
+    lines.at(-1)?.kind === "user" &&
+    (turnOpen || lines.at(-1)?.id === PENDING_ID);
   // A local agent is up before its view exists, so only a cloud run has a start-up wait.
   if (!view.local && running && !lines.some((line) => line.kind !== "user")) {
     return { text: "Starting cloud run…", tone: "working" };
@@ -153,6 +161,12 @@ export function runNotice(
       text: call ? activityOf(call.title) : `${idleWord(Date.now())}…`,
       detail: parts.join(" · "),
       tone: "working",
+    };
+  }
+  if (lastTurn?.stopReason === "error" && !waiting) {
+    return {
+      text: "The agent stopped on an error. Send a message to try again.",
+      tone: "error",
     };
   }
   if (lastTurn && !waiting) {
