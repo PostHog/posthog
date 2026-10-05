@@ -15,14 +15,9 @@ import structlog
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.skills.backend.marketplace.adapters import (
-    SANDBOX_SKILLS_FEATURE_FLAG,
-    sandbox_skills_flag_distinct_id,
-    select_skill_stubs,
-)
+from products.skills.backend.marketplace.adapters import select_skill_stubs
 from products.skills.backend.marketplace.packaging import DEFAULT_BUNDLE_SKILLS
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import STORE_SKILLS_STATE_KEY
@@ -35,26 +30,12 @@ logger = structlog.get_logger(__name__)
 STORE_SKILL_DESCRIPTION_MAX_CHARS = 300
 
 
-def resolve_store_skills(team: Team, user: User, *, run_id: str) -> list[dict[str, Any]] | None:
-    """The ``store_skills`` entries for a run, ``[]`` when the store is off for ``user``.
+def resolve_store_skills(team: Team, user: User, *, run_id: str) -> list[dict[str, Any]]:
+    """The ``store_skills`` entries for a run.
 
-    ``None`` means the flag service did not answer. The caller then leaves the key alone, so a
-    sandbox that resumes with stubs from an earlier session keeps them instead of losing them to an
-    outage. ``user`` is whoever the sandbox's PostHog credential belongs to, because that is the
-    identity ``skill-get`` will run as.
+    ``user`` is whoever the sandbox's PostHog credential belongs to, because that is the identity
+    ``skill-get`` will run as.
     """
-    flag_value = posthog_feature_flag_value(
-        SANDBOX_SKILLS_FEATURE_FLAG,
-        sandbox_skills_flag_distinct_id(user),
-        organization_id=team.organization_id,
-        team_id=team.id,
-    )
-    if flag_value is None:
-        logger.warning("store_skills_flag_unavailable", run_id=run_id, team_id=team.id)
-        return None
-    if not flag_value:
-        return []
-
     readable_skills = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
         LLMSkill.objects.filter(team=team), resource="llm_skill"
     )
@@ -86,8 +67,6 @@ def refresh_store_skills_state(task_run: TaskRun, user: User, *, reason: str) ->
     run_id = str(task_run.id)
     try:
         store_skills = resolve_store_skills(task_run.task.team, user, run_id=run_id)
-        if store_skills is None:
-            return
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: store_skills})
     except Exception:
         logger.warning("store_skills_refresh_failed", run_id=run_id, reason=reason, exc_info=True)

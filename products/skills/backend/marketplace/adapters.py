@@ -55,21 +55,6 @@ _MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
 # not by what the team owns. The count limit lives with the other bundle policy in packaging.
 MAX_BUNDLE_BYTES = 5_000_000
 
-# Gates every path that lists a user's store skills inside a sandbox: the bundle endpoint and the
-# run-state stamp the task worker writes for the sandbox agent.
-SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
-
-
-def sandbox_skills_flag_distinct_id(user: User) -> str:
-    """The identity every consumer of ``SANDBOX_SKILLS_FEATURE_FLAG`` evaluates it with.
-
-    A person-targeted or percentage rollout hashes this value, so the bundle endpoint and the task
-    worker must agree on the fallback for a user with no ``distinct_id`` or they can disagree on
-    whether the store is on.
-    """
-    return user.distinct_id or str(user.uuid)
-
-
 # A heavy user can skip very many skills, so the walk keeps only a fixed-size sample of their names
 # plus a running count — never a list proportional to the skip total. The warning logs that sample
 # and count; the response header carries the count only.
