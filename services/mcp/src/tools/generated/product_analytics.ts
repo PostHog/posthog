@@ -312,6 +312,10 @@ const insightCreate = (): ToolBase<
             'query_status',
             'hogql',
             'types',
+            'alerts.*.insight',
+            'alerts.*.created_by',
+            'alerts.*.subscribed_users',
+            'alerts.*.checks',
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
@@ -388,6 +392,10 @@ const insightGet = (): ToolBase<ReturnType<typeof InsightGetSchema>, WithPostHog
             'query_status',
             'hogql',
             'types',
+            'alerts.*.insight',
+            'alerts.*.created_by',
+            'alerts.*.subscribed_users',
+            'alerts.*.checks',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
     },
@@ -459,6 +467,10 @@ const insightUpdate = (): ToolBase<
             'query_status',
             'hogql',
             'types',
+            'alerts.*.insight',
+            'alerts.*.created_by',
+            'alerts.*.subscribed_users',
+            'alerts.*.checks',
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
@@ -599,7 +611,10 @@ const insightsList = (): ToolBase<
                     'last_modified_at',
                     'last_modified_by',
                     'last_viewed_at',
-                    'alerts',
+                    'alerts.*.id',
+                    'alerts.*.name',
+                    'alerts.*.state',
+                    'alerts.*.enabled',
                 ])
             ),
         } as typeof result
