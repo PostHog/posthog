@@ -45,6 +45,7 @@ import {
     logsRecordsBytesExceedPayloadCounter,
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
+    parseMinTimestampHeader,
     parseSizeHeader,
 } from './logs-ingestion-consumer'
 import { compileMetricRules } from './metrics-rules/compile-metric-rules'
@@ -756,6 +757,17 @@ describe('LogsIngestionConsumer', () => {
             ['-5', null],
         ])('parses %p as %p', (raw, expected) => {
             expect(parseSizeHeader(raw)).toEqual(expected)
+        })
+    })
+
+    describe('parseMinTimestampHeader', () => {
+        it.each([
+            ['1790000000000000', 1790000000000000],
+            [undefined, undefined],
+            ['', undefined],
+            ['not-a-number', undefined],
+        ])('parses %p as %p', (raw, expected) => {
+            expect(parseMinTimestampHeader(raw)).toEqual(expected)
         })
     })
 

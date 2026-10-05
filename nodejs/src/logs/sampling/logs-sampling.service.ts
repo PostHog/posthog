@@ -54,6 +54,8 @@ function safeEvaluateLogRecord(ruleSet: CompiledRuleSet, record: LogRecord, team
 
 const recordBytes = (r: LogRecord): number => r.bytes_uncompressed ?? 0
 
+export const SAMPLING_STAGE_NAME = 'sampling'
+
 export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
 
@@ -185,7 +187,7 @@ export class LogsSamplingService {
     ): PipelineStage {
         return {
             kind: 'filter',
-            name: 'sampling',
+            name: SAMPLING_STAGE_NAME,
             run: (records, batch) =>
                 this.sampleRecords(records, ruleSet, batch.contentBytesTotal, teamId, headerBytesUncompressed),
         }

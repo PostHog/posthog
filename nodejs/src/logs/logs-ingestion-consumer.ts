@@ -47,11 +47,15 @@ import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outpu
 import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
-import { canHoldExpiredRow, makeRetentionExpiredStage } from './retention/retention-expired-stage'
+import {
+    RETENTION_EXPIRED_STAGE_NAME,
+    canHoldExpiredRow,
+    makeRetentionExpiredStage,
+} from './retention/retention-expired-stage'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
-import { LogsSamplingService } from './sampling/logs-sampling.service'
+import { LogsSamplingService, SAMPLING_STAGE_NAME } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
@@ -161,7 +165,7 @@ export function parseSizeHeader(raw: string | undefined): number | null {
 }
 
 export function parseMinTimestampHeader(raw: string | undefined): number | undefined {
-    if (raw === undefined) {
+    if (raw === undefined || raw.trim() === '') {
         return undefined
     }
     const parsed = Number(raw)
@@ -617,7 +621,7 @@ export class LogsIngestionConsumer {
             stages,
         })
 
-        const recordsDroppedBySampling = drops.recordsDroppedByStage.get('sampling') ?? 0
+        const recordsDroppedBySampling = drops.recordsDroppedByStage.get(SAMPLING_STAGE_NAME) ?? 0
         if (recordsDroppedBySampling > 0) {
             logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, recordsDroppedBySampling)
         }
@@ -1009,7 +1013,7 @@ export class LogsIngestionConsumer {
                         this.queueUsageMetric(
                             message.teamId,
                             'records_dropped_retention_expired',
-                            resolved.recordsDroppedByStage.get('retention_expired') ?? 0
+                            resolved.recordsDroppedByStage.get(RETENTION_EXPIRED_STAGE_NAME) ?? 0
                         )
 
                         let bytesUncompressedHeaderOverride: number | undefined

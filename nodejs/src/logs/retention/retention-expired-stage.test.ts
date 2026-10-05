@@ -36,6 +36,12 @@ describe('retention expired stage', () => {
             kept: false,
         },
         {
+            label: 'stamped with 0 days, which falls back to the team default like ClickHouse does',
+            timestamp: daysAgo(20),
+            retentionDays: 0,
+            kept: true,
+        },
+        {
             label: 'past the default but inside a longer stamped rule',
             timestamp: daysAgo(60),
             retentionDays: 90,
