@@ -1075,8 +1075,7 @@ class GeneratedNameDropPolicy(MigrationPolicy):
     )
 
     def check_operation(self, op) -> list[str]:
-        # Any op that carries SQL, not only RunSQL by name: the RunSQL subclasses in
-        # posthog/migration_helpers, such as DropIndexConcurrently, take a typed index name too.
+        # Every op that carries SQL, so the RunSQL subclasses in posthog/migration_helpers count too.
         sql = getattr(op, "sql", None)
         if not sql:
             return []

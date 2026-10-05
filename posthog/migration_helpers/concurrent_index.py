@@ -470,8 +470,7 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
                 columns=f"({schema_editor.quote_name(field.column)})",
             )
         ]
-        # On a varchar or text key, Postgres also gets a pattern-ops companion that serves LIKE
-        # outside the C locale.
+        # Postgres adds a `_like` pattern-ops companion on a varchar or text column.
         like = schema_editor._create_like_index_sql(model, field)
         if like is not None:
             indexes.append(
@@ -506,8 +505,7 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
                 f"{table} holds {', '.join(unexpected)} on only {field.column}. Django did not create it for "
                 f"the key ({', '.join(sorted(automatic))}), and no Meta index names it. Find out what created it first."
             )
-        # Checked even when the indexes are already gone, so a database that lost them earlier
-        # does not record db_index=False without a covering index.
+        # Also checked when the indexes are already gone, so db_index=False never hides a missing cover.
         if field.db_constraint or field.remote_field.on_delete is not DO_NOTHING:
             with schema_editor.connection.cursor() as cursor:
                 cursor.execute(_LEADING_INDEXES_SQL, {"table": table, "column": field.column})
@@ -518,7 +516,6 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
                     f"parent row scans {table} for child rows. Add a btree index that leads with {field.column} first."
                 )
         _disable_timeouts(schema_editor)
-        # A retry, or a database whose history never created them, finds nothing to drop.
         for name in sorted(candidates & automatic):
             schema_editor.execute(_build_drop_sql(name))
 
