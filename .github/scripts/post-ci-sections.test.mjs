@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
+import { buildEvalSection } from './post-eval-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
 import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
@@ -11,6 +12,18 @@ const commonHobby = {
     runNumber: '42',
     runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
 }
+
+// One Braintrust experiment summary, shaped as `EvalSummary.as_json()` writes it to
+// eval_results.jsonl. The default diff regresses by 10 points, well past the 2% threshold.
+const evalResult = (comparisonExperimentName, diff = -0.1) => ({
+    project_name: 'max-ai-eval_trends',
+    project_url: 'https://braintrust.example.com/max-ai-eval_trends',
+    experiment_url: 'https://braintrust.example.com/max-ai-eval_trends/pr-head',
+    experiment_name: 'pr-head',
+    comparison_experiment_name: comparisonExperimentName,
+    scores: { plan_correctness: { score: 0.8, diff, improvements: 1, regressions: 4 } },
+    metrics: {},
+})
 
 describe('CI report section builders', () => {
     for (const testCase of [
@@ -150,5 +163,52 @@ describe('CI report section builders', () => {
         assert.match(ready.body, /https:\/\/hobby\.example\.com/)
         assert.equal(failed.status, 'fail')
         assert.match(failed.body, /line 2/)
+    })
+
+    for (const testCase of [
+        {
+            name: 'counts an eval regression against the master baseline',
+            comparisonExperimentName: 'master-a1b2c3d',
+            expectedStatus: 'warn',
+            expectedSummary: '1 experiment: 1 regression',
+            bodyIncludes: ['🔴', '-10.00%', 'improvements: 1, regressions: 4'],
+            bodyExcludes: [],
+        },
+        {
+            name: 'claims no change when the master baseline diff stays inside the threshold',
+            comparisonExperimentName: 'master-a1b2c3d',
+            diff: 0.01,
+            expectedStatus: 'ok',
+            expectedSummary: '1 experiment',
+            bodyIncludes: ['🔵', '+1.00%'],
+            bodyExcludes: [],
+        },
+        {
+            name: 'ignores an eval diff against a same-branch baseline',
+            comparisonExperimentName: 'pr-head-2',
+            expectedStatus: 'ok',
+            expectedSummary: '1 experiment: no master baseline',
+            bodyIncludes: ['🆕', '80.00%'],
+            bodyExcludes: ['-10.00%', 'improvements:', 'regressions:'],
+        },
+    ]) {
+        it(testCase.name, () => {
+            const section = buildEvalSection([evalResult(testCase.comparisonExperimentName, testCase.diff)])
+            assert.equal(section.status, testCase.expectedStatus)
+            assert.equal(section.summary, testCase.expectedSummary)
+            for (const fragment of testCase.bodyIncludes) {
+                assert.ok(section.body.includes(fragment), `expected body to include ${fragment}`)
+            }
+            for (const fragment of testCase.bodyExcludes) {
+                assert.ok(!section.body.includes(fragment), `expected body not to include ${fragment}`)
+            }
+            assert.ok(section.body.includes(testCase.comparisonExperimentName))
+        })
+    }
+
+    it('does not link a baseline the eval run never had', () => {
+        const section = buildEvalSection([evalResult(null)])
+        assert.ok(!section.body.includes('/experiments/null'))
+        assert.match(section.body, /Baseline: none yet/)
     })
 })
