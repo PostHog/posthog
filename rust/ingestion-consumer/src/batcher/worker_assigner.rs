@@ -24,6 +24,14 @@ impl WorkerAssigner {
         }
     }
 
+    pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
+        self.requests_on(worker) > 0
+    }
+
+    pub fn in_flight_messages(&self) -> usize {
+        self.message_load.values().sum()
+    }
+
     pub fn prefers_largest_first(&self) -> bool {
         self.router.prefers_largest_first()
     }

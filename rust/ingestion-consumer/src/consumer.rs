@@ -14,7 +14,9 @@ use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
+use crate::batcher::machine::{MachineConfig, RetryPolicy};
+use crate::batcher::packer::PackTargets;
+use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
 use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
 use crate::commit_sentinel::{CommitSentinel, CommitViolation};
@@ -24,7 +26,7 @@ use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
-use crate::order_sentinel::{OffsetSpan, SentinelContext};
+use crate::order_sentinel::{OffsetSpan, RevokeHook, SentinelContext};
 use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -178,6 +180,32 @@ struct RevokedPartition {
     generation: u64,
 }
 
+/// The consumer's revocation hook: purge the batcher, and record the revoked
+/// partitions when the batcher's purge means their polls never complete.
+fn revoke_hook(
+    revoker: Revoker,
+    ledger: Arc<TopicOffsetLedger>,
+    revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
+) -> RevokeHook {
+    let records_revocations = revoker.drops_revoked_polls();
+    Box::new(move |partitions| {
+        revoker.purge_revoked(partitions);
+        if records_revocations {
+            revoked_partitions
+                .lock()
+                .unwrap()
+                .extend(partitions.iter().map(|(topic, partition)| {
+                    let topic_partition = TopicPartition::new(topic, *partition);
+                    let generation = ledger.generation(&topic_partition);
+                    RevokedPartition {
+                        topic_partition,
+                        generation,
+                    }
+                }));
+        }
+    })
+}
+
 /// Remove revoked partitions from in-flight polls, and remove polls left
 /// empty. Only slices from before that partition's revoke generation go: a
 /// poll's kept or newly reassigned slices retain their counts and settle their
@@ -280,9 +308,13 @@ pub struct IngestionConsumerOptions {
     /// with zero progress. Production takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
-    /// The key-table scheduler's parked-retry cadence. Production takes it
-    /// from `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
+    /// The key-table scheduler's parked-retry cadence, and the machine's
+    /// retry delay and worker poll interval. Production takes it from
+    /// `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
     pub parked_retry_interval: Duration,
+    /// The machine's pack targets. Production takes them from the
+    /// `INGESTION_PACK_*` settings.
+    pub pack_targets: PackTargets,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -336,37 +368,40 @@ impl IngestionConsumer {
         // forget partitions on the same ones the commit path uses.
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let commit_sentinel = consumer.context().commit_sentinel();
-        let revoke_ledger = Arc::clone(&topic_offset_ledger);
+        let (batcher, outputs) = if dispatcher.scheduler_kind() == SchedulerKind::KeyTable {
+            let config = MachineConfig {
+                pack_targets: options.pack_targets,
+                max_requests_per_worker: transport.max_unacked(),
+                retry: RetryPolicy {
+                    fault: options.parked_retry_interval,
+                    busy: options.parked_retry_interval,
+                    timeout: options.parked_retry_interval,
+                },
+                unplaced_retry_interval: options.parked_retry_interval,
+                stall_timeout: options.deferred_flush_timeout,
+            };
+            Batcher::with_machine(
+                config,
+                dispatcher.worker_pool_source(),
+                Arc::clone(&transport),
+            )
+            .expect("valid machine config")
+        } else {
+            Batcher::new(
+                dispatcher,
+                Arc::clone(&transport),
+                handle.clone(),
+                options.deferred_flush_timeout,
+            )
+        };
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = Arc::clone(&dispatcher);
-        let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| Arc::clone(&revoked_partitions));
-        consumer
-            .context()
-            .set_revoke_hook(Box::new(move |partitions| {
-                purge_dispatcher.purge_revoked(partitions);
-                if let Some(list) = &hook_revoked {
-                    list.lock()
-                        .unwrap()
-                        .extend(partitions.iter().map(|(topic, partition)| {
-                            let topic_partition = TopicPartition::new(topic, *partition);
-                            let generation = revoke_ledger.generation(&topic_partition);
-                            RevokedPartition {
-                                topic_partition,
-                                generation,
-                            }
-                        }));
-                }
-            }));
+        consumer.context().set_revoke_hook(revoke_hook(
+            batcher.revoker(),
+            Arc::clone(&topic_offset_ledger),
+            Arc::clone(&revoked_partitions),
+        ));
         let consumer = Arc::new(consumer);
-        let (batcher, outputs) = Batcher::new(
-            dispatcher,
-            Arc::clone(&transport),
-            handle.clone(),
-            options.deferred_flush_timeout,
-            options.parked_retry_interval,
-        );
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
@@ -424,27 +459,13 @@ impl IngestionConsumer {
             Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
-        let revoke_ledger = Arc::clone(&topic_offset_ledger);
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = batcher.dispatcher();
-        let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| Arc::clone(&revoked_partitions));
-        context.set_revoke_hook(Box::new(move |partitions| {
-            purge_dispatcher.purge_revoked(partitions);
-            if let Some(list) = &hook_revoked {
-                list.lock()
-                    .unwrap()
-                    .extend(partitions.iter().map(|(topic, partition)| {
-                        let topic_partition = TopicPartition::new(topic, *partition);
-                        let generation = revoke_ledger.generation(&topic_partition);
-                        RevokedPartition {
-                            topic_partition,
-                            generation,
-                        }
-                    }));
-            }
-        }));
+        context.set_revoke_hook(revoke_hook(
+            batcher.revoker(),
+            Arc::clone(&topic_offset_ledger),
+            Arc::clone(&revoked_partitions),
+        ));
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
@@ -476,6 +497,11 @@ impl IngestionConsumer {
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
+    }
+
+    /// A read-only view of the batcher's load.
+    pub fn batcher_observer(&self) -> BatcherObserver {
+        self.batcher.observer()
     }
 
     /// Run the consumer loop until shutdown is signalled via the lifecycle handle.
@@ -539,6 +565,7 @@ impl IngestionConsumer {
                             "Shutdown signal received, draining in-flight batches"
                         );
                         accepting_new_batches = false;
+                        self.batcher.begin_shutdown();
                     }
                     result = self.collect_batch() => {
                         let collected = match result {

@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka_consumer::Partition;
-use lifecycle::{ComponentOptions, Manager};
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -13,7 +12,9 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use ingestion_consumer::batcher::Batcher;
+use ingestion_consumer::batcher::machine::{MachineConfig, RetryPolicy};
+use ingestion_consumer::batcher::packer::PackTargets;
+use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
@@ -488,15 +489,9 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("submission-purge-race-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        Arc::clone(&dispatcher),
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_secs(10),
         Duration::from_millis(20),
     );
@@ -507,7 +502,7 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
     // No await between submit and purge: run_scatter is queued but cannot run
     // until this current-thread task yields. The submission was accepted and
     // retained synchronously, then intentionally discarded by revocation.
-    dispatcher.purge_revoked(&[("test".to_string(), 0)]);
+    batcher.revoker().purge_revoked(&[("test".to_string(), 0)]);
 
     match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {
         Err(_) => {}
@@ -529,15 +524,9 @@ async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("batcher-drop-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_secs(10),
         Duration::from_millis(20),
     );
@@ -555,4 +544,32 @@ async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
         outputs.errors.recv().await.is_none(),
         "all output senders close with the dropped batcher"
     );
+}
+
+/// A key-table batcher: the batcher state machine over the dispatcher's
+/// worker pool, retrying after `retry_delay` and failing after `stall_timeout`
+/// without progress. A one-event pack target sends each key as its own
+/// request, so tests can hold one key's request while another key's fails.
+fn key_table_batcher(
+    dispatcher: &Dispatcher,
+    transport: Arc<GrpcTransport>,
+    stall_timeout: Duration,
+    retry_delay: Duration,
+) -> (Batcher, BatcherOutputs) {
+    let config = MachineConfig {
+        pack_targets: PackTargets {
+            events: 1,
+            ..PackTargets::default()
+        },
+        max_requests_per_worker: transport.max_unacked(),
+        retry: RetryPolicy {
+            fault: retry_delay,
+            busy: retry_delay,
+            timeout: retry_delay,
+        },
+        unplaced_retry_interval: retry_delay,
+        stall_timeout,
+    };
+    Batcher::with_machine(config, dispatcher.worker_pool_source(), transport)
+        .expect("valid machine config")
 }

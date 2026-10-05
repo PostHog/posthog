@@ -122,15 +122,11 @@ pub enum SettlementOutcome {
     },
 }
 
-/// The retry deadline that fired. Each scheduler paces retries its own way
-/// and answers only its own arm; the other arm is a no-op.
+/// The retry deadline that fired.
 pub enum Deadline<'a> {
     /// The flush deadline for one batch's deferred work — the pin-stash
     /// pacing, fired oldest batch first.
     Batch(&'a str),
-    /// The parked-retry deadline: retry every parked key — the key-table
-    /// pacing.
-    ParkedRetry,
 }
 
 /// Groups deferred by one seam call, by reason. The caller emits the debug
@@ -183,6 +179,9 @@ impl SchedulerEffects {
 pub enum SchedulerKind {
     #[default]
     PinStash,
+    /// The batcher state machine: per-key queues with at most one request
+    /// in flight per key, the packer, and placement at send. It replaces the
+    /// dispatcher's scheduling.
     KeyTable,
 }
 
@@ -228,12 +227,6 @@ pub trait Scheduler {
         snapshot: &WorkerSnapshot,
         deadline: Deadline<'_>,
     ) -> SchedulerEffects;
-
-    /// Partitions were revoked, as `(topic, partition)`. Queued messages for
-    /// them must drop: the new partition owner replays them.
-    fn on_partitions_revoked(&mut self, _partitions: &[(String, i32)]) -> SchedulerEffects {
-        SchedulerEffects::default()
-    }
 }
 
 /// Sticky pin for one routing key. Tracks which worker owns the key and how
@@ -523,9 +516,7 @@ impl Scheduler for PinStashScheduler {
         snapshot: &WorkerSnapshot,
         deadline: Deadline<'_>,
     ) -> SchedulerEffects {
-        let Deadline::Batch(batch_id) = deadline else {
-            return SchedulerEffects::default();
-        };
+        let Deadline::Batch(batch_id) = deadline;
         let groups = self.stash.take_batch(batch_id);
         if groups.is_empty() {
             return SchedulerEffects::default();
@@ -1025,20 +1016,6 @@ mod tests {
         assert!(effects.dispatches.is_empty());
         assert_eq!(effects.deferred.total(), 0);
         assert!(effects.evicted_keys.is_empty());
-    }
-
-    #[test]
-    fn test_parked_retry_deadline_is_a_noop_for_pin_stash() {
-        let mut sched = scheduler();
-        sched.register_batch("b1");
-        let _ = sched.on_groups(&snapshot(&[], &[], &[]), "b1", 0, vec![run("t:a", 1)]);
-
-        // The parked-retry pacing belongs to the key-table scheduler; the
-        // pin-stash stash flushes only on its per-batch deadline.
-        let effects = sched.on_deadline(&snapshot(&[A], &[], &[]), Deadline::ParkedRetry);
-
-        assert!(effects.dispatches.is_empty());
-        assert_eq!(sched.stashed_messages(), 1);
     }
 
     #[test]

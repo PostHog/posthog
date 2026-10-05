@@ -4,13 +4,46 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+use common_kafka_consumer::Offset;
+
 use super::request_class::RequestClass;
-use crate::types::SerializedKafkaMessage;
+use crate::types::{Group, SerializedKafkaMessage};
 
 #[derive(Clone, Debug)]
 pub struct KeyRun {
     pub routing_key: String,
     pub messages: Vec<SerializedKafkaMessage>,
+}
+
+impl KeyRun {
+    /// One run per routing key of a poll. The Kafka key is the routing key.
+    /// An unkeyed group gets a synthetic key from its partition and first
+    /// offset, because it carries no per-key order to preserve.
+    pub fn from_groups(groups: Vec<Group>) -> Vec<KeyRun> {
+        let mut runs: Vec<KeyRun> = Vec::with_capacity(groups.len());
+        let mut index_by_key: HashMap<String, usize> = HashMap::new();
+        for group in groups {
+            let routing_key = match group.key {
+                Some(key) => key,
+                None => {
+                    let first = group.messages.first().map_or(Offset(-1), |m| m.offset);
+                    format!(":{}:{}", group.partition, first)
+                }
+            };
+            let messages = group.messages.into_iter().map(|m| m.message);
+            match index_by_key.get(&routing_key) {
+                Some(&index) => runs[index].messages.extend(messages),
+                None => {
+                    index_by_key.insert(routing_key.clone(), runs.len());
+                    runs.push(KeyRun {
+                        routing_key,
+                        messages: messages.collect(),
+                    });
+                }
+            }
+        }
+        runs
+    }
 }
 
 pub(super) fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {

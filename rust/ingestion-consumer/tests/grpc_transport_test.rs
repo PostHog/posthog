@@ -12,7 +12,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka_consumer::Partition;
-use ingestion_consumer::batcher::Batcher;
+use ingestion_consumer::batcher::machine::{MachineConfig, RetryPolicy};
+use ingestion_consumer::batcher::packer::PackTargets;
+use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
@@ -27,7 +29,6 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
-use lifecycle::{ComponentOptions, Manager};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
@@ -871,15 +872,9 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("key-table-watchdog-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_millis(100),
         Duration::from_millis(20),
     );
@@ -936,7 +931,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         .expect("batcher error channel stays open");
     assert_eq!(
         error,
-        "key-table work made no progress within the stall timeout"
+        "pending work made no progress within the stall timeout"
     );
     assert!(
         final_attempt_released.load(Ordering::Relaxed),
@@ -950,7 +945,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
 }
 
 #[tokio::test]
-async fn key_table_parked_retry_drains_after_shutdown_signal() {
+async fn key_table_retries_a_busy_send_until_it_completes() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
@@ -965,16 +960,9 @@ async fn key_table_parked_retry_drains_after_shutdown_signal() {
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("key-table-retry-recovery-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let shutdown = handle.shutdown_token();
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_millis(500),
         Duration::from_millis(20),
     );
@@ -988,10 +976,9 @@ async fn key_table_parked_retry_drains_after_shutdown_signal() {
         .expect("initial send reaches the worker")
         .expect("attempt channel stays open");
     assert!(first.reply.send(ControlledReply::Busy).is_ok());
-    shutdown.cancel();
     let retry = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await
-        .expect("parked retry reaches the worker")
+        .expect("the retry reaches the worker")
         .expect("attempt channel stays open");
     assert!(retry.reply.send(ControlledReply::Ok).is_ok());
 
@@ -1023,15 +1010,9 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("key-table-late-success-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_millis(100),
         Duration::from_millis(20),
     );
@@ -1061,4 +1042,32 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
         outputs.errors.try_recv().is_err(),
         "late acceptance resets the watchdog and idle work stays healthy"
     );
+}
+
+/// A key-table batcher: the batcher state machine over the dispatcher's
+/// worker pool, retrying after `retry_delay` and failing after `stall_timeout`
+/// without progress. A one-event pack target sends each key as its own
+/// request, so tests can hold one key's request while another key's fails.
+fn key_table_batcher(
+    dispatcher: &Dispatcher,
+    transport: Arc<GrpcTransport>,
+    stall_timeout: Duration,
+    retry_delay: Duration,
+) -> (Batcher, BatcherOutputs) {
+    let config = MachineConfig {
+        pack_targets: PackTargets {
+            events: 1,
+            ..PackTargets::default()
+        },
+        max_requests_per_worker: transport.max_unacked(),
+        retry: RetryPolicy {
+            fault: retry_delay,
+            busy: retry_delay,
+            timeout: retry_delay,
+        },
+        unplaced_retry_interval: retry_delay,
+        stall_timeout,
+    };
+    Batcher::with_machine(config, dispatcher.worker_pool_source(), transport)
+        .expect("valid machine config")
 }

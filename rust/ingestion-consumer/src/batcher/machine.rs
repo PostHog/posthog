@@ -201,9 +201,23 @@ impl BatcherState {
     }
 
     pub fn pending_messages(&self) -> usize {
+        self.work().map_or(0, Work::pending_messages)
+    }
+
+    pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
+        self.work()
+            .is_some_and(|work| work.assigner.has_in_flight(worker))
+    }
+
+    pub fn in_flight_messages(&self) -> usize {
+        self.work()
+            .map_or(0, |work| work.assigner.in_flight_messages())
+    }
+
+    fn work(&self) -> Option<&Work> {
         match self {
-            BatcherState::Running(work) | BatcherState::Draining(work) => work.pending_messages(),
-            BatcherState::Stopped | BatcherState::Failed => 0,
+            BatcherState::Running(work) | BatcherState::Draining(work) => Some(work),
+            BatcherState::Stopped | BatcherState::Failed => None,
         }
     }
 
@@ -482,8 +496,8 @@ impl Work {
         // Past the stall deadline, no new request starts, so overlapping
         // failures drain to nothing in flight and the watchdog can fire. A
         // request still in flight may yet be accepted, which resets it.
-        let stalled = self.stuck_messages() > 0
-            && now >= self.last_progress + self.config.stall_timeout;
+        let stalled =
+            self.stuck_messages() > 0 && now >= self.last_progress + self.config.stall_timeout;
         if !stalled {
             self.place(now, pool, step);
         }

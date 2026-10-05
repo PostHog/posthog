@@ -1,8 +1,12 @@
+use std::time::Duration;
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::batcher::machine::{MachineConfig, RetryPolicy};
+use crate::batcher::packer::PackTargets;
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
 use crate::scheduler::SchedulerKind;
@@ -164,12 +168,32 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
-    /// How often the key-table scheduler retries its parked keys
+    /// How long the key-table scheduler waits before it retries a failed
+    /// send, and how often a request with no routable worker tries again
     /// (milliseconds). Matches the flush driver's retry cadence, so the
     /// scheduler switch does not regress recovery latency. Only read under
     /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
     pub parked_retry_interval_ms: u64,
+
+    /// Target request size in events for the key-table packer: an open
+    /// request is sent once it holds this many events. `0` disables the
+    /// event target. Only read under `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_TARGET_EVENTS", default = "500")]
+    pub pack_target_events: usize,
+
+    /// Target request size in key-plus-value bytes for the key-table packer.
+    /// `0` (default) disables the byte target. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_TARGET_BYTES", default = "0")]
+    pub pack_target_bytes: usize,
+
+    /// How long the key-table packer may hold an open request for more keys
+    /// before it sends the request short of the target (milliseconds). `0`
+    /// (default) holds nothing: each action sends what is ready, packed up to
+    /// the target. Only read under `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PACK_LATENCY_BUDGET_MS", default = "0")]
+    pub pack_latency_budget_ms: u64,
 
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
@@ -282,8 +306,9 @@ pub struct Config {
     pub routing_strategy: RoutingStrategy,
 
     /// Which scheduler orders and places runs: `pin_stash` (default, sticky
-    /// pins with a per-batch stash) or `key_table` (at most one in-flight
-    /// request per key). The switch back is the rollback.
+    /// pins with a per-batch stash) or `key_table` (the batcher state
+    /// machine: at most one in-flight request per key, with packing). The
+    /// switch back is the rollback.
     #[envconfig(from = "INGESTION_SCHEDULER", default = "pin_stash")]
     pub scheduler: SchedulerKind,
 
@@ -401,6 +426,28 @@ fn parse_kafka_consumer_env_overrides() -> Vec<(String, String)> {
 impl Config {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
+    }
+
+    /// The key-table scheduler's settings. It reuses the stream's un-acked
+    /// cap as its per-worker request cap, and the deferred-flush timeout as
+    /// its stall timeout.
+    pub fn machine_config(&self) -> MachineConfig {
+        let retry_delay = Duration::from_millis(self.parked_retry_interval_ms);
+        MachineConfig {
+            pack_targets: PackTargets {
+                events: self.pack_target_events,
+                bytes: self.pack_target_bytes,
+                latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
+            },
+            max_requests_per_worker: self.ingestion_worker_concurrent_batches,
+            retry: RetryPolicy {
+                fault: retry_delay,
+                busy: retry_delay,
+                timeout: retry_delay,
+            },
+            unplaced_retry_interval: retry_delay,
+            stall_timeout: Duration::from_millis(self.consumer_deferred_flush_timeout_ms),
+        }
     }
 
     pub fn worker_urls(&self) -> Vec<String> {
