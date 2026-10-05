@@ -238,6 +238,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         [
             ("time_series_without_day", None, None, "A `day` is required"),
             ("total_value_with_day", ChartDisplayType.BOLD_NUMBER, "2023-05-08", "A `day` is forbidden"),
+            ("time_series_with_empty_day", None, "", "A `day` is required"),
+            ("time_series_with_invalid_day", None, "not-a-date", "is not a valid date"),
         ]
     )
     def test_invalid_time_frame_raises_query_error(
@@ -254,6 +256,15 @@ class TestTrendsActorsQueryBuilder(BaseTest):
 
         with self.assertRaisesRegex(QueryError, expected_error):
             self._get_date_where_sql(trends_query=trends_query, time_frame=time_frame)
+
+    def test_date_range_total_value_with_empty_day(self):
+        trends_query = default_query.model_copy(
+            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER)}, deep=True
+        )
+
+        builder = self._get_builder(trends_query=trends_query, time_frame="")
+
+        self.assertIsNone(builder.time_frame)
 
     def test_date_range_total_value_compare_previous(self):
         self.team.timezone = "Europe/Berlin"
