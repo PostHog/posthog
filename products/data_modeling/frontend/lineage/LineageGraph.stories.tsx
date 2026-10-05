@@ -233,17 +233,17 @@ export const NarrowCanvas: Story = {
     ],
 }
 
+const modelsTabDecorator = mswDecorator({
+    get: {
+        '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
+        '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
+    },
+})
+
 export const DraggableNodes: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING] },
     render: () => <ModelsLineageTab />,
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
-                '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
-            },
-        }),
-    ],
+    decorators: [modelsTabDecorator],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const openButton = await canvas.findByLabelText('Open orders in new tab')
@@ -260,6 +260,25 @@ export const DraggableNodes: Story = {
         if (!nodeCard || nodeCard.getAttribute('role') === 'button' || nodeCard.tabIndex >= 0) {
             throw new Error('A draggable node must not navigate as a card')
         }
+    },
+}
+
+// The play function leaves the menu open, so this story takes no snapshot. Opening the menu in
+// DraggableNodes instead would paint it over that story's picture on every run.
+export const NodeMenu: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => <ModelsLineageTab />,
+    decorators: [modelsTabDecorator],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const nodeCard = (await canvas.findByText('orders')).closest<HTMLElement>('[data-attr="lineage-node"]')
+
+        if (!nodeCard) {
+            throw new Error('A node must render as a card')
+        }
 
         fireEvent.contextMenu(nodeCard)
         const page = within(canvasElement.ownerDocument.body)
@@ -268,13 +287,6 @@ export const DraggableNodes: Story = {
         if (page.queryByText(/Highlight|Show only/)) {
             throw new Error('The node menu must not duplicate the graph lineage behavior')
         }
-        fireEvent.keyDown(canvasElement.ownerDocument, { key: 'Escape' })
-        // The snapshot is taken when play resolves, so wait for the menu to leave the DOM.
-        await waitFor(() => {
-            if (page.queryByRole('menuitem')) {
-                throw new Error('Escape must close the node menu')
-            }
-        })
     },
 }
 
