@@ -78,7 +78,7 @@ import type { QuerySchema } from '../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../types'
 import { insightDataLogic } from './insightDataLogic'
 import type { insightDataLogicType } from './insightDataLogic'
-import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
+import { getInsightIconTypeFromQuery, normalizeQueryBreakdowns, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 let insightStartedTimeout: ReturnType<typeof setTimeout> | undefined
@@ -933,7 +933,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             let queryFromUrl: Node | null = null
             let validatingQuery = false
             if (q) {
-                const validQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
+                const parsedQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
+                const validQuery = parsedQuery ? normalizeQueryBreakdowns(parsedQuery) : null
                 if (validQuery) {
                     if (initial) {
                         validatingQuery = true

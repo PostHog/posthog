@@ -22,6 +22,7 @@ import { examples } from '~/queries/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    Breakdown,
     BreakdownFilter,
     DashboardFilter,
     FileSystemIconType,
@@ -740,6 +741,37 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
     return parseQuery(query)
+}
+
+function normalizeBreakdown(breakdown: Record<string, any>): Breakdown | null {
+    const { property, ...rest } = breakdown
+    if (typeof property === 'string' || typeof property === 'number') {
+        return breakdown as Breakdown
+    }
+    // A hand-built URL can nest a whole breakdown object in `property`.
+    if (isObject(property) && (typeof property.property === 'string' || typeof property.property === 'number')) {
+        return { ...property, ...rest, property: property.property }
+    }
+    return null
+}
+
+/** Repairs or drops malformed `breakdownFilter.breakdowns` entries in a query that comes from outside the app. */
+export function normalizeQueryBreakdowns<T extends Node>(query: T): T {
+    const { source } = query as Record<string, any>
+    const target: Record<string, any> = isObject(source) ? source : query
+    const breakdowns = target.breakdownFilter?.breakdowns
+    if (!Array.isArray(breakdowns)) {
+        return query
+    }
+    const normalized = breakdowns.map((b) => (isObject(b) ? normalizeBreakdown(b) : null))
+    if (normalized.every((b, i) => b === breakdowns[i])) {
+        return query
+    }
+    const fixedTarget = {
+        ...target,
+        breakdownFilter: { ...target.breakdownFilter, breakdowns: normalized.filter((b) => b !== null) },
+    }
+    return (target === query ? fixedTarget : { ...query, source: fixedTarget }) as T
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
