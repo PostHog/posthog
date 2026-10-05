@@ -41,8 +41,9 @@ class EmailIntegration:
     def _shares_domain_label_for(team: Team, acting_user: User | None) -> bool:
         return feature_enabled_or_false(
             EMAIL_DOMAIN_AGENT_SETUP_FLAG,
-            acting_user.distinct_id if acting_user and acting_user.distinct_id else str(team.uuid),
+            str(acting_user.distinct_id) if acting_user else str(team.uuid),
             groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.uuid)}},
             send_feature_flag_events=False,
         )
 
