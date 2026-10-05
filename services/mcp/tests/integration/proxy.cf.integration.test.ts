@@ -81,12 +81,13 @@ describe('CF proxy plumbing (real stack)', () => {
         expect(wwwAuth).toContain('oauth-protected-resource')
     })
 
-    it('detects the EU region from X-Forwarded-Host when building OAuth metadata', async () => {
+    it('ignores a client-sent X-Forwarded-Host when building OAuth metadata', async () => {
         const res = await fetch(new URL('/.well-known/oauth-protected-resource/mcp', harness.baseUrl), {
             headers: { 'X-Forwarded-Host': 'mcp-eu.posthog.com' },
         })
         expect(res.status).toBe(200)
-        const json = (await res.json()) as { authorization_servers?: string[] }
+        const json = (await res.json()) as { resource?: string; authorization_servers?: string[] }
+        expect(new URL(json.resource!).host).toBe(new URL(harness.baseUrl).host)
         expect(Array.isArray(json.authorization_servers)).toBe(true)
     })
 

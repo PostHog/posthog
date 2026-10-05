@@ -3,6 +3,14 @@ title: Backend coding conventions
 sidebar: Handbook
 ---
 
+#### Query trace correlation
+
+The `query.client_query_id` attribute on `posthog.query.process_query_model` matches the browser `query completed` event's `queryId` and the API response event's `client_query_id`.
+Only UUID-shaped IDs are added to spans; other client IDs remain valid API inputs.
+A matching ID links a request to its processing span. It does not prove that the request delayed page rendering.
+An asynchronous query can continue in a separate trace after the submission request ends.
+Check request timing against browser performance metrics, and inspect child spans and self time before choosing a performance fix.
+
 #### Logging
 
 As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate _log level_.
@@ -135,6 +143,11 @@ A good test should:
 - help us have confidence that the system will work as expected
 
 #### Integration tests
+
+For event-query regressions, decorate the test with `events_only_in_active_schema()` from `posthog.models.event.util`.
+In native mode, both event fixture helpers omit the legacy copy; legacy mode still inserts legacy events.
+Keep deferred fixture flushing inside the scope, assert that legacy events are empty in native mode, and check expected query results.
+Use this only for paths intended to read native events; exports and historical person properties can deliberately depend on legacy storage.
 
 - Integration tests should ensure that the feature works in the running system
 - They give greater confidence (because you avoid the mistake of just testing a mock) but they're slower

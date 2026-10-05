@@ -198,7 +198,7 @@ describe("loopHogFlowMapping", () => {
       expect(
         hogFlowToLoop(flow, { projectId: PROJECT_ID }).context_target,
       ).toEqual({
-        folder_id: "folder-1",
+        channel_id: "folder-1",
         name,
         outputs: defaultLoopContextOutputs(),
       });
@@ -322,6 +322,31 @@ describe("loopHogFlowMapping", () => {
       { github_integration_id: 0, full_name: "example/app" },
     ]);
     expect(hogFlowTeamSkills(flow)).toEqual(["error-triage"]);
+  });
+
+  it.each([
+    {
+      name: "the newest task's run",
+      last_run: {
+        task_id: "task-1",
+        status: "failed",
+        ran_at: "2026-09-03T08:00:00Z",
+      },
+      expected: {
+        last_run_at: "2026-09-03T08:00:00Z",
+        last_run_status: "failed",
+      },
+    },
+    {
+      name: "no run for a flow without tasks",
+      last_run: null,
+      expected: { last_run_at: null, last_run_status: null },
+    },
+  ])("reads $name as the loop's last run", ({ last_run, expected }) => {
+    const flow = { ...flowFromWrite(scheduleValues()), last_run };
+    expect(hogFlowToLoop(flow, { projectId: PROJECT_ID })).toMatchObject(
+      expected,
+    );
   });
 
   it("treats a list row without schedules as loop-shaped with an empty cadence", () => {

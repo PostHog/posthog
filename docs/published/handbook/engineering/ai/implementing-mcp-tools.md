@@ -52,24 +52,13 @@ Agents compose these primitives into higher-level workflows.
 The reasoning: agents are better at composing simple tools than navigating complex ones,
 and simple tools are reusable across many workflows.
 
-## Two MCP server versions
+For lookup tools, return an explicit normal result when absence is an expected answer (for example,
+checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
+server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
-Clients must support two main capabilities: MCPs and skills.
-MCP support is widespread; however, skills support is still very early
-and mostly coding agents support them.
-To mitigate this, the MCP server ships two versions controlled via the
-`x-posthog-mcp-version: <version_number>` header.
+## SQL-first data retrieval
 
-### Legacy MCP (v1)
-
-For clients that don't support skills.
-Exposes the full set of CRUD tools with simple instructions (list, read, create, update, delete).
-
-Primarily oriented toward vibe-coding web tools.
-
-### SQL-first MCP for clients supporting skills (v2)
-
-v2 instructs the agent to read data through a unified HogQL interface
+The MCP server instructs the agent to read data through a unified HogQL interface
 (list and get tools are generally excluded),
 which unlocks flexibility in data retrieval, search, and manipulation.
 Additionally, the consumer has access to a skill that provides schema references and example patterns,
@@ -109,10 +98,8 @@ A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not ena
 
 Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
 Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
-The skills-first gate response directs agents to search, load an exact qualified name with `learn posthog:<skill>` or `learn project:<skill>`, then retry the original call.
-Searching alone does not open the gate, and `skill-get` and `skill-list` cannot satisfy it.
-Unknown learning topics and empty search queries return recovery instructions; a failed `learn` does not open the gate.
-If no skill applies, the existing `call --no-skills ...` acknowledgement remains available.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so stateless and session-holding clients behave the same.
+Unknown learning topics and empty search queries return recovery instructions.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
 
@@ -146,10 +133,23 @@ return distinct API-visible error details. Agents should stop on true authorizat
 failures, but they can often recover from a bad project/team filter if the response says
 the requested scope is unavailable.
 
+The billing usage/spend proxy also returns recognized field-validation failures as
+standard DRF validation errors (`type`, `code`, `attr`, `detail`). It keeps known
+codes and public request fields, replaces upstream messages with controlled text,
+and masks unrecognized failures. The shared MCP client handles these errors without
+a billing-specific tool wrapper.
+
+The billing usage/spend tools accept `usage_types` as an array of strings.
+Their field description lists the accepted identifiers from `ee/billing/billing_types.py`, through the generated API schema.
+The MCP client JSON-encodes the array for the HTTP API.
+When both dates are omitted, the shared billing request serializer defaults usage/spend reads to the last 30 complete UTC days, ending yesterday.
+Explicit date ranges are unchanged; a start date without an end date still ends today.
+This also applies to the organization usage/spend time-series endpoints and CSV exports.
+The billing overview, usage, and spend tools do not need a rollout flag.
+API scopes and billing access checks still apply.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
-
-Use `mcp_version: 1/2` to control availability of retrieval tools in v2 of the MCP.
 
 Example from the codebase:
 
@@ -293,12 +293,12 @@ Product teams own their definitions and control which operations are exposed as 
          destructive: false
          idempotent: true
        # --- optional: ---
-       mcp_version: 2 # 2 for create/update/delete operations or not available through SQL for retrieval, 1 for read/list if available via HogQL
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
+       category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
        response: # filter response fields (applied per-item on list endpoints)
@@ -325,12 +325,17 @@ Product teams own their definitions and control which operations are exposed as 
          action_label: Short action label # optional, defaults to tool title
    ```
 
+   For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
+   The MCP tool then requires the field, even when the generated PATCH body marks it optional.
+
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
+   A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
    #### Custom input schemas
 
@@ -442,6 +447,13 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 ## Testing
 
+The `query-llm-trace` and `query-llm-traces-list` wrappers bound the complete response to 80,000 characters for full detail and 60,000 characters for summary detail.
+The limit includes the echoed query, warnings, and serialization of the MCP text content blocks, in either TOON or JSON output.
+Summary previews use a 600-character budget per value.
+These character budgets reduce response size but do not guarantee a token count; client limits and tokenization vary, so clients may still truncate responses or save them to a file.
+Both modes can omit events, and large echoed filters or warnings can also be shortened.
+Omission markers direct the agent to narrow the query or open the complete trace in PostHog.
+
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.
 
@@ -535,6 +547,14 @@ Runtime access still comes from the viewset's `scope_object`,
 `scope_object_read_actions`, `scope_object_write_actions`,
 and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
 Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
+
+### MCP-only endpoints
+
+An endpoint that is in the public schema becomes a REST contract: it shows up in Swagger, Redoc and the API docs, and people build on it.
+To generate MCP tools and frontend types for an endpoint without that contract, mark it with `@extend_schema(extensions={"x-internal": True})`.
+The codegen build (`hogli build:openapi`, which sets `OPENAPI_INCLUDE_INTERNAL=1`) keeps the operation.
+The served `/api/schema/` drops it, the same way `@extend_schema(exclude=True)` does.
+The marker only controls schema inclusion. The endpoint stays reachable, and auth and scopes still apply.
 
 ## HogQL query schemas (WIP)
 

@@ -27,7 +27,7 @@ export function WizardRunActionsMenu({
     cancelling: boolean
     onView: (run: WizardRunApi) => void
     onRefresh: (run: WizardRunApi) => void
-    onCopyRunId: (runId: string) => void
+    onCopyRunId: (runId: string, location: 'bottom_button') => void
     onCancel: (run: WizardRunApi) => void
 }): JSX.Element {
     return (
@@ -53,7 +53,7 @@ export function WizardRunActionsMenu({
                     <IconRefresh />
                     {refreshing ? 'Refreshing…' : 'Refresh status'}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onCopyRunId(run.id)}>
+                <DropdownMenuItem onClick={() => onCopyRunId(run.id, 'bottom_button')}>
                     <IconCopy />
                     Copy run ID
                 </DropdownMenuItem>

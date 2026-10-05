@@ -85,6 +85,12 @@ class SlackProvider(WebhookProvider):
     # a workspace ownership lookup that raised or hit its timeout, a forward to the owning region
     # that never landed, and a receipt write that raised all lose the 202.
     retry_status = 502
+    # The status this endpoint answered before it moved here: an instance with no signing secret
+    # reads as a request it refuses, not as a server that broke.
+    unconfigured_status = 403
+    # The body must not tell an unauthenticated caller that the endpoint is unconfigured, which is
+    # an operator fact about an instance anyone can probe.
+    explains_rejections = False
 
     def __init__(self, *, app: str = "supporthog", secret_getter: Callable[[], str | None]) -> None:
         require_known_app(self.provider, app, SPECS)

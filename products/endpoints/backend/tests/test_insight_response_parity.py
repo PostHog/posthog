@@ -4,10 +4,11 @@ These tests are written TDD-style: they define the expected contract and initial
 materialized path currently returns flat HogQL data instead of rich insight-specific responses.
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
@@ -16,7 +17,20 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import Breakdown, BreakdownFilter, BreakdownType, EventsNode, HogQLQueryResponse, TrendsQuery
+from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
+    BreakdownType,
+    CachedHogQLQueryResponse,
+    CompareFilter,
+    EventsNode,
+    HogQLQuery,
+    HogQLQueryResponse,
+    TrendsFilter,
+    TrendsQuery,
+)
+
+from posthog.api.services.query import process_query_model
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.insight_transformers import (
@@ -60,11 +74,11 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         self.v2_dag_ids_patcher.stop()
         super().tearDown()
 
-    def _materialize_endpoint(self, endpoint):
+    def _materialize_endpoint(self, endpoint, data_freshness_seconds=86400):
         """Enable materialization and set up a completed saved query with table."""
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "data_freshness_seconds": 86400},
+            {"is_materialized": True, "data_freshness_seconds": data_freshness_seconds},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -93,6 +107,16 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
+    def _trends_query(self, **kwargs: Any) -> dict[str, Any]:
+        return TrendsQuery(**kwargs).model_dump()
+
+    def _compare_mode_rollout(self):
+        """Eligibility is re-checked on every materialized read, not just when materializing."""
+        return mock.patch(
+            "products.endpoints.backend.models.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+
     # =========================================================================
     # TRENDS
     # =========================================================================
@@ -101,10 +125,10 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         endpoint = create_endpoint_with_version(
             name="trends_parity",
             team=self.team,
-            query=TrendsQuery(
+            query=self._trends_query(
                 series=[EventsNode(event="$pageview")],
                 dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
-            ).model_dump(),
+            ),
             created_by=self.user,
             is_active=True,
         )
@@ -301,6 +325,23 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         assert series["days"] == ["2026-05-04", "2026-05-05", "2026-05-06"]
         assert series["labels"] == ["4-May-2026", "5-May-2026", "6-May-2026"]
 
+    def test_transform_empty_compare_result_preserves_resolved_date_range(self):
+        materialized_at = datetime(2026, 9, 26, 12, tzinfo=UTC)
+        original_query = self._trends_query(
+            series=[EventsNode(event="$pageview")],
+            dateRange={"date_from": "-7d"},
+            compareFilter=CompareFilter(compare=True, compare_to="-1w"),
+        )
+        result: dict[str, Any] = {"results": [], "columns": ["__series_index", "date", "total"]}
+
+        _transform_trends(result, original_query, self.team, materialized_at)
+
+        assert result["results"] == []
+        assert result["resolved_compare_date_range"] == {
+            "date_from": datetime(2026, 9, 12, tzinfo=UTC),
+            "date_to": datetime(2026, 9, 19, 23, 59, 59, 999999, tzinfo=UTC),
+        }
+
     # =========================================================================
     # MULTI-SERIES TRENDS
     # =========================================================================
@@ -361,6 +402,77 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         for i, result in enumerate(mat_results):
             assert result["data"] == [1.0] * 10, f"Series {i}: unexpected data values: {result['data']}"
             assert result["count"] == 10.0, f"Series {i}: unexpected count: {result['count']}"
+
+    def test_materialized_compare_formula_matches_inline_response_contract(self):
+        materialized_at = datetime(2026, 9, 26, 12, tzinfo=UTC)
+        event_counts = [
+            ("2026-09-20", "$pageview", 1),
+            ("2026-09-21", "$pageview", 2),
+            ("2026-09-20", "$pageleave", 3),
+            ("2026-09-21", "$pageleave", 4),
+            ("2026-09-13", "$pageview", 5),
+            ("2026-09-14", "$pageview", 6),
+            ("2026-09-13", "$pageleave", 7),
+            ("2026-09-14", "$pageleave", 8),
+        ]
+        for event_date, event_name, count in event_counts:
+            for index in range(count):
+                _create_event(
+                    event=event_name,
+                    distinct_id=f"{event_name}-{event_date}-{index}",
+                    team=self.team,
+                    timestamp=f"{event_date} 12:{index:02d}:00",
+                )
+        flush_persons_and_events()
+
+        endpoint = create_endpoint_with_version(
+            name="compare_formula_parity",
+            team=self.team,
+            query=self._trends_query(
+                series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+                dateRange={"date_from": "-7d"},
+                trendsFilter=TrendsFilter(formula="A+2*B"),
+                compareFilter=CompareFilter(compare=True, compare_to="-1w"),
+            ),
+            created_by=self.user,
+            is_active=True,
+            data_freshness_seconds=604800,
+        )
+
+        with time_machine.travel(materialized_at, tick=False):
+            inline_response = self._run_endpoint(endpoint)
+            assert inline_response.status_code == status.HTTP_200_OK
+            inline_compare_range = inline_response.json()["resolved_compare_date_range"]
+            with self._compare_mode_rollout():
+                saved_query = self._materialize_endpoint(endpoint, data_freshness_seconds=604800)
+
+            flat_response = process_query_model(
+                self.team,
+                HogQLQuery.model_validate(saved_query.query),
+                user=self.user,
+            )
+            assert isinstance(flat_response, HogQLQueryResponse | CachedHogQLQueryResponse)
+
+        with (
+            time_machine.travel(materialized_at + timedelta(days=6), tick=False),
+            self._compare_mode_rollout(),
+            mock.patch(
+                "products.endpoints.backend.logic.execution.process_query_model",
+                return_value=flat_response,
+            ),
+        ):
+            materialized_response = self._run_endpoint(endpoint)
+
+        assert materialized_response.status_code == status.HTTP_200_OK, materialized_response.json()
+        response_data = materialized_response.json()
+        assert response_data["resolved_compare_date_range"] == inline_compare_range
+        response_series = response_data["results"]
+        inline_series = inline_response.json()["results"]
+        fields = ("compare_label", "data", "days", "labels", "count")
+        assert [{field: series[field] for field in fields} for series in response_series] == [
+            {field: series[field] for field in fields} for series in inline_series
+        ]
+        assert response_series[0]["days"] != response_series[1]["days"]
 
     # =========================================================================
     # DATE STRING COERCION (materialized tables return Array(Date) as strings)

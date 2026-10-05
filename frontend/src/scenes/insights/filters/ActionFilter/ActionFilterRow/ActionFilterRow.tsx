@@ -148,7 +148,7 @@ export function ActionFilterRow({
         duplicateFilter,
         convertFilterToGroup,
     } = useActions(logic)
-    const { actions } = useValues(actionsModel)
+    const { actions } = useValues(actionsModel({ shouldLoad: filter.type === EntityTypes.ACTIONS }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
     const { ensureAllTableFields } = useActions(databaseTableListLogic)
@@ -408,6 +408,7 @@ export function ActionFilterRow({
             filter={filter}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts
+            promoteSelectedItemToFirstPosition
             selectingKeyOnly
             onChange={(changedValue, taxonomicGroupType, item) =>
                 applyTaxonomicSelection(taxonomicGroupType, changedValue, item)

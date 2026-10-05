@@ -1880,6 +1880,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=True,

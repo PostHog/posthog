@@ -109,7 +109,7 @@ Do not confuse these; they have different audiences and different release mechan
    including the `mcp-analytics` codemod, served by `services/mcp`'s `ResourceCatalog`
    (`src/hono/resource-catalog.ts`) as MCP prompts and resources. This is **also the sole
    backend for `posthog-cli api skill list|install`** (`services/mcp/src/cli/skills.ts`).
-3. **`posthog_ai` `build_skills`** — `products/posthog_ai/scripts/build_skills.py` scans
+3. **`posthog_ai` `build_skills`** — `products/posthog_ai/scripts/build_skills/` scans
    `products/*/skills/` into `dist/skills.zip`, which `ci-agent-skills.yml` publishes as a
    GitHub release. This is the channel that carries the customer-facing **analysis** skills
    (`querying-posthog-data`, the `exploring-mcp-*` set, `improving-mcp-tools`) and this skill.

@@ -70,6 +70,7 @@ TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
     TaggableModel(model_label="replay_vision.ReplayScanner", legacy_field="replay_scanner", object_field=OBJECT_UUID),
     TaggableModel(model_label="posthog.Project", legacy_field="project", object_field=OBJECT_ID),
     TaggableModel(model_label="experiments.Experiment", legacy_field="experiment", object_field=OBJECT_ID),
+    TaggableModel(model_label="tasks.Task", legacy_field="task", object_field=OBJECT_UUID),
 )
 
 _BY_LABEL: dict[str, TaggableModel] = {entry.model_label: entry for entry in TAGGABLE_MODELS}
@@ -116,6 +117,17 @@ def taggable_for_content_type_id(content_type_id: int) -> TaggableModel | None:
     return taggable_for(model) if model is not None else None
 
 
+def content_type_id_for_legacy_field(legacy_field: str) -> int:
+    """The content type id for a taggable model, named by its legacy foreign key.
+
+    For callers that must not import the model itself, such as HogQL table definitions.
+    """
+    entry = taggable_for_legacy_field(legacy_field)
+    if entry is None:
+        raise NotTaggableError(f"{legacy_field} is not a taggable model's legacy field.")
+    return content_type_for_entry(entry).id
+
+
 def base_model_for(model: type[models.Model]) -> type[models.Model]:
     """The registered base model a taggable model resolves to."""
     return apps.get_model(require_taggable(model).model_label)
@@ -129,6 +141,11 @@ def content_type_for(model: type[models.Model]) -> ContentType:
 def content_type_for_entry(entry: TaggableModel) -> ContentType:
     """The content type for a registry entry, without needing the model class in hand."""
     return ContentType.objects.get_for_model(apps.get_model(entry.model_label))
+
+
+def object_column_for(model: type[models.Model]) -> str:
+    """Which typed column on TaggedItem holds this model's primary key."""
+    return require_taggable(model).object_field
 
 
 def legacy_field_for(model: type[models.Model]) -> str:

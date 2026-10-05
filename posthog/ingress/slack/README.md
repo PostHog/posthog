@@ -45,6 +45,10 @@ The incarnation answers it in `pre_dispatch_response()`, before dispatch.
 
 Slack redelivers a delivery it got a non-2xx for, so `retry_status` is 502: a workspace ownership lookup that raised or hit its timeout, a forward to the region that owns the workspace that did not land, and a receipt write that raised must not be receipted, or the event is lost.
 On the interactivity endpoint that also keeps a click visible: Slack shows the person who clicked a delivery error rather than nothing.
+
+Both endpoints answer 403 when the signing secret is unset, which is `unconfigured_status`, not the package default of 500.
+That is the status the hand-rolled views answered, and it keeps an instance that never connected SupportHog from turning every anonymous probe of a public URL into a server error.
+`explains_rejections` is False with it, so neither rejection names its reason: which of the two a caller hit is an operator fact about the instance.
 The other status codes are the defaults.
 
 Interactive components are posted as a form with one `payload` field holding the JSON, so `SlackInteractivityProvider` overrides `parse()` and reads `request.POST`.

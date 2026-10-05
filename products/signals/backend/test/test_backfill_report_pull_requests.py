@@ -1,7 +1,8 @@
+from datetime import UTC, datetime
 from io import StringIO
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 
@@ -17,6 +18,25 @@ from products.tasks.backend.models import Task, TaskRun
 
 
 class TestBackfillReportPullRequests(BaseTest):
+    def test_refreshes_stored_review_decision(self) -> None:
+        from products.signals.backend.tasks import refresh_pull_request_review_decision
+
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="example/app",
+            number=42,
+            url="https://github.com/example/app/pull/42",
+            state="open",
+        )
+        github = MagicMock()
+        github.get_pull_request_snapshot.return_value = {"success": True, "review_decision": "approved"}
+
+        with patch("posthog.models.integration.GitHubIntegration.first_for_team_repository", return_value=github):
+            refresh_pull_request_review_decision(team_id=self.team.id, repository="example/app", pr_number=42)
+
+        pr.refresh_from_db()
+        assert pr.review_decision == "approved"
+
     def test_backfill_is_resumable_and_preserves_verified_state_and_ownership(self) -> None:
         reports = [
             SignalReport.objects.create(team=self.team, status="ready", title="Report", summary="Summary")
@@ -123,12 +143,18 @@ class TestBackfillReportPullRequests(BaseTest):
         with transaction.atomic():
             import_report_pull_requests(report)
             apply_report_completion(report)
+        merged_at = datetime(2026, 6, 11, 10, tzinfo=UTC)
+        SignalReportPullRequest.objects.for_team(self.team.id).filter(number=1).update(
+            review_decision="approved", merged_at=merged_at
+        )
         report.refresh_from_db()
         assert report.status == "ready"
         prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id)[str(report.id)]
         assert len(prs) == 2
         assert prs[0].state == "merged"
         assert prs[1].task_id == str(task.id)
+        assert prs[0].review_decision == "approved"
+        assert prs[0].merged_at == merged_at
         assert (
             prs[1].id
             == fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id)[str(report.id)][1].id
@@ -144,6 +170,8 @@ class TestBackfillReportPullRequests(BaseTest):
         view = SignalReportViewSet(request=Request(APIRequestFactory().get("/", {"pull_request_id": prs[1].id})))
         assert view._resolve_report_pr_reference(report) == ("example/sdk", 2)
         assert SignalReportPullRequestSerializer(prs[1]).data["attached_by"]["task_id"] == str(task.id)
+        assert SignalReportPullRequestSerializer(prs[0]).data["review_decision"] == "approved"
+        assert SignalReportPullRequestSerializer(prs[0]).data["merged_at"] == "2026-06-11T10:00:00Z"
         assert SignalReportArtefact.objects.filter(report=report, type="pull_request").count() == 1
         assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/sdk", pr_number=2) == [
             str(report.id)

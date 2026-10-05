@@ -2214,6 +2214,54 @@
                                 }
                             },
                             "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "instructions": {
+                                    "anyOf": [
+                                        {
+                                            "maxLength": 2000,
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
+                                },
+                                "threshold": {
+                                    "anyOf": [
+                                        {
+                                            "maximum": 1,
+                                            "minimum": 0,
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"
+                                },
+                                "type": {
+                                    "default": "llm",
+                                    "enum": ["llm"],
+                                    "type": "string"
+                                },
+                                "window": {
+                                    "anyOf": [
+                                        {
+                                            "maximum": 400,
+                                            "minimum": 5,
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "How many recent points the model is shown (default: 90)"
+                                }
+                            },
+                            "type": "object"
                         }
                     ],
                     "description": "Detector configuration types"
@@ -2226,6 +2274,12 @@
         "enabled": {
             "description": "Whether the alert is actively being evaluated.",
             "type": "boolean"
+        },
+        "evaluation_delay_intervals": {
+            "description": "Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
         },
         "insight": {
             "description": "Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",

@@ -51,18 +51,18 @@ A weak or partial observation belongs in the scratchpad, where a future run (wit
 
 Judges the report for safety, then persists it at the judged status.
 
-| Field                       | Type                    | Notes                                                                                                                                                                                                                                                                                                                                          |
-| --------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run_id`                    | string, required        | The current run's id — the run you're executing in, same as every `scout-*` tool.                                                                                                                                                                                                                                                              |
-| `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                                                                                                                                                                                                                                             |
-| `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
-| `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
-| `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
-| `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
-| `metrics`                   | list, ≤6, optional      | Typed impact measurements the inbox shows as tiles. The report's full set. Each `{metric_id, title, kind, query, role?, value?, value_at?, series?, value_format?, unit?, caption?}`. See _Measuring impact_ below.                                                                                                                            |
-| `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
-| `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
+| Field                       | Type                              | Notes                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_id`                    | string, required                  | The current run's id — the run you're executing in, same as every `scout-*` tool.                                                                                                                                                                                                                                                              |
+| `title`                     | string, required, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                                                                                                                                                                                                                                             |
+| `summary`                   | string, required                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
+| `evidence`                  | list, required, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
+| `actionability_explanation` | string, required                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
+| `actionability`             | enum, required                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
+| `already_addressed`         | bool, default `false`             | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
+| `metrics`                   | list, ≤6, optional                | Typed impact measurements the inbox shows as tiles. The report's full set. Each `{metric_id, title, kind, query, role?, value?, value_at?, series?, value_format?, unit?, caption?}`. See _Measuring impact_ below.                                                                                                                            |
+| `charts`                    | list, ≤20, optional               | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
+| `suggested_prompts`         | list, ≤3, optional                | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
 
 **Cite each entity as a link, not a bare id.** In `summary` and in `evidence` descriptions, write
 the entity you name as a markdown link: reuse the url the returning tool attached (`_posthogUrl`
@@ -351,12 +351,34 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "display": "ActionsBar",
       "chartSettings": { "xAxis": { "column": "exception_type" }, "yAxis": [{ "column": "people" }] }
     }
+  },
+  {
+    "chart_id": "exceptions-by-type-daily",
+    "title": "Exceptions per day, by type",
+    "query": {
+      "kind": "DataVisualizationNode",
+      "source": {
+        "kind": "HogQLQuery",
+        "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"
+      },
+      "display": "ActionsLineGraph",
+      "chartSettings": {
+        "xAxis": { "column": "day" },
+        "yAxis": [{ "column": "occurrences" }],
+        "seriesBreakdownColumn": "exception_type",
+        "showLegend": true
+      }
+    }
   }
 ]
 ```
 
 **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box; `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of the result are which.
 Omit `display` altogether and the node renders the result table, which reads better than a chart for a handful of rows.
+
+**A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending.
+Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column.
+For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 
 **Only the node's `kind` and its serialized size are checked on write.** A well-formed node of an allowed kind carrying a broken query is stored without complaint, then fails to draw when a reader opens the report, and nothing reports that back to the scout.
 So a scout should attach a query it has already run in the same session, or point at an insight that already exists via `SavedInsightNode`, rather than composing a node from memory.
@@ -462,10 +484,21 @@ Otherwise resolve a `github_login`, cheapest source first:
    Reuse that reviewer for the same area — the safest general recipe, available to every scout.
 3. **CODEOWNERS / git** (only if the scout has a repo checkout).
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
-   Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
-4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
+   Neither hands you a reviewer directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email. A reviewer is always an individual, so resolve either to people with `scout-members-list` before you write it.
+4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner, and the way a team slug becomes reviewers.
+   It returns this project's members, each with `user_uuid`, email, name, a resolved `github_login`, and the `teams` they're on. Pass `search=` to narrow by name or email. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
+
+**Resolving a team slug to reviewers.** Call `scout-members-list` with `team=<slug>` (bare slug, no `@your-org/` prefix, case-insensitive). It returns the members of that team with its maintainers first, so:
+
+- Take the **first 1 to 3** rows and route them. Three is the cap `suggested_reviewers` enforces anyway, and past the maintainers the order carries no ownership signal, so a longer list dilutes rather than widens.
+- Prefer **one** reviewer when a maintainer is clearly the owner of the area. Add the next one or two only when the work spans the team.
+- Route each with `user_uuid`, the same as any other reviewer.
+
+Two things the roster can't tell you, which change what you should do rather than what you should report:
+
+- **A slug with no rows means "not synced here", not "no such team".** The GitHub `teams` and `team_members` schemas are off by default and need the organization Members permission, so coverage is partial on most projects. The tool returns an error saying which case it hit. Fall back to matching the owner by name or email, and don't write a report claiming the team doesn't exist.
+- **The roster is a snapshot, so it can lag the live team.** Someone who joined or left since the last sync is wrong here. Treat a surprising result as stale data, and cross-check against a recent author or an inbox precedent before routing on it alone.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
 **Never guess a handle**: a wrong login mis-assigns the report (or silently fails to assign), which is worse than leaving it open.

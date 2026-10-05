@@ -1,4 +1,4 @@
-"""Organization-level rollout gates for report metrics.
+"""Organization-level rollout gates for agent-authored report content.
 
 The checks live in their own module because they need `Team` and the flag client.
 Report models and Temporal payloads import `report_metrics.py` during process setup,

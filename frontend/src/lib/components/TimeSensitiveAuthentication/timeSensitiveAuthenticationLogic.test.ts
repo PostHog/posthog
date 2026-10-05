@@ -174,6 +174,55 @@ describe('timeSensitiveAuthenticationLogic', () => {
         })
     })
 
+    describe('SSO re-authentication in a popup', () => {
+        const startPopupAttempt = (): string => {
+            const open = jest.spyOn(window, 'open').mockReturnValue({} as Window)
+            logic.actions.beginSsoReauthentication('google-oauth2')
+            const next = new URL(open.mock.calls[0][0] as string, location.origin).searchParams.get('next')!
+            return new URL(next, location.origin).searchParams.get('attempt')!
+        }
+
+        it.each([
+            ['success', 'own', null, true, false],
+            ['failure', 'own', 'reauth_user_mismatch', false, true],
+            ['a message from another attempt', 'other', null, false, false],
+        ])(
+            'on %s, settles the waiting write only when it succeeded',
+            async (_, source, errorCode, settled, toasted) => {
+                const onSuccess = jest.fn()
+                apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+                const attempt = startPopupAttempt()
+
+                const popup = new BroadcastChannel('posthog-sso-reauth')
+                const acknowledgment = new Promise((resolve) => (popup.onmessage = (event) => resolve(event.data)))
+                popup.postMessage({
+                    type: 'sso_reauth_complete',
+                    attempt: source === 'own' ? attempt : 'someone-else',
+                    error_code: errorCode,
+                })
+                await expectLogic(logic).toDispatchActions(['ssoReauthenticationFinished'])
+
+                expect(onSuccess).toHaveBeenCalledTimes(settled ? 1 : 0)
+                expect(logic.values.showAuthenticationModal).toBe(!settled)
+                expect(lemonToast.error).toHaveBeenCalledTimes(toasted ? 1 : 0)
+                if (source === 'own') {
+                    // The popup waits for this before it closes, so the result is never dropped
+                    expect(await acknowledgment).toEqual({ type: 'sso_reauth_received', attempt })
+                }
+                popup.close()
+            }
+        )
+        it('keeps SAML on the full-page redirect', () => {
+            const open = jest.spyOn(window, 'open')
+            // jsdom reports the page navigation as not implemented
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+
+            logic.actions.beginSsoReauthentication('saml')
+
+            expect(open).not.toHaveBeenCalled()
+        })
+    })
+
     describe('failed SSO re-authentication', () => {
         it('should report the error the backend sent back and drop it from the URL', async () => {
             router.actions.push('/settings/user', { error_code: 'reauth_user_mismatch' })

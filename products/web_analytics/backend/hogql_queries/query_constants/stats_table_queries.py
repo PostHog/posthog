@@ -219,12 +219,47 @@ FROM (
 )
 """
 
+# No-join variant of FIRST_PAGEVIEW_INNER_QUERY. The join path reads only
+# `session.session_id` and `session.$start_timestamp` from the sessions side
+# when bounce rate is off, and {session_id_present} already restricts the scan
+# to UUID session ids, so both come from the UUIDv7 id as in
+# NO_JOIN_MAIN_INNER_QUERY. Non-v7 ids collapse into one NULL session with a
+# NULL start timestamp, exactly as the join leaves them (raw_sessions is v7-only).
+NO_JOIN_FIRST_PAGEVIEW_INNER_QUERY = """
+SELECT
+    filtered_person_id,
+    filtered_pageview_count,
+    {breakdown_value} AS breakdown_value,
+    session_id,
+    start_timestamp
+FROM (
+    SELECT
+        {filtered_person_id} AS filtered_person_id,
+        {filtered_pageview_count} AS filtered_pageview_count,
+        {first_pageview_properties} AS first_pageview_properties,
+        if(
+            equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+            events.$session_id,
+            NULL
+        ) AS session_id,
+        any(if(
+            equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+            fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)),
+            NULL
+        )) AS start_timestamp
+    FROM events
+    WHERE and({inside_periods}, {event_where}, {all_properties}, {session_id_present})
+    GROUP BY session_id
+)
+"""
+
 # No-join variant of MAIN_INNER_QUERY for simple breakdowns that display no
-# session-derived column (no bounce, no conversion goal, event-property
-# breakdown value). The sessions join above contributes only `session_id`
-# (grouping) and `$start_timestamp` (period attribution) in that case — both
-# recoverable from the UUIDv7 session id itself, so the join is pure overhead
-# (prod-measured 10x wall / ~400x memory on DeviceType for a large team).
+# session-derived column (no bounce, event-property breakdown value). The
+# sessions join above contributes only `session_id` (grouping) and
+# `$start_timestamp` (period attribution) in that case — both recoverable from
+# the UUIDv7 session id itself, so the join is pure overhead (prod-measured 10x
+# wall / ~400x memory on DeviceType for a large team). Conversion-goal columns
+# aggregate event fields only, so they ride the same scan.
 # Sessionless and malformed-session-id events still count — the join keeps
 # them too (NULL session row). Non-UUIDv7 ids are lumped under a NULL
 # `session_id` (raw_sessions is v7-only, so the join's `session.session_id`

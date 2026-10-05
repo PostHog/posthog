@@ -122,8 +122,7 @@ The client emits Prometheus metrics at multiple layers:
 **gRPC request metrics** (`interceptor.py`):
 
 - `personhog_django_grpc_request_duration_seconds` — request latency histogram
-- `personhog_django_grpc_requests_total` — request count by method and status
-- `personhog_django_grpc_timeouts_total` — deadline exceeded count
+- `personhog_django_grpc_requests_total` — request count by method and status (timeouts are `status="DEADLINE_EXCEEDED"`)
 
 **Channel metrics** (`client.py`):
 
@@ -138,7 +137,9 @@ The client emits Prometheus metrics at multiple layers:
 - `fake_client.py` — `FakePersonHogClient` for tests
 - `interceptor.py` — gRPC interceptors for client name headers and request metrics
 - `metrics.py` — Prometheus counters for routing decisions
-- `proto/generated/` — auto-generated protobuf stubs (do not edit)
 - `proto/__init__.py` — convenience re-exports of proto types
+
+The auto-generated protobuf stubs live outside this directory, in [`packages/personhog-proto`](/packages/personhog-proto/README.md).
+They install as the top-level `personhog` package. Do not edit them by hand.
 
 For updating proto definitions, see [`proto/README.md`](/proto/README.md).

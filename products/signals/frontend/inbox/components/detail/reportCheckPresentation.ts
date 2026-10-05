@@ -6,7 +6,13 @@ import type { SignalReportCheckApi } from 'products/signals/frontend/generated/a
 
 import { SignalReportArtefact } from '../../types'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
-import { CheckResultContent } from './artefactTypes'
+import type {
+    CheckCancelledContent,
+    CheckExpiredContent,
+    CheckLifecycleContent,
+    CheckResultContent,
+    CheckScheduledContent,
+} from './artefactTypes'
 
 /** Rows past this many collapse the ones that only record how a check ended. */
 const REPORT_CHECK_ROWS_BEFORE_COLLAPSE = 4
@@ -25,26 +31,40 @@ export interface ReportCheckRowData {
     cancellable: boolean
 }
 
-/** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
+/** A soak window in the words the copy needs: "7 days", "1 day 12 hours", "2 hours", "45 minutes". */
 function soakLabel(minutes: number): string {
-    if (minutes % 1440 === 0) {
-        const days = minutes / 1440
-        return `${days} ${days === 1 ? 'day' : 'days'}`
+    const plural = (n: number, unit: string): string => `${n} ${n === 1 ? unit : `${unit}s`}`
+    if (minutes < 60) {
+        return plural(minutes, 'minute')
     }
-    if (minutes % 60 === 0) {
-        const hours = minutes / 60
-        return `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+    // Soaks the scout proposes are rarely whole hours, and a raw minute count is hard to read.
+    const totalHours = Math.round(minutes / 60)
+    if (totalHours < 24) {
+        return plural(totalHours, 'hour')
     }
-    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+    const days = Math.floor(totalHours / 24)
+    const hours = totalHours % 24
+    return hours ? `${plural(days, 'day')} ${plural(hours, 'hour')}` : plural(days, 'day')
 }
 
 /** Which scout answers an `agent` check. A `metric_threshold` check has no lane: the coordinator measures it. */
-function laneLabel(check: SignalReportCheckApi): string | null {
-    if (check.kind !== 'agent') {
+function scoutLaneLabel(kind: string | undefined, skillName: string | null | undefined): string | null {
+    if (kind !== 'agent') {
         return null
     }
-    const skillName = 'skill_name' in check.config ? check.config.skill_name : null
     return skillName ? prettifyScoutSkillName(skillName) : FALLBACK_LANE_LABEL
+}
+
+/** The lane as a clause: "Error tracking scout runs it", or "The follow-up scout runs it". */
+function laneRunsIt(kind: string | undefined, skillName: string | null | undefined): string | null {
+    if (kind !== 'agent') {
+        return null
+    }
+    return skillName ? `${prettifyScoutSkillName(skillName)} scout runs it` : `${FALLBACK_LANE_LABEL} runs it`
+}
+
+function laneLabel(check: SignalReportCheckApi): string | null {
+    return scoutLaneLabel(check.kind, 'skill_name' in check.config ? check.config.skill_name : null)
 }
 
 function shortDate(value: string): string {
@@ -73,7 +93,7 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
 
     if (check.status === 'pending') {
         const start = check.soak_minutes
-            ? `Starts ${soakLabel(check.soak_minutes)} after this report is resolved`
+            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
     }
@@ -110,6 +130,8 @@ function terminalCheckRow(
                 tag: { label: "Couldn't measure", type: 'warning' },
                 detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
             }
+        case 'inconclusive':
+            return { tag: { label: 'Inconclusive', type: 'warning' }, detail: joinDetail([ranOn, explanation]) }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }
     }
@@ -225,4 +247,80 @@ export function reportChecksMeta(checks: SignalReportCheckApi[]): string {
         return `${checks.length} · waiting for resolve`
     }
     return `${checks.length} · all done`
+}
+
+// ── Lifecycle log entries ────────────────────────────────────────────────────────────────────
+
+/** How a check's activity entry reads: the tag beside its header, and the line under its title. */
+export interface CheckLifecycleEntry {
+    tag: { label: string; type: LemonTagType }
+    detail: string
+}
+
+const CHECK_CANCELLED_REASONS: Record<string, string> = {
+    stopped_by_person: 'Stopped from the report before it could settle',
+    stopped_by_scout: 'A scout run stopped it before it could settle',
+    replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
+    replaced_by_request: 'Replaced on request by a revised check',
+}
+
+/**
+ * The entry written when a check is attached. A check on an open report has no date to give yet,
+ * so it says what starts the clock instead of naming a day it cannot keep.
+ */
+export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecycleEntry {
+    const lane = laneRunsIt(content.kind, content.skill_name)
+    const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
+
+    if (content.arms_on_resolve) {
+        const start = content.soak_minutes
+            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
+            : 'Starts when this report is resolved'
+        return {
+            tag: { label: 'Waiting for resolve', type: 'muted' },
+            detail: joinDetail([
+                start,
+                content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
+                lane,
+                runs,
+            ]),
+        }
+    }
+
+    return {
+        tag: {
+            label: content.next_run_at ? `Runs ${shortDate(content.next_run_at)}` : 'Scheduled',
+            type: 'primary',
+        },
+        detail: joinDetail([lane ?? 'The coordinator measures it', runs]),
+    }
+}
+
+/** The entry written when the sweep retires a check at its horizon. */
+export function checkExpiredEntry(content: CheckExpiredContent): CheckLifecycleEntry {
+    if (!content.last_run_at) {
+        return {
+            tag: { label: 'Never ran', type: 'muted' },
+            detail: 'Retired at its horizon without running, so this claim was never re-measured',
+        }
+    }
+    return {
+        tag: { label: 'Expired', type: 'muted' },
+        detail: `Last ran ${shortDate(content.last_run_at)} · retired at its horizon before it settled`,
+    }
+}
+
+/** The entry written when a person, a scout run, or a re-research pass stops a check. */
+export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecycleEntry {
+    return {
+        tag: { label: 'Cancelled', type: 'muted' },
+        detail: CHECK_CANCELLED_REASONS[content.reason ?? ''] ?? 'Stopped before it could settle',
+    }
+}
+
+/** Which builder reads each lifecycle entry, so the renderer needs one arm rather than three. */
+export const CHECK_LIFECYCLE_ENTRIES: Record<string, (content: CheckLifecycleContent) => CheckLifecycleEntry> = {
+    check_scheduled: checkScheduledEntry,
+    check_expired: checkExpiredEntry,
+    check_cancelled: checkCancelledEntry,
 }

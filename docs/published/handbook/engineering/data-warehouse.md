@@ -6,11 +6,168 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## SQL editor drafts
+
+The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
+An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
+Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+## Choosing data in BI mode
+
+Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens it again.
+The sidebar toggle remains available in both modes. **Locate** in the BI data pane is shown only while the sidebar is open.
+
+Use the table picker in the data pane to browse the same source groups and folders as the database tree.
+The selected table is highlighted; expanding a folder does not select it.
+Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
+
+## Calculated measures in BI mode
+
+With `SQL_EDITOR_BI_MODE` enabled, select a table in the SQL editor's BI mode and choose **Add calculated measure** in the data pane.
+Enter a name and an aggregate SQL formula, such as `sum(revenue) / nullIf(count(DISTINCT user_id), 0)` for average revenue per user.
+Use field names from the selected table. Filters apply before the formula runs for each group on the worksheet.
+
+The measure appears on Rows. Its menu lets you edit the name and formula, sort by the measure, or remove it.
+Cancel discards the draft. Names and formulas persist with the worksheet's BI configuration; measures are not shared across worksheets.
+Calculated measures cannot become dimensions or row filters.
+If a measure name conflicts with a field or another result column, the generated query adds a numeric suffix to its column name. The worksheet keeps the name you entered on the measure pill and sort menu.
+
+## Filters in BI mode
+
+Drop a field onto the compact Filters shelf beside or below the data pane. Quick filters on the right
+show the current selection; click a value to edit it, or use the checkbox beside its name to toggle it.
+Wider worksheets show quick filters in two columns. In tight scenes, click a filter pill on the left
+to edit its values and settings. String fields start with
+**Is any of**: select several values, or type a value and press Enter. **Is none of** excludes the
+selected values. An empty selection leaves all values included. Suggestions load when the picker
+opens, respect the other applied filters, and show up to 100 distinct values; additional values can
+always be entered manually.
+
+Use **Between** for numeric or date fields. Both bounds are inclusive, and either can be left empty
+for an open-ended range. Date-time fields include the time. Uncheck **Apply filter** in the editor to temporarily
+ignore a filter without losing its settings. Click the field pill to edit the field expression, date
+part, or custom SQL condition, or to remove the filter. Filter changes respect the worksheet's
+auto-update setting and are preserved with its saved configuration.
+Numeric filters preserve the precision of entered values. Invalid numbers show an error and prevent the worksheet from running until corrected or disabled.
+
+## Apple Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `campaigns` and `campaign_report` to include Apple Ads in Marketing analytics.
+Sync `ad_groups` and `ad_group_report` to enable the ad group breakdown.
+Apple Ads does not provide an ad-level report through this connector.
+Taps appear as clicks, and installs appear as reported conversions.
+The adapter accepts both Campaign Management API 5 `installs` and Ads Platform API `totalInstalls`, including tables that contain rows from both versions.
+Spend uses the currency in Apple's `localSpend` object and the reporting date to convert into the project's currency.
+Apple does not report conversion revenue through these reports, so reported conversion value is zero.
+
+## OpenAI Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-openai-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `campaigns` and `campaign_insights` to include OpenAI Ads campaign delivery in Marketing analytics.
+Spend is already in major currency units; the importer adds `currency_code` from the account metadata so reports can convert spend at each bucket date.
+Existing connections need a full resync of `campaign_insights` to populate currency on historical rows.
+Without the currency column, cost tiles are unavailable and the campaign table excludes the source.
+The dashboard and source settings show a warning with a link to the affected warehouse source and instructions to fully resync `campaign_insights`.
+Queries with empty historical currency values stop with a resync message.
+Reported conversions and revenue are zero because the importer currently requests delivery metrics only.
+Ad groups and individual ads are not included in the native integration.
+
+## Source warnings in Marketing analytics
+
+The dashboard and source settings show validation errors for connected native and mapped external sources.
+They use the same adapter validators as campaign queries, so warnings follow each integration's supported checks without a separate frontend list of required columns.
+Warnings identify the affected connection and link to its settings.
+Mapped sources with missing required column mappings remain visible in these warnings until corrected.
+The dashboard also shows missing or disabled required tables and running, failed, paused, or cancelled syncs.
+Reload the dashboard after correcting the configuration or resyncing a table to refresh validation.
+This check uses table metadata and configuration; it does not scan imported rows for data quality issues.
+Query execution errors still appear on the affected dashboard tile or table.
+
+## Amazon Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-amazon-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `sp_campaigns` and `sp_campaign_reports` to include Sponsored Products campaigns in Marketing analytics.
+Spend uses `cost`, with currency conversion at each report date using `campaign_budget_currency_code`.
+Reported conversions and revenue use the 14-day purchase and sales metrics; the other attribution windows are not added to these totals.
+Sponsored Brands, Sponsored Display, ad groups, and individual ads are not included because the importer does not provide their performance reports.
+
+Monetary tiles require the report date and currency columns; reports without currency can still supply impressions and clicks.
+
+## Rokt Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-rokt-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `CampaignPerformance` to include Rokt Ads in Marketing analytics.
+The report provides campaign identity and daily metrics in one table, so the integration aggregates it without joining the report to itself.
+Spend uses `gross_cost`, clicks use `referrals`, and reported conversions and revenue use `conversions` and `conversion_value`.
+Missing optional conversion metrics show zero.
+The importer stores the requested cost currency on each row, defaulting to USD.
+Rokt reports `conversion_value` in USD regardless of the requested cost currency.
+Marketing analytics converts spend from the stored cost currency and conversion value from USD at each report date.
+Changing the source currency affects newly synced rows; historical rows retain their own currency.
+Existing connections need a full resync of `CampaignPerformance` to backfill currency before using monetary metrics.
+Missing currency columns prevent monetary tiles, and empty historical currency values stop queries with a resync message.
+Creative, audience, demographic, and publisher reports are excluded to avoid counting overlapping breakdowns twice.
+
 ## Adding a new source
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
+
+Selecting a source in the `Advertising` category records Marketing analytics product intent as well as Data warehouse intent.
+This happens when the user selects the connector, before credentials are validated or data syncs.
+The category covers new advertising connectors automatically; it does not mean Marketing analytics supports their data natively.
+Selecting a source outside this category, such as BigQuery, records only Data warehouse intent.
+Supported self-managed providers keep their separate Marketing analytics intent tracking.
+
+## Marketing source suggestions
+
+Marketing analytics suggests connecting an ad platform only when a matching `utm_source` has events with paid attribution signals.
+A source match, referral, fuzzy alias, or `utm_campaign` alone does not establish paid traffic.
+For example, [ChatGPT adds `utm_source=chatgpt.com` to referral links](https://help.openai.com/en/articles/12627856-publishers-and-developers-faq), and [campaign tags also describe non-ad marketing](https://support.google.com/analytics/answer/10917952).
+
+An explicit paid medium (`cpc`, `cpm`, `cpv`, `cpa`, `ppc`, `retargeting`, or a `paid` prefix) qualifies for any matched platform.
+The following platform-specific signals also qualify, in event properties or the query string of the same event's `$current_url`:
+
+| Platform              | Additional paid signal                                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Google Ads            | [`gclid`, `gbraid`, `wbraid`](https://developers.google.com/google-ads/api/docs/conversions/legacy_oci_guide), [`gad_source`, `gad_campaignid`](https://support.google.com/google-ads/answer/16193746) |
+| OpenAI Ads            | [`oppref`](https://developers.openai.com/ads/conversion-tracking)                                                                                                                                      |
+| Microsoft Advertising | [`msclkid`](https://learn.microsoft.com/en-us/advertising/guides/uet-conversion-api-integration?view=bingads-13)                                                                                       |
+| LinkedIn Ads          | [`li_fat_id`](https://learn.microsoft.com/en-us/linkedin/marketing/conversions/enabling-first-party-cookies?view=li-lms-2026-03)                                                                       |
+| Reddit Ads            | [`rdt_cid`](https://ads-api.reddit.com/docs/v3/capi-click-id-persistence)                                                                                                                              |
+| Snapchat Ads          | [`ScCid`](https://developers.snap.com/marketing-api/Conversions-API/UsingTheAPI#sending-click-id) or `sccid`, not the `_scid` cookie                                                                   |
+| TikTok Ads            | [`ttclid`](https://ads.tiktok.com/resources/help/article/tiktok-click-id?lang=en)                                                                                                                      |
+| Rokt Ads              | [`rtid`](https://docs.rokt.com/developers/integration-guides/web/advanced/rokt-id-tag/)                                                                                                                |
+| Pinterest Ads         | [`pp=0`](https://help.pinterest.com/en/business/article/the-pp-query-string-parameter); `pp=1` excludes earned clicks even when paid campaign tags remain                                              |
+
+Meta, Amazon, and Apple rely on an explicit paid medium in this detector.
+`fbclid` and `epik` alone do not qualify.
+Apple app attribution requires [AdServices attribution records](https://developer.apple.com/documentation/AdServices/AAAttribution/attributionToken%28%29); an App Store campaign link does not establish an Apple Ads interaction.
+
+Each event counts at most once for its matched platform, even if it has both a paid medium and an ad identifier.
+Custom source mappings select which platform's signals apply; another platform's identifier cannot make that source paid.
+This check retains the UTM source catalogue's time window and top-500 limit, so it does not discover untagged sources or verify billable clicks.
+Missing signals mean insufficient evidence to recommend a connection, not proof that traffic is organic.
+The medium count describes only matched events in the lookback window; zero can also mean no events matched that integration.
+This changes setup recommendations and diagnostic actions, not report attribution or connected-source sync checks.
 
 ## Importing your local Postgres instance
 

@@ -11,8 +11,8 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
-from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
@@ -70,6 +70,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
+        **_experiment_properties(observation, snapshot),
         **_group_properties(team, observation),
     }
     distinct_id = (
@@ -91,6 +92,21 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         event_uuid=str(observation.id),
     )
     result.raise_for_status()
+
+
+def _experiment_properties(observation: ReplayObservation, snapshot: ScannerSnapshot) -> dict:
+    """The watched experiment and this session's attributed variant, so HogQL readouts over
+    `$recording_observed` need no exposure join. Empty for scans that watch no experiment; the
+    variant is absent on rows scanned before attribution shipped."""
+    scope = snapshot.experiment_scope()
+    if not scope or scope.get("experiment_id") is None:
+        return {}
+    properties: dict = {"experiment_id": scope["experiment_id"]}
+    result = observation.scanner_result if isinstance(observation.scanner_result, dict) else {}
+    variant = result.get("experiment_variant")
+    if variant is not None:
+        properties["experiment_variant"] = variant
+    return properties
 
 
 def _group_properties(team: Team, observation: ReplayObservation) -> dict:
