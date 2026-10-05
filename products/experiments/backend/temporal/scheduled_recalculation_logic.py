@@ -128,8 +128,8 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
 def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecision | None:
     """Skip when a run is already active, or when one finished inside the freshness window.
 
-    `timeseries_sync` rows never count toward freshness: they carry a timeseries run's window, not a
-    full recalculation, and counting one would skip the experiment that needs the real run.
+    `timeseries_sync` rows never count toward freshness. The timeseries workflow publishes one
+    at :00 and this workflow runs at :30, so counting it would skip every experiment forever.
 
     Scopes explicitly with `for_team`: the model is fail-closed and an activity carries no request
     context, so an unscoped read would raise `TeamScopeError`.
