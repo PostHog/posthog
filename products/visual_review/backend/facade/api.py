@@ -93,6 +93,7 @@ QuarantineLiftRequestNotFoundError = errors.QuarantineLiftRequestNotFoundError
 ArtifactNotFoundError = errors.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = errors.GitHubIntegrationNotFoundError
 GitHubCommitError = errors.GitHubCommitError
+LiftCommitUnknownError = errors.LiftCommitUnknownError
 GitHubRateLimitError = GitHubRateLimitError
 PRSHAMismatchError = errors.PRSHAMismatchError
 StaleRunError = errors.StaleRunError
