@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 from posthog.schema import (
     HogLanguage,
     HogQLMetadata,
+    HogQLMetadataColumn,
     HogQLMetadataResponse,
     HogQLNotice,
     HogQLQuery,
@@ -25,7 +27,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
@@ -37,8 +42,10 @@ from posthog.hogql.observability import (
 )
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
+from posthog.hogql.type_system import runtime_type_from_constant_type
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -49,6 +56,32 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
+
+
+def _get_output_columns(node: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext) -> list[HogQLMetadataColumn]:
+    # Match query execution's HogQL column labels instead of exposing rewritten database expressions.
+    resolved = prepare_ast_for_printing(clone_expr(node, clear_types=True), context, "hogql")
+    if not isinstance(resolved, ast.SelectQuery | ast.SelectSetQuery):
+        return []
+    columns_query = next(extract_select_queries(resolved))
+    columns: list[HogQLMetadataColumn] = []
+    for expression in columns_query.select:
+        name = (
+            expression.alias
+            if isinstance(expression, ast.Alias)
+            else print_prepared_ast(
+                expression, context, "hogql", stack=[resolved] if isinstance(resolved, ast.SelectQuery) else None
+            )
+        )
+        try:
+            if isinstance(resolved, ast.SelectSetQuery) and resolved.type is not None:
+                constant_type = resolved.type.resolve_column_constant_type(name, context)
+            else:
+                constant_type = expression.type.resolve_constant_type(context) if expression.type else ast.UnknownType()
+        except HogQLNotImplementedError:
+            constant_type = ast.UnknownType()
+        columns.append(HogQLMetadataColumn(name=name, type=runtime_type_from_constant_type(constant_type).display()))
+    return columns
 
 
 def get_hogql_metadata(
@@ -212,6 +245,14 @@ def get_hogql_metadata(
             else:
                 response.errors = context.errors
             response.isValid = len(response.errors) == 0
+
+    if query.includeOutputTypes and response.isValid and hogql_ast is not None and context is not None:
+        try:
+            output_context = replace(context, errors=[], warnings=[], notices=[])
+            response.output_columns = _get_output_columns(hogql_ast, output_context)
+        except Exception:
+            # Optional inference must not turn a valid executable query into a metadata error.
+            logger.exception("hogql_output_type_inference_failed")
 
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now
     if query.language == HogLanguage.HOG_TEMPLATE:
