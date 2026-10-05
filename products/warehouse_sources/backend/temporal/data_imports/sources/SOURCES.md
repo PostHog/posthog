@@ -51,6 +51,7 @@ the row lists both.
 | Source                           | Comm method                 | Primary library                                                 | Tracked transport           |
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| acast                            | HTTP                        | requests                                                        | ✅                          |
 | acculynx                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | adjust                           | HTTP                        | requests                                                        | ✅                          |
 | adobe_analytics                  | HTTP                        | requests                                                        | ✅                          |
@@ -884,7 +885,6 @@ doesn't conflict with concurrent PRs.
 - \*\*Switch
 - ab_tasty
 - abnormal_security
-- acast
 - actionstep
 - active_campaign
 - acuity_scheduling
