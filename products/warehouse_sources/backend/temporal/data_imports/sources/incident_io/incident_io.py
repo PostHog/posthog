@@ -41,6 +41,8 @@ class IncidentIoResumeConfig:
     # Framework fan-out resume state for the parent-scoped endpoints, opaque to this source and
     # passed straight back to the fan-out helper.
     fanout_state: Optional[dict[str, Any]] = None
+    # The window a windowed fan-out started with. Its cursor is only valid against that window's end.
+    window_params: Optional[dict[str, str]] = None
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -118,13 +120,14 @@ def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str
     return _mapper
 
 
-def _client_config(api_key: str) -> ClientConfig:
+def _client_config(api_key: str, capture: bool = True) -> ClientConfig:
     # Bearer token goes through the framework auth config so it's redacted from logs and raised
     # errors; only the non-secret Accept header rides in the client headers.
     return {
         "base_url": INCIDENT_IO_BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": {"type": "bearer", "token": api_key},
+        "capture": capture,
     }
 
 
@@ -251,19 +254,23 @@ def _fanout_source(
     parent_config = INCIDENT_IO_ENDPOINTS[config.fanout.parent_name]
 
     initial_paginator_state: Optional[dict[str, Any]] = None
+    window_params: Optional[dict[str, str]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.fanout_state:
             initial_paginator_state = resume.fanout_state
+            window_params = resume.window_params
+    if config.entry_window is not None and window_params is None:
+        window_params = _window_params(config.entry_window, datetime.now(UTC))
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        resumable_source_manager.save_state(IncidentIoResumeConfig(fanout_state=state))
+        resumable_source_manager.save_state(IncidentIoResumeConfig(fanout_state=state, window_params=window_params))
 
     child_params: dict[str, Any] = {}
     if config.page_size_param:
         child_params[config.page_size_param] = config.page_size
-    if config.entry_window is not None:
-        child_params.update(_window_params(config.entry_window, datetime.now(UTC)))
+    if window_params:
+        child_params.update(window_params)
 
     resource = cast(
         Iterable[Any],
@@ -331,7 +338,8 @@ def incident_io_source(
         resource_config["data_map"] = _drop_fields(config.excluded_fields)
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key),
+        # Excluded fields are dropped from rows only after HTTP sample capture saw the raw body.
+        "client": _client_config(api_key, capture=not config.excluded_fields),
         "resources": [resource_config],
     }
 

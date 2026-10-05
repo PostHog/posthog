@@ -392,6 +392,8 @@ class TestGetRows:
         rows, _ = _source(session, [_response(body)], "alert_sources", _make_manager())
 
         assert rows == [{"id": "01A", "name": "Datadog"}]
+        # The raw body still carries the token, so it must never reach HTTP sample capture.
+        assert MockSession.call_args.kwargs["capture"] is False
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_response_yields_no_rows(self, MockSession):
@@ -513,6 +515,7 @@ class TestFanout:
                 body["pagination_meta"] = {"after": after, "after_url": "https://api.incident.io/next"}
             return body
 
+        manager = _make_manager()
         params = _wire(
             session,
             [
@@ -525,7 +528,7 @@ class TestFanout:
         )
 
         response = incident_io_source(
-            "key", "schedule_entries", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            "key", "schedule_entries", team_id=1, job_id="j", resumable_source_manager=manager
         )
         rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
@@ -540,6 +543,41 @@ class TestFanout:
         ]
         assert {p.get("entry_window_end") for p in params[1:]} == {"2026-03-31T12:00:00Z"}
         assert all("page_size" not in p for p in params[1:])
+        assert manager.save_state.call_args.args[0].window_params == {
+            "entry_window_start": "2025-03-01T12:00:00Z",
+            "entry_window_end": "2026-03-31T12:00:00Z",
+        }
+
+    @time_machine.travel(datetime(2026, 3, 2, 12, 0, tzinfo=UTC), tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_schedule_entries_resume_keeps_original_window(self, MockSession):
+        session = MockSession.return_value
+        window = {"entry_window_start": "2025-03-01T12:00:00Z", "entry_window_end": "2026-03-31T12:00:00Z"}
+        manager = _make_manager(
+            IncidentIoResumeConfig(
+                fanout_state={
+                    "completed": [],
+                    "current": "/v2/schedule_entries?schedule_id=S1",
+                    "child_state": {"cursor": "opaque-1"},
+                },
+                window_params=window,
+            )
+        )
+        params = _wire(
+            session,
+            [
+                _response({"schedules": [{"id": "S1"}], "pagination_meta": {"page_size": 250}}),
+                _response({"schedule_entries": {"final": [{"fingerprint": "F1"}]}}),
+            ],
+        )
+
+        response = incident_io_source(
+            "key", "schedule_entries", team_id=1, job_id="j", resumable_source_manager=manager
+        )
+        list(cast("Iterable[Any]", response.items()))
+
+        assert params[1]["entry_window_start"] == "opaque-1"
+        assert params[1]["entry_window_end"] == "2026-03-31T12:00:00Z"
 
 
 class TestIncidentIoSourceResponse:
