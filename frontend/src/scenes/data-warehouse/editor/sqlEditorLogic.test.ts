@@ -8,6 +8,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as clipboard from 'lib/utils/copyToClipboard'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -31,13 +32,19 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
+import { biConnectionsLogic } from 'products/business_intelligence/frontend/biConnectionsLogic'
+import { BI_EDITOR_EVENTS } from 'products/business_intelligence/frontend/biEditorAnalytics'
+import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
+import {
+    BIConfig,
+    BIEditorView,
+    BIField,
+    getBIFieldPillLabel,
+    getBIShelfEditorKey,
+} from 'products/business_intelligence/frontend/biEditorTypes'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
-import { biConnectionsLogic } from 'products/data_warehouse/frontend/bi/biConnectionsLogic'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
-import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
-import { biEditorLogic } from './bi/biEditorLogic'
-import { BIConfig, BIEditorView, BIField, getBIFieldPillLabel, getBIShelfEditorKey } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import { SELECTION_NOT_A_QUERY } from './saveCandidateProblems'
@@ -521,6 +528,21 @@ describe('sqlEditorLogic', () => {
                 }
             }
         )
+
+        it('keeps unsaved BI and SQL working copies separate', async () => {
+            const sqlDraft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, 'new')!
+            const biDraft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, 'bi:new')!
+            sqlDraft.set({ q: 'SELECT sql_draft' })
+            biDraft.set({ q: 'SELECT bi_draft' })
+            logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+            logic.mount()
+            await expectLogic(logic, () => router.actions.push(urls.businessIntelligence()))
+                .toDispatchActions(['createTab', 'updateTab', 'setQueryInput'])
+                .toMatchValues({ queryInput: 'SELECT bi_draft' })
+            logic.actions.setQueryInput('SELECT edited_bi_draft')
+            expect(biDraft.get()?.q).toBe('SELECT edited_bi_draft')
+            expect(sqlDraft.get()?.q).toBe('SELECT sql_draft')
+        })
 
         it('does not replace this tab with another browser tab’s draft on reload', async () => {
             sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, 'new')?.set({ q: 'SELECT other_tab' })
@@ -2362,8 +2384,68 @@ describe('sqlEditorLogic', () => {
             sort_direction: null,
         }
 
+        it('opens and restores a BI worksheet without loading Monaco', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            await expectLogic(logic, () =>
+                router.actions.push(urls.businessIntelligence(), undefined, {
+                    q: 'SELECT event FROM events',
+                    mode: BIEditorView.BI,
+                    bi: config,
+                })
+            ).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(logic.values.queryInput).toBe('SELECT event FROM events')
+            expect(biLogic.values.config).toMatchObject(config)
+            expect(biLogic.values.editorView).toBe(BIEditorView.BI)
+            logic.actions.syncUrlWithQuery()
+            expect(router.values.location.pathname).toBe(
+                `/project/${MOCK_DEFAULT_TEAM.id}${urls.businessIntelligence()}`
+            )
+            expect(router.values.hashParams.bi).toMatchObject(config)
+            const copy = jest.spyOn(clipboard, 'copyToClipboard').mockResolvedValue(true)
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+            editorRootLogic.mount()
+            editorRootLogic.actions.shareTab()
+            const sharedUrl = new URL(copy.mock.calls[0][0])
+            expect(JSON.parse(new URLSearchParams(sharedUrl.hash.slice(1)).get('bi')!)).toMatchObject(config)
+            copy.mockRestore()
+            biLogic.unmount()
+        })
+
+        it('redirects bookmarked SQL editor BI links with their query state', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            logic = sqlEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            router.actions.push(
+                urls.sqlEditor(),
+                { open_view: MOCK_VIEW.id },
+                {
+                    q: 'SELECT event FROM events',
+                    mode: BIEditorView.BI,
+                    bi: config,
+                }
+            )
+            expect(router.values.location.pathname).toBe(
+                `/project/${MOCK_DEFAULT_TEAM.id}${urls.businessIntelligence()}`
+            )
+            expect(router.values.searchParams.open_view).toBe(MOCK_VIEW.id)
+            expect(router.values.hashParams.q).toBe('SELECT event FROM events')
+            expect(router.values.hashParams.bi).toMatchObject(config)
+        })
+
         it('updates the chart breakdown when dimensions move between shelves or are removed', async () => {
-            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
             logic.mount()
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
@@ -2399,6 +2481,7 @@ describe('sqlEditorLogic', () => {
             })
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -2406,7 +2489,7 @@ describe('sqlEditorLogic', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, {
+            router.actions.push(urls.businessIntelligence(), undefined, {
                 q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
                 mode: BIEditorView.BI,
                 bi: config,
@@ -2454,6 +2537,7 @@ describe('sqlEditorLogic', () => {
             const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -2461,7 +2545,7 @@ describe('sqlEditorLogic', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, {
+            router.actions.push(urls.businessIntelligence(), undefined, {
                 q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
                 mode: BIEditorView.BI,
                 bi: config,
@@ -2511,6 +2595,7 @@ describe('sqlEditorLogic', () => {
             })
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -2817,7 +2902,12 @@ describe('sqlEditorLogic', () => {
         })
 
         it("does not expose another connection's fields and resets the worksheet when switching connections", () => {
-            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
             logic.mount()
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
@@ -2855,7 +2945,12 @@ describe('sqlEditorLogic', () => {
         test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
             'handles chart-only changes with %s query results and runs changed table SQL',
             async (resultState) => {
-                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    mode: SQLEditorMode.BusinessIntelligence,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
                 logic.mount()
                 const biLogic = biEditorLogic({ tabId: TAB_ID })
                 biLogic.mount()
@@ -2902,7 +2997,12 @@ describe('sqlEditorLogic', () => {
         test.each(['disable', 'sql', 'clear', 'invalid', 'unchanged'] as const)(
             'handles a pending automatic query when the worksheet is %s',
             async (transition) => {
-                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    mode: SQLEditorMode.BusinessIntelligence,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
                 logic.mount()
                 const biLogic = biEditorLogic({ tabId: TAB_ID })
                 biLogic.mount()
@@ -2947,7 +3047,12 @@ describe('sqlEditorLogic', () => {
         )
 
         it('clears the displayed result when clearing the worksheet', async () => {
-            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
             logic.mount()
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
@@ -2978,6 +3083,7 @@ describe('sqlEditorLogic', () => {
             })
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -2990,7 +3096,7 @@ describe('sqlEditorLogic', () => {
                 limit: 50000,
             }
 
-            router.actions.push(urls.sqlEditor(), undefined, {
+            router.actions.push(urls.businessIntelligence(), undefined, {
                 q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
                 mode: BIEditorView.BI,
                 bi: persistedConfig,
@@ -3059,6 +3165,7 @@ describe('sqlEditorLogic', () => {
         it('regenerates the query and URL when a date bucket changes', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -3067,7 +3174,7 @@ describe('sqlEditorLogic', () => {
             biLogic.mount()
             const dateConfig: BIConfig = { ...config, rows: [timestampField], filters: [] }
 
-            router.actions.push(urls.sqlEditor(), undefined, {
+            router.actions.push(urls.businessIntelligence(), undefined, {
                 q: 'SELECT timestamp, count(*) FROM events GROUP BY timestamp',
                 mode: BIEditorView.BI,
                 bi: dateConfig,
@@ -3092,6 +3199,7 @@ describe('sqlEditorLogic', () => {
         it('regenerates the query and URL when the result limit changes', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -3099,7 +3207,7 @@ describe('sqlEditorLogic', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, {
+            router.actions.push(urls.businessIntelligence(), undefined, {
                 q: 'SELECT event, count(*) FROM events GROUP BY event LIMIT 1000',
                 mode: BIEditorView.BI,
                 bi: config,
@@ -3129,6 +3237,7 @@ describe('sqlEditorLogic', () => {
         it('clears incompatible fields and opens persisted blank shelf fields for editing', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
@@ -3136,7 +3245,7 @@ describe('sqlEditorLogic', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
 
-            router.actions.push(urls.sqlEditor(), undefined, {
+            router.actions.push(urls.businessIntelligence(), undefined, {
                 q: 'SELECT event, count(*) FROM events GROUP BY event',
                 mode: BIEditorView.BI,
                 bi: config,
@@ -3184,6 +3293,7 @@ describe('sqlEditorLogic', () => {
         it('adds a removable default date filter for event data', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
+                mode: SQLEditorMode.BusinessIntelligence,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })

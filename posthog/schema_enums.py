@@ -1376,6 +1376,7 @@ class FileSystemIconType(StrEnum):
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
+    BUSINESS_INTELLIGENCE = "business_intelligence"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"

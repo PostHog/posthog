@@ -5428,6 +5428,7 @@ export type FileSystemIconType =
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
+    | 'business_intelligence'
     | 'web_analytics'
     | 'error_tracking'
     | 'heatmap'

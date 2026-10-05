@@ -95,6 +95,7 @@
         "@posthog/products-autoresearch": "workspace:*",
         "@posthog/products-batch-exports": "workspace:*",
         "@posthog/products-billing-alerts": "workspace:*",
+        "@posthog/products-business-intelligence": "workspace:*",
         "@posthog/products-business-knowledge": "workspace:*",
         "@posthog/products-canvas": "workspace:*",
         "@posthog/products-cdp": "workspace:*",
