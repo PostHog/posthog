@@ -5,6 +5,7 @@ import contextlib
 from typing import TYPE_CHECKING, Any, Generic
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -69,6 +70,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sin
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
+    attempt_run_uuid,
+    copy_rows,
+    split_trailing_cursor_ties,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -151,6 +157,8 @@ class PipelineV3(Generic[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: "ImportJobModels",
+        retry_loaded_rows: int | None = None,
+        rows_ordered_by_cursor: bool = False,
         source_cursor_manager: SourceCursorManager[Any] | None = None,
     ) -> None:
         self._resource = source_response
@@ -164,6 +172,13 @@ class PipelineV3(Generic[ResumableData]):
 
         self._job = models.job
         self._reset_pipeline = reset_pipeline
+        # Set when a retried append attempt continues after the rows earlier attempts loaded (see append_retry.py).
+        self._retry_loaded_rows = retry_loaded_rows
+        self._rows_ordered_by_cursor = rows_ordered_by_cursor
+        # Rows that share the highest cursor of the last batch, staged with the next one (see `_process_batch`).
+        self._held_ties: pa.Table | None = None
+        # Cursor through the last batch that ended on a complete cursor value.
+        self._complete_cursor: Any = None
         self._logger = logger
         self._load_id = time.time_ns()
 
@@ -184,7 +199,7 @@ class PipelineV3(Generic[ResumableData]):
 
         attempt = current_activity_attempt()
         self._attempt = attempt
-        self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
+        self._run_uuid = attempt_run_uuid(self._job.workflow_run_id, attempt) if self._job.workflow_run_id else None
         self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
         sync_type: SyncTypeLiteral = "full_refresh"
@@ -306,12 +321,16 @@ class PipelineV3(Generic[ResumableData]):
             **self._producer_args(s3_batch_writer, resource_name=resource_name, cdc_write_mode=cdc_write_mode)
         )
 
-    async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
+    async def _stage_batch(
+        self, pa_table: pa.Table, batch_index: int, row_count: int, *, incremental_last_value: Any = None
+    ) -> int:
         """Write the batch and tell the queue. Returns the rows to count towards usage."""
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._pg_producer.hold_batch(batch_result, cumulative_row_count=row_count)
+        self._pg_producer.hold_batch(
+            batch_result, cumulative_row_count=row_count, incremental_last_value=incremental_last_value
+        )
         return pa_table.num_rows
 
     def _total_batches(self) -> int:
@@ -348,6 +367,23 @@ class PipelineV3(Generic[ResumableData]):
         history table all the same.
         """
         return self._resource.cdc_write_mode == SCD2_APPEND_MODE
+
+    def _holds_back_cursor_ties(self) -> bool:
+        # A resumable source commits its resume state after each staged batch, which would skip held rows.
+        return (
+            self._rows_ordered_by_cursor
+            and self._resumable_source_manager is None
+            and self._schema.is_append
+            and self._schema.incremental_field is not None
+        )
+
+    async def _stage_held_ties(self, batch_index: int, row_count: int) -> bool:
+        """Stage the rows held back from the last batch, once the source has no more rows."""
+        held = self._held_ties
+        if held is None:
+            return False
+        self._held_ties = None
+        return await self._process_batch(held, batch_index, row_count, hold_back_ties=False)
 
     def _close_producers(self) -> None:
         self._pg_producer.close()
@@ -415,13 +451,18 @@ class PipelineV3(Generic[ResumableData]):
 
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(
-                self._job,
-                self._is_incremental,
-                self._reset_pipeline,
-                should_resume,
-                incremental_cursor_staged=True,
-            )
+            if self._retry_loaded_rows is None:
+                await reset_rows_synced_if_needed(
+                    self._job,
+                    self._is_incremental,
+                    self._reset_pipeline,
+                    should_resume,
+                    incremental_cursor_staged=True,
+                )
+            else:
+                # The rows earlier attempts loaded stay in the table, so the job counts them once.
+                self._job.rows_synced = self._retry_loaded_rows
+                await database_sync_to_async_pool(self._job.save)(update_fields=["rows_synced", "updated_at"])
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -479,7 +520,7 @@ class PipelineV3(Generic[ResumableData]):
                 while self._batcher.should_yield(include_incomplete_chunk=True):
                     py_table = self._batcher.get_table()
                     row_count += py_table.num_rows
-                    await self._process_batch(
+                    staged = await self._process_batch(
                         pa_table=py_table,
                         batch_index=chunk_index,
                         row_count=row_count,
@@ -487,9 +528,11 @@ class PipelineV3(Generic[ResumableData]):
 
                     if activity.in_activity():
                         get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
-                        get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+                        if staged:
+                            get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
-                    chunk_index += 1
+                    if staged:
+                        chunk_index += 1
                 # Every yielded row is staged now, so whatever the source staged last is safe.
                 await self._commit_resume_state()
 
@@ -518,18 +561,19 @@ class PipelineV3(Generic[ResumableData]):
                         py_table = self._batcher.get_table()
                         row_count += py_table.num_rows
 
-                        await self._process_batch(
+                        staged = await self._process_batch(
                             pa_table=py_table,
                             batch_index=chunk_index,
                             row_count=row_count,
                         )
+                        if staged:
+                            chunk_index += 1
                         wrote_chunk = True
 
                         if activity.in_activity():
                             get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
-                            get_batches_produced_metric(team_id_str, schema_id_str).add(1)
-
-                        chunk_index += 1
+                            if staged:
+                                get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                         cleanup_memory(pa_memory_pool, py_table)
                         py_table = None
@@ -556,6 +600,8 @@ class PipelineV3(Generic[ResumableData]):
                 safe_point_scope.close()
 
             await stage_remaining_rows()
+            if await self._stage_held_ties(batch_index=chunk_index, row_count=row_count):
+                chunk_index += 1
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
@@ -611,7 +657,45 @@ class PipelineV3(Generic[ResumableData]):
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
-    async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
+    async def _process_batch(
+        self, pa_table: pa.Table, batch_index: int, row_count: int, *, hold_back_ties: bool = True
+    ) -> bool:
+        """Stage one batch. Returns whether a batch was staged, which is False when every row was held back.
+
+        For an append from a source that returns rows sorted by the cursor, the rows that share the
+        batch's highest cursor wait for the next batch, as more rows with that value can follow. Every
+        staged batch then ends before the next cursor value, so a retry can resume strictly after it.
+        """
+        # An oversized tie is staged mid-value under the last complete cursor, so a retry reads the tie again.
+        # That repeats its rows but keeps the worker's memory bounded.
+        incomplete_cursor: Any = None
+        is_incomplete = False
+        if self._holds_back_cursor_ties():
+            if self._held_ties is not None:
+                pa_table = pa.concat_tables([self._held_ties, pa_table], promote_options="permissive")
+                self._held_ties = None
+            if hold_back_ties:
+                assert self._schema.incremental_field is not None
+                split = split_trailing_cursor_ties(pa_table, self._schema.incremental_field)
+                # Held rows never grow past one chunk, the memory a source already agreed to per batch.
+                if split.held.nbytes <= self._batcher.chunk_size_bytes:
+                    pa_table = split.kept
+                    self._held_ties = copy_rows(split.held) if split.held.num_rows else None
+                    if pa_table.num_rows == 0:
+                        return False
+                else:
+                    await self._logger.awarning(
+                        "cursor_tie_overflowed", tie_rows=split.held.num_rows, tie_bytes=split.held.nbytes
+                    )
+                    is_incomplete = True
+                    incomplete_cursor = (
+                        self._schema.serialize_incremental_value(
+                            pc.max(split.kept[self._schema.incremental_field]).as_py()
+                        )
+                        if split.kept.num_rows
+                        else self._complete_cursor
+                    )
+
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
@@ -646,12 +730,8 @@ class PipelineV3(Generic[ResumableData]):
             pa_table, self._accumulated_pa_schema, self._logger, protected_columns=cursor_columns
         )
 
-        tracked_rows = await self._stage_batch(pa_table, batch_index, row_count)
-
-        self._internal_schema.add_pyarrow_table(pa_table)
-
-        await self._sinks.stage_chunk(batch_index, pa_table)
-
+        # Ahead of staging so the batch row carries the cursor through it. The staged cursor only
+        # promotes once the run's final batch loads, so staging it first cannot skip rows.
         incremental_values = await update_incremental_field_values(
             self._schema,
             pa_table,
@@ -665,9 +745,24 @@ class PipelineV3(Generic[ResumableData]):
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value
 
+        batch_last_value: Any = None
+        if is_incomplete:
+            batch_last_value = incomplete_cursor
+        elif self._holds_back_cursor_ties():
+            batch_last_value = self._schema.serialize_incremental_value(incremental_values.last_value)
+        self._complete_cursor = batch_last_value
+        tracked_rows = await self._stage_batch(
+            pa_table, batch_index, row_count, incremental_last_value=batch_last_value
+        )
+
+        self._internal_schema.add_pyarrow_table(pa_table)
+
+        await self._sinks.stage_chunk(batch_index, pa_table)
+
         await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger
         )
+        return True
 
     async def _stamp_full_run(self) -> None:
         """Record that this run took the full extraction path, for the fast-return valve.

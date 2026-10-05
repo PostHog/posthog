@@ -51,6 +51,8 @@ class ExportSignalMessage:
     # Snapshotted when the run started. Empty means the PostHog warehouse only, which is
     # also what an old message that predates destinations decodes to.
     destination_ids: list[str] = field(default_factory=list)
+    # The cursor through this batch's rows. The loader commits it as the schema's watermark once the batch loads.
+    incremental_last_value: Any = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -87,4 +89,5 @@ class ExportSignalMessage:
             cdc_write_mode=data.get("cdc_write_mode"),
             cdc_table_mode=data.get("cdc_table_mode"),
             destination_ids=data.get("destination_ids") or [],
+            incremental_last_value=data.get("incremental_last_value"),
         )

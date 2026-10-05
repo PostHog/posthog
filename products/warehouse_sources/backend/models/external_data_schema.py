@@ -98,6 +98,8 @@ def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
 # how long a rewrite nobody is advancing can pause a table's imports.
 REPARTITION_HOLD_MAX_AGE = timedelta(hours=48)
 
+WATERMARK_JOB_KEY = "incremental_field_last_value_job_id"
+
 SCHEDULED_FULL_REFRESH_SYNC_TYPES = frozenset(
     {ExternalDataSchemaSyncType.INCREMENTAL, ExternalDataSchemaSyncType.APPEND, ExternalDataSchemaSyncType.XMIN}
 )
@@ -737,7 +739,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         partition_format: Optional[PartitionFormat],
     ) -> None:
         # Merged under the row lock rather than saved from this copy, which the loader holds for the
-        # whole run while CDC capture writes the same JSON (the snapshot marker among it).
+        # whole run while extraction stages its cursor and CDC capture writes the snapshot marker into
+        # the same JSON. A save from this copy would erase both.
         self.sync_type_config = update_sync_type_config_keys(
             self.id,
             self.team_id,
@@ -981,7 +984,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         other's entry.
         """
         values = {
-            key: self._serialize_incremental_value(value)
+            key: self.serialize_incremental_value(value)
             for key, value in (("last_value", last_value), ("earliest_value", earliest_value))
             if value is not None
         }
@@ -1055,7 +1058,42 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return found
 
-    def _serialize_incremental_value(self, value: Any) -> Any:
+    def advance_incremental_field_last_value(self, last_value: Any, *, job_id: str) -> bool:
+        """Move the watermark forward to `last_value` for rows `job_id` loaded. Returns whether it moved.
+
+        Writes only a value past the current watermark, so a batch that loads late never moves it back.
+        """
+        serialized = self.serialize_incremental_value(last_value)
+        # Checked on this copy first, so a batch that does not move the watermark takes no row lock.
+        if not _moves_watermark_forward(self.sync_type_config, serialized):
+            return False
+
+        advanced = False
+
+        def mutate(config: dict[str, Any]) -> None:
+            nonlocal advanced
+            if _moves_watermark_forward(config, serialized):
+                config["incremental_field_last_value"] = serialized
+                config[WATERMARK_JOB_KEY] = job_id
+                advanced = True
+
+        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        return advanced
+
+    def job_loaded_through(self, job_id: str, value: Any) -> bool:
+        """Whether loads of `job_id` moved the watermark to `value` or past it.
+
+        Only the job's own loads count. A watermark from an earlier job says nothing about this job's
+        table: a reset or a table rebuild reads again below it.
+        """
+        config = self.sync_type_config or {}
+        current = config.get("incremental_field_last_value")
+        if current is None or value is None or config.get(WATERMARK_JOB_KEY) != job_id:
+            return False
+        comparison = _compare_incremental_values(current, value, config.get("incremental_field_type"))
+        return comparison is not None and comparison >= 0
+
+    def serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
         if "numpy" in sys.modules:
             import numpy  # noqa: PLC0415
@@ -1124,6 +1162,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             # survives the reset it timestamps.
             "column_type_widened",
             "incremental_field_last_value",
+            WATERMARK_JOB_KEY,
             "incremental_field_earliest_value",
             "incremental_staged",
             "incremental_staged_pending",
@@ -1347,6 +1386,16 @@ def _advance_promoted_cursor(
     # watermark. Keeping the current value would freeze it for good.
     if comparison is None or (kind == "last" and comparison < 0) or (kind == "earliest" and comparison > 0):
         config[key] = value
+
+
+def _moves_watermark_forward(config: dict[str, Any], candidate: Any) -> bool:
+    current = config.get("incremental_field_last_value")
+    if current is None:
+        return True
+    # Unlike a promotion, a pair that cannot be ordered keeps the current watermark. The run's promotion
+    # still advances it when the run completes.
+    comparison = _compare_incremental_values(current, candidate, config.get("incremental_field_type"))
+    return comparison is not None and comparison < 0
 
 
 def _compare_incremental_values(current: Any, candidate: Any, field_type: IncrementalFieldType | None) -> int | None:

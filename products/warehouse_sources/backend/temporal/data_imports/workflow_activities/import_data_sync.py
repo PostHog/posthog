@@ -61,6 +61,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
+    settle_append_retry,
+)
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -461,7 +464,28 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if delta_rebuild_pending:
             await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
 
-        use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
+        rows_ordered_by_cursor = SourceRegistry.is_registered(source_type) and bool(
+            SourceRegistry.get_source(source_type).rows_ordered_by_incremental_field
+        )
+        retry_loaded_rows: int | None = None
+        if model.pipeline_version == ExternalDataJob.PipelineVersion.V3 and not delta_rebuild_pending:
+            retry_loaded_rows = await database_sync_to_async_pool(settle_append_retry)(
+                schema,
+                team_id=inputs.team_id,
+                source_id=str(inputs.source_id),
+                job_id=str(model.id),
+                workflow_run_id=model.workflow_run_id,
+                attempt=current_activity_attempt(),
+                rows_ordered_by_cursor=rows_ordered_by_cursor,
+            )
+            if retry_loaded_rows is not None:
+                await logger.ainfo(
+                    "V3 Pipeline: append retry continues after the rows earlier attempts loaded",
+                    loaded_rows=retry_loaded_rows,
+                )
+
+        # A reset retry that continues keeps the committed cursor: its first attempt already wiped the table.
+        use_stored_cursors = (reset_pipeline is not True or retry_loaded_rows is not None) and not delta_rebuild_pending
         if use_stored_cursors:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
@@ -585,8 +609,10 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             # not the sync has anything to move. The probe reads the same `source_inputs` the
             # extraction below would, so watermark processing and row filters cannot drift.
             # `reset_pipeline` is re-checked here because a reset asked for through the workflow
-            # input never reaches `sync_type_config`, which is all eligibility can see.
-            if inputs.fast_return_eligible and not reset_pipeline:
+            # input never reaches `sync_type_config`, which is all eligibility can see. A resumed append
+            # retry must reach the pipeline even with nothing new, which sets the job's row count to the
+            # rows that stayed loaded.
+            if inputs.fast_return_eligible and not reset_pipeline and retry_loaded_rows is None:
                 if not await _probe_found_new_data(new_source, config, source_inputs, logger):
                     # The run checked the source, so the schema must not read as stale. Mirrors
                     # `update_last_synced_at` on the extracting path (which also stamps
@@ -641,6 +667,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
                 resumable_source_manager=resumable_source_manager,
+                retry_loaded_rows=retry_loaded_rows,
+                rows_ordered_by_cursor=rows_ordered_by_cursor,
                 source_cursor_manager=source_cursor_manager,
             )
         else:
@@ -963,6 +991,8 @@ async def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
+    retry_loaded_rows: int | None = None,
+    rows_ordered_by_cursor: bool = False,
     source_cursor_manager: SourceCursorManager[Any] | None = None,
 ) -> PipelineResult:
     try:
@@ -983,6 +1013,8 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
+                retry_loaded_rows=retry_loaded_rows,
+                rows_ordered_by_cursor=rows_ordered_by_cursor,
                 source_cursor_manager=source_cursor_manager,
             )
         else:

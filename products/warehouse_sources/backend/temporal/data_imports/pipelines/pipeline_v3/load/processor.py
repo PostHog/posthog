@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
+    normalize_column_name,
     pyarrow_schema_from_arrow_exportable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
@@ -748,6 +749,59 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
         )
 
 
+def _commit_loaded_cursor(signals: list[ExportSignalMessage], schema: ExternalDataSchema) -> None:
+    """Move the schema's watermark to the cursor through the rows these batches loaded.
+
+    Only an extraction whose batches never split a cursor value sends one (see `PipelineV3._process_batch`).
+    A later attempt or run then reads strictly after the loaded rows, even when this run never completes.
+    A write can hold batches of several jobs, and each job's last cursor is committed in load order.
+    """
+    for index, signal in enumerate(signals):
+        is_jobs_last = index == len(signals) - 1 or signals[index + 1].job_id != signal.job_id
+        if not is_jobs_last or signal.incremental_last_value is None:
+            continue
+        if schema.advance_incremental_field_last_value(signal.incremental_last_value, job_id=signal.job_id):
+            logger.debug(
+                "loaded_cursor_committed",
+                run_uuid=signal.run_uuid,
+                batch_index=signal.batch_index,
+                team_id=signal.team_id,
+                external_data_schema_id=signal.schema_id,
+            )
+
+
+def _drop_rows_the_job_loaded(table: pa.Table, signal: ExportSignalMessage, schema: ExternalDataSchema) -> pa.Table:
+    """Drop the rows at or below the watermark the batch's own job already loaded.
+
+    A retried attempt reads after the watermark it finds, but a batch of the earlier attempt can
+    still be loading at that moment and move the watermark past rows the retry reads again. The
+    batch's rows are sorted by the cursor, so the rows to drop are a prefix, found by binary search.
+    """
+    if signal.incremental_last_value is None or schema.incremental_field is None:
+        return table
+    column_name = normalize_column_name(schema.incremental_field)
+    if column_name not in table.column_names:
+        return table
+    cursor = table[column_name]
+    low, high = 0, table.num_rows
+    while low < high:
+        middle = (low + high) // 2
+        if schema.job_loaded_through(signal.job_id, cursor[middle].as_py()):
+            low = middle + 1
+        else:
+            high = middle
+    if low:
+        logger.info(
+            "loaded_rows_dropped_from_batch",
+            run_uuid=signal.run_uuid,
+            batch_index=signal.batch_index,
+            dropped_rows=low,
+            team_id=signal.team_id,
+            external_data_schema_id=signal.schema_id,
+        )
+    return table.slice(low)
+
+
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
     # Short-circuit if the job is already FAILED: redelivered DLQ'd messages
     # (the retry state stays in Redis until its 72h TTL) would otherwise spam
@@ -1015,7 +1069,7 @@ def _process_external_destinations_only(
     _mark_job_completed(export_signal)
 
 
-def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
+def _read_constituents(constituents: list[ExportSignalMessage], schema: ExternalDataSchema) -> pa.Table:
     """Read every constituent's parquet file and concatenate them in load order.
 
     Batches of one run were converged onto one accumulated schema when they were staged, so they
@@ -1026,7 +1080,7 @@ def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
     The order matters: the writer keeps the last row per key, so a later run's row for a key an
     earlier run also carried is the one that lands.
     """
-    tables = [read_parquet(signal.s3_path) for signal in constituents]
+    tables = [_drop_rows_the_job_loaded(read_parquet(signal.s3_path), signal, schema) for signal in constituents]
     try:
         return pa.concat_tables(tables, promote_options="permissive")
     except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:
@@ -1115,6 +1169,10 @@ def _process_message_reported(
         report_phase("deliver")
         deliver_batch_to_destinations(export_signal)
 
+        if already_processed:
+            # The loader can stop between the delta commit and the cursor commit, so a redelivery commits it again.
+            _commit_loaded_cursor([export_signal], schema)
+
         if already_processed and not export_signal.is_final_batch:
             IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
             logger.info(
@@ -1161,9 +1219,9 @@ def _process_message_reported(
         report_phase("read")
         with PARQUET_READ_DURATION_SECONDS.time():
             if constituents is not None:
-                pa_table = _read_constituents(constituents)
+                pa_table = _read_constituents(constituents, schema)
             else:
-                pa_table = read_parquet(export_signal.s3_path)
+                pa_table = _drop_rows_the_job_loaded(read_parquet(export_signal.s3_path), export_signal, schema)
 
         logger.debug(
             "parquet_file_read",
@@ -1299,6 +1357,7 @@ def _process_message_reported(
         # than through the write again.
         for run_uuid, index in members:
             mark_batch_as_processed(export_signal.team_id, export_signal.schema_id, run_uuid, index)
+        _commit_loaded_cursor(constituents if constituents is not None else [export_signal], schema)
 
         # file_count is the signal that shows a table fragmenting during a long load, so it stays —
         # but listing every file costs O(files in table), which is the very thing it measures. Sample

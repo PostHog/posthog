@@ -26,6 +26,7 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     STATUS_TABLE,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
+    EarlierAttempts,
     PendingBatch,
     QueueDepth,
     _orphaned_candidate_runs_sql,
@@ -1002,6 +1003,7 @@ class TestPendingBatchToExportSignal:
                 "data_folder": "/tmp/data",
                 "primary_keys": ["id"],
                 "cdc_write_mode": "upsert",
+                "incremental_last_value": 1_700,
             },
             latest_attempt=2,
         )
@@ -1021,6 +1023,7 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+        assert signal["incremental_last_value"] == 1_700
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1594,6 +1597,80 @@ class TestStateDualWrite:
         assert superseded == 1
         assert (await _batch_state(conn, live))[0] == "executing"
         assert (await _batch_state(conn, stalled))[0] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_settle_earlier_attempts_drops_unloaded_batches_and_reports_the_loaded_prefix(self, conn, sync_conn):
+        loaded = [
+            await _insert_batch(
+                conn,
+                batch_index=index,
+                run_uuid="run-a1",
+                job_id="job-ap",
+                row_count=rows,
+                metadata={"incremental_last_value": cursor},
+            )
+            for index, (rows, cursor) in enumerate([(100, 1_000), (50, 2_000)])
+        ]
+        executing = await _insert_batch(
+            conn, batch_index=2, run_uuid="run-a1", job_id="job-ap", metadata={"incremental_last_value": 3_000}
+        )
+        unloaded = await _insert_batch(
+            conn, batch_index=3, run_uuid="run-a1", job_id="job-ap", metadata={"incremental_last_value": 4_000}
+        )
+        current = await _insert_batch(conn, batch_index=0, run_uuid="run-a2", job_id="job-ap")
+        other_job = await _insert_batch(conn, batch_index=0, run_uuid="run-x", job_id="job-other")
+        for batch_id in loaded:
+            await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
+
+        settled = BatchQueue.settle_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a2")
+
+        assert settled == EarlierAttempts(loaded_rows=150, loaded_last_value=2_000)
+        assert (await _batch_state(conn, unloaded))[0] == "failed"
+        assert (await _batch_state(conn, executing))[0] == "executing"
+        assert (await _batch_state(conn, current))[0] == "pending"
+        assert (await _batch_state(conn, other_job))[0] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_a_fenced_run_never_loads_a_batch_queued_after_the_fence(self, conn, sync_conn):
+        fence: dict[str, Any] = {
+            "run_uuids": ["run-a1", "run-a2"],
+            "team_id": 1,
+            "schema_id": "schema-1",
+            "source_id": "source-1",
+            "job_id": "job-ap",
+            "resource_name": "events",
+            "sync_type": "append",
+        }
+
+        assert BatchQueue.fence_runs(sync_conn, **fence) == 2
+        assert BatchQueue.fence_runs(sync_conn, **fence) == 0
+
+        straggler = await _insert_batch(conn, run_uuid="run-a1", job_id="job-ap", sync_type="append")
+        current = await _insert_batch(conn, run_uuid="run-a3", job_id="job-ap", sync_type="append")
+
+        assert [str(batch.id) for batch in await _claim(conn)] == [current]
+        assert [ref.run_uuid for ref in await BatchQueue.get_runs_with_orphaned_batches(conn, limit=10)] == ["run-a1"]
+        assert (
+            await BatchQueue.fail_run(conn, run_uuid="run-a1", team_id=1, schema_id="schema-1", reason="orphaned") == 1
+        )
+        assert (await _batch_state(conn, straggler))[0] == "failed"
+        assert await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=3600, limit=10) == []
+
+    @pytest.mark.asyncio
+    async def test_a_straggler_of_a_superseded_run_does_not_fail_the_job(self, conn, sync_conn):
+        await _insert_batch(conn, run_uuid="run-a1", job_id="job-ap", sync_type="append")
+        await _insert_batch(conn, run_uuid="run-a2", job_id="job-ap", sync_type="append")
+        BatchQueue.supersede_other_runs(
+            sync_conn, job_id="job-ap", current_run_uuid="run-a2", spare_runs_with_progress=False
+        )
+        straggler = await _insert_batch(conn, batch_index=1, run_uuid="run-a1", job_id="job-ap", sync_type="append")
+
+        assert (
+            await BatchQueue.fail_run(conn, run_uuid="run-a1", team_id=1, schema_id="schema-1", reason="orphaned") == 1
+        )
+        assert (await _batch_state(conn, straggler))[0] == "failed"
+        assert await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=3600, limit=10) == []
 
     @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):

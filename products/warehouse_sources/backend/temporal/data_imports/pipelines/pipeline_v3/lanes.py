@@ -89,6 +89,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: ImportJobModels,
+        retry_loaded_rows: int | None = None,
+        rows_ordered_by_cursor: bool = False,
         source_cursor_manager: SourceCursorManager[Any] | None = None,
     ) -> None:
         if not source_response.lanes:
@@ -103,6 +105,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             shutdown_monitor,
             resumable_source_manager,
             models=models,
+            retry_loaded_rows=retry_loaded_rows,
+            rows_ordered_by_cursor=rows_ordered_by_cursor,
             source_cursor_manager=source_cursor_manager,
         )
 
@@ -231,7 +235,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             except Exception:
                 await self._logger.awarning("companion_job_fail_write_failed", companion_job_id=job_id, exc_info=True)
 
-    async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
+    async def _stage_batch(
+        self, pa_table: pa.Table, batch_index: int, row_count: int, *, incremental_last_value: Any = None
+    ) -> int:
         # Each lane writes the same batch to its own job. A lane that already holds these rows
         # contributes nothing for this index, which leaves a gap in its batch indexes — the claim
         # gate orders on "no earlier index still running", so gaps are harmless.
@@ -257,7 +263,12 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             writer.row_count += lane_table.num_rows
             batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
             writer.batch_results.append(batch_result)
-            writer.pg_producer.hold_batch(batch_result, cumulative_row_count=writer.row_count)
+            # Only the primary lane is the schema's own job, which an append retry resumes by cursor.
+            writer.pg_producer.hold_batch(
+                batch_result,
+                cumulative_row_count=writer.row_count,
+                incremental_last_value=incremental_last_value if index == 0 else None,
+            )
             # One read of a change stream is one sync however many tables it keeps.
             if lane.billable:
                 billable_rows += lane_table.num_rows

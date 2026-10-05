@@ -1335,17 +1335,24 @@ async def test_probe_uncertainty_runs_the_full_sync(probe: Any):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "overrides",
+    "overrides,retry_loaded_rows",
     [
-        pytest.param({"fast_return_eligible": False}, id="not_eligible"),
-        pytest.param({"reset_pipeline": True}, id="reset_requested"),
+        pytest.param({"fast_return_eligible": False}, None, id="not_eligible"),
+        pytest.param({"reset_pipeline": True}, None, id="reset_requested"),
+        pytest.param({}, 250, id="append_retry_resumes"),
     ],
 )
-async def test_probe_never_runs_when_not_eligible_or_resetting(overrides: dict[str, Any]):
+async def test_probe_never_runs_when_not_eligible_or_resetting(
+    overrides: dict[str, Any], retry_loaded_rows: int | None
+):
     model = _probe_model()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     source = _probe_source(probe=False)
 
-    with _probe_ctx(source, model):
+    with (
+        _probe_ctx(source, model),
+        mock.patch.object(module, "settle_append_retry", return_value=retry_loaded_rows),
+    ):
         result = await import_data_activity_sync(_probe_inputs(**overrides))
 
     assert result is _FULL_SYNC_RESULT

@@ -34,7 +34,7 @@ _CONNECT_MAX_ATTEMPTS = 3
 _CONNECT_RETRY_BACKOFF_SECONDS = 0.5
 
 
-def _connect_with_retry(database_url: str) -> psycopg.Connection:
+def connect_with_retry(database_url: str) -> psycopg.Connection:
     for _ in range(_CONNECT_MAX_ATTEMPTS - 1):
         try:
             return psycopg.Connection.connect(database_url, autocommit=True)
@@ -93,11 +93,11 @@ class PostgresProducer:
         self._workflow_run_id = workflow_run_id
         self._destination_ids: list[str] = list(destination_ids or [])
 
-        self._conn = _connect_with_retry(database_url)
+        self._conn = connect_with_retry(database_url)
         self._batches_sent = 0
         # The most recent staged batch and its cumulative row count, kept out of the queue until the
         # next batch arrives or the run ends, so the run's last row can carry the final flag itself.
-        self._held: tuple[BatchWriteResult, int] | None = None
+        self._held: tuple[BatchWriteResult, int, Any] | None = None
 
     @property
     def sync_type(self) -> SyncTypeLiteral:
@@ -115,7 +115,9 @@ class PostgresProducer:
     def has_held_batch(self) -> bool:
         return self._held is not None
 
-    def hold_batch(self, batch_result: BatchWriteResult, *, cumulative_row_count: int) -> None:
+    def hold_batch(
+        self, batch_result: BatchWriteResult, *, cumulative_row_count: int, incremental_last_value: Any = None
+    ) -> None:
         """Stage a batch's queue row, inserting the previously held one as a non-final row.
 
         The parquet file is already durable when this is called; only the queue row waits. Holding
@@ -128,9 +130,14 @@ class PostgresProducer:
         if batch_result.batch_index == 0 and not self._is_resume:
             self._supersede_other_runs()
         previous = self._held
-        self._held = (batch_result, cumulative_row_count)
+        self._held = (batch_result, cumulative_row_count, incremental_last_value)
         if previous is not None:
-            self._insert(previous[0], is_final_batch=False, cumulative_row_count=previous[1])
+            self._insert(
+                previous[0],
+                is_final_batch=False,
+                cumulative_row_count=previous[1],
+                incremental_last_value=previous[2],
+            )
 
     def release_held_batch(self) -> bool:
         """Insert the held batch as a non-final row now. Returns whether a row was inserted.
@@ -142,7 +149,7 @@ class PostgresProducer:
         if held is None:
             return False
         self._held = None
-        self._insert(held[0], is_final_batch=False, cumulative_row_count=held[1])
+        self._insert(held[0], is_final_batch=False, cumulative_row_count=held[1], incremental_last_value=held[2])
         return True
 
     def send_final_batch(
@@ -170,6 +177,7 @@ class PostgresProducer:
             data_folder=data_folder,
             schema_path=schema_path,
             cumulative_row_count=total_rows,
+            incremental_last_value=None if held is None else held[2],
         )
 
     def send_batch_notification(
@@ -203,12 +211,16 @@ class PostgresProducer:
         #
         # A full_refresh is the exception: this run's batch 0 overwrites the table, so
         # an older attempt's loaded rows are gone either way and sparing it only leaves
-        # its batches clogging the serial per-(team, schema) gate.
+        # its batches clogging the serial per-(team, schema) gate. So is an append run that
+        # got here: it reads again from the stored cursor, so every spared batch it lets
+        # load is appended twice. An append run still spares a batch the loader is writing,
+        # because that write lands anyway and its rows must count as loaded.
         superseded = BatchQueue.supersede_other_runs(
             self._conn,
             job_id=self._job_id,
             current_run_uuid=self._run_uuid,
-            spare_runs_with_progress=self._sync_type != "full_refresh",
+            spare_runs_with_progress=self._sync_type not in ("full_refresh", "append"),
+            spare_executing_batches=self._sync_type == "append",
         )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)
@@ -223,8 +235,12 @@ class PostgresProducer:
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
         cumulative_row_count: int = 0,
+        incremental_last_value: Any = None,
     ) -> None:
         metadata: dict[str, Any] = {}
+        # The cursor through this batch's rows, which the loader commits once the batch loads.
+        if incremental_last_value is not None:
+            metadata["incremental_last_value"] = incremental_last_value
         if data_folder is not None:
             metadata["data_folder"] = data_folder
         if schema_path is not None:

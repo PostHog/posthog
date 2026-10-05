@@ -148,6 +148,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # nothing to merge on and is asked for a key like any SQL source.
     detects_primary_keys: bool = True
     supports_row_filters: bool = True
+    # The extraction query and every paged read end with `ORDER BY` the incremental field.
+    rows_ordered_by_incremental_field: bool = True
 
     api_docs_url = "https://clickhouse.com/docs"
 

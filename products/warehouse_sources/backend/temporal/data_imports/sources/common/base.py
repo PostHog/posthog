@@ -162,6 +162,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
+    # `True` only for sources whose incremental and append reads return rows sorted by the cursor
+    # (`ORDER BY` the incremental field). A retried append attempt of such a source continues after
+    # the rows its earlier attempts loaded instead of reading them again.
+    rows_ordered_by_incremental_field: bool = False
+
     # `True` only for sources whose engine supports xmin-based incremental replication
     # (Postgres). Gates the xmin sync type at the source-type level; per-table availability is
     # still decided by `SourceSchema.supports_xmin` at discovery. The API branches on this flag

@@ -29,6 +29,8 @@ from psycopg.rows import dict_row
 
 BATCH_TABLE = "sourcebatch"
 STATUS_TABLE = "sourcebatchstatus"
+# Batch index of the marker row that fences a superseded run (see `BatchQueue.fence_runs`).
+RUN_FENCE_BATCH_INDEX = -1
 STATUS_VIEW = "v_latest_source_batch_status"
 LEASE_TABLE = "sourcegrouplease"
 
@@ -773,6 +775,15 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class EarlierAttempts:
+    """What the earlier attempts of a job loaded, once their unloaded batches are superseded."""
+
+    loaded_rows: int
+    # Cursor of the newest loaded batch. None when nothing loaded or that batch row carries no cursor.
+    loaded_last_value: Any
+
+
+@dataclass(frozen=True, slots=True)
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""
 
@@ -836,6 +847,7 @@ class PendingBatch:
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
+            "incremental_last_value": self.metadata.get("incremental_last_value"),
         }
 
 
@@ -1592,14 +1604,33 @@ class BatchQueue:
         schema_id: str,
         reason: str,
     ) -> int:
-        """Mark every pending batch in a run as failed. Returns the count of batches failed."""
+        """Mark every pending batch in a run as failed. Returns the count of batches failed.
+
+        A run a newer attempt superseded or fenced (see `supersede_other_runs` and `fence_runs`) can
+        still get batches queued by its stale attempt. Those are marked superseded too, so the
+        reconcile sweep does not fail the job the newer attempt is running.
+        """
+        replaced = await conn.execute(
+            f"""
+            SELECT 1 FROM {BATCH_TABLE}
+            WHERE run_uuid = %(run_uuid)s
+                AND latest_state = 'failed'
+                AND superseded
+                AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            LIMIT 1
+            """,
+            {"run_uuid": run_uuid},
+        )
+        error_response: dict[str, Any] = {"error": reason}
+        if await replaced.fetchone() is not None:
+            error_response["superseded"] = True
         cursor = await conn.execute(
             FAIL_RUN_SCOPED_SQL,
             {
                 "run_uuid": run_uuid,
                 "team_id": team_id,
                 "schema_id": schema_id,
-                "error_response": json.dumps({"error": reason}),
+                "error_response": json.dumps(error_response),
             },
         )
         return cursor.rowcount or 0
@@ -1651,6 +1682,7 @@ class BatchQueue:
         current_run_uuid: str,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
         spare_runs_with_progress: bool = True,
+        spare_executing_batches: bool = False,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
 
@@ -1678,9 +1710,14 @@ class BatchQueue:
         so every row an older attempt loaded is discarded the moment this run starts. Sparing
         those runs protects nothing, and leaves their batches to drain through the serial
         per-(team, schema) gate — holding the queue head for hours to write data that has
-        already been thrown away. Incremental and CDC keep the sparing rule, because their
-        partially merged work survives into the new run.
+        already been thrown away. A non-resume ``append`` run drops it too: it reads again from
+        the stored cursor, so every spared batch that loads is appended twice. Incremental and
+        CDC keep the sparing rule, because their partially merged work survives into the new run.
+
+        ``spare_executing_batches=True`` leaves a batch the loader is writing alone, since the write
+        cannot be stopped.
         """
+        executing_guard = "AND (s.job_state IS NULL OR s.job_state != 'executing')" if spare_executing_batches else ""
         progress_guard = (
             f"""AND NOT EXISTS (
                     SELECT 1
@@ -1696,6 +1733,7 @@ class BatchQueue:
         cursor = conn.execute(
             _bulk_fail_dual_write_sql(
                 f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                {executing_guard}
                 {progress_guard}"""
             ),
             {
@@ -1706,6 +1744,129 @@ class BatchQueue:
             },
         )
         return cursor.rowcount or 0
+
+    @staticmethod
+    def fence_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        run_uuids: list[str],
+        team_id: int,
+        schema_id: str,
+        source_id: str,
+        job_id: str,
+        resource_name: str,
+        sync_type: str,
+    ) -> int:
+        """Keep every batch of these runs out of the loader from now on, including ones not queued yet.
+
+        A timed-out attempt can still be running and queue batches after its retry has taken over.
+        Each run gets one superseded marker row, and the claim gate never claims a batch of a run
+        with a failed row. The reconcile sweep skips superseded rows, and `fail_run` supersedes the
+        batches such an attempt queues later, so the job does not fail.
+        Returns how many runs were fenced; a run fenced before is skipped.
+        """
+        fenced = 0
+        for run_uuid in run_uuids:
+            cursor = conn.execute(
+                f"""
+                WITH marker AS (
+                    INSERT INTO {BATCH_TABLE} (
+                        team_id, schema_id, source_id, job_id, run_uuid,
+                        batch_index, s3_path, row_count, byte_size, is_final_batch,
+                        sync_type, cumulative_row_count, resource_name,
+                        latest_state, latest_attempt, state_changed_at, superseded, created_at
+                    )
+                    SELECT
+                        %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s::varchar,
+                        %(fence_index)s, '', 0, 0, FALSE,
+                        %(sync_type)s, 0, %(resource_name)s,
+                        'failed', 0, now(), TRUE, now()
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM {BATCH_TABLE}
+                        WHERE run_uuid = %(run_uuid)s::varchar
+                            AND batch_index = %(fence_index)s
+                            AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    )
+                    RETURNING id, created_at
+                )
+                INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+                SELECT id, 'failed', 0, now(), %(error_response)s, created_at
+                FROM marker
+                """,
+                {
+                    "team_id": team_id,
+                    "schema_id": schema_id,
+                    "source_id": source_id,
+                    "job_id": job_id,
+                    "run_uuid": run_uuid,
+                    "fence_index": RUN_FENCE_BATCH_INDEX,
+                    "sync_type": sync_type,
+                    "resource_name": resource_name,
+                    "error_response": json.dumps({"error": "fenced by a newer attempt", "superseded": True}),
+                },
+            )
+            fenced += cursor.rowcount or 0
+        return fenced
+
+    @staticmethod
+    def settle_earlier_attempts(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        current_run_uuid: str,
+    ) -> EarlierAttempts:
+        """Supersede every unloaded batch of the job's earlier attempts and report what they loaded.
+
+        A batch the loader is writing cannot be stopped, so it is left alone. Its rows can land after
+        the caller reads the watermark, and the loader drops them from the newer attempt's batches
+        (see `_drop_rows_the_job_loaded` in `load/processor.py`).
+
+        Loaded batches form a prefix of each attempt, because the loader writes a run's batches in
+        order, and a later attempt starts after the earlier ones. So the newest loaded batch holds
+        the highest cursor. A final-only marker repeats its run's last batch, so rows are counted
+        once per batch index.
+        """
+        BatchQueue.supersede_other_runs(
+            conn,
+            job_id=job_id,
+            current_run_uuid=current_run_uuid,
+            spare_runs_with_progress=False,
+            spare_executing_batches=True,
+        )
+        earlier_batches = f"""
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND b.run_uuid != %(current_run_uuid)s
+                AND b.batch_index != {RUN_FENCE_BATCH_INDEX}
+        """
+        parameters = {"job_id": job_id, "current_run_uuid": current_run_uuid}
+        loaded = conn.execute(
+            f"""
+            SELECT COALESCE(sum(row_count), 0)
+            FROM (
+                SELECT DISTINCT ON (b.run_uuid, b.batch_index) b.row_count
+                {earlier_batches}
+                    AND b.latest_state = 'succeeded'
+            ) loaded
+            """,
+            parameters,
+        ).fetchone()
+        newest_loaded = conn.execute(
+            f"""
+            SELECT b.metadata -> 'incremental_last_value'
+            {earlier_batches}
+                AND b.latest_state = 'succeeded'
+            ORDER BY b.created_at DESC, b.batch_index DESC
+            LIMIT 1
+            """,
+            parameters,
+        ).fetchone()
+        return EarlierAttempts(
+            loaded_rows=int(loaded[0]) if loaded else 0,
+            loaded_last_value=newest_loaded[0] if newest_loaded else None,
+        )
 
     @staticmethod
     async def get_failed_runs(

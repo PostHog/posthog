@@ -13,6 +13,7 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
+from products.warehouse_sources.backend.models.external_data_schema import WATERMARK_JOB_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
+    _drop_rows_the_job_loaded,
     _enrich_cdc_rows,
     _get_write_type,
     _mark_job_completed,
@@ -41,7 +43,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_message,
     process_messages,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+from products.warehouse_sources.backend.types import IncrementalFieldType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
 
 
@@ -921,6 +925,125 @@ class TestCrossRunKeyResolution:
         assert commit_covers_batch(set_commit, "run-1", 3)
         assert commit_covers_batch(set_commit, "run-2", 0)
         assert not commit_covers_batch(set_commit, "run-2", 1)
+
+
+def _with_cursors(messages: list[dict[str, Any]], cursors: list[int | None]) -> list[dict[str, Any]]:
+    return [{**message, "incremental_last_value": cursor} for message, cursor in zip(messages, cursors)]
+
+
+class TestLoadedCursorCommit:
+    @parameterized.expand(
+        [
+            (
+                "fresh_batch",
+                _with_cursors(_set_messages(1, sync_type="append", final=False), [9]),
+                False,
+                [(9, "job-1")],
+            ),
+            (
+                "redelivered_batch",
+                _with_cursors(_set_messages(1, sync_type="append", final=False), [9]),
+                True,
+                [(9, "job-1")],
+            ),
+            (
+                "set_commits_its_last_cursor",
+                _with_cursors(_set_messages(2, sync_type="append", final=False), [5, 9]),
+                False,
+                [(9, "job-1")],
+            ),
+            (
+                "set_spanning_jobs_commits_each_jobs_last_cursor",
+                _with_cursors(
+                    _run_messages("run-1", start=3, count=2, final=True, sync_type="append")
+                    + _run_messages("run-2", start=0, count=1, final=False, sync_type="append", is_resume=True),
+                    [5, 9, 12],
+                ),
+                False,
+                [(9, "job-1"), (12, "job-2")],
+            ),
+            (
+                "batch_without_a_cursor",
+                _with_cursors(_set_messages(1, sync_type="append", final=False), [None]),
+                False,
+                [],
+            ),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed")
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_commits_the_cursor_of_the_loaded_rows(
+        self,
+        _case: str,
+        messages: list[dict[str, Any]],
+        already_processed: bool,
+        committed: list[tuple[int, str]],
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        mock_already: MagicMock,
+        _read: MagicMock,
+        _post_load: AsyncMock,
+        _mark_completed: MagicMock,
+        _ducklake: MagicMock,
+        _trigger: MagicMock,
+        _mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        job = MagicMock()
+        job.schema.incremental_field = None
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
+        mock_already.return_value = already_processed
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+
+        if len(messages) == 1:
+            process_message(messages[0])
+        else:
+            process_messages(messages)
+
+        advance = job.schema.advance_incremental_field_last_value
+        assert [(call.args[0], call.kwargs["job_id"]) for call in advance.call_args_list] == committed
+
+
+class TestDropRowsTheJobLoaded:
+    @parameterized.expand(
+        [
+            ("rows_the_job_loaded", "job-1", 3, 9, [4, 5]),
+            ("every_row_the_job_loaded", "job-1", 9, 9, []),
+            ("watermark_of_another_job", "job-0", 3, 9, [1, 2, 3, 4, 5]),
+            ("batch_without_a_cursor", "job-1", 3, None, [1, 2, 3, 4, 5]),
+        ]
+    )
+    def test_drops_only_the_prefix_the_batchs_job_already_loaded(
+        self, _case: str, stored_job: str, watermark: int, batch_cursor: int | None, expected: list[int]
+    ) -> None:
+        schema = ExternalDataSchema(
+            sync_type="append",
+            sync_type_config={
+                "incremental_field": "id",
+                "incremental_field_type": IncrementalFieldType.Integer,
+                "incremental_field_last_value": watermark,
+                WATERMARK_JOB_KEY: stored_job,
+            },
+        )
+        signal = ExportSignalMessage.from_dict(_message(job_id="job-1", incremental_last_value=batch_cursor))
+
+        kept = _drop_rows_the_job_loaded(pa.table({"id": [1, 2, 3, 4, 5]}), signal, schema)
+
+        assert kept["id"].to_pylist() == expected
 
 
 class TestPostImportTrigger:
