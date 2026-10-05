@@ -382,7 +382,11 @@ export interface llmEvaluationLogicActions {
         evaluationRuns: EvaluationRun[]
         payload?: void
     }
-    loadOlderEvaluationRuns: (_?: void) => void
+    loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => {
+        evaluation: EvaluationConfig | null
+        requestedTab: string | null
+    }
+    loadOlderEvaluationRuns: () => any
     loadOlderEvaluationRunsFailure: (
         error: string,
         errorObject?: any
@@ -392,14 +396,10 @@ export interface llmEvaluationLogicActions {
     }
     loadOlderEvaluationRunsSuccess: (
         evaluationRuns: EvaluationRun[],
-        payload?: void
+        payload?: any
     ) => {
         evaluationRuns: EvaluationRun[]
-        payload?: void
-    }
-    loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => {
-        evaluation: EvaluationConfig | null
-        requestedTab: string | null
+        payload?: any
     }
     loadRunsBackfill: () => any
     loadRunsBackfillFailure: (
@@ -439,9 +439,6 @@ export interface llmEvaluationLogicActions {
     }
     refreshEvaluationRuns: () => {
         value: true
-    }
-    setEvaluationRunsHasMore: (hasMore: boolean) => {
-        hasMore: boolean
     }
     resetEvaluation: () => {
         value: true
@@ -486,6 +483,9 @@ export interface llmEvaluationLogicActions {
     ) => {
         filter: EvaluationRunsFilter
         previousFilter: EvaluationRunsFilter
+    }
+    setEvaluationRunsHasMore: (hasMore: boolean) => {
+        hasMore: boolean
     }
     setEvaluationTarget: (target: EvaluationTarget) => {
         target: EvaluationTarget
