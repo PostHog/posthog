@@ -155,6 +155,11 @@ DELETION_ERROR_PATTERNS: tuple[str, ...] = (
     "ExternalDataJob matching query does not exist",
 )
 
+# A customer's Postgres or Redshift destination refused the connection (unreachable host, bad
+# credentials, unknown database). `PostgreSQLClient` already retried the connect before it raised
+# this, and batch exports also treats it as non-retryable. Its timeout message does not match.
+DESTINATION_CONNECTION_ERROR_PATTERNS: tuple[str, ...] = ("Please review connection configuration",)
+
 # Errors that fail identically on every attempt. Substring-matched because they
 # surface as generic exceptions; keep entries specific so transients can't match.
 # The disable set above, plus the permanent failures that must not stop the schedule: a deleted row
@@ -165,6 +170,7 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
     # refusing writes — every retry hits the same full disk until an operator frees space
     "XMinioStorageFull",
+    *DESTINATION_CONNECTION_ERROR_PATTERNS,
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than
@@ -178,6 +184,8 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # the schema or job was deleted (e.g. the user removed the source) while a batch for it
     # was still in flight — an upstream/customer action, not a pipeline bug
     *DELETION_ERROR_PATTERNS,
+    # the customer must fix the destination's connection settings or network access
+    *DESTINATION_CONNECTION_ERROR_PATTERNS,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.

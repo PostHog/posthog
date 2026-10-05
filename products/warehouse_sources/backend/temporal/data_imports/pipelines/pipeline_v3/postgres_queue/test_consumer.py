@@ -3836,17 +3836,31 @@ class TestIsRetryableError:
     # data that can never fit) to burning all retry attempts before failing.
 
     @pytest.mark.parametrize(
-        ("message", "retryable"),
+        ("message", "retryable", "expected_user_error"),
         [
-            ("value is too large to store in a Decimal128 of precision 24", False),
-            ("Primary key required for incremental syncs", False),
-            ("ExternalDataSchema matching query does not exist.", False),
-            ("ExternalDataJob matching query does not exist.", False),
-            ("connection reset by peer", True),
+            ("value is too large to store in a Decimal128 of precision 24", False, False),
+            ("Primary key required for incremental syncs", False, False),
+            ("ExternalDataSchema matching query does not exist.", False, True),
+            ("ExternalDataJob matching query does not exist.", False, True),
+            (
+                "my-pg: Failed to connect after 5 attempts due to an unrecoverable error. "
+                "Please review connection configuration. Error message: Network is unreachable",
+                False,
+                True,
+            ),
+            (
+                "my-pg: Timed-out while trying to connect for 5 attempts. Is the server running at "
+                "'db.example.com', port '5432' and accepting TCP/IP connections?",
+                True,
+                False,
+            ),
+            ("connection reset by peer", True, False),
         ],
     )
-    def test_pattern_classification(self, message: str, retryable: bool):
-        assert DeltaBatchConsumerAdapter().is_retryable_error(Exception(message)) is retryable
+    def test_pattern_classification(self, message: str, retryable: bool, expected_user_error: bool):
+        adapter = DeltaBatchConsumerAdapter()
+        assert adapter.is_retryable_error(Exception(message)) is retryable
+        assert adapter.is_expected_user_error(Exception(message)) is expected_user_error
 
 
 def _run_batches(count: int, *, run_uuid: str = "run-1", start: int = 0, **overrides: Any) -> list[PendingBatch]:
