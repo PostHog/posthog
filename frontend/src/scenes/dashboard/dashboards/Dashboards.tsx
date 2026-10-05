@@ -29,6 +29,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
 import { DashboardsTableContainer } from './DashboardsTable'
+import { NewDashboardMenu } from './NewDashboardMenu'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -58,7 +59,7 @@ export function Dashboards(): JSX.Element {
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <LemonModal
-                title="Dashboard templates"
+                title="Manage templates"
                 isOpen={templatesModalOpen}
                 onClose={() =>
                     router.actions.push(urls.dashboards(), {
@@ -101,11 +102,12 @@ export function Dashboards(): JSX.Element {
                                     type="primary"
                                     sideAction={{
                                         icon: <IconChevronDown />,
-                                        tooltip: 'View dashboard templates',
-                                        'aria-label': 'View dashboard templates',
-                                        'data-attr': 'view-dashboard-templates',
-                                        onClick: () =>
-                                            router.actions.push(urls.dashboards(), { ...searchParams, templates: '1' }),
+                                        'aria-label': 'More dashboard options',
+                                        'data-attr': 'new-dashboard-dropdown',
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: <NewDashboardMenu />,
+                                        },
                                     }}
                                 >
                                     New dashboard
