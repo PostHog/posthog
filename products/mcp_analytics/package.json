@@ -15,12 +15,14 @@
         "react-intersection-observer": "9.5.3"
     },
     "devDependencies": {
+        "@testing-library/react": "^14.3.1",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "react": "*"
     }
