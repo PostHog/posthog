@@ -16,10 +16,8 @@ name: Engineering analytics weekly digest
 #
 # Optional (the digest posts without the Depot contract rows when one is missing):
 #   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage.
-#   - secrets.DEPOT_CONTRACT_MINUTES: the GitHub Actions minutes the Depot contract includes.
-#   - secrets.DEPOT_CONTRACT_START and secrets.DEPOT_CONTRACT_END: the contract dates, as YYYY-MM-DD.
-#   The contract terms are secrets, not variables, because the public run log prints the value of
-#   every variable in a step's `env` and masks only secrets.
+#   - vars.DEPOT_CONTRACT_MINUTES: the GitHub Actions minutes the Depot contract includes.
+#   - vars.DEPOT_CONTRACT_START and vars.DEPOT_CONTRACT_END: the contract dates, as YYYY-MM-DD.
 
 on:
     schedule:
@@ -67,9 +65,9 @@ jobs:
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
-                  DEPOT_CONTRACT_MINUTES: ${{ secrets.DEPOT_CONTRACT_MINUTES }}
-                  DEPOT_CONTRACT_START: ${{ secrets.DEPOT_CONTRACT_START }}
-                  DEPOT_CONTRACT_END: ${{ secrets.DEPOT_CONTRACT_END }}
+                  DEPOT_CONTRACT_MINUTES: ${{ vars.DEPOT_CONTRACT_MINUTES }}
+                  DEPOT_CONTRACT_START: ${{ vars.DEPOT_CONTRACT_START }}
+                  DEPOT_CONTRACT_END: ${{ vars.DEPOT_CONTRACT_END }}
                   # Manual runs default to dry-run; the scheduled run posts (empty on schedule events).
                   DRY_RUN: ${{ inputs.dry_run }}
               run: node .github/scripts/eng-analytics-weekly-digest.mjs

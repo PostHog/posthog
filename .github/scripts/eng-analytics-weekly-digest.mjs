@@ -52,7 +52,7 @@ const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || ''
 const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
 const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
-// The Depot contract terms come from repository secrets because this repository is public.
+// The Depot contract terms come from repository variables, so a renewal needs no code change.
 const DEPOT_TOKEN = process.env.DEPOT_TOKEN || ''
 const DEPOT_CONTRACT_MINUTES = Number(process.env.DEPOT_CONTRACT_MINUTES || 0)
 const DEPOT_CONTRACT_START = process.env.DEPOT_CONTRACT_START || ''
