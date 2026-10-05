@@ -42,11 +42,21 @@ def print_hog_value(obj, marked: set | None = None):
     if isinstance(obj, dict) and is_hog_date(obj):
         return f"Date({obj['year']}, {obj['month']}, {obj['day']})"
     if isinstance(obj, dict) and is_hog_error(obj):
-        return (
-            f"{obj['type']}({print_hog_value(obj['message'])}"
-            + (f", {print_hog_value(obj['payload'])}" if "payload" in obj and obj["payload"] is not None else "")
-            + ")"
-        )
+        if id(obj) in marked:
+            return "null"
+        marked.add(id(obj))
+        try:
+            return (
+                f"{obj['type']}({print_hog_value(obj['message'], marked)}"
+                + (
+                    f", {print_hog_value(obj['payload'], marked)}"
+                    if "payload" in obj and obj["payload"] is not None
+                    else ""
+                )
+                + ")"
+            )
+        finally:
+            marked.remove(id(obj))
     if isinstance(obj, dict) and is_hog_closure(obj):
         return print_hog_value(obj["callable"], marked)
     if isinstance(obj, dict) and is_hog_callable(obj):
