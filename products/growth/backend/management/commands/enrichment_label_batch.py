@@ -32,6 +32,7 @@ from products.growth.backend.enrichment import gates
 from products.growth.backend.enrichment.fit_recomputation import apply_enrichment_result, label_needs_application
 from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.labels import (
+    OutputParseError,
     PromptConfigError,
     TransientToolError,
     ai_processing_approved,
@@ -348,14 +349,14 @@ class Command(BaseCommand):
                         circuit_open.set()
                 return
             except Exception as e:
-                capture_exception(
-                    e,
-                    {
-                        "organization_id": str(fetch.organization_id),
-                        "label": label,
-                        "prompt_version": config.version,
-                    },
-                )
+                properties = {
+                    "organization_id": str(fetch.organization_id),
+                    "label": label,
+                    "prompt_version": config.version,
+                }
+                if isinstance(e, OutputParseError) and e.raw_reply is not None:
+                    properties["raw_reply"] = e.raw_reply
+                capture_exception(e, properties)
                 with counts_lock:
                     counts["failed"] += 1
                     failure_streak += 1
