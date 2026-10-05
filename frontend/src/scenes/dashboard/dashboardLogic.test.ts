@@ -2300,13 +2300,20 @@ describe('dashboardLogic', () => {
             })
         })
 
-        it('keeps the error state during a retry and retries when the connection comes back', async () => {
+        it.each([
+            {
+                trigger: 'a request succeeds again',
+                recover: () => apiStatusLogic.actions.setInternetConnectionIssue(false),
+            },
+            {
+                trigger: 'the browser goes back online',
+                recover: () => window.dispatchEvent(new Event('online')),
+            },
+        ])('keeps the error state during a retry and retries when $trigger', async ({ recover }) => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.dashboardFailedToLoad).toBe(true)
 
-            await expectLogic(logic, () => {
-                apiStatusLogic.actions.setInternetConnectionIssue(false)
-            })
+            await expectLogic(logic, recover)
                 .toDispatchActions(['retryDashboardLoad', 'loadDashboard'])
                 .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: true })
                 .toDispatchActions(['loadDashboardFailure'])

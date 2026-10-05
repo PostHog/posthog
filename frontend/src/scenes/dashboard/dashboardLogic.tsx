@@ -3535,6 +3535,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.dashboardNotFound()
                 return
             }
+            // apiStatusLogic clears internetConnectionIssue only after a successful request, and a failed
+            // dashboard sends no more requests. So the browser's online event must also start the retry.
+            cache.disposables.add(
+                () => {
+                    const onOnline = (): void => {
+                        if (values.dashboardFailedToLoad && !values.dashboardLoading && !values.dashboardStreaming) {
+                            actions.retryDashboardLoad()
+                        }
+                    }
+                    window.addEventListener('online', onOnline)
+                    return () => window.removeEventListener('online', onOnline)
+                },
+                'connectionRecoveryOnline',
+                { pauseOnPageHidden: false }
+            )
             if (props.id) {
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
