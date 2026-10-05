@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
-import { AI_DECISION_UNSURE_LABEL, AiDecisionConfig, getAiDecisionAnswerLabels, getAiDecisionOptions } from './aiDecisionBranches'
+import {
+    AI_DECISION_UNSURE_LABEL,
+    AiDecisionConfig,
+    getAiDecisionAnswerLabels,
+    getAiDecisionOptions,
+} from './aiDecisionBranches'
 import type { HogflowTestResult } from './types'
 
 // The step's result as the workflow runtime returns it from a test run. A mocked run adds the rendered
@@ -45,7 +50,10 @@ function getAnswerKeys(config: AiDecisionConfig): string[] {
     return config.answer_type === 'yes_no' ? ['yes', 'no'] : getAiDecisionOptions(config).map((option) => option.name)
 }
 
-export function readAiDecisionTestOutcome(config: AiDecisionConfig, testResult: HogflowTestResult): AiDecisionTestOutcome {
+export function readAiDecisionTestOutcome(
+    config: AiDecisionConfig,
+    testResult: HogflowTestResult
+): AiDecisionTestOutcome {
     const read = readResult(testResult)
     if (!read.ok) {
         return { status: 'failed', message: read.message }
@@ -77,6 +85,19 @@ export function readAiDecisionContextPreview(testResult: HogflowTestResult): AiD
         return { status: 'failed', message: UNREADABLE_RESULT_MESSAGE }
     }
     return { status: 'rendered', context, bytes: context_bytes }
+}
+
+/** What the step sends the model for one person: the author's question and answers, and the rendered context. */
+export function buildAiDecisionRequestPreview(config: AiDecisionConfig, context: Record<string, unknown>): string {
+    const answers =
+        config.answer_type === 'yes_no'
+            ? { yes_means: config.yes_means ?? '', no_means: config.no_means ?? '' }
+            : {
+                  options: Object.fromEntries(
+                      getAiDecisionOptions(config).map((option) => [option.name, option.description ?? ''])
+                  ),
+              }
+    return JSON.stringify({ question: config.question, ...answers, context }, null, 2)
 }
 
 export function getTestRunErrorMessage(error: unknown): string {

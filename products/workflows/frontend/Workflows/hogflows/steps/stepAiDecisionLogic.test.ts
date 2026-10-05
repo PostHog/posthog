@@ -76,11 +76,7 @@ describe('stepAiDecisionLogic', () => {
     })
 
     it('adds a branch edge for a new option ahead of Unsure, labeled with the option name', () => {
-        setUpDecision({ unsure_enabled: true }, [
-            branch('track_a', 0),
-            branch('track_b', 1),
-            branch(EXIT_NODE_ID, 2),
-        ])
+        setUpDecision({ unsure_enabled: true }, [branch('track_a', 0), branch('track_b', 1), branch(EXIT_NODE_ID, 2)])
 
         logic.actions.addOption()
         logic.actions.setOption(2, { name: 'Developer' })
@@ -153,6 +149,24 @@ describe('stepAiDecisionLogic', () => {
         ])
         expect(canvasLabels()).toMatchObject({ branch_decide_2: 'Unsure' })
     })
+
+    it.each([
+        [10, 20, { yes_threshold: 10, no_threshold: 9 }],
+        [1, 20, { yes_threshold: 2, no_threshold: 1 }],
+        [50, 20, { yes_threshold: 50, no_threshold: 20 }],
+    ])(
+        'keeps the No band below a yes threshold of %s when Unsure turns on for Yes or no',
+        (yesThreshold, noThreshold, thresholds) => {
+            setUpDecision({ answer_type: 'yes_no', yes_threshold: yesThreshold, no_threshold: noThreshold }, [
+                branch('track_a', 0),
+                branch('track_b', 1),
+            ])
+
+            logic.actions.setUnsureEnabled(true)
+
+            expect(logic.values.config).toMatchObject(thresholds)
+        }
+    )
 
     it.each([
         ['leads to its own step', 'track_b', 'Clean up branching steps first'],
@@ -243,7 +257,7 @@ describe('stepAiDecisionLogic', () => {
     describe('test runs', () => {
         let invocationBodies: Record<string, unknown>[]
 
-        const answerTestRunsWith = (response: Record<string, unknown>): void => {
+        const useTestRunResponse = (response: Record<string, unknown>): void => {
             invocationBodies = []
             useMocks({
                 post: {
@@ -300,7 +314,7 @@ describe('stepAiDecisionLogic', () => {
                 branch(EXIT_NODE_ID, 2),
                 branch(EXIT_NODE_ID, 3),
             ])
-            answerTestRunsWith({ nextActionId: null, ...response })
+            useTestRunResponse({ nextActionId: null, ...response })
 
             await expectLogic(logic, () => logic.actions.runPersonTest()).toFinishAllListeners()
 
@@ -312,7 +326,10 @@ describe('stepAiDecisionLogic', () => {
 
         it('reads yes or no probabilities onto the Yes and No answers', async () => {
             setUpDecision({ answer_type: 'yes_no' }, [branch('track_a', 0), branch('track_b', 1)])
-            answerTestRunsWith({ status: 'success', execResult: { answer: 'no', probabilities: { yes: 0.3, no: 0.7 } } })
+            useTestRunResponse({
+                status: 'success',
+                execResult: { answer: 'no', probabilities: { yes: 0.3, no: 0.7 } },
+            })
 
             await expectLogic(logic, () => logic.actions.runPersonTest()).toFinishAllListeners()
 
@@ -328,7 +345,7 @@ describe('stepAiDecisionLogic', () => {
 
         it('measures what is sent from a mocked run that spends nothing', async () => {
             setUpDecision({}, [branch('track_a', 0), branch('track_b', 1)])
-            answerTestRunsWith({
+            useTestRunResponse({
                 status: 'success',
                 execResult: {
                     answer: 'Self-serve',

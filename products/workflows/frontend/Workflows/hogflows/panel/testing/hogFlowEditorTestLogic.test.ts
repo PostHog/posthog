@@ -551,6 +551,72 @@ describe('hogFlowEditorTestLogic', () => {
         })
     })
 
+    describe('mocked answer for an ai decision step', () => {
+        const decisionAction = {
+            id: 'decide',
+            type: 'ai_decision',
+            name: 'Pick a track',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                question: 'Which onboarding track fits this person?',
+                answer_type: 'pick_one',
+                options: [{ name: 'Self-serve' }, { name: 'Sales' }],
+                unsure_enabled: true,
+                inputs: {},
+            },
+        }
+
+        it('offers each answer and follows the one picked, without asking the model', async () => {
+            const invocationBodies: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations/': async ({ request }) => {
+                        invocationBodies.push((await request.json()) as Record<string, unknown>)
+                        return [200, { status: 'success', nextActionId: 'sales_track' }]
+                    },
+                },
+            })
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            workflowLogic({ id: 'test-workflow' }).actions.setWorkflowValue('actions', [
+                ...WORKFLOW_FIXTURE.actions,
+                decisionAction,
+            ])
+            hogFlowEditorLogic({ id: 'test-workflow' }).actions.setSelectedNodeId('decide')
+
+            expect(logic.values.mockAnswerOptions).toEqual([
+                { value: 'Self-serve', label: 'Self-serve' },
+                { value: 'Sales', label: 'Sales' },
+                { value: 'unsure', label: 'Unsure' },
+            ])
+
+            logic.actions.setTestInvocationValue('globals', '{}')
+            logic.actions.setTestInvocationValue('mock_answer', 'Sales')
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationSuccess',
+            ])
+
+            expect(invocationBodies).toEqual([
+                expect.objectContaining({
+                    mock_async_functions: true,
+                    mock_answer: 'Sales',
+                    current_action_id: 'decide',
+                }),
+            ])
+            expect(logic.values.nextActionId).toBe('sales_track')
+        })
+
+        it('offers no mocked answers for other steps and sends none', () => {
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            hogFlowEditorLogic({ id: 'test-workflow' }).actions.setSelectedNodeId('exit_node')
+
+            expect(logic.values.mockAnswerOptions).toEqual([])
+        })
+    })
+
     describe('accumulatedVariables reducer', () => {
         beforeEach(() => {
             logic = hogFlowEditorTestLogic({ id: 'test-workflow' })

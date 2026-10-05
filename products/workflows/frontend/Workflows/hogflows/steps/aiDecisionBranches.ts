@@ -12,6 +12,25 @@ export const MAX_AI_DECISION_OPTIONS = 16
 
 const YES_NO_ANSWER_LABELS = ['Yes', 'No']
 
+// The server's defaults for a config saved without them (AIDecisionConfigSerializer).
+const DEFAULT_YES_THRESHOLD = 50
+const DEFAULT_NO_THRESHOLD = 20
+const DEFAULT_MIN_PICK_PROBABILITY = 60
+
+export interface AiDecisionThresholds {
+    yesThreshold: number
+    noThreshold: number
+    minPickProbability: number
+}
+
+export function getAiDecisionThresholds(config: AiDecisionConfig): AiDecisionThresholds {
+    return {
+        yesThreshold: config.yes_threshold ?? DEFAULT_YES_THRESHOLD,
+        noThreshold: config.no_threshold ?? DEFAULT_NO_THRESHOLD,
+        minPickProbability: config.min_pick_probability ?? DEFAULT_MIN_PICK_PROBABILITY,
+    }
+}
+
 export function getAiDecisionOptions(config: AiDecisionConfig): AiDecisionOption[] {
     return config.options ?? []
 }
@@ -38,6 +57,17 @@ export function getAiDecisionEdgeLabel(config: AiDecisionConfig, edge: HogFlowEd
     return getAiDecisionBranchLabels(config)[index] ?? `Answer ${index + 1}`
 }
 
+/** The answers a mocked test run can be told to give, as the runtime names them. */
+export function getAiDecisionMockAnswerOptions(config: AiDecisionConfig): { value: string; label: string }[] {
+    const answers =
+        config.answer_type === 'yes_no'
+            ? YES_NO_ANSWER_LABELS.map((label) => ({ value: label.toLowerCase(), label }))
+            : getAiDecisionOptions(config)
+                  .filter((option) => option.name.trim())
+                  .map((option) => ({ value: option.name, label: option.name }))
+    return config.unsure_enabled ? [...answers, { value: 'unsure', label: AI_DECISION_UNSURE_LABEL }] : answers
+}
+
 const EMPTY_OPTION: AiDecisionOption = { name: '' }
 
 /**
@@ -56,6 +86,21 @@ export function withAiDecisionAnswerType(config: AiDecisionConfig, answerType: A
                   ),
               ]
     return { ...config, answer_type: answerType, options }
+}
+
+/** The server rejects a yes or no Unsure band whose no threshold is not below the yes threshold. */
+export function withAiDecisionUnsure(config: AiDecisionConfig, enabled: boolean): AiDecisionConfig {
+    const { yesThreshold, noThreshold } = getAiDecisionThresholds(config)
+    if (!enabled || config.answer_type !== 'yes_no' || noThreshold < yesThreshold) {
+        return { ...config, unsure_enabled: enabled }
+    }
+    const nextYesThreshold = Math.max(yesThreshold, 2)
+    return {
+        ...config,
+        unsure_enabled: true,
+        yes_threshold: nextYesThreshold,
+        no_threshold: nextYesThreshold - 1,
+    }
 }
 
 export function withAiDecisionOptionAdded(config: AiDecisionConfig): AiDecisionConfig {

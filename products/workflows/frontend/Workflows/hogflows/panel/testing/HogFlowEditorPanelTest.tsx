@@ -9,6 +9,7 @@ import {
     LemonCollapse,
     LemonDivider,
     LemonLabel,
+    LemonSelect,
     LemonSwitch,
     Link,
     ProfilePicture,
@@ -60,6 +61,8 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
         eventPanelOpen,
         eventSelectorOpen,
         lastSearchedEventName,
+        mockAnswerOptions,
+        testInvocation,
     } = useValues(hogFlowEditorTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -174,6 +177,23 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                     </>
                 )}
             </div>
+            {mockAnswerOptions.length > 0 && testInvocation.mock_async_functions && (
+                <div className="px-2 pb-2">
+                    <LemonField
+                        name="mock_answer"
+                        label="Mocked answer"
+                        help="The answer this AI decision gives in a mocked run. It doesn't ask the model and spends no AI credits."
+                    >
+                        <LemonSelect
+                            size="small"
+                            fullWidth
+                            placeholder="The first answer"
+                            options={mockAnswerOptions}
+                            data-attr="workflow-test-panel-mock-answer"
+                        />
+                    </LemonField>
+                </div>
+            )}
             <LemonDivider className="my-0" />
             <div className="flex flex-col flex-1 overflow-y-auto">
                 {/* Event Information */}

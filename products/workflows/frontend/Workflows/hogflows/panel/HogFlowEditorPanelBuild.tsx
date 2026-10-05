@@ -7,6 +7,7 @@ import { LemonButton, LemonDropdown, LemonInput, LemonTag, SpinnerOverlay } from
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogFunctionTemplateType } from '~/types'
@@ -21,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
 import { setHogFlowDragImage } from '../dragPreview'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
+import { getAiDecisionPaletteEntry } from '../steps/aiDecisionAvailability'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { DEFAULT_DELAY_DURATION, getDelayDescription } from '../steps/stepDelayLogic'
@@ -91,6 +93,27 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
         inputs: { non_failure_status_codes: { value: [409] } },
     },
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
+}
+
+const AI_DECISION_ACTION_NODE: CreateActionType = {
+    type: 'ai_decision',
+    name: 'AI decision (Jeeeeeeeeev)',
+    description: 'Ask a question about the person and send each answer down its own path.',
+    branchEdges: 2,
+    config: {
+        question: '',
+        answer_type: 'yes_no',
+        options: [],
+        yes_threshold: 50,
+        unsure_enabled: false,
+        min_pick_probability: 60,
+        no_threshold: 20,
+        inputs: {},
+    },
+    // An event trigger always carries an event name, so it is a field the model can read from the start.
+    getDefaultInputs: (workflow) => ({
+        context: { value: workflow.trigger?.type === 'event' ? { event: '{event.event}' } : {}, templating: 'hog' },
+    }),
 }
 
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
@@ -191,10 +214,12 @@ const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
 function HogFlowEditorToolbarNode({
     action,
     onActionSelect,
+    disabledReason,
     children,
 }: {
     action: CreateActionType
     onActionSelect?: (action: CreateActionType) => void
+    disabledReason?: string
     children?: React.ReactNode
 }): JSX.Element | null {
     const { hideDropzones, setNodeToBeAdded, showDropzones } = useActions(hogFlowEditorLogic)
@@ -222,14 +247,15 @@ function HogFlowEditorToolbarNode({
     return (
         <>
             <div
-                draggable={!onActionSelect}
-                onDragStart={onActionSelect ? undefined : onDragStart}
-                onDragEnd={onActionSelect ? undefined : onDragEnd}
+                draggable={!onActionSelect && !disabledReason}
+                onDragStart={onActionSelect || disabledReason ? undefined : onDragStart}
+                onDragEnd={onActionSelect || disabledReason ? undefined : onDragEnd}
             >
                 <LemonButton
                     icon={<span style={{ color: step.color }}>{step.icon}</span>}
-                    sideIcon={onActionSelect ? undefined : <IconDrag />}
+                    sideIcon={onActionSelect || disabledReason ? undefined : <IconDrag />}
                     fullWidth
+                    disabledReason={disabledReason}
                     onClick={onActionSelect ? () => onActionSelect(action) : undefined}
                 >
                     {children ?? action.name}
@@ -347,6 +373,11 @@ export function HogFlowEditorPanelBuild({
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { isRowScopedTrigger } = useValues(workflowLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const aiDecisionEntry = getAiDecisionPaletteEntry({
+        flagEnabled: !!featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_DECISION],
+        dataProcessingAccepted,
+    })
 
     const registeredCategories = getRegisteredActionNodeCategories(featureFlags)
 
@@ -424,7 +455,7 @@ export function HogFlowEditorPanelBuild({
                 ))}
             </HogFlowEditorToolbarSection>
 
-            {logicNodes.length > 0 && (
+            {(logicNodes.length > 0 || aiDecisionEntry) && (
                 <HogFlowEditorToolbarSection title="Audience split">
                     {logicNodes.map((action, index) => (
                         <HogFlowEditorToolbarNode
@@ -433,6 +464,19 @@ export function HogFlowEditorPanelBuild({
                             onActionSelect={onActionSelect}
                         />
                     ))}
+                    {aiDecisionEntry && (
+                        <HogFlowEditorToolbarNode
+                            key="ai-decision"
+                            action={AI_DECISION_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                            disabledReason={aiDecisionEntry.disabledReason}
+                        >
+                            <span className="inline-flex items-center gap-1.5">
+                                {AI_DECISION_ACTION_NODE.name}
+                                <LemonTag type="completion">Beta</LemonTag>
+                            </span>
+                        </HogFlowEditorToolbarNode>
+                    )}
                 </HogFlowEditorToolbarSection>
             )}
 

@@ -196,7 +196,7 @@ export type OutputMappingSuggestion = {
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
-    getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
+    getDefaultInputs?: (workflow: HogFlow) => Record<string, CyclotronInputType> | undefined
     getOutputMappingSuggestions?: () => Promise<OutputMappingSuggestion[]>
 }
 
@@ -2733,7 +2733,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     let config = partialNewAction.config
                     if (!isHogFlowActionNode) {
-                        const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
+                        const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.(values.workflow)
                         if (dynamicInputs && 'inputs' in config) {
                             config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
                         }

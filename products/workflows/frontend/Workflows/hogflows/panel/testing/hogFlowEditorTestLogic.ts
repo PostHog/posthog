@@ -44,6 +44,7 @@ import type { TriggerAction } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import type { HogFlowEditorMode } from '../../hogFlowEditorLogic'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
+import { getAiDecisionMockAnswerOptions } from '../../steps/aiDecisionBranches'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent, createExampleEventForTrigger } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
@@ -57,6 +58,16 @@ const EXTENDED_SEARCH_RANGE = `-${EXTENDED_SEARCH_DAYS}d`
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
+    mock_answer?: string
+}
+
+// A picked answer only applies to the AI decision step it was picked for, and only while it is mocked.
+function getMockAnswerToSend(
+    testInvocation: HogflowTestInvocation,
+    mockAnswerOptions: { value: string }[]
+): string | undefined {
+    const isOfferedAnswer = mockAnswerOptions.some((option) => option.value === testInvocation.mock_answer)
+    return testInvocation.mock_async_functions && isOfferedAnswer ? testInvocation.mock_answer : undefined
 }
 
 // HogQL tuple columns appended to the events query so we can resolve each group type's
@@ -160,6 +171,10 @@ export interface hogFlowEditorTestLogicValues {
     isTestInvocationValid: boolean
     lastSearchedEventName: string | null
     matchingFilters: PropertyGroupFilter
+    mockAnswerOptions: {
+        label: string
+        value: string
+    }[]
     nextActionId: string | null
     noMatchingEvents: boolean
     sampleGlobals: CyclotronJobInvocationGlobals | null
@@ -720,6 +735,13 @@ export interface hogFlowEditorTestLogicMeta {
                   } & Record<string, unknown>)
                 | null
         ) => PropertyGroupFilter
+        mockAnswerOptions: (
+            workflow: HogFlow,
+            selectedNodeId: string | null
+        ) => {
+            label: string
+            value: string
+        }[]
         workflowVariableDefaults: (workflow: HogFlow) => Record<string, any>
     }
 }
@@ -1148,6 +1170,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             { resultEqualityCheck: equal },
         ],
+        mockAnswerOptions: [
+            (s) => [s.workflow, s.selectedNodeId],
+            (workflow: HogFlow, selectedNodeId: string | null): { value: string; label: string }[] => {
+                const action = workflow.actions.find((a) => a.id === selectedNodeId)
+                return action?.type === 'ai_decision' ? getAiDecisionMockAnswerOptions(action.config) : []
+            },
+        ],
         workflowVariableDefaults: [
             (s) => [s.workflow],
             (workflow: import('../../types').HogFlow): Record<string, any> =>
@@ -1188,6 +1217,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         },
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,
+                        mock_answer: getMockAnswerToSend(testInvocation, values.mockAnswerOptions),
                     })
 
                     const result: HogflowTestResult = {

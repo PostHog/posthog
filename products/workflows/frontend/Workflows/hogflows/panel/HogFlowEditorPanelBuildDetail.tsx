@@ -71,6 +71,8 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     // A real run of this step starts an agent and parks for minutes, so the panel offers the
     // known result fields instead of a live test call.
     const isAiTaskAction = action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+    // A live call of an AI decision spends AI credits, so the result fields are typed instead of picked.
+    const isAiDecisionAction = action.type === 'ai_decision'
 
     const isBranchingStep = ['conditional_branch', 'wait_until_condition', 'random_cohort_branch'].includes(action.type)
     const actionFilters = action.filters ?? {}
@@ -242,7 +244,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                         info={
                                                             isAiTaskAction
                                                                 ? "Specify a path within the step result to store. A path like 'output.verdict' asks the agent to return that field, typed like the variable. Leave blank for the entire result."
-                                                                : "Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
+                                                                : isAiDecisionAction
+                                                                  ? "Specify a field of the decision to store: 'answer' for the answer, or 'probability' for how likely it is, from 0 to 1. Leave blank for the entire result."
+                                                                  : "Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
                                                         }
                                                         className="w-full"
                                                     >
@@ -255,7 +259,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                             value={mapping.result_path}
                                                             onChange={(value) => updateMappingResultPath(index, value)}
                                                             placeholder={
-                                                                isAiTaskAction ? 'output.verdict' : 'body.results[0].id'
+                                                                isAiTaskAction
+                                                                    ? 'output.verdict'
+                                                                    : isAiDecisionAction
+                                                                      ? 'answer'
+                                                                      : 'body.results[0].id'
                                                             }
                                                             size="small"
                                                         />
@@ -289,7 +297,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >
                                                     Add mapping
                                                 </LemonButton>
-                                                {!isAiTaskAction && (
+                                                {!isAiTaskAction && !isAiDecisionAction && (
                                                     <LemonButton
                                                         icon={<IconPlay />}
                                                         size="small"

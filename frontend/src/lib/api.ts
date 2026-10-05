@@ -248,7 +248,7 @@ import type {
     SourceConfigMapResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowInvocationApi, HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -6463,6 +6463,7 @@ const api = {
                 clickhouse_event?: any
                 invocation_id?: string
                 current_action_id?: string
+                mock_answer?: HogFlowInvocationApi['mock_answer']
             }
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
