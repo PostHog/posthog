@@ -6,7 +6,8 @@ import http.client
 import urllib.error
 import urllib.parse
 import importlib.util
-from collections.abc import Mapping, Sequence
+import urllib.request
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -478,8 +479,10 @@ class FakeResponse:
         return None
 
 
-def checks_opener(checks: Mapping[int, Mapping[str, Sequence[dict[str, Any]] | None]]) -> Any:
-    def opener(request: Any, timeout: int) -> FakeResponse:
+def checks_opener(
+    checks: Mapping[int, Mapping[str, Sequence[dict[str, Any]] | None]],
+) -> Callable[[urllib.request.Request, int], FakeResponse]:
+    def opener(request: urllib.request.Request, timeout: int) -> FakeResponse:
         query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
         name = query["check_name"][0]
         runs = checks[int(query["app_id"][0])][name]
@@ -746,15 +749,39 @@ def test_relay_reads_the_current_attempt_across_apps(
 @pytest.mark.parametrize(
     "posted,unreadable,expected",
     [
-        pytest.param(relay.GATE_CHECK, None, ["success"], id="Depot's name from an older workflow revision"),
-        pytest.param(relay.GATE_CHECK, relay.MIRRORED_GATE_CHECK, None, id="a failed read of the mirror's name"),
+        pytest.param([(relay.GATE_CHECK, "success")], None, "success", id="an older workflow revision"),
+        pytest.param(
+            [(relay.GATE_CHECK, "success")],
+            relay.MIRRORED_GATE_CHECK,
+            None,
+            id="a failed read of the mirror's new name",
+        ),
+        pytest.param(
+            [(relay.MIRRORED_GATE_CHECK, "success")],
+            relay.GATE_CHECK,
+            None,
+            id="a failed read of the mirror's old name",
+        ),
+        pytest.param(
+            [(relay.GATE_CHECK, "success"), (relay.MIRRORED_GATE_CHECK, "failure")],
+            None,
+            "failure",
+            id="a newer failed attempt under the new name",
+        ),
+        pytest.param(
+            [(relay.MIRRORED_GATE_CHECK, "success"), (relay.GATE_CHECK, "failure")],
+            None,
+            "failure",
+            id="a newer failed attempt under the old name",
+        ),
     ],
 )
 def test_reader_reads_the_mirrored_gate_under_both_names(
-    posted: str, unreadable: str | None, expected: list[str] | None
+    posted: Sequence[tuple[str, str]], unreadable: str | None, expected: str | None
 ) -> None:
     mirror: dict[str, list[dict[str, Any]] | None] = {relay.GATE_CHECK: [], relay.MIRRORED_GATE_CHECK: []}
-    mirror[posted] = [api_run(5, "success", "w1", "a1")]
+    for index, (name, state) in enumerate(posted, start=1):
+        mirror[name] = [api_run(index, state, "w1", f"a{index}")]
     if unreadable:
         mirror[unreadable] = None
     reader = relay.CheckRunReader(
@@ -768,4 +795,6 @@ def test_reader_reads_the_mirrored_gate_under_both_names(
         with pytest.raises(relay.ReadFailedError):
             reader.read(relay.GATE_CHECK)
         return
-    assert [check.state for check in reader.read(relay.GATE_CHECK)] == expected
+    current = relay.current_check(reader.read(relay.GATE_CHECK), "w1")
+    assert current is not None
+    assert current.state == expected

@@ -273,7 +273,8 @@ class CheckRunReader:
         """
         runs: list[CheckRun] = []
         for app_id in self._app_ids:
-            for app_name in MIRROR_NAMES.get(name, (name,)) if app_id == MIRROR_APP_ID else (name,):
+            app_names = MIRROR_NAMES.get(name, (name,)) if app_id == MIRROR_APP_ID else (name,)
+            for app_name in app_names:
                 app_runs = self._read_app(app_name, app_id)
                 if app_runs is None:
                     raise ReadFailedError(f"Cannot read {app_name}")
