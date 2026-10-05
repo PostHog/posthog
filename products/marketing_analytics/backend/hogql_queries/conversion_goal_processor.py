@@ -1225,21 +1225,16 @@ class ConversionGoalProcessor:
                 ast.Field(chain=["events", "person_id"]),
                 ast.Alias(
                     alias="first_conversion",
-                    expr=ast.Call(name="minIf", args=[conversion_timestamp, conversion_condition]),
+                    expr=ast.Call(name="min", args=[conversion_timestamp]),
                 ),
                 ast.Alias(
                     alias="last_conversion",
-                    expr=ast.Call(name="maxIf", args=[conversion_timestamp, conversion_condition]),
+                    expr=ast.Call(name="max", args=[conversion_timestamp]),
                 ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=final_where,
+            where=ast.And(exprs=[final_where, conversion_condition]),
             group_by=[ast.Field(chain=["events", "person_id"])],
-            having=ast.CompareOperation(
-                left=ast.Call(name="countIf", args=[conversion_condition]),
-                op=ast.CompareOperationOp.Gt,
-                right=ast.Constant(value=0),
-            ),
         )
 
     def _build_comprehensive_where_clause(
@@ -1632,6 +1627,10 @@ class ConversionGoalProcessor:
                 ast.Call(
                     name="arraySort",
                     args=[
+                        ast.Lambda(
+                            args=["_tp"],
+                            expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
+                        ),
                         ast.Call(
                             name="arrayFilter",
                             args=[
@@ -1654,7 +1653,7 @@ class ConversionGoalProcessor:
                                 ),
                                 ast.Field(chain=["utm_touchpoints"]),
                             ],
-                        )
+                        ),
                     ],
                 ),
                 ast.Constant(value=-MAX_TOUCHPOINTS_PER_PERSON),
