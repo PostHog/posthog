@@ -2,6 +2,7 @@ import type { ContentBlock } from "@agentclientprotocol/sdk";
 import {
   type AcpMessage,
   type AgentSession,
+  type AttachmentRef,
   type OptimisticItem,
   type PermissionRequest,
   type QueuedMessage,
@@ -313,6 +314,7 @@ export const sessionStoreSetters = {
     taskId: string,
     content: string,
     rawPrompt?: string | ContentBlock[],
+    attachments?: AttachmentRef[],
   ) => {
     const id = `queue-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     sessionStore.setState((state) => {
@@ -325,6 +327,7 @@ export const sessionStoreSetters = {
           id,
           content,
           rawPrompt,
+          attachments,
           queuedAt: Date.now(),
         });
       }
@@ -390,7 +393,11 @@ export const sessionStoreSetters = {
   updateQueuedMessage: (
     taskId: string,
     messageId: string,
-    patch: { content: string; rawPrompt?: string | ContentBlock[] },
+    patch: {
+      content: string;
+      rawPrompt?: string | ContentBlock[];
+      attachments?: AttachmentRef[];
+    },
   ) => {
     sessionStore.setState((state) => {
       const taskRunId = state.taskIdIndex[taskId];
@@ -401,6 +408,7 @@ export const sessionStoreSetters = {
       if (!message) return;
       message.content = patch.content;
       message.rawPrompt = patch.rawPrompt;
+      message.attachments = patch.attachments;
     });
   },
 

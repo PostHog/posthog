@@ -73,6 +73,8 @@ export { getTaskRepository, parseRepository } from "./repository";
 export { rewriteSavedLocation } from "./route-migrations";
 export {
   type AgentSession,
+  type AttachmentRef,
+  type CloudArtifactRef,
   cycleModeOption,
   flattenSelectOptions,
   getConfigOptionByCategory,
