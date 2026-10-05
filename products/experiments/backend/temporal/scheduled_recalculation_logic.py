@@ -7,7 +7,6 @@ workflow's activities in `scheduled_recalculation_activities` are thin wrappers 
 from datetime import timedelta
 from typing import Final
 
-from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -127,8 +126,7 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
 
 
 def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecision | None:
-    """Skip when a run is already active, or when one finished inside the freshness window on a
-    window of data that is itself recent.
+    """Skip when a run is already active, or when one finished inside the freshness window.
 
     `timeseries_sync` rows never count toward freshness: they carry a timeseries run's window, not a
     full recalculation, and counting one would skip the experiment that needs the real run.
@@ -150,18 +148,12 @@ def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecis
     if active is not None:
         return SkipDecision(reason=SKIP_ACTIVE_RUN, detail={"existing_recalculation_id": str(active.id)})
 
-    freshness_cutoff = timezone.now() - MIN_TIME_SINCE_LAST_RECALCULATION
     latest = (
         scoped.filter(
             experiment=experiment,
             completed_at__isnull=False,
-            completed_at__gte=freshness_cutoff,
+            completed_at__gte=timezone.now() - MIN_TIME_SINCE_LAST_RECALCULATION,
         )
-        # A reused window makes a run recent without making its data recent: `_resolve_query_to`
-        # keeps the previous `query_to` for metric_config_change, manual_retry and heal_latest_run,
-        # and the page heals itself on load, so this is a routine shape rather than a rare one. A
-        # null `query_to` still counts, because such a run resolved no window to judge.
-        .filter(Q(query_to__isnull=True) | Q(query_to__gte=freshness_cutoff))
         .exclude(trigger=ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC)
         .order_by("-completed_at")
         .first()
