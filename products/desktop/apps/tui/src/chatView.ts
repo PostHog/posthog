@@ -2,11 +2,12 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
   AssistantMessageComponent,
   getMarkdownTheme,
-  UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
   Container,
+  Markdown,
+  type MarkdownTheme,
   ScrollView,
   Spacer,
   sliceByColumn,
@@ -19,7 +20,7 @@ import { inverseCells } from "./highlight";
 import { savedImage } from "./images";
 import { linkAt } from "./links";
 import type { Click } from "./mouse";
-import { orange } from "./theme";
+import { orange, userMessageBackground } from "./theme";
 import {
   type ShellLine,
   type ToolLine,
@@ -234,6 +235,36 @@ class SentImages implements Component {
   invalidate(): void {}
 }
 
+const BACKGROUND_RESETS = new RegExp(`${"\u001b"}\\[(?:0|49)?m`, "g");
+const CARET = "❯ ";
+
+// A message the user sent, as the composer showed it: the caret before its first line, on a soft fill across the pane.
+class UserMessage implements Component {
+  private readonly markdown: Markdown;
+
+  constructor(text: string, theme: MarkdownTheme) {
+    this.markdown = new Markdown(text, 0, 0, theme, undefined, {
+      preserveOrderedListMarkers: true,
+      preserveBackslashEscapes: true,
+    });
+  }
+
+  render(width: number): string[] {
+    const background = userMessageBackground();
+    // One cell of padding each side, and the caret's width.
+    const inner = Math.max(1, width - 2 - visibleWidth(CARET));
+    return this.markdown.render(inner).map((line, index) => {
+      const row = ` ${index === 0 ? CARET : " ".repeat(visibleWidth(CARET))}${line}`;
+      const padded = `${row}${" ".repeat(Math.max(0, width - visibleWidth(row)))}`;
+      return `${background}${padded.replace(BACKGROUND_RESETS, (reset) => `${reset}${background}`)}\u001b[49m`;
+    });
+  }
+
+  invalidate(): void {
+    this.markdown.invalidate();
+  }
+}
+
 // A fence line, marked by an SGR code that changes nothing, so it can be found and dropped after pi renders it.
 const FENCE = "\u001b[10m";
 
@@ -254,7 +285,7 @@ function componentFor(line: TranscriptLine): Component {
   const markdown = getMarkdownTheme();
   switch (line.kind) {
     case "user":
-      return new UserMessageComponent(line.text, markdown);
+      return new UserMessage(line.text, markdown);
     case "assistant":
       return new CodeBlocks(
         new AssistantMessageComponent(assistantMessage(line.text), false, {
@@ -287,6 +318,8 @@ export class ChatView {
   private rows: { id: string; start: number; end: number }[] = [];
   // The saved file behind each image row, by its item's id.
   private imageFiles = new Map<string, string[]>();
+  // Items that are the user's messages, whose caret a copy leaves out.
+  private userItems = new Set<string>();
   // The lines on screen after the last render, for finding the link under a click.
   private shown: string[] = [];
   // Every transcript line and the chat's size at the last render, for selections.
@@ -307,6 +340,9 @@ export class ChatView {
       shown.flatMap((block) => (block.kind === "tools" ? [block.id] : [])),
     );
     this.imageFiles = new Map();
+    this.userItems = new Set(
+      shown.flatMap((block) => (block.kind === "user" ? [block.id] : [])),
+    );
     // An open turn's latest tool calls and its status read as one row, not two that say the same.
     const folded =
       notice?.tone === "working" && shown.at(-1)?.kind === "tools"
@@ -418,7 +454,12 @@ export class ChatView {
     const rows: { row: number; text: string; fromEdge: boolean }[] = [];
     for (let row = range.start.row; row <= range.end.row; row++) {
       const [start, end] = this.columnsOn(row, range);
-      const text = textBetween(this.content[row] ?? "", start, end);
+      const drawn = textBetween(this.content[row] ?? "", start, end);
+      // A user message's caret, and the indent under it, are drawing rather than text.
+      const text =
+        start === 0 && this.userItems.has(this.itemAt(row) ?? "")
+          ? drawn.replace(/^ (?:❯ | {2})/, " ")
+          : drawn;
       rows.push({ row, text, fromEdge: start === 0 });
     }
     // Rows copied from their left edge share the pane's padding and any block indent, which the copy drops.
@@ -491,6 +532,11 @@ export class ChatView {
   linkAt(row: number, column: number): string | null {
     const line = this.shown[row];
     return line === undefined ? null : linkAt(line, column);
+  }
+
+  // The id of the item drawn on a row of the whole transcript.
+  private itemAt(row: number): string | undefined {
+    return this.rows.find(({ start, end }) => row >= start && row < end)?.id;
   }
 
   // The saved image under a row within the chat, or null.

@@ -88,13 +88,13 @@ describe("ChatView", () => {
     const lines = plain(chat.render(40, 7)).map((line) => line.trim());
 
     expect(lines).toEqual([
-      "yo",
+      "❯ yo",
       "",
       "▸ Read 1 file · edited 1 file",
       "",
       "Done.",
       "",
-      "thanks!",
+      "❯ thanks!",
     ]);
     // Ink draws an empty string with no height, so a blank line must carry a space to take up a row.
     expect(chat.render(40, 8).every((line) => line.length > 0)).toBe(true);
@@ -173,7 +173,7 @@ describe("ChatView", () => {
     expect(chat.toggleAt(0)).toBe(false);
     expect(chat.toggleAt(2)).toBe(true);
     expect(plain(chat.render(40, 8)).map((line) => line.trim())).toEqual([
-      "yo",
+      "❯ yo",
       "",
       "▾ Ran 2 shell commands · 1 failed",
       "● bash ls src",
@@ -266,9 +266,10 @@ describe("ChatView", () => {
       else chat.select(from, to);
 
       expect(chat.selectedText()).toBe("beta gamma\n\ndelta eps");
+      // The highlight covers what is drawn, caret included; the copy above leaves it out.
       expect(highlighted(chat.render(40, 5))).toEqual([
         "beta gamma",
-        " delta eps",
+        " ❯ delta eps",
       ]);
       expect(plain(chat.render(40, 5))).toEqual(plain(lines));
     });
@@ -394,7 +395,7 @@ describe("ChatView", () => {
     });
     const lines = plain(chat.render(40, 4)).map((line) => line.trim());
 
-    expect(lines[0]).toBe("yo");
+    expect(lines[0]).toBe("❯ yo");
     expect(lines[1]).toBe("");
     expect(lines[2]).toMatch(/Thinking…$/);
   });
@@ -419,7 +420,7 @@ describe("ChatView", () => {
       plain(chat.render(60, height)).map((line) => line.trim());
 
     expect(trimmed(4)).toEqual([
-      "yo",
+      "❯ yo",
       "",
       "▸ Running pnpm test · 30s · 2 tools",
       "",

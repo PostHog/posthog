@@ -1,3 +1,5 @@
+import { initTheme } from "@earendil-works/pi-coding-agent";
+
 // The terminal's answer to an OSC 11 background query: ESC ] 11 ; rgb:RRRR/GGGG/BBBB, then BEL or ST.
 const BACKGROUND_REPLY = new RegExp(
   `${"\u001b"}\\]11;rgb:([0-9a-f]+)/([0-9a-f]+)/([0-9a-f]+)`,
@@ -48,3 +50,18 @@ export function detectTheme(
 // PostHog orange (#F54E00), for modes that should stand out, such as shell commands.
 export const orange = (text: string): string =>
   `\u001b[38;2;245;78;0m${text}\u001b[39m`;
+
+// The theme pi draws with, kept so the TUI's own colours can follow it.
+// On globalThis because a hot swap of src/ re-runs this module but not the startup that detected the theme.
+const kept = globalThis as { __posthogTuiTheme?: "light" | "dark" };
+
+export function applyTheme(theme: "light" | "dark"): void {
+  kept.__posthogTuiTheme = theme;
+  initTheme(theme);
+}
+
+// The fill behind a message the user sent: a step off the terminal's background, lighter than pi's own.
+export const userMessageBackground = (): string =>
+  kept.__posthogTuiTheme === "light"
+    ? "\u001b[48;2;242;242;242m"
+    : "\u001b[48;2;38;39;46m";
