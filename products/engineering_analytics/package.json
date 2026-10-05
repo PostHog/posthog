@@ -19,6 +19,8 @@
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@types/react": "*",
+        "@xyflow/react": "*",
+        "elkjs": "*",
         "react": "*"
     }
 }
