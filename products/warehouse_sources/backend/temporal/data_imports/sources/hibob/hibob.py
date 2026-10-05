@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import (
     HIBOB_ENDPOINTS,
+    NAMED_LISTS,
     TIME_OFF_CALENDARS,
     HiBobEndpointConfig,
 )
@@ -151,6 +153,42 @@ def _time_off_calendars_rows(
         session.close()
 
 
+def _flatten_list_items(list_name: str, items: list[dict[str, Any]], parent_id: Any = None) -> Iterator[dict[str, Any]]:
+    for item in items:
+        children = item.get("children") or []
+        yield {
+            **{key: value for key, value in item.items() if key != "children"},
+            "listName": list_name,
+            "parentId": parent_id,
+        }
+        yield from _flatten_list_items(list_name, children, item.get("id"))
+
+
+def _named_lists_rows(
+    service_user_id: str, service_user_token: str, config: HiBobEndpointConfig
+) -> Iterator[list[dict[str, Any]]]:
+    session = make_tracked_session(redact_values=(service_user_token,))
+    session.auth = (service_user_id, service_user_token)
+    try:
+        response = session.get(f"{HIBOB_BASE_URL}{config.path}", params=config.params, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json()
+    finally:
+        session.close()
+
+    # Accept the documented array of lists and an object keyed by list name, the shape older Bob docs show.
+    named_lists = data.values() if isinstance(data, dict) else data
+    rows: list[dict[str, Any]] = []
+    for named_list in named_lists:
+        rows.extend(_flatten_list_items(named_list.get("name"), named_list.get(config.data_key) or []))
+    if rows:
+        yield rows
+
+
+def _since(days_ago: int) -> str:
+    return (datetime.now(UTC) - timedelta(days=days_ago)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 def hibob_source(
     service_user_id: str,
     service_user_token: str,
@@ -170,6 +208,16 @@ def hibob_source(
             sort_mode="asc",
         )
 
+    if endpoint == NAMED_LISTS:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _named_lists_rows(service_user_id, service_user_token, config),
+            primary_keys=list(config.primary_keys),
+            partition_count=1,
+            partition_size=1,
+            sort_mode="asc",
+        )
+
     # Basic auth carries the token; supplying it via the framework auth config redacts the
     # token from any raised error. Repeated 401/403s trip HiBob's WAF, so auth errors must
     # fail loud (raise_for_status) rather than retry — the client only retries 429/5xx.
@@ -183,8 +231,11 @@ def hibob_source(
     if config.body is not None:
         # Copy, because the cursor paginator writes the cursor into the request body.
         api_endpoint["json"] = {**config.body}
-    if config.params is not None:
-        api_endpoint["params"] = config.params
+    params = {**(config.params or {})}
+    if config.since_days_ago is not None:
+        params["since"] = _since(config.since_days_ago)
+    if params:
+        api_endpoint["params"] = params
 
     rest_config: RESTAPIConfig = {
         "client": {

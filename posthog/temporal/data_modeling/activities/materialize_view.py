@@ -28,7 +28,7 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -825,21 +825,24 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        async for batch in client.astream_query_as_arrow(
-            arrow_printed,
-            query_parameters=context.values,
-            on_schema=capture_arrow_schema,
-            external_tables=list(context.external_tables.values()),
-        ):
-            batches_size = batches_size + batch.nbytes
-            batches.append(batch)
+        with tags_context(**context.read_tags()):
+            async for batch in client.astream_query_as_arrow(
+                arrow_printed,
+                query_parameters=context.values,
+                on_schema=capture_arrow_schema,
+                external_tables=list(context.external_tables.values()),
+            ):
+                batches_size = batches_size + batch.nbytes
+                batches.append(batch)
 
-            if batches_size >= MB_100_IN_BYTES:
-                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-                yield (_combine_batches(batches), ch_typings_pairs)
-                yielded_results = True
-                batches_size = 0
-                batches = []
+                if batches_size >= MB_100_IN_BYTES:
+                    await logger.adebug(
+                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                    )
+                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yielded_results = True
+                    batches_size = 0
+                    batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
@@ -1270,6 +1273,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     objects = await _get_matview_input_objects(inputs)
     bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
+    tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
