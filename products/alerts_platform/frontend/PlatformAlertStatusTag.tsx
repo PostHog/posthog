@@ -13,6 +13,7 @@ const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, { label: string; t
 }
 
 export function PlatformAlertStatusTag({ status }: { status: PlatformAlertConfigurationStatus }): JSX.Element {
-    const { label, type } = STATUS_CONFIG[status]
+    // A state added on the backend before this map knows it still renders.
+    const { label, type } = STATUS_CONFIG[status] ?? { label: status, type: 'default' }
     return <LemonTag type={type}>{label}</LemonTag>
 }

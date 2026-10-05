@@ -92,7 +92,7 @@ export function PlatformAlertsScene(): JSX.Element {
                 <LemonTable
                     dataSource={configurationsPage?.results ?? []}
                     columns={COLUMNS}
-                    loading={configurationsPageLoading}
+                    loading={configurationsPageLoading || configurationsPage === null}
                     rowKey="id"
                     emptyState="No alert configurations on the platform for this project yet."
                     pagination={{
