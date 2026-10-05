@@ -35,7 +35,18 @@ def _tool_response_payload(content: Any, *, is_error: bool = False) -> dict[str,
     """
     value: Any
     if isinstance(content, list):
-        content = "\n".join(block["text"] for block in content if is_text_block_param(block))
+        # A Gemini function response is a dict, so media blocks cannot cross as-is.
+        # Leave a marker rather than silently dropping them, which would turn an
+        # image-only result into an empty one.
+        rendered: list[str] = []
+        for block in content:
+            if is_text_block_param(block):
+                rendered.append(block["text"])
+            elif is_image_block_param(block):
+                rendered.append("[image omitted]")
+            else:
+                rendered.append("[unsupported content omitted]")
+        content = "\n".join(rendered)
     if isinstance(content, dict):
         value = content
     elif isinstance(content, str):

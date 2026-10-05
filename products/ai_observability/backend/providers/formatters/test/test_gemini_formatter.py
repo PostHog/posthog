@@ -37,6 +37,11 @@ class TestConvertAnthropicMessagesToGemini:
             ("plain_string", "Sunny, 21C", {"result": "Sunny, 21C"}),
             ("json_object_string", '{"temperature": 21}', {"temperature": 21}),
             ("text_block_list", [{"type": "text", "text": "Sunny, 21C"}], {"result": "Sunny, 21C"}),
+            (
+                "image_only_block_list",
+                [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aGk="}}],
+                {"result": "[image omitted]"},
+            ),
         ]
     )
     def test_tool_result_becomes_function_response(self, _name, result_content, expected_response):
