@@ -1,4 +1,8 @@
-import { eventToHogFunctionContextId } from './sub-templates'
+import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
+
+import { CyclotronJobInvocationGlobals } from '~/types'
+
+import { HOG_FUNCTION_SUB_TEMPLATES, eventToHogFunctionContextId } from './sub-templates'
 
 describe('sub-templates', () => {
     // One event per product that creates internal destinations. An id missing from the switch
@@ -20,4 +24,22 @@ describe('sub-templates', () => {
     ])('reads %s as the %s context', (event, expected) => {
         expect(eventToHogFunctionContextId(event)).toBe(expected)
     })
+
+    // A placeholder the sample event leaves empty renders an empty Slack block. Slack then rejects
+    // the whole test message.
+    it.each(['health-check-firing', 'health-check-resolved'] as const)(
+        'gives the %s templates a sample value for every event property they read',
+        async (subTemplateId) => {
+            const sample = await SAMPLE_GLOBALS_CONTEXTS['health-alerts']!({
+                event: { properties: {} },
+            } as CyclotronJobInvocationGlobals)
+            const inputs = JSON.stringify(HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].map((template) => template.inputs))
+            const readProperties = new Set([...inputs.matchAll(/event\.properties\.(\w+)/g)].map((match) => match[1]))
+
+            expect(readProperties.size).toBeGreaterThan(0)
+            for (const property of readProperties) {
+                expect([property, sample.event.properties[property] ?? '']).not.toEqual([property, ''])
+            }
+        }
+    )
 })

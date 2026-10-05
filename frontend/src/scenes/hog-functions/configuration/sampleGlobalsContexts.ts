@@ -48,4 +48,22 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             },
         }
     },
+    // Health alert templates read only this envelope. An empty title or summary renders an empty
+    // Slack block, and Slack rejects the whole message.
+    'health-alerts': async (exampleGlobals) => ({
+        ...exampleGlobals,
+        event: {
+            ...exampleGlobals.event,
+            properties: {
+                kind: 'test',
+                severity: 'warning',
+                issue_id: 'test-issue-id',
+                title: 'Test health check',
+                summary: 'This is a test alert from PostHog',
+                link: '/health',
+                remediation: null,
+                payload: {},
+            },
+        },
+    }),
 }

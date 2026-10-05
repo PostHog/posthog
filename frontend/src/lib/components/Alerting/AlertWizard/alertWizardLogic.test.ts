@@ -1,6 +1,12 @@
-import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    CyclotronJobTestInvocationResult,
+    LogEntry,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
-import { applyKindFilter, decorateAlertName } from './alertWizardLogic'
+import { applyKindFilter, decorateAlertName, testInvocationFailureMessage } from './alertWizardLogic'
 
 describe('applyKindFilter', () => {
     const baseFilters: CyclotronJobFiltersType = {
@@ -88,5 +94,37 @@ describe('decorateAlertName', () => {
         expect(decorateAlertName(baseName, ['some_future_kind'])).toBe(
             'Email when a Health check fires (some_future_kind)'
         )
+    })
+})
+
+describe('testInvocationFailureMessage', () => {
+    const log = (level: LogEntry['level'], message: string): LogEntry => ({
+        log_source_id: 'new',
+        instance_id: 'test',
+        timestamp: '2026-01-01T00:00:00Z',
+        level,
+        message,
+    })
+
+    it.each<[string, Partial<CyclotronJobTestInvocationResult>, string | null]>([
+        ['a delivered test', { status: 'success' }, null],
+        ['a rejection with an error', { status: 'error', errors: ['invalid_blocks'] }, 'Test failed: invalid_blocks'],
+        [
+            'a rejection reported only in the logs',
+            { status: 'error', errors: [], logs: [log('ERROR', 'not_in_channel'), log('INFO', 'done')] },
+            'Test failed: not_in_channel',
+        ],
+        [
+            'a rejection with no detail',
+            { status: 'error' },
+            'Test failed. Check the destination settings and try again.',
+        ],
+        [
+            'a filtered-out test event',
+            { status: 'skipped' },
+            "Test not sent. The test event didn't match this alert's filters.",
+        ],
+    ])('reads %s', (_, result, expected) => {
+        expect(testInvocationFailureMessage({ status: 'success', logs: [], result: null, ...result })).toBe(expected)
     })
 })

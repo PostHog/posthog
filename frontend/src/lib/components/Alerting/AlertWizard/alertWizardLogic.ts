@@ -17,6 +17,7 @@ import {
     CyclotronJobFiltersType,
     CyclotronJobInputType,
     CyclotronJobInvocationGlobals,
+    CyclotronJobTestInvocationResult,
     HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
@@ -162,6 +163,20 @@ function formatKindsSuffix(selectedKinds: string[] | null | undefined): string {
 
 export function decorateAlertName(baseName: string, selectedKinds: string[] | null | undefined): string {
     return `${baseName}${formatKindsSuffix(selectedKinds)}`
+}
+
+// The test endpoint answers HTTP 200 when the destination rejects the message, and reports the
+// rejection in the body. Returns the message to show, or null when the test went through.
+export function testInvocationFailureMessage(result: CyclotronJobTestInvocationResult): string | null {
+    if (result.status === 'success') {
+        return null
+    }
+    if (result.status === 'skipped') {
+        return "Test not sent. The test event didn't match this alert's filters."
+    }
+    const reason =
+        result.errors?.[0] ?? [...result.logs].reverse().find((log) => log.level.toUpperCase() === 'ERROR')?.message
+    return reason ? `Test failed: ${reason}` : 'Test failed. Check the destination settings and try again.'
 }
 
 function buildAlertInputs(
@@ -732,13 +747,18 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             try {
-                await api.hogFunctions.createTestInvocation('new', {
+                const result = await api.hogFunctions.createTestInvocation('new', {
                     configuration,
                     globals,
                     mock_async_functions: false,
                 })
                 breakpoint()
-                lemonToast.success('Test invocation sent')
+                const failure = testInvocationFailureMessage(result)
+                if (failure) {
+                    lemonToast.error(failure)
+                } else {
+                    lemonToast.success('Test invocation sent')
+                }
             } catch (e: any) {
                 breakpoint()
                 lemonToast.error(e.detail || 'Test invocation failed')
