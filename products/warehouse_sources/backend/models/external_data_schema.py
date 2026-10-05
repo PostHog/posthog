@@ -897,8 +897,24 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         self._save_sync_type_config()
 
     def set_repartition_claim(self, claim: dict[str, Any]) -> None:
-        self.sync_type_config["repartition_claim"] = claim
-        self._save_sync_type_config()
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        # A timed-out activity may still be running when its retry stakes a newer claim. Merge under
+        # the row lock so the older activity's stale model copy cannot overwrite that newer token (or
+        # any unrelated config written while it was running) and accidentally reclaim the table.
+        def _write(config: dict[str, Any]) -> None:
+            current = config.get("repartition_claim")
+            if isinstance(current, dict):
+                current_claimed_at = current.get("claimed_at")
+                claimed_at = claim.get("claimed_at")
+                if isinstance(current_claimed_at, str) and isinstance(claimed_at, str):
+                    if current_claimed_at > claimed_at:
+                        return
+            config["repartition_claim"] = claim
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)

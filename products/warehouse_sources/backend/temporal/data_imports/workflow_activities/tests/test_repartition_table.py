@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
+    _defer_to_full_refresh,
     _maybe_flag_pre_extraction,
     _maybe_repartition_table,
     _rewrite_deadline,
@@ -1153,6 +1154,21 @@ class TestMaybeFlagPreExtraction:
 
 
 class TestFullRefreshDeferral:
+    @patch(f"{MODULE}.defer_repartition_to_full_refresh", new_callable=AsyncMock)
+    def test_wrapped_cancellation_is_propagated(self, mock_defer: AsyncMock) -> None:
+        wrapped_cancelled_error = type("CancelledError", (Exception,), {})
+        mock_defer.side_effect = wrapped_cancelled_error()
+
+        with pytest.raises(wrapped_cancelled_error):
+            _defer_to_full_refresh(
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                _schema(name="contacts", s3_folder_name="contacts"),
+                MagicMock(),
+                MagicMock(),
+                "proactive_threshold",
+                MagicMock(),
+            )
+
     @pytest.mark.parametrize(
         "sync_type, swap, swap_after_refresh, expect_deferred",
         [

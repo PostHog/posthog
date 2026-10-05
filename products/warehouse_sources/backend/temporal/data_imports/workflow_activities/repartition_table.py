@@ -674,6 +674,10 @@ def _defer_to_full_refresh(
         logger.info("repartition: full-refresh deferral superseded by a newer claim")
         return
     except Exception as e:
+        # `async_to_sync` can surface cancellation as an Exception-derived wrapper. It must retain
+        # Temporal's cancellation semantics rather than being swallowed as a failed deferral.
+        if _is_cancellation(e):
+            raise
         # Like a failed rewrite, this must not block the sync: the table keeps its layout and the
         # next run tries again.
         transient = _is_transient_infra_error(e)
