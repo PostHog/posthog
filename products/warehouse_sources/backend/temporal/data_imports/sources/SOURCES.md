@@ -494,6 +494,7 @@ the row lists both.
 | medusa                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | membrain                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                          | HTTP                        | requests                                                        | ✅                          |
+| mercado_pago                     | HTTP                        | requests                                                        | ✅                          |
 | mercury                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | meta_ads                         | HTTP                        | requests                                                        | ✅                          |
 | metabase                         | HTTP                        | requests                                                        | ✅                          |
@@ -1213,7 +1214,6 @@ doesn't conflict with concurrent PRs.
 - memberful
 - mendeley
 - mercado_ads
-- mercado_pago
 - merge
 - metricool
 - metriport
