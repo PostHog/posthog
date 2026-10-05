@@ -16,6 +16,7 @@ from rest_framework.test import APIRequestFactory
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.presentation.views.table import (
+    CreateTableFromUploadSerializer,
     SimpleTableSerializer,
     TableSerializer,
     resolve_created_via,
@@ -55,6 +56,8 @@ class TestTableNameValidation(SimpleTestCase):
     def test_models_namespace_is_reserved(self, _case: str, name: str) -> None:
         with self.assertRaises(ValidationError):
             TableSerializer().validate_name(name)
+        with self.assertRaises(ValidationError):
+            CreateTableFromUploadSerializer().validate_table_name(name)
         instance = DataWarehouseTable(name=name)
         with self.assertRaises(DjangoValidationError):
             instance.clean()

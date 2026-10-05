@@ -468,6 +468,10 @@ class CreateTableFromUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
             )
+        if is_reserved_models_name(table_name):
+            raise serializers.ValidationError(
+                "The models namespace is reserved for data models. Choose a different table name."
+            )
         return table_name
 
 
