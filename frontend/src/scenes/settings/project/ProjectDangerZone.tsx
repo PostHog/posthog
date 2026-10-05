@@ -54,19 +54,25 @@ export function DeleteProjectModal({
             isOpen={isOpen}
         >
             <p>
-                Project deletion <b>cannot be undone</b>. You will lose all environments and their data (
-                <b>including events</b>):
+                You will lose all environments and their data (<b>including events</b>):
                 <ul className="list-disc list-inside ml-4 mt-1">
                     {allTeamsOfProject.map((team) => (
                         <li key={team.id}>{team.name}</li>
                     ))}
                 </ul>
             </p>
-            <p className="mt-2 p-2 bg-bg-3000 rounded text-sm">
-                <strong>Note:</strong> For projects with lots of data, cleanup may take several hours. We'll send you an
-                email when the process is complete.
-            </p>
-            <p>
+            <div className="mt-2 p-2 bg-bg-3000 rounded text-sm deprecated-space-y-2">
+                <p>
+                    Deletion starts in <strong>48 hours</strong>. Until then nobody can open the project, and you can
+                    cancel the deletion from the screen you land on next. A project that never received events is
+                    deleted right away.
+                </p>
+                <p>
+                    Once deletion starts, it <b>cannot be undone</b>. Cleanup can take several hours for a project with
+                    lots of data. We'll email you when it's done.
+                </p>
+            </div>
+            <p className="mt-2">
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>
             <LemonInput
@@ -96,7 +102,7 @@ export function ProjectDangerZone(): JSX.Element {
                 <div className="mt-4">
                     {!restrictedReason && (
                         <p className="text-danger">
-                            This is <b>irreversible</b>. Please be certain.
+                            Once deletion starts, this <b>cannot be undone</b>. Please be certain.
                         </p>
                     )}
                     <LemonButton
