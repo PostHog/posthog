@@ -1,7 +1,7 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useId, useMemo, useState } from 'react'
+import { lazy, Suspense, useId, useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
@@ -28,7 +28,6 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
-import { ConversionRecordingsModal } from 'products/marketing_analytics/frontend/ConversionRecordingsModal'
 import {
     conversionRecordingsRequest,
     conversionRecordingsTableQuery,
@@ -46,6 +45,13 @@ import {
 } from '../MarketingAnalyticsValidationWarningBanner'
 import { AdLevelInfoBanner } from './AdLevelInfoBanner'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
+
+// The modal pulls in the recordings playlist and player, so keep it off the dashboard and events eager paths.
+const ConversionRecordingsModal = lazy(() =>
+    import('products/marketing_analytics/frontend/ConversionRecordingsModal').then((module) => ({
+        default: module.ConversionRecordingsModal,
+    }))
+)
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -190,7 +196,11 @@ export const MarketingAnalyticsTable = ({
 
     return (
         <div className="bg-surface-primary">
-            {recordings && <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />}
+            {recordings && (
+                <Suspense fallback={null}>
+                    <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />
+                </Suspense>
+            )}
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex flex-wrap gap-4 justify-between items-center">
                     <div className="flex items-center gap-2">
