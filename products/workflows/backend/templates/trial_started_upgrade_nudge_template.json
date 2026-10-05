@@ -1,6 +1,11 @@
 {
     "id": "019b6fc6-ad68-0000-2c21-f701205f3f5c",
     "name": "Trial started → upgrade nudge",
+    "starts_on": {
+        "kind": "event",
+        "events": ["trial_started"],
+        "detail": ""
+    },
     "description": "Nudge trial users to upgrade when they show real usage, instead of when the clock runs down.",
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Elon_53dbe00271.jpg",
     "scope": "global",

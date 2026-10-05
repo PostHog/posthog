@@ -8,6 +8,33 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `event` - Event
+ * * `no_event` - No event
+ * * `schedule` - Schedule
+ */
+export type HogFlowTemplateStartsOnSerializerKindEnumApi =
+    (typeof HogFlowTemplateStartsOnSerializerKindEnumApi)[keyof typeof HogFlowTemplateStartsOnSerializerKindEnumApi]
+
+export const HogFlowTemplateStartsOnSerializerKindEnumApi = {
+    Event: 'event',
+    NoEvent: 'no_event',
+    Schedule: 'schedule',
+} as const
+
+export interface HogFlowTemplateStartsOnApi {
+    /** Whether the template starts on an event, an absence of events, or a schedule.
+     *
+     * * `event` - Event
+     * * `no_event` - No event
+     * * `schedule` - Schedule */
+    kind: HogFlowTemplateStartsOnSerializerKindEnumApi
+    /** Event names that can drive the template, in order of preference. Empty for schedules. */
+    events: string[]
+    /** Short qualifier shown with the template's trigger. */
+    detail: string
+}
+
+/**
  * * `team` - Only team
  * * `organization` - Organization
  * * `global` - Global
@@ -159,6 +186,8 @@ export interface HogFlowTemplateApi {
     image_url?: string | null
     /** Tags for filtering templates. */
     tags?: string[]
+    /** What starts a global email template. Null for other templates. */
+    readonly starts_on: HogFlowTemplateStartsOnApi | null
     /** Who can use the template: this project only, or every project in the organization.
      *
      * * `team` - Only team
@@ -236,6 +265,8 @@ export interface PatchedHogFlowTemplateApi {
     image_url?: string | null
     /** Tags for filtering templates. */
     tags?: string[]
+    /** What starts a global email template. Null for other templates. */
+    readonly starts_on?: HogFlowTemplateStartsOnApi | null
     /** Who can use the template: this project only, or every project in the organization.
      *
      * * `team` - Only team

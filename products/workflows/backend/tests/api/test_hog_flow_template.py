@@ -2,6 +2,9 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cdp.templates.fixtures import template_slack
@@ -14,6 +17,48 @@ from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlow
 from products.workflows.backend.templates import clear_template_cache, load_global_templates
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
+
+
+class TestGlobalTemplateStartsOn(SimpleTestCase):
+    def _assert_no_person_filters(self, value: object) -> None:
+        if isinstance(value, dict):
+            assert value.get("type") != "person", value
+            for child in value.values():
+                self._assert_no_person_filters(child)
+        elif isinstance(value, list):
+            for child in value:
+                self._assert_no_person_filters(child)
+
+    def test_email_templates_declare_what_starts_them(self) -> None:
+        clear_template_cache()
+        templates = load_global_templates()
+        assert templates
+
+        for template in templates:
+            with self.subTest(template=template["name"]):
+                self._assert_no_person_filters(template)
+                if not any(action["type"] == "function_email" for action in template["actions"]):
+                    continue
+
+                starts_on = template["starts_on"]
+                assert starts_on["kind"] in {"event", "no_event", "schedule"}
+                assert isinstance(starts_on["detail"], str)
+                assert isinstance(starts_on["events"], list)
+                assert all(isinstance(event, str) and event.strip() for event in starts_on["events"])
+                assert len(starts_on["events"]) == len(set(starts_on["events"]))
+                if starts_on["kind"] == "schedule":
+                    assert starts_on["events"] == []
+                else:
+                    assert starts_on["events"]
+
+                triggers = [template["trigger"]] + [
+                    action["config"] for action in template["actions"] if action["type"] == "trigger"
+                ]
+                for trigger in triggers:
+                    if trigger["type"] == "event":
+                        for event in trigger.get("filters", {}).get("events", []):
+                            if event.get("id"):
+                                assert event["id"] == starts_on["events"][0]
 
 
 class TestHogFlowTemplateAPI(APIBaseTest):
@@ -122,6 +167,26 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         # Verify inputs are preserved - only url was provided in custom_inputs
         assert function_action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+
+    @parameterized.expand([("team",), ("organization",)])
+    def test_custom_templates_cannot_set_starts_on(self, scope: str) -> None:
+        data = self._create_hog_flow_data()
+        data["scope"] = scope
+        data["starts_on"] = {"kind": "event", "events": ["signed_up"], "detail": ""}
+
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", data)
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.json()["starts_on"] is None
+
+        template_id = created.json()["id"]
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert retrieved.json()["starts_on"] is None
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates")
+        assert listed.status_code == status.HTTP_200_OK
+        template = next(template for template in listed.json()["results"] if template["id"] == template_id)
+        assert template["starts_on"] is None
 
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""
@@ -487,6 +552,10 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # All returned templates should have scope='global'
         for template in results:
             assert template["scope"] == "global", f"Public endpoint returned non-global template: {template['id']}"
+            if any(action["type"] == "function_email" for action in template["actions"]):
+                assert template["starts_on"]["kind"] in {"event", "no_event", "schedule"}
+            else:
+                assert template["starts_on"] is None
 
     def test_loads_templates_from_template_files(self):
         """Test that the API loads global templates from products/workflows/backend/templates/*.template.py"""
@@ -520,6 +589,10 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         for template in api_results:
             if template["id"] in file_template_ids:
                 assert template["scope"] == "global", f"Template {template['id']} from files should have scope='global'"
+                if any(action["type"] == "function_email" for action in template["actions"]):
+                    assert template["starts_on"]["kind"] in {"event", "no_event", "schedule"}
+                else:
+                    assert template["starts_on"] is None
 
     def test_can_retrieve_individual_template_from_files(self):
         """Test that we can retrieve a specific template that's loaded from files"""
@@ -540,6 +613,18 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert retrieved["id"] == template_id
         assert retrieved["name"] == template_name
         assert retrieved["scope"] == "global"
+
+    def test_welcome_template_declares_signup_events(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flow_templates/019b6f44-f9a3-0000-c4a7-b8050d25d690"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["starts_on"] == {
+            "kind": "event",
+            "events": ["user signed up", "signed_up", "sign_up", "signup", "user_signed_up"],
+            "detail": "",
+        }
 
     def test_file_based_global_templates_not_accessible_via_write_endpoints(self):
         """Test that file-based global templates return 404 on update/delete (not in DB queryset)"""
