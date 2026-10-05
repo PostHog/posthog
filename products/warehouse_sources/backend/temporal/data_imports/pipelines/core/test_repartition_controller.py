@@ -1032,6 +1032,26 @@ class TestRepartitionActivity:
         assert schema.repartition_claim is not None
         assert schema.repartition_claim["token"] == "newer-claim"
 
+    def test_full_refresh_staging_preserves_a_swap_that_appeared_after_claiming(self, team):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "ours", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t", "live_uri": "s3://l"})
+
+        wrote = external_data_schema.stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="ours",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count_override is None
+        assert schema.repartition_swap is not None
+
     def test_finalizing_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
         # A zombie writing here would describe a layout the new claimant is in the middle of replacing.
         schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})

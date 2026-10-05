@@ -953,15 +953,12 @@ def _give_up(
     # Stake a fresh claim before clearing anything. This runs before the activity mints its own, so a
     # timed-out predecessor may still be running and still hold the old token; leaving it valid would
     # let it pass `ensure_claim` and go on mutating live after we declared the rewrite abandoned.
+    claim_token = str(uuid.uuid4())
     if not schema.set_repartition_claim(
-        {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-    ):
+        {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+    ) or not schema.abandon_repartition_if_claimed(claim_token):
         logger.info("repartition: give-up superseded by a newer claim")
         return
-    schema.clear_repartition_pending()
-    schema.clear_repartition_swap()
-    schema.clear_repartition_rewrite()
-    schema.stamp_last_repartition_at()
     error = RepartitionAttemptsExhausted(
         f"repartition gave up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to record "
         f"an outcome, with the rewrite stuck at {rewrite_rows} rows (trigger_reason={trigger_reason})"

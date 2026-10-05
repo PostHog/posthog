@@ -419,8 +419,7 @@ class TestBudgetExhaustion:
         )
 
         if expect_give_up:
-            schema.clear_repartition_pending.assert_called_once()
-            schema.clear_repartition_rewrite.assert_called_once()
+            schema.abandon_repartition_if_claimed.assert_called_once()
         else:
             assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
 
@@ -666,8 +665,7 @@ class TestKilledAttemptRetry:
             assert len(failed) == 1
             assert failed[0]["final"] is True
             assert failed[0]["error_type"] == "RepartitionAttemptsExhausted"
-            schema.clear_repartition_pending.assert_called_once()
-            schema.stamp_last_repartition_at.assert_called_once()
+            schema.abandon_repartition_if_claimed.assert_called_once()
 
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")

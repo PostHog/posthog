@@ -902,10 +902,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         # A timed-out activity may still be running when its retry stakes a newer claim. Merge under
         # the row lock so the older activity's stale model copy cannot overwrite that newer token (or
         # any unrelated config written while it was running) and accidentally reclaim the table.
-        wrote = False
-
         def _write(config: dict[str, Any]) -> None:
-            nonlocal wrote
             current = config.get("repartition_claim")
             if isinstance(current, dict):
                 current_claimed_at = current.get("claimed_at")
@@ -914,12 +911,35 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                     if current_claimed_at > claimed_at:
                         return
             config["repartition_claim"] = claim
-            wrote = True
 
         self.sync_type_config = retry_on_db_connection_drop(
             lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
         )
-        return wrote
+        return self.sync_type_config.get("repartition_claim") == claim
+
+    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        def _write(config: dict[str, Any]) -> None:
+            claim = config.get("repartition_claim")
+            if not (isinstance(claim, dict) and claim.get("token") == claim_token):
+                return
+            for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
+                config.pop(key, None)
+            config["last_repartition_at"] = timezone.now().isoformat()
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+        claim = self.sync_type_config.get("repartition_claim")
+        return (
+            isinstance(claim, dict)
+            and claim.get("token") == claim_token
+            and not any(
+                key in self.sync_type_config
+                for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
+            )
+        )
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -1726,6 +1746,8 @@ def stage_partition_scheme_for_full_refresh(
             claim = config.get("repartition_claim")
             if not (claim and claim.get("token") == claim_token):
                 return
+        if config.get("repartition_swap") is not None:
+            return
         for key, value in overrides.items():
             if value is None:
                 config.pop(key, None)

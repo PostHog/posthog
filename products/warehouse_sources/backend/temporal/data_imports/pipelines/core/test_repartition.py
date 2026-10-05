@@ -2963,22 +2963,15 @@ class TestClaimFencing:
 
 
 class TestDeferToFullRefresh:
-    @pytest.mark.parametrize(
-        "purge_error",
-        [pytest.param(None, id="temp_swept"), pytest.param(OSError("throttled"), id="sweep_fails")],
-    )
-    def test_stages_the_target_and_sweeps_left_over_temps(self, purge_error):
-        # No later rewrite of a full-refresh table sweeps temps, so this is the only chance. A failed
-        # sweep costs storage, not correctness, so the scheme is staged either way.
+    def test_stages_the_target_without_sweeping_claim_scoped_temps(self):
+        # A wildcard S3 sweep cannot remain claim-fenced while it awaits storage, so a stale deferral
+        # must leave claim-scoped recovery tables alone rather than race a newer attempt.
         target = RepartitionTarget(
             partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="month"
         )
         schema = _schema(id="s1")
         with (
-            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
-            patch.object(
-                repartition_module, "_purge_stale_temp_tables", new=AsyncMock(side_effect=purge_error)
-            ) as purge,
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
             patch.object(repartition_module, "stage_partition_scheme_for_full_refresh") as stage,
         ):
             result = asyncio.run(
@@ -2987,7 +2980,7 @@ class TestDeferToFullRefresh:
                 )
             )
 
-        purge.assert_awaited_once()
+        purge.assert_not_awaited()
         stage.assert_called_once()
         assert stage.call_args.kwargs == {
             "partitioning_keys": ["created_at"],
