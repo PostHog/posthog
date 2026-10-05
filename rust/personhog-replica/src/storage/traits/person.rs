@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -67,10 +69,14 @@ pub trait PersonLookup: Send + Sync {
     /// persons that fit the budget go whole, the first that does not is trimmed with the leftover
     /// and returned pending, the rest are returned pending untouched. A revival either wins the
     /// row lock first and is skipped, or lands afterwards on a fresh row. Idempotent.
+    ///
+    /// With `max_versions`, a person is deleted only while its version is at or below its entry,
+    /// checked under the same row lock. A uuid without an entry is never deleted.
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,
         uuids: &[Uuid],
+        max_versions: Option<&HashMap<Uuid, i64>>,
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome>;
 

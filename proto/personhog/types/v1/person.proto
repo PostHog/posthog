@@ -298,11 +298,22 @@ message DeletePersonsBatchForTeamResponse {
 // until none come back. Idempotent.
 message DeleteTombstonedPersonsRequest {
   int64 team_id = 1;
-  // Person UUIDs to delete. Max 1000 per request.
+  // Person UUIDs to delete. Max 1000 per request. Leave empty when bounded_persons is set.
   repeated string person_uuids = 2;
   // Dependent rows this call may delete. 0 means the server default; the server
   // clamps the value to its own maximum (replica setting TOMBSTONED_DELETE_MAX_ROWS).
   int64 max_rows = 3;
+  // Persons to delete, each with a version bound, in place of person_uuids. Max 1000 per request.
+  // A server that predates this field reads an empty person_uuids and deletes nothing, so the
+  // caller must check version_guard_applied on the response.
+  repeated VersionBoundedPerson bounded_persons = 4;
+}
+
+message VersionBoundedPerson {
+  string person_uuid = 1;
+  // The person is deleted only while its version is at or below this value. A person with a
+  // higher version was tombstoned again after the caller took the bound.
+  int64 max_version = 2;
 }
 
 message DeleteTombstonedPersonsResponse {
@@ -319,6 +330,11 @@ message DeleteTombstonedPersonsResponse {
   repeated string pending_person_uuids = 4;
   // Dependent rows deleted by this call.
   int64 rows_deleted = 5;
+  // True when the request carried bounded_persons and the server checked every bound. Always
+  // false from a server that predates bounded_persons.
+  bool version_guard_applied = 6;
+  // Persons still tombstoned but at a version above their bound. Nothing was deleted for them.
+  int64 skipped_version_count = 7;
 }
 
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.

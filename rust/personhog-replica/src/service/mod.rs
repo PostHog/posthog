@@ -578,18 +578,38 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
         let req = request.into_inner();
 
-        if req.person_uuids.len() > 1000 {
+        if !req.person_uuids.is_empty() && !req.bounded_persons.is_empty() {
+            return Err(Status::invalid_argument(
+                "Set either person_uuids or bounded_persons, not both",
+            ));
+        }
+        if req.person_uuids.len().max(req.bounded_persons.len()) > 1000 {
             return Err(Status::invalid_argument(
                 "Maximum 1000 person UUIDs per request",
             ));
         }
 
-        let uuids: Vec<Uuid> = req
-            .person_uuids
-            .iter()
-            .map(|s| Uuid::parse_str(s))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+        let parse_uuid = |s: &str| {
+            Uuid::parse_str(s).map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))
+        };
+        let version_guard_applied = !req.bounded_persons.is_empty();
+        let mut uuids: Vec<Uuid> = Vec::with_capacity(req.person_uuids.len());
+        let mut max_versions: HashMap<Uuid, i64> = HashMap::new();
+        for uuid in &req.person_uuids {
+            uuids.push(parse_uuid(uuid)?);
+        }
+        for bounded in &req.bounded_persons {
+            if bounded.max_version < 0 {
+                return Err(Status::invalid_argument("max_version must not be negative"));
+            }
+            let uuid = parse_uuid(&bounded.person_uuid)?;
+            uuids.push(uuid);
+            // A duplicate keeps its lowest bound, the one that deletes the least.
+            max_versions
+                .entry(uuid)
+                .and_modify(|bound| *bound = (*bound).min(bounded.max_version))
+                .or_insert(bounded.max_version);
+        }
         if req.max_rows < 0 {
             return Err(Status::invalid_argument("max_rows must not be negative"));
         }
@@ -601,13 +621,20 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let outcome = self
             .storage
-            .delete_tombstoned_persons(req.team_id, &uuids, max_rows)
+            .delete_tombstoned_persons(
+                req.team_id,
+                &uuids,
+                version_guard_applied.then_some(&max_versions),
+                max_rows,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "delete_tombstoned_persons"))?;
 
         Ok(Response::new(DeleteTombstonedPersonsResponse {
             deleted_count: outcome.deleted,
             skipped_live_count: outcome.skipped_live,
+            version_guard_applied,
+            skipped_version_count: outcome.skipped_version,
             blocked_person_uuids: outcome
                 .blocked_uuids
                 .iter()

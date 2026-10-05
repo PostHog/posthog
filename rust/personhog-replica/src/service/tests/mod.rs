@@ -12,7 +12,7 @@ use personhog_proto::personhog::types::v1::{
     DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
     GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
     InsertCohortMembersRequest, ListCohortMemberIdsRequest, UpdateGroupRequest,
-    UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingRequest, VersionBoundedPerson,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -200,21 +200,42 @@ async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
 // DeleteTombstonedPersons tests
 // ============================================================
 
+fn bounded(uuid: &str, max_version: i64) -> VersionBoundedPerson {
+    VersionBoundedPerson {
+        person_uuid: uuid.to_string(),
+        max_version,
+    }
+}
+
+const SOME_UUID: &str = "00000000-0000-0000-0000-000000000001";
+
 #[rstest]
 #[case::too_many_uuids(
     (0..1001).map(|i| format!("00000000-0000-0000-0000-{i:012}")).collect(),
+    vec![],
     0,
     "1000"
 )]
-#[case::invalid_uuid(vec!["not-a-valid-uuid".to_string()], 0, "Invalid UUID")]
-#[case::negative_max_rows(
-    vec!["00000000-0000-0000-0000-000000000001".to_string()],
-    -1,
-    "max_rows"
+#[case::too_many_bounded_persons(
+    vec![],
+    (0..1001).map(|i| bounded(&format!("00000000-0000-0000-0000-{i:012}"), 1)).collect(),
+    0,
+    "1000"
+)]
+#[case::invalid_uuid(vec!["not-a-valid-uuid".to_string()], vec![], 0, "Invalid UUID")]
+#[case::invalid_bounded_uuid(vec![], vec![bounded("not-a-valid-uuid", 1)], 0, "Invalid UUID")]
+#[case::negative_max_rows(vec![SOME_UUID.to_string()], vec![], -1, "max_rows")]
+#[case::negative_max_version(vec![], vec![bounded(SOME_UUID, -1)], 0, "max_version")]
+#[case::both_uuid_lists(
+    vec![SOME_UUID.to_string()],
+    vec![bounded(SOME_UUID, 1)],
+    0,
+    "not both"
 )]
 #[tokio::test]
 async fn test_delete_tombstoned_persons_invalid_input(
     #[case] person_uuids: Vec<String>,
+    #[case] bounded_persons: Vec<VersionBoundedPerson>,
     #[case] max_rows: i64,
     #[case] expected_message: &str,
 ) {
@@ -225,6 +246,7 @@ async fn test_delete_tombstoned_persons_invalid_input(
             team_id: 1,
             person_uuids,
             max_rows,
+            bounded_persons,
         }))
         .await
         .unwrap_err();

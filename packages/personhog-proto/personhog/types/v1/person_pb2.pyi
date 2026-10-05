@@ -542,32 +542,55 @@ class DeletePersonsBatchForTeamResponse(_message.Message):
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
 class DeleteTombstonedPersonsRequest(_message.Message):
-    __slots__ = ("team_id", "person_uuids", "max_rows")
+    __slots__ = ("team_id", "person_uuids", "max_rows", "bounded_persons")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     MAX_ROWS_FIELD_NUMBER: _ClassVar[int]
+    BOUNDED_PERSONS_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_uuids: _containers.RepeatedScalarFieldContainer[str]
     max_rows: int
+    bounded_persons: _containers.RepeatedCompositeFieldContainer[VersionBoundedPerson]
     def __init__(
         self,
         team_id: _Optional[int] = ...,
         person_uuids: _Optional[_Iterable[str]] = ...,
         max_rows: _Optional[int] = ...,
+        bounded_persons: _Optional[_Iterable[_Union[VersionBoundedPerson, _Mapping]]] = ...,
     ) -> None: ...
 
+class VersionBoundedPerson(_message.Message):
+    __slots__ = ("person_uuid", "max_version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    MAX_VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    max_version: int
+    def __init__(self, person_uuid: _Optional[str] = ..., max_version: _Optional[int] = ...) -> None: ...
+
 class DeleteTombstonedPersonsResponse(_message.Message):
-    __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids", "pending_person_uuids", "rows_deleted")
+    __slots__ = (
+        "deleted_count",
+        "skipped_live_count",
+        "blocked_person_uuids",
+        "pending_person_uuids",
+        "rows_deleted",
+        "version_guard_applied",
+        "skipped_version_count",
+    )
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     SKIPPED_LIVE_COUNT_FIELD_NUMBER: _ClassVar[int]
     BLOCKED_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     PENDING_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     ROWS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    VERSION_GUARD_APPLIED_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_VERSION_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
     skipped_live_count: int
     blocked_person_uuids: _containers.RepeatedScalarFieldContainer[str]
     pending_person_uuids: _containers.RepeatedScalarFieldContainer[str]
     rows_deleted: int
+    version_guard_applied: bool
+    skipped_version_count: int
     def __init__(
         self,
         deleted_count: _Optional[int] = ...,
@@ -575,6 +598,8 @@ class DeleteTombstonedPersonsResponse(_message.Message):
         blocked_person_uuids: _Optional[_Iterable[str]] = ...,
         pending_person_uuids: _Optional[_Iterable[str]] = ...,
         rows_deleted: _Optional[int] = ...,
+        version_guard_applied: bool = ...,
+        skipped_version_count: _Optional[int] = ...,
     ) -> None: ...
 
 class SplitPersonRequest(_message.Message):
