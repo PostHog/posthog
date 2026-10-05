@@ -15,7 +15,11 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
 )
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
+    ExecutionResult,
+    SandboxConfig,
+)
 
 
 @pytest.fixture
@@ -93,7 +97,7 @@ def test_wait_for_agent_server_ready_fails_fast_when_credential_never_arrived(
         ),
         patch.object(sandbox, "execute", return_value=log),
         patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
-        pytest.raises(ProcessTaskFatalError, match="The Claude token did not arrive") as exc,
+        pytest.raises(ProcessTaskFatalError, match=CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE) as exc,
     ):
         sandbox.wait_for_agent_server_ready(claude_model_access="own-subscription")
 

@@ -1,16 +1,16 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -19,10 +19,11 @@ import { ActivityTab } from '~/types'
 
 import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
 
+import { customProductsLogic } from '../../ProjectTree/customProductsLogic'
 import { getDefaultTreeData, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
-import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
+import { PRODUCTS_STARRED_TREE_KEY, SUGGESTED_GROUP_LABEL, navProductsTabLogic } from './navProductsTabLogic'
 import { productsItemName, groupProducts } from './productsCatalog'
 
 describe('navProductsTabLogic', () => {
@@ -46,6 +47,7 @@ describe('navProductsTabLogic', () => {
         const expected = new Set([
             urls.projectRoot(),
             urls.activity(ActivityTab.ExploreEvents),
+            urls.persons(),
             ...registry
                 .filter((item) => item.href && (!item.flag || enabled) && !definitionsTabHrefs.has(item.href))
                 .map((item) => item.href),
@@ -63,7 +65,8 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.pinnedItems.map(productsItemName)).toEqual([
             'Home',
             'Self-driving',
-            'Activity and people',
+            'Activity',
+            'People and groups',
         ])
         expect(navProductsTabLogic.values.configurableProducts.map(productsItemName)).not.toContain('Home')
         const [popular] = navProductsTabLogic.values.groupedItems
@@ -85,11 +88,11 @@ describe('navProductsTabLogic', () => {
         await expectLogic(navProductsTabLogic, () =>
             navProductsTabLogic.actions.setSearch('  self-driving  ')
         ).toMatchValues({
-            pinnedItems: [expect.objectContaining({ href: urls.inbox(), path: 'Inbox', tags: ['beta'] })],
+            pinnedItems: [expect.objectContaining({ href: urls.inbox(), path: 'Inbox' })],
             groupedItems: [],
         })
         const items = [
-            { path: 'Links', category: 'Unreleased', href: '/links' },
+            { path: 'Pulse', category: 'Unreleased', href: '/pulse' },
             { path: 'Web analytics', category: 'Analytics', href: '/web' },
             {
                 path: 'LLM analytics',
@@ -106,7 +109,7 @@ describe('navProductsTabLogic', () => {
             ['Analytics', ['Web analytics']],
             ['AI engineering', ['AI gateway', 'AI observability']],
             ['Monitoring', ['Logs']],
-            ['Unreleased', ['Links']],
+            ['Unreleased', ['Pulse']],
         ])
         expect(groupProducts(items, 'observability')[0].items[0].href).toEqual('/ai')
     })
@@ -122,11 +125,55 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.allProductsVisible).toBe(true)
         navProductsTabLogic.actions.setSearch('')
 
+        navProductsTabLogic.actions.revealAllProductsForFind()
+        expect(navProductsTabLogic.values).toMatchObject({ allProductsVisible: true, allProductsOpen: false })
+        router.actions.push(urls.dashboards())
+        expect(navProductsTabLogic.values.allProductsVisible).toBe(false)
+
         projectTreeDataLogic.actions.loadShortcutsSuccess([])
         expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: false, allProductsVisible: true })
 
         projectTreeDataLogic.actions.loadShortcutsSuccess(starred)
         expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: true, allProductsVisible: true })
+    })
+
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('reloads stars after custom products reload with the simple sidebar %s', async (enabled, expectedLoads) => {
+        const list = jest.fn(() => [200, { results: [] }])
+        useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': list } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        list.mockClear()
+
+        await expectLogic(navProductsTabLogic, () =>
+            customProductsLogic.actions.loadCustomProductsSuccess([])
+        ).toFinishAllListeners()
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+        expect(list).toHaveBeenCalledTimes(expectedLoads)
+    })
+
+    it('fills in the link of product stars the backend created without one', async () => {
+        const results = [
+            { id: 'backend-star', path: 'Session replay', type: 'session_replay' },
+            { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
+        ]
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system_shortcut/': { results },
+                '/api/projects/:team_id/file_system_shortcut/': { results },
+            },
+        })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        await expectLogic(projectTreeDataLogic, () =>
+            projectTreeDataLogic.actions.loadShortcuts()
+        ).toFinishAllListeners()
+        expect(projectTreeDataLogic.values.shortcutData).toEqual([
+            { id: 'backend-star', path: 'Session replay', type: 'session_replay', href: urls.replay() },
+            { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
+        ])
     })
 
     it('filters starred products with the product search', async () => {
@@ -141,100 +188,150 @@ describe('navProductsTabLogic', () => {
         expect(starredTree.values.searchTerm).toEqual('onboarding')
     })
 
-    it('configures product stars without changing files, folders, or existing order', async () => {
-        const app = { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }
-        const create = jest.fn(() => [201, app])
-        const remove = jest.fn(() => [204])
-        useMocks({
-            post: { '/api/projects/:team_id/file_system_shortcut/': create },
-            delete: { '/api/projects/:team_id/file_system_shortcut/app-star/': remove },
-        })
+    it('saves staged stars in one request without touching files, folders, or other shortcuts', async () => {
+        const saved = [
+            { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
+            { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+        ]
+        const bulkUpdate = jest.fn(async ({ request }: { request: Request }) => {
+            bulkUpdate.body = await request.json()
+            return [200, saved]
+        }) as jest.Mock & { body?: unknown }
+        useMocks({ post: { '/api/projects/:team_id/file_system_shortcut/bulk_update/': bulkUpdate } })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-        const existing = [
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
             { id: 'file', path: 'Feature flags', type: 'insight', ref: 'insight-1', href: '/insights/insight-1' },
             { id: 'analytics', path: 'Insights', type: 'product_analytics', href: '/insights' },
-        ]
-        projectTreeDataLogic.actions.loadShortcutsSuccess(existing)
-        navProductsTabLogic.actions.setSearch('no matches')
-        expect(navProductsTabLogic.values.starredProductIds['Feature flags']).toBeUndefined()
+        ])
+
+        navProductsTabLogic.actions.setAllProductsOpen(true)
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
+        navProductsTabLogic.actions.setDraftStarred('Product analytics', false)
+        expect(navProductsTabLogic.values.allProductsOpen).toBe(true)
+        navProductsTabLogic.actions.setDraftStarred('Feature flags', true)
+        expect(navProductsTabLogic.values.allProductsOpen).toBe(false)
         expect(navProductsTabLogic.values.starredProductIds['Product analytics']).toBe('analytics')
 
-        await expectLogic(navProductsTabLogic, () => {
-            navProductsTabLogic.actions.setProductStarred('Feature flags', true)
-            navProductsTabLogic.actions.setProductStarred('Feature flags', true)
-        }).toDispatchActions([navProductsTabLogic.actionTypes.saveAppStarsSuccess])
-        expect(create).toHaveBeenCalledTimes(1)
-        expect(projectTreeDataLogic.values.shortcutData).toEqual([...existing, app])
-        expect(navProductsTabLogic.values.starredProductIds['Feature flags']).toBe('app-star')
-        expect(navProductsTabLogic.values.starSaveError).toBeNull()
-        expect(posthog.capture).toHaveBeenCalledWith('navbar starred item added', {
-            item_type: 'feature_flag',
-            item_name: 'Feature flags',
+        await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.saveStarredProducts())
+            .toDispatchActions(['saveStarredProductsSuccess'])
+            .toMatchValues({ customizeSidebarOpen: false, starredProductsSaving: false })
+        expect(bulkUpdate).toHaveBeenCalledTimes(1)
+        expect(bulkUpdate.body).toEqual({
+            add: [{ path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }],
+            remove_ids: ['analytics'],
         })
-
-        await expectLogic(navProductsTabLogic, () => {
-            navProductsTabLogic.actions.setProductStarred('Feature flags', false)
-            navProductsTabLogic.actions.setProductStarred('Feature flags', false)
-        }).toDispatchActions([navProductsTabLogic.actionTypes.saveAppStarsSuccess])
-        expect(remove).toHaveBeenCalledTimes(1)
-        expect(projectTreeDataLogic.values.shortcutData).toEqual(existing)
-        expect(navProductsTabLogic.values.starSaveError).toBeNull()
-        expect(posthog.capture).toHaveBeenCalledWith('navbar starred item removed', {
-            item_type: 'feature_flag',
-            item_name: 'Feature flags',
-        })
+        expect(projectTreeDataLogic.values.shortcutData).toEqual(saved)
     })
 
-    it.each(['before', 'after'])(
-        'reports a failed removal when the modal closes %s the failure and allows a retry',
-        async (closed) => {
-            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('save-error')
-            navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
-            const remove = jest
-                .fn()
-                .mockReturnValueOnce([500, { detail: 'Try again' }])
-                .mockReturnValueOnce([204])
-            useMocks({ delete: { '/api/projects/:team_id/file_system_shortcut/app-star/': remove } })
-            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-            projectTreeDataLogic.actions.loadShortcutsSuccess([
-                { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
-            ])
+    it.each([
+        ['saves', 200, false, true],
+        ['keeps the dialog and choices after a failed save', 500, true, false],
+    ])('starred setup starts from custom products and %s', async (_name, status, staysOpen, completed) => {
+        const bulkUpdate = jest.fn(() => [status, status === 200 ? [] : { detail: 'Try again' }])
+        const updateUser = jest.fn(async ({ request }: { request: Request }) => {
+            updateUser.body = await request.json()
+            return [200, { ...MOCK_DEFAULT_USER, ...(updateUser.body as object) }]
+        }) as jest.Mock & { body?: unknown }
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            ui_configuration: { version: 1, sidebar: { density: 'compact' } },
+        })
+        useMocks({
+            post: { '/api/projects/:team_id/file_system_shortcut/bulk_update/': bulkUpdate },
+            patch: { '/api/users/@me/': updateUser },
+        })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+        ])
+        customProductsLogic.actions.loadCustomProductsSuccess([
+            { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
+            { id: '2', product_path: 'Removed product', enabled: true, created_at: '', updated_at: '' },
+        ])
 
-            await expectLogic(navProductsTabLogic, () => {
-                navProductsTabLogic.actions.setProductStarred('Feature flags', false)
-                if (closed === 'before') {
-                    navProductsTabLogic.actions.setCustomizeSidebarOpen(false)
-                }
-            })
-                .toDispatchActions([navProductsTabLogic.actionTypes.saveAppStarsSuccess])
-                .toMatchValues({
-                    starredProductIds: { 'Feature flags': 'app-star' },
-                    starSaveResultLoading: false,
-                    starSaveError: expect.any(String),
-                })
-            if (closed === 'after') {
-                expect(errorToast).not.toHaveBeenCalled()
-                navProductsTabLogic.actions.setCustomizeSidebarOpen(false)
-            }
-            expect(errorToast).toHaveBeenCalledWith(
-                expect.any(String),
-                expect.objectContaining({
-                    toastId: 'configure-starred-save-error',
-                    autoClose: false,
-                    button: { label: 'Customize sidebar', action: expect.any(Function) },
-                })
-            )
-            errorToast.mock.calls[0][1]?.button?.action()
-            expect(navProductsTabLogic.values.customizeSidebarOpen).toBe(true)
-            await expectLogic(navProductsTabLogic, () =>
-                navProductsTabLogic.actions.setProductStarred('Feature flags', false)
-            )
-                .toDispatchActions([navProductsTabLogic.actionTypes.saveAppStarsSuccess])
-                .toMatchValues({ starredProductIds: {}, starSaveResultLoading: false, starSaveError: null })
-            errorToast.mockRestore()
-        }
-    )
+        navProductsTabLogic.actions.openStarredSetup()
+        expect([...navProductsTabLogic.values.draftStarredPaths].sort()).toEqual([
+            'Product analytics',
+            'Session replay',
+        ])
+        navProductsTabLogic.actions.setDraftStarred('Feature flags', true)
+        navProductsTabLogic.actions.setAllProductsOpen(true)
+
+        await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.saveStarredProducts())
+            .toDispatchActions([staysOpen ? 'saveStarredProductsFailure' : 'saveStarredProductsSuccess'])
+            .toFinishAllListeners()
+            .toMatchValues({ customizeSidebarOpen: staysOpen, starredProductsSaving: false })
+        expect(updateUser).toHaveBeenCalledTimes(completed ? 1 : 0)
+        expect(navProductsTabLogic.values.allProductsOpen).toBe(!completed)
+        expect(updateUser.body).toEqual(
+            completed
+                ? {
+                      ui_configuration: {
+                          version: 1,
+                          sidebar: { density: 'compact', starred_products_setup_completed: true },
+                      },
+                  }
+                : undefined
+        )
+        expect(navProductsTabLogic.values.draftStarredPaths.has('Feature flags')).toBe(true)
+        expect(customProductsLogic.values.customProducts).toHaveLength(2)
+    })
+    it('clean slate unstars every product, keeps folders, and completes setup in one save', async () => {
+        const bulkUpdate = jest.fn(async ({ request }: { request: Request }) => {
+            bulkUpdate.body = await request.json()
+            return [200, [{ id: 'folder', path: 'Research', type: 'folder', ref: 'Research' }]]
+        }) as jest.Mock & { body?: unknown }
+        const updateUser = jest.fn(() => [200, MOCK_DEFAULT_USER])
+        useMocks({
+            post: { '/api/projects/:team_id/file_system_shortcut/bulk_update/': bulkUpdate },
+            patch: { '/api/users/@me/': updateUser },
+        })
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, ui_configuration: null })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            // Listed in the sidebar but not in the dialog, like a product the user lost access to.
+            { id: 'activity', path: 'Activity', type: 'activity', href: urls.activity(ActivityTab.ExploreEvents) },
+        ])
+        customProductsLogic.actions.loadCustomProductsSuccess([
+            { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
+        ])
+        navProductsTabLogic.actions.openStarredSetup()
+
+        await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.startWithCleanSlate())
+            .toDispatchActions(['saveStarredProductsSuccess'])
+            .toFinishAllListeners()
+            .toMatchValues({ customizeSidebarOpen: false })
+        expect(bulkUpdate.body).toEqual({ add: [], remove_ids: ['analytics', 'activity'] })
+        expect(updateUser).toHaveBeenCalledTimes(1)
+    })
+
+    it('unselects every star, including preselected custom products, until the dialog reopens', async () => {
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+        ])
+        customProductsLogic.actions.loadCustomProductsSuccess([
+            { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
+        ])
+        navProductsTabLogic.actions.openStarredSetup()
+
+        navProductsTabLogic.actions.unselectAllStarred()
+        navProductsTabLogic.actions.setDraftStarred('Logs', true)
+        expect([...navProductsTabLogic.values.draftStarredPaths]).toEqual(['Logs'])
+
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(false)
+        navProductsTabLogic.actions.openStarredSetup()
+        expect([...navProductsTabLogic.values.draftStarredPaths].sort()).toEqual([
+            'Product analytics',
+            'Session replay',
+        ])
+    })
+
     it.each([
         ['products', ['Product analytics']],
         ['files', ['Overview', 'Research']],
@@ -253,93 +350,52 @@ describe('navProductsTabLogic', () => {
             shortcutScope === 'files' ? [] : ['Product analytics']
         )
     })
-    it('keeps edits responsive while saving, preserves the latest intent, and finishes after the modal closes', async () => {
-        let releaseCreate!: () => void
+    it('ignores a save response that arrives after the project changed', async () => {
+        let release!: () => void
         const held = new Promise<void>((resolve) => {
-            releaseCreate = resolve
+            release = resolve
         })
-        const create = jest.fn(async () => {
-            await held
-            return [201, { id: 'new-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }]
-        })
-        const remove = jest.fn(() => [204])
         useMocks({
-            post: { '/api/projects/:team_id/file_system_shortcut/': create },
-            delete: { '/api/projects/:team_id/file_system_shortcut/:id/': remove },
+            post: {
+                '/api/projects/:team_id/file_system_shortcut/bulk_update/': async () => {
+                    await held
+                    return [200, [{ id: 'old-project-star', path: 'Logs', type: 'logs', href: '/logs' }]]
+                },
+            },
         })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-        projectTreeDataLogic.actions.loadShortcutsSuccess([
-            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
-        ])
-        navProductsTabLogic.actions.setProductStarred('Feature flags', true)
-        await expectLogic(navProductsTabLogic).toDispatchActions(['saveAppStars'])
-        expect(navProductsTabLogic.values.selectedAppStars['Feature flags']).toBe(true)
-        navProductsTabLogic.actions.setProductStarred('Product analytics', false)
-        navProductsTabLogic.actions.setProductStarred('Feature flags', false)
-        expect(navProductsTabLogic.values.selectedAppStars).toMatchObject({
-            'Feature flags': false,
-            'Product analytics': false,
+        projectTreeDataLogic.actions.loadShortcutsSuccess([])
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
+        navProductsTabLogic.actions.setDraftStarred('Logs', true)
+        navProductsTabLogic.actions.saveStarredProducts()
+
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            id: teamLogic.values.currentTeamId! + 1,
         })
-        navProductsTabLogic.actions.setCustomizeSidebarOpen(false)
-        releaseCreate()
-        await expectLogic(navProductsTabLogic).toDispatchActions(['saveAppStarsSuccess'])
-        expect(create).toHaveBeenCalledTimes(1)
-        expect(remove).toHaveBeenCalledTimes(2)
+        const newProjectStars = [{ id: 'new-project-star', path: 'Dashboards', type: 'dashboard', href: '/dashboard' }]
+        projectTreeDataLogic.actions.loadShortcutsSuccess(newProjectStars)
+        release()
+
+        await expectLogic(navProductsTabLogic)
+            .toDispatchActions(['saveStarredProductsFailure'])
+            .toMatchValues({ starredProductsSaving: false })
+        expect(projectTreeDataLogic.values.shortcutData).toEqual(newProjectStars)
     })
 
-    it.each([201, 500])(
-        'isolates queued saves when the project changes during a request returning %s',
-        async (status) => {
-            let release!: () => void
-            const held = new Promise<void>((resolve) => {
-                release = resolve
-            })
-            const oldTeamId = teamLogic.values.currentTeamId!
-            const newTeamId = oldTeamId + 1
-            const create = jest.fn(async ({ request }) => {
-                const oldProject = new URL(request.url).pathname.includes(`/projects/${oldTeamId}/`)
-                if (oldProject) {
-                    await held
-                }
-                return [
-                    oldProject ? status : 201,
-                    {
-                        id: oldProject ? 'old-project-star' : 'new-project-star',
-                        path: 'Feature flags',
-                        type: 'feature_flag',
-                        href: '/feature_flags',
-                    },
-                ]
-            })
-            const remove = jest.fn(() => [204])
-            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('project-change')
-            useMocks({
-                post: { '/api/projects/:team_id/file_system_shortcut/': create },
-                delete: { '/api/projects/:team_id/file_system_shortcut/:id/': remove },
-            })
-            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-            projectTreeDataLogic.actions.loadShortcutsSuccess([
-                { id: 'old-analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
-            ])
-            navProductsTabLogic.actions.setProductStarred('Feature flags', true)
-            await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
-            navProductsTabLogic.actions.setProductStarred('Product analytics', false)
-            teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: newTeamId })
-            projectTreeDataLogic.actions.loadShortcutsSuccess([])
-            expect(navProductsTabLogic.values.pendingAppStars).toEqual({})
-            await expectLogic(navProductsTabLogic, () =>
-                navProductsTabLogic.actions.setProductStarred('Feature flags', true)
-            ).toDispatchActions(['saveAppStarsSuccess'])
-            release()
-            await expectLogic(navProductsTabLogic).toFinishAllListeners()
-            expect(create).toHaveBeenCalledTimes(2)
-            expect(remove).not.toHaveBeenCalled()
-            expect(projectTreeDataLogic.values.shortcutData.map(({ id }) => id)).toEqual(['new-project-star'])
-            expect(navProductsTabLogic.values.starSaveError).toBeNull()
-            expect(errorToast).toHaveBeenCalledTimes(1)
-            errorToast.mockRestore()
-        }
-    )
+    it('closes the dialog and drops the unsaved draft when the project changes', () => {
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
+        navProductsTabLogic.actions.setDraftStarred('Feature flags', true)
+
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            id: teamLogic.values.currentTeamId! + 1,
+        })
+
+        expect(navProductsTabLogic.values.customizeSidebarOpen).toBe(false)
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
+        expect(navProductsTabLogic.values.draftStarredPaths.has('Feature flags')).toBe(false)
+    })
 
     it('splits the full ranked catalog at the threshold and clears the grouping', async () => {
         const requests: DecideRequestApi[] = []
@@ -398,6 +454,15 @@ describe('navProductsTabLogic', () => {
             'SQL editor',
         ])
         expect(navProductsTabLogic.values.appMatchGroups?.other.map((item) => item.path)).toContain('Feature flags')
+        expect(navProductsTabLogic.values.customizeProductGroups[0]).toMatchObject({ label: SUGGESTED_GROUP_LABEL })
+        expect(navProductsTabLogic.values.customizeProductGroups[0].items.map((item) => item.path)).toEqual([
+            'Web analytics',
+            'SQL editor',
+        ])
+        navProductsTabLogic.actions.openStarredSetup()
+        expect(navProductsTabLogic.values.customizeProductGroups.map((group) => group.label)).not.toContain(
+            SUGGESTED_GROUP_LABEL
+        )
         expect(
             (navProductsTabLogic.values.appMatchGroups?.matching.length ?? 0) +
                 (navProductsTabLogic.values.appMatchGroups?.other.length ?? 0)

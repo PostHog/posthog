@@ -3,7 +3,7 @@ import { Client, Connection, WorkflowExecutionAlreadyStartedError } from '@tempo
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { RawKafkaEvent } from '~/types'
 
-import { TemporalService, resolveSettleConfig, workflowSafeId } from './temporal.service'
+import { EVENT_REFERENCE_START_DELAY, TemporalService, resolveSettleConfig, workflowSafeId } from './temporal.service'
 import type { EvaluationWorkflowRuntime, TemporalServiceConfig } from './temporal.service'
 
 jest.mock('@temporalio/client')
@@ -235,6 +235,50 @@ describe('TemporalService', () => {
                 ],
             })
         })
+
+        it.each([
+            [
+                'run-evaluation',
+                (event: RawKafkaEvent) => service.startEvaluationRunWorkflow('eval-123', event, 'llm_judge'),
+            ],
+            ['run-tagger', (event: RawKafkaEvent) => service.startTaggerRunWorkflow('tagger-123', event)],
+        ])(
+            'starts %s with a delayed reference when the worker would encode the event over the payload limit',
+            async (workflow, start) => {
+                const oversizedOutput = 'é'.repeat(300_000)
+                const events = [
+                    createMockEvent({
+                        properties: JSON.stringify({ $ai_trace_id: 'trace-1', $ai_output: oversizedOutput }),
+                    }),
+                    createMockEvent({
+                        properties: JSON.stringify({ $ai_trace_id: 12345, $ai_output: oversizedOutput }),
+                    }),
+                    createMockEvent({ properties: JSON.stringify({ $ai_trace_id: 'é'.repeat(300_000) }) }),
+                ]
+                const sameLengthAscii = createMockEvent({
+                    properties: JSON.stringify({ $ai_trace_id: 'trace-1', $ai_output: 'e'.repeat(300_000) }),
+                })
+
+                for (const event of [...events, sameLengthAscii]) {
+                    await start(event)
+                }
+
+                const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+                const reference = {
+                    uuid: 'event-456',
+                    team_id: 1,
+                    timestamp: '2024-01-01T00:00:00Z',
+                    awaiting_ingestion: true,
+                }
+                ;['trace-1', '12345', null].forEach((traceId, i) => {
+                    expect(calls[i][0]).toBe(workflow)
+                    expect(calls[i][1]).toEqual(expect.objectContaining({ startDelay: EVENT_REFERENCE_START_DELAY }))
+                    expect(calls[i][1].args[0].event_data).toEqual({ ...reference, trace_id: traceId })
+                })
+                expect(calls[3][1].args[0].event_data).toBe(sameLengthAscii)
+                expect(calls[3][1]).not.toHaveProperty('startDelay')
+            }
+        )
 
         it('generates deterministic tagger workflow IDs', async () => {
             const mockEvent = createMockEvent()

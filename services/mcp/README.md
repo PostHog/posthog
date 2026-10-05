@@ -273,7 +273,6 @@ Available features:
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
 | `tasks`                  | [Tasks](https://posthog.com/docs/posthog-desktop/tasks)                                         |
 | `tracing`                | Tracing                                                                                         |
-| `user_interviews`        | User interview topics                                                                           |
 | `visual_review`          | Visual review                                                                                   |
 | `warehouse_sources`      | Warehouse sources                                                                               |
 | `web_analytics`          | [Web analytics](https://posthog.com/docs/web-analytics)                                         |
@@ -440,7 +439,6 @@ Changes in the examples repo will be reflected on the next request.
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
 - `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
 - `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
-- `typescript/` - A small shim (`typescript/src/tools/posthogAiTools/`) consumed by posthog-ai
 
 ### Development Commands
 

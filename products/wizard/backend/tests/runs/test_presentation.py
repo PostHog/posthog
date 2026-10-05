@@ -1,3 +1,4 @@
+from datetime import timedelta
 from hashlib import sha256
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -166,6 +168,18 @@ class TestWizardRunViewSet(APIBaseTest):
 
         invalid_response = self.client.get(f"{self._url()}?status=unknown")
         self.assertEqual(invalid_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        WizardRun.objects.for_team(self.team.id).filter(id=run_ids[0]).update(
+            created_at=timezone.now() - timedelta(days=1)
+        )
+        created_after = (timezone.now() - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        recent_response = self.client.get(f"{self._url()}?status=created,running&created_after={created_after}")
+        self.assertEqual(recent_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(recent_response.json()["count"], 1)
+        self.assertEqual([run["id"] for run in recent_response.json()["results"]], [run_ids[2]])
+
+        invalid_date_response = self.client.get(f"{self._url()}?created_after=invalid")
+        self.assertEqual(invalid_date_response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_requires_program_id(self) -> None:
         response = self.client.post(

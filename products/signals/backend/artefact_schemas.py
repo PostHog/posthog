@@ -19,6 +19,7 @@ degraded, never raised to users).
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
@@ -28,6 +29,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority
+from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -131,6 +133,19 @@ class ActionabilityAssessment(BaseModel):
         if not v.strip():
             raise ValueError("Explanation must not be empty")
         return v
+
+
+def priority_from_judgment(content: str | None) -> str | None:
+    """The priority of a `priority_judgment` artefact's content, or None when the content has none.
+
+    Tolerant on purpose: an old or malformed judgment reads as "no priority" rather than an error.
+    """
+    try:
+        data = json.loads(content or "")
+    except (TypeError, ValueError):
+        return None
+    priority = data.get("priority") if isinstance(data, dict) else None
+    return priority if isinstance(priority, str) else None
 
 
 class PriorityAssessment(BaseModel):
@@ -319,6 +334,15 @@ class RankingModelResult(BaseModel):
     scores: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict,
         description="Outcome head name to its calibrated probability. Empty on a skipped model.",
+    )
+    # No upper bound: a lift reaches `1 / base_rate`.
+    lifts: dict[str, Annotated[float, Field(ge=0.0)]] = Field(
+        default_factory=dict,
+        description=(
+            "Outcome head name to its probability divided by the head's base rate "
+            "(`refit_classification_threshold`) from the model's metadata. Empty on a skipped model. "
+            "A head without a saved threshold has no entry."
+        ),
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -934,12 +958,20 @@ class CheckResult(BaseModel):
     check_id: str = Field(description="UUID of the SignalReportCheck this run belongs to.")
     kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
     title: str = Field(description="The check's title, copied so the log entry reads on its own.")
-    outcome: Literal["passed", "failed", "errored"] = Field(
+    outcome: CheckOutcome = Field(
         description=(
-            "`passed` (the expectation held), `failed` (it did not), or `errored` (the check could not be measured)."
+            "`passed` (the expectation held), `failed` (it did not), `errored` (the check could not be measured), "
+            "or `inconclusive` (the run worked but could not settle the claim)."
         )
     )
     explanation: str = Field(description="One line saying what was measured and how it compared.")
+    reason: CheckInconclusiveReason | None = Field(
+        default=None,
+        description=(
+            "Why an `inconclusive` run could not settle the claim. Required on `inconclusive`, absent on any other "
+            "outcome."
+        ),
+    )
     observed_value: float | None = Field(default=None, description="The measured value; absent when the run errored.")
     baseline_value: float | None = Field(
         default=None, description="The value recorded when the check was written, when the author gave one."
@@ -956,6 +988,12 @@ class CheckResult(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    @model_validator(mode="after")
+    def reason_must_match_outcome(self) -> CheckResult:
+        if (self.outcome == "inconclusive") != (self.reason is not None):
+            raise ValueError("`reason` is required on an `inconclusive` result and refused on any other")
+        return self
 
 
 class CheckLifecycleEntry(BaseModel):
@@ -1010,16 +1048,67 @@ class CheckCancelled(CheckLifecycleEntry):
     the type rather than a nullable field.
     """
 
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"] = Field(
         description="Which path stopped the check."
     )
 
 
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
+
 # Content models that describe the report's current state (latest row of each type wins) vs
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
+class ImpactMeasurementPlan(BaseModel):
+    """One version of a proposed impact measurement, keyed by metric_id within a report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric_id: str = Field(max_length=100)
+    title: str = Field(max_length=200)
+    kind: str
+    query: dict[str, Any]
+    value_format: str = "number"
+    unit: str | None = None
+    goal_value: float
+    goal_direction: Literal["at_most", "at_least"]
+    goal_grain: Literal["whole_window", "per_interval"] = "whole_window"
+    decision_window_days: int | None = Field(default=None, ge=1, le=30)
+    minimum_data_points: int | None = Field(default=None, ge=1, le=1000)
+    eligibility_query: dict[str, Any] | None = None
+    activated: bool = Field(default=False, strict=True)
+    retired: bool = Field(default=False, strict=True)
+
+    @field_validator("goal_value", "decision_window_days", "minimum_data_points", mode="before")
+    @classmethod
+    def reject_coerced_flags_and_counts(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("provide a number, not a boolean")
+        return value
+
+    @model_validator(mode="after")
+    def validate_measurement(self) -> ImpactMeasurementPlan:
+        from products.signals.backend.report_metrics import ReportMetric
+
+        validated_metric = ReportMetric.model_validate(
+            self.model_dump(exclude={"activated", "retired", "goal_grain", "eligibility_query"})
+        )
+        self.metric_id = validated_metric.metric_id
+        if self.minimum_data_points is not None and self.eligibility_query is None:
+            raise ValueError("minimum_data_points requires an eligibility_query for qualifying opportunities")
+        if self.eligibility_query is not None:
+            ReportMetric.model_validate(
+                {
+                    "metric_id": "eligible",
+                    "title": "Qualifying opportunities",
+                    "kind": "occurrences",
+                    "value_format": "count",
+                    "query": self.eligibility_query,
+                }
+            )
+        return self
+
+
 StatusArtefactContent = (
     SafetyJudgment
     | ActionabilityAssessment
@@ -1051,6 +1140,7 @@ LogArtefactContent = (
     | CheckCancelled
     | ImplementationReplacement
     | ImplementationHandover
+    | ImpactMeasurementPlan
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -1088,6 +1178,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "implementation_dispatch": ImplementationDispatch,
     "implementation_replacement": ImplementationReplacement,
     "implementation_handover": ImplementationHandover,
+    "impact_measurement_plan": ImpactMeasurementPlan,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -1134,6 +1225,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_replacement",
         "implementation_handover",
         "ranking_score",
+        "impact_measurement_plan",
     }
 )
 

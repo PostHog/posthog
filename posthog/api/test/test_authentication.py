@@ -47,6 +47,7 @@ from posthog.auth import (
     SessionAuthentication,
     TeamSecretTokenAuthentication,
     TeamSecretTokenUser,
+    WidgetAuthentication,
     _extract_phs_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod
@@ -1609,7 +1610,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        self.assertNotIn("Content-Length", response.headers)
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
@@ -2539,6 +2540,15 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
+
+
+class TestWidgetAuthentication(SimpleTestCase):
+    @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
+    def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
+        request = Request(APIRequestFactory().get("/", HTTP_X_CONVERSATIONS_TOKEN="test-widget-token"))
+        with patch("posthog.models.Team.objects.get", side_effect=lookup_error):
+            with self.assertRaises(AuthenticationFailed):
+                WidgetAuthentication().authenticate(request)
 
 
 class TestSyntheticUser(SimpleTestCase):
