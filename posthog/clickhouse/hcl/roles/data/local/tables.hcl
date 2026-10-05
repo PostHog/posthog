@@ -3203,7 +3203,7 @@ SQL
 
   table "saved_query_reads_daily_staging" {
     partition_by = "toYYYYMMDD(day)"
-    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "names_only_this_subject"]
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
     ttl      = "day + toIntervalDay(60)"
     settings = {
       index_granularity = "8192"
@@ -3248,7 +3248,7 @@ SQL
     column "has_user_id" {
       type = "Bool"
     }
-    column "names_only_this_subject" {
+    column "read_alone" {
       type = "Bool"
     }
     column "requests" {

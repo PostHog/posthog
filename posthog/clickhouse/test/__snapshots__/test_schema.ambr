@@ -6896,7 +6896,7 @@
       source LowCardinality(String),
       scene LowCardinality(String),
       has_user_id Bool,
-      names_only_this_subject Bool,
+      read_alone Bool,
       requests AggregateFunction(uniq, String),
       users AggregateFunction(uniq, Int64),
       read_count SimpleAggregateFunction(sum, UInt64),
@@ -6907,7 +6907,7 @@
       max_event_time SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.saved_query_reads_daily', '{replica}-{shard}')
   PARTITION BY toYYYYMMDD(day)
-  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, names_only_this_subject)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
   TTL day + INTERVAL 60 DAY
   SETTINGS ttl_only_drop_parts = 1
   
@@ -6931,7 +6931,7 @@
       source LowCardinality(String),
       scene LowCardinality(String),
       has_user_id Bool,
-      names_only_this_subject Bool,
+      read_alone Bool,
       requests AggregateFunction(uniq, String),
       users AggregateFunction(uniq, Int64),
       read_count SimpleAggregateFunction(sum, UInt64),
@@ -6942,7 +6942,7 @@
       max_event_time SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.saved_query_reads_daily_staging', '{replica}-{shard}')
   PARTITION BY toYYYYMMDD(day)
-  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, names_only_this_subject)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
   TTL day + INTERVAL 60 DAY
   SETTINGS ttl_only_drop_parts = 1
   
@@ -13086,7 +13086,7 @@
       source LowCardinality(String),
       scene LowCardinality(String),
       has_user_id Bool,
-      names_only_this_subject Bool,
+      read_alone Bool,
       requests AggregateFunction(uniq, String),
       users AggregateFunction(uniq, Int64),
       read_count SimpleAggregateFunction(sum, UInt64),
@@ -13097,7 +13097,7 @@
       max_event_time SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.saved_query_reads_daily', '{replica}-{shard}')
   PARTITION BY toYYYYMMDD(day)
-  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, names_only_this_subject)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
   TTL day + INTERVAL 60 DAY
   SETTINGS ttl_only_drop_parts = 1
   
@@ -13121,7 +13121,7 @@
       source LowCardinality(String),
       scene LowCardinality(String),
       has_user_id Bool,
-      names_only_this_subject Bool,
+      read_alone Bool,
       requests AggregateFunction(uniq, String),
       users AggregateFunction(uniq, Int64),
       read_count SimpleAggregateFunction(sum, UInt64),
@@ -13132,7 +13132,7 @@
       max_event_time SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.saved_query_reads_daily_staging', '{replica}-{shard}')
   PARTITION BY toYYYYMMDD(day)
-  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, names_only_this_subject)
+  ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)
   TTL day + INTERVAL 60 DAY
   SETTINGS ttl_only_drop_parts = 1
   

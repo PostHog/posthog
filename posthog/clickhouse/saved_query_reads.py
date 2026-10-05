@@ -31,7 +31,7 @@ DIMENSION_COLUMNS = (
     "source",
     "scene",
     "has_user_id",
-    "names_only_this_subject",
+    "read_alone",
 )
 
 SORT_KEY_COLUMNS = ("team_id", "day", "read_kind", "subject_kind", "subject_id", *DIMENSION_COLUMNS)
@@ -50,7 +50,7 @@ _COLUMNS = f"""
     source LowCardinality(String),
     scene LowCardinality(String),
     has_user_id Bool,
-    names_only_this_subject Bool,
+    read_alone Bool,
     requests AggregateFunction(uniq, String),
     users AggregateFunction(uniq, Int64),
     read_count SimpleAggregateFunction(sum, UInt64),
