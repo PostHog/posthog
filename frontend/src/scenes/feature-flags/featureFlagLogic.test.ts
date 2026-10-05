@@ -766,6 +766,7 @@ describe('featureFlagLogic', () => {
             })
             const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
             const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
+            const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             try {
                 await expectLogic(logic, () => {
                     logic.actions.saveFeatureFlag(logic.values.featureFlag)
@@ -773,6 +774,7 @@ describe('featureFlagLogic', () => {
                     .toDispatchActions(['saveFeatureFlagFailure'])
                     .toFinishAllListeners()
 
+                expect(captureSpy).not.toHaveBeenCalled()
                 // One toast means the generic loaders toast stayed suppressed (initKea.ts) and this
                 // listener produced the only message; two would mean the suppression broke.
                 expect(toastSpy).toHaveBeenCalledTimes(1)
@@ -788,6 +790,7 @@ describe('featureFlagLogic', () => {
             } finally {
                 toastSpy.mockRestore()
                 openSpy.mockRestore()
+                captureSpy.mockRestore()
             }
         })
 
