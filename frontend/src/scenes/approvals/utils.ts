@@ -13,6 +13,9 @@ interface ApprovalActionConfig {
     label: string
     description: string
     contextDescriptions?: Partial<Record<ApprovalContext, string>>
+    /** What the gate compares: the long form for the picker, the summary for the policy list. */
+    coverage?: string
+    coverageSummary?: string
 }
 
 export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
@@ -27,14 +30,25 @@ export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
         contextDescriptions: { experiment: 'pause this experiment' },
     },
     [ApprovalActionKey.FEATURE_FLAG_UPDATE]: {
-        label: 'Update feature flag',
-        description: 'update feature flag fields',
-        contextDescriptions: { experiment: 'update this experiment' },
+        label: 'Update feature flag rollout percentage',
+        description: "update this feature flag's rollout percentage",
+        contextDescriptions: { experiment: "update this experiment's rollout percentage" },
+        coverage:
+            'Covers rollout percentage only: release condition rollout, holdout exclusion, and variant rollout. Every other edit saves without approval, including release condition targeting, variant names, and payloads.',
+        coverageSummary: 'Rollout percentage only',
     },
 }
 
 export function getApprovalActionLabel(actionKey: string): string {
     return APPROVAL_ACTIONS[actionKey]?.label || actionKey.replace(/[._]/g, ' ')
+}
+
+export function getApprovalActionCoverage(actionKey: string): string | null {
+    return APPROVAL_ACTIONS[actionKey]?.coverage || null
+}
+
+export function getApprovalActionCoverageSummary(actionKey: string): string | null {
+    return APPROVAL_ACTIONS[actionKey]?.coverageSummary || null
 }
 
 export function getApprovalActionDescription(actionKey: string, context?: ApprovalContext): string {
