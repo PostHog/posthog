@@ -10,7 +10,13 @@ const meta: Meta<typeof InsightHomeGuide> = {
     title: 'Scenes-App/Insights/Product analytics/Insight home guide',
     parameters: {
         pageUrl: '/insights/new?homeGuide=FUNNELS#insight=FUNNELS',
+        layout: 'centered',
     },
+    render: (args) => (
+        <div className="w-[960px] max-w-full">
+            <InsightHomeGuide {...args} />
+        </div>
+    ),
 }
 export default meta
 
@@ -33,7 +39,7 @@ export const Stickiness: Story = {
 export const Narrow: Story = {
     args: { query: getDefaultQuery(InsightType.FUNNELS, false) },
     render: (args) => (
-        <div className="w-full max-w-lg">
+        <div className="w-[512px] max-w-full">
             <InsightHomeGuide {...args} />
         </div>
     ),
