@@ -190,6 +190,7 @@ the row lists both.
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
+| clarifai                         | HTTP                        | requests                                                        | ✅                          |
 | clever                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cliniko                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clip                             | HTTP                        | requests                                                        | ✅                          |
@@ -1016,7 +1017,6 @@ doesn't conflict with concurrent PRs.
 - cin7
 - circle_so
 - cisco_meraki
-- clarifai
 - classy
 - clazar
 - cleartax
