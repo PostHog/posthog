@@ -834,6 +834,23 @@ describe('annotationsOverlayLogic', () => {
         })
     })
 
+    it('ends a SQL monthly range at the next calendar month when February sets the smallest gap', async () => {
+        useInsightMocks(null)
+        logic = annotationsOverlayLogic({
+            dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+            insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+            dates: ['2023-01-01', '2023-02-01', '2023-03-01'],
+            ticks: [{ value: 0 }, { value: 1 }, { value: 2 }],
+            dashboardId: MOCK_DASHBOARD_ID,
+        })
+        logic.mount()
+        await expectLogic(
+            insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+        ).toDispatchActions(['loadInsightSuccess'])
+
+        expect(logic.values.dateRange?.[1].toISOString()).toEqual('2023-04-01T00:00:00.000Z')
+    })
+
     describe('annotationBadgeDataIndices', () => {
         it.each<{ interval: IntervalType | null; dates: string[]; expected: Record<string, number> }>([
             {

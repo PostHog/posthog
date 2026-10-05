@@ -222,12 +222,7 @@ export interface annotationsOverlayLogicMeta {
             }[]
         ) => number[]
         tickDates: (timezone: string, arg: string[], tickPositions: number[]) => Dayjs[]
-        dateRange: (
-            timezone: string,
-            arg: string[],
-            intervalUnit: IntervalType,
-            inferredBuckets: InferredBuckets | null
-        ) => [Dayjs, Dayjs] | null
+        dateRange: (timezone: string, arg: string[], intervalUnit: IntervalType) => [Dayjs, Dayjs] | null
         relevantAnnotations: (
             annotations: AnnotationType[],
             dateRange: [Dayjs, Dayjs] | null,
@@ -357,26 +352,13 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 tickPositions.map((dateIndex) => parseDateInTimezone(dates[dateIndex], timezone)),
         ],
         dateRange: [
-            (s) => [
-                s.timezone,
-                (_, props: AnnotationsOverlayLogicProps) => props.dates,
-                s.intervalUnit,
-                s.inferredBuckets,
-            ],
-            (
-                timezone: string,
-                dates: string[],
-                intervalUnit: IntervalType,
-                inferredBuckets: InferredBuckets | null
-            ): [Dayjs, Dayjs] | null => {
+            (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.intervalUnit],
+            (timezone: string, dates: string[], intervalUnit: IntervalType): [Dayjs, Dayjs] | null => {
                 if (dates.length === 0) {
                     return null
                 }
                 const first = parseDateInTimezone(dates[0], timezone)
-                const lastDate = parseDateInTimezone(dates[dates.length - 1], timezone)
-                const last = inferredBuckets
-                    ? lastDate.add(inferredBuckets.smallestGapMs, 'millisecond')
-                    : lastDate.add(1, intervalUnit)
+                const last = parseDateInTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
                 return [first, last]
             },
         ],
