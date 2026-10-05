@@ -50,7 +50,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
-from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut, QueryServiceTimeBudgetExceeded
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
@@ -103,12 +103,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("served_from_cache", True, False),
-            ("fresh_failure", False, True),
+            ("served_from_cache", ClickHouseQueryTimeOut, True, False),
+            ("fresh_failure", ClickHouseQueryTimeOut, False, True),
+            ("query_service_time_budget", QueryServiceTimeBudgetExceeded, False, False),
         ]
     )
-    def test_served_from_query_failure_cache_is_not_recaptured(self, _name, served_from_cache, expect_capture):
-        error = ClickHouseQueryTimeOut("failed the same way 3 times in a row")
+    def test_served_from_query_failure_cache_is_not_recaptured(
+        self, _name, error_class, served_from_cache, expect_capture
+    ):
+        error = error_class("failed the same way 3 times in a row")
         if served_from_cache:
             error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
         with (
@@ -119,13 +122,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"/api/environments/{self.team.id}/query/",
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
-        self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
+        self.assertEqual(response.status_code, error_class.status_code)
         self.assertNotIn("Retry-After", response)
         self.assertEqual(mock_capture.called, expect_capture)
 
     @parameterized.expand(
         [
             ("timeout", ClickHouseQueryTimeOut("query timed out"), ClickHouseQueryTimeOut.status_code),
+            ("query service time budget", QueryServiceTimeBudgetExceeded(), 400),
             ("internal clickhouse error", InternalCHQueryError("too many rows", code=158), 500),
         ]
     )

@@ -161,7 +161,12 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, EventSource, groups, report_team_action, report_user_or_team_action
-from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
+from posthog.exceptions import (
+    APIQueriesBudgetExceeded,
+    ClickHouseQueryTimeOut,
+    QueryRanConcurrently,
+    QueryServiceTimeBudgetExceeded,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
@@ -2508,33 +2513,55 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     return fresh_response
                 except Exception as exc:
                     self._report_query_failed(exc, query_run=query_run)
+                    budget_error = self._query_service_time_budget_error(exc)
                     if getattr(exc, "served_from_query_failure_cache", False):
                         # ClickHouse was never touched; the original failure was already
                         # classified and captured when it happened.
                         slo.succeed(error_category="query_failure_cache")
-                        raise
-                    if getattr(exc, "served_from_query_single_flight", False):
+                    elif getattr(exc, "served_from_query_single_flight", False):
                         # The leader ran the query, and it already classified and captured this failure.
                         slo.succeed(error_category="query_single_flight")
-                        raise
-                    # Don't pass execution_path here: whichever branch tag was set before the raise
-                    # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
-                    # dashboards can attribute errors to the path they happened in. Errors that fire
-                    # before any branch tag is set leave execution_path unset, which is honest.
-                    category, outcome = _classify_error_for_slo(exc)
-                    if outcome == SloOutcome.SUCCESS:
-                        slo.succeed(error_category=category.value)
+                    elif budget_error is not None:
+                        # The caller's query used up the deliberate query API time cap. That is user input.
+                        slo.succeed(error_category=QueryErrorCategory.USER_ERROR.value)
                     else:
-                        slo.fail(error_category=category.value)
-                        # Capture only what classifies as a FAILURE outcome. User-input query errors
-                        # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
-                        # deliberately not captured — they're returned to the user as 4xx. Note this
-                        # gate is the SLO outcome, not a strict platform-vs-user split:
-                        # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
-                        # those are user-input limits — see _classify_error_for_slo.
-                        if not captured_elsewhere(exc):
-                            capture_exception(exc)
+                        # Don't pass execution_path here: whichever branch tag was set before the raise
+                        # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
+                        # dashboards can attribute errors to the path they happened in. Errors that fire
+                        # before any branch tag is set leave execution_path unset, which is honest.
+                        category, outcome = _classify_error_for_slo(exc)
+                        if outcome == SloOutcome.SUCCESS:
+                            slo.succeed(error_category=category.value)
+                        else:
+                            slo.fail(error_category=category.value)
+                            # Capture only what classifies as a FAILURE outcome. User-input query errors
+                            # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
+                            # deliberately not captured — they're returned to the user as 4xx. Note this
+                            # gate is the SLO outcome, not a strict platform-vs-user split:
+                            # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
+                            # those are user-input limits — see _classify_error_for_slo.
+                            if not captured_elsewhere(exc):
+                                capture_exception(exc)
+                    if budget_error is not None:
+                        raise budget_error from exc
                     raise
+
+    def _capped_for_query_service(self) -> bool:
+        """Whether this run executes under the short execution time cap of the query API."""
+        return False
+
+    def _query_service_time_budget_error(self, exc: Exception) -> Optional[QueryServiceTimeBudgetExceeded]:
+        """The caller-facing error for a timeout under the query API cap, or None for any other failure."""
+        if not isinstance(exc, ClickHouseQueryTimeOut) or isinstance(exc, QueryServiceTimeBudgetExceeded):
+            return None
+        if not self._capped_for_query_service():
+            return None
+        budget_error = QueryServiceTimeBudgetExceeded()
+        # The scan a stopped run carries must reach the error body.
+        for key in ("cache_key", "query_scan"):
+            if (value := getattr(exc, key, None)) is not None:
+                setattr(budget_error, key, value)
+        return budget_error
 
     def _execute_and_cache_blocking(self, *, query_run: QueryRun, cache_manager: QueryCache) -> CR:
         # The single gate for all blocking execution, forced refreshes included: an open

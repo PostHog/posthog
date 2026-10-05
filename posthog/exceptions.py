@@ -126,6 +126,17 @@ class ClickHouseQueryTimeOut(APIException):
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
+class QueryServiceTimeBudgetExceeded(ClickHouseQueryTimeOut):
+    """A query API caller's own query used up the execution time cap of the query API.
+
+    The cap is deliberate, so this is a 400 for the caller to act on and not a platform failure.
+    Subclassing keeps every `except ClickHouseQueryTimeOut` handler working."""
+
+    status_code = 400
+    default_code = "query_time_budget_exceeded"
+    default_detail = "This query took longer than the time limit for the query API. Try a shorter date range or narrower filters. For long-running queries, use an endpoint with materialization."
+
+
 class ClickHouseQueryMemoryLimitExceeded(APIException):
     user_safe = True
     # Custom code in the actionable-validation family (400/512/513) the frontend routes to the

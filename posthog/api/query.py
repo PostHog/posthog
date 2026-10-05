@@ -53,6 +53,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
+from posthog.exceptions import QueryServiceTimeBudgetExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -430,6 +431,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except Throttled:
             # Expected while a team is over its hourly query budget: a 429 with Retry-After is the
             # caller's signal, not error noise.
+            raise
+        except QueryServiceTimeBudgetExceeded as e:
+            # The caller's query used up the query API time cap. The 400 is their signal, not error noise.
+            scan_extra = _scan_extra(e)
+            if scan_extra:
+                e.extra = scan_extra  # type: ignore[attr-defined]
             raise
         except Exception as e:
             if not captured_elsewhere(e):
