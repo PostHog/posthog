@@ -39,8 +39,6 @@ const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 // The synced runs table name carries the warehouse source prefix, which differs per project.
 const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
 
-// A HogQL query without a LIMIT returns 100 rows.
-const QUERY_ROW_LIMIT = 50000
 const REPORT_WINDOW_DAYS = 7
 const TOP_N = 10
 const CANDIDATE_POOL = 40
@@ -50,7 +48,7 @@ const RUNNER_LABELS = { pytest: 'pytest', jest: 'Jest' }
 
 // Trunk quarantines a test by masking the job verdict. It leaves a hard failure in the junit, so
 // its quarantines arrive as ordinary failures and have to be read separately.
-// An xfailed run is not a quarantine, because the xfail marker is one the test's author wrote.
+// Expected failures (xfail), including file quarantines, are outside this Trunk report.
 // Same two variables the CI uploaders read: uploads decide whether the synced Trunk state is
 // current, masking decides whether a quarantine actually keeps a failure from failing CI.
 const TRUNK_UPLOADS_ON = process.env.TRUNK_UPLOAD_ENABLED === 'true'
@@ -85,8 +83,7 @@ function fetchFlakyTests(runner) {
     return requestPosthog(flakyTestsUrl(runner), { headers: AUTH_HEADERS }, 'flaky_tests')
 }
 
-// The endpoint classification cannot answer this, because it reads an xfail marker that the test
-// author wrote as a quarantine.
+// Xfail classification takes precedence over recovery, so use the recovery count directly.
 function hasRecovery(item) {
     return item.same_commit_recovery_run_count > 0
 }
@@ -185,12 +182,12 @@ async function enrich(items, runHogql = hogql) {
                     WHERE created_at >= toString(toDate(now() - INTERVAL 30 DAY))
                 )
             GROUP BY f.test_id
-            LIMIT ${QUERY_ROW_LIMIT}`,
+            LIMIT ${selectors.length}`,
             { repository: GITHUB_REPOSITORY, selectors }
         )
         rows = result.results || []
     } catch (err) {
-        // The table still works without these columns; degrade rather than skip the post.
+        // Counts come from the endpoint, so missing log links do not prevent the report.
         console.warn(`enrichment query failed — omitting job links: ${err.message}`)
         return () => empty
     }
@@ -236,7 +233,7 @@ function fetchTrunkQuarantine() {
     )
 }
 
-// `ttl_days` is how long a quarantine may stand, counted from the day it began.
+// Trunk does not expire quarantines; the TTL is the product's repair deadline.
 function trunkFixBy(quarantinedAt, ttlDays) {
     const startedAt = Date.parse(quarantinedAt)
     if (Number.isNaN(startedAt) || typeof ttlDays !== 'number' || !(ttlDays > 0)) {
@@ -303,8 +300,7 @@ function resolveFacts(candidates, trunkFor) {
             // Failures with no recovery prove no flake. A quarantine is the other proof that a test
             // is known to fail.
             knownFlake: hasRecovery(item) || Boolean(trunk),
-            // The endpoint counts an xfailed run apart from a failed one, so a test with neither a
-            // failed run nor a recovery only ever xfailed, which is what its author expects.
+            // The endpoint counts xfail separately; it does not distinguish its source.
             expectedFailureOnly: !item.failed_run_count && !hasRecovery(item),
         }
     })
@@ -396,16 +392,16 @@ async function buildRunnerReports(
         candidatePools.map(async ({ runner, candidates }) => {
             const trunkFor = await getTrunk(runner)
             const facts = resolveFacts(candidates, trunkFor)
-            // Without Trunk state a quarantine cannot be told from an unproven failure, so all stay.
-            const knownFlakes = trunkFor ? facts.filter((item) => item.knownFlake) : facts
-            const expected = knownFlakes.filter((item) => item.expectedFailureOnly)
+            const expected = facts.filter((item) => item.expectedFailureOnly)
             if (expected.length > 0) {
                 console.info(
-                    `${runner}: dropped ${expected.length} test(s) that only failed as expected (xfail): ${expected
+                    `${runner}: dropped ${expected.length} test(s) with only expected failures (xfail): ${expected
                         .map((item) => item.selector)
                         .join(', ')}`
                 )
             }
+            // Without Trunk state a quarantine cannot be told from an unproven failure, so all stay.
+            const knownFlakes = trunkFor ? facts.filter((item) => item.knownFlake) : facts
             const ranked = rankByReportedCounts(knownFlakes.filter((item) => !item.expectedFailureOnly))
             const queue = collapseClusters(ranked.slice(0, CANDIDATE_POOL), masksCi)
             const extrasFor = await getEnrichment(runner, queue)
@@ -496,8 +492,9 @@ const COLUMN_LEGEND = {
             text: [
                 '*Failed runs* counts each CI run where the test failed, including runs that a quarantine kept green.',
                 '*Recovered runs* counts each run where the same commit failed and passed the test.',
-                '*Quarantine* shows the date the quarantine ends (fix by) or the date it ended (overdue since). A quarantine hides the failure for a limited time, so the test needs a fix by that date.',
+                '*Quarantine* shows the Trunk repair deadline (fix by), a missed deadline (overdue since), or the quarantine start date (since). Yes means quarantined with no date available. Quarantine continues until removed. Flagged means Trunk lists the test but CI failures are not masked. A fraction counts masked cluster members.',
                 'A count with a + covers several tests in one file and is a minimum.',
+                'Tests with only expected failures (xfail), including file quarantines, are omitted.',
             ].join(' '),
         },
     ],

@@ -210,7 +210,8 @@ describe('weekly flaky report', () => {
         )
     })
 
-    it('filters unproved regressions after an available Trunk lookup', async () => {
+    it('filters unproved regressions after an available Trunk lookup', async (context) => {
+        const logs = context.mock.method(console, 'info', () => {})
         const common = {
             runner: 'pytest',
             classification: 'suspected_regression',
@@ -257,6 +258,7 @@ describe('weekly flaky report', () => {
                 [trunked.selector, 6],
             ]
         )
+        assert.ok(logs.mock.calls.some(({ arguments: [message] }) => message.includes(expectedFailure.selector)))
 
         const [{ candidates: candidatesWithoutTrunk }] = await buildRunnerReports(
             [{ runner: 'pytest', candidates: [plainRegressions[0], expectedFailure] }],
@@ -348,13 +350,32 @@ describe('weekly flaky report', () => {
         assert.deepEqual(row[7], { type: 'raw_text', text: '-' })
     })
 
-    it('scopes enrichment to the current repository', async () => {
+    it('scopes enrichment and links the latest distinct failing runs', async () => {
         let request
-        await enrich([{ selector: 'products/example/backend/test_report.py::test_report' }], async (query, values) => {
+        const item = { selector: 'products/example/backend/test_report.py::test_report' }
+        const extrasFor = await enrich([item], async (query, values) => {
             request = { query, values }
-            return { results: [] }
+            return {
+                results: [
+                    [
+                        item.selector,
+                        [
+                            [100, 10, 20],
+                            [300, 12, 22],
+                            [250, 12, 23],
+                            [200, 11, 21],
+                        ],
+                    ],
+                ],
+            }
         })
 
+        assert.deepEqual(extrasFor(item), {
+            evidence: [
+                { runId: 12, jobId: 22 },
+                { runId: 11, jobId: 21 },
+            ],
+        })
         assert.match(request.query, /lower\(f\.repo\) = lower\(\{repository\}\)/)
         assert.equal(request.values.repository, 'PostHog/posthog')
         // Every path suffix, so either side of the join can carry the longer prefix.
@@ -450,7 +471,10 @@ describe('weekly flaky report', () => {
             fixBy: '2026-08-13',
         })
         assert.equal(pytestFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
-        assert.equal(pytestFor({ selector: 'frontend/src/scenes/example/exampleLogic.test.ts::exampleLogic loads the example' }), null)
+        assert.equal(
+            pytestFor({ selector: 'frontend/src/scenes/example/exampleLogic.test.ts::exampleLogic loads the example' }),
+            null
+        )
         assert.equal(
             jestFor({ selector: 'frontend/src/scenes/example/exampleLogic.test.ts::exampleLogic loads the example' })
                 .fixBy,
@@ -481,13 +505,7 @@ describe('weekly flaky report', () => {
                 (item) => quarantineStatusFor(item, masksCi)
             ).map((row) => row[3].text)
 
-        assert.deepEqual(cells(true), [
-            'fix by 2026-07-28',
-            'overdue since 2026-07-05',
-            'since 2026-07-13',
-            'yes',
-            '-',
-        ])
+        assert.deepEqual(cells(true), ['fix by 2026-07-28', 'overdue since 2026-07-05', 'since 2026-07-13', 'yes', '-'])
         // Masking off leaves Trunk's failure reddening CI, so the date would overclaim.
         assert.deepEqual(cells(false), ['flagged', 'flagged', 'flagged', 'flagged', '-'])
     })
@@ -519,7 +537,8 @@ describe('weekly flaky report', () => {
             const [{ candidates }] = await buildRunnerReports(
                 [{ runner: 'pytest', candidates: [...clustered, trunked] }],
                 async () => () => ({ evidence: [] }),
-                async () => (item) => (listed.has(item.selector) ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null),
+                async () => (item) =>
+                    listed.has(item.selector) ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null,
                 masksCi
             )
             return candidates
