@@ -4103,6 +4103,14 @@ class TestChunkedRereadAfterRecoveryConflict:
             self._rows = rows
             self._statements = 0
             self.limits: list[int] = []
+            self.lock_timeout_before_each_page = False
+            self._lock_timeout_due = True
+
+        def take_lock_timeout(self) -> bool:
+            if not self.lock_timeout_before_each_page:
+                return False
+            due, self._lock_timeout_due = self._lock_timeout_due, not self._lock_timeout_due
+            return due
 
         def rows_for(self, totally_ordered: bool) -> list[tuple[Any, ...]]:
             if totally_ordered:
@@ -4120,6 +4128,8 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         def execute(self, query, *args, **kwargs):
             text = query.as_string()
+            if "LIMIT" in text and "EXPLAIN" not in text and self._scan.take_lock_timeout():
+                raise psycopg.errors.LockNotAvailable("canceling statement due to lock timeout")
             # Only an ORDER BY that reaches the primary key is total. Anything short of it leaves
             # rows tied, and each page is its own statement, so the pages overlap and skip.
             rows = self._scan.rows_for('"id"' in text.partition("ORDER BY")[2])
@@ -4209,6 +4219,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
         chunking: _TableChunking | None = None,
+        lock_timeout_before_each_page: bool = False,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4231,6 +4242,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
+        scan.lock_timeout_before_each_page = lock_timeout_before_each_page
         self.last_scan = scan
         connection = self._Connection(self._NamedCursor(rows_before_conflict, scan, column_names))
 
@@ -4565,6 +4577,17 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert [saved.args[0] for saved in manager.save_state.call_args_list] == [
             KeysetResumeState(last_key=2, last_keys=[2])
         ]
+
+    def test_a_lock_timeout_on_every_page_does_not_exhaust_the_retries_of_a_long_walk(self):
+        ids = self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=1, fetch_rows=1),
+            lock_timeout_before_each_page=True,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
 
 
 class TestCheckKeysetPagePlan:

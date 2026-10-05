@@ -4244,6 +4244,7 @@ def postgres_source(
                             successive_errors = 0
                             successive_conn_errors = 0
                             floor_retries = 0
+                            lock_retries = 0
                             return rows
                         except psycopg.errors.SerializationFailure as e:
                             if "due to conflict with recovery" not in "".join(e.args):
