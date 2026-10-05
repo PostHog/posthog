@@ -31,6 +31,14 @@ describe('errorTrackingFingerprintSceneLogic', () => {
             '2026-02-02T00:00:00Z',
             { fingerprint: 'fp-1', timestamp: '2026-02-02T00:00:00Z' },
         ],
+        [
+            // The alert templates carry the backend's isoformat() output, which always has a
+            // `+00:00` offset. An unencoded `+` decodes back to a space, and the issue scene then
+            // discards the timestamp and lands the reader on the issue's newest exception.
+            'keeps the UTC offset on the timestamp intact',
+            '2026-02-02T00:00:00+00:00',
+            { fingerprint: 'fp-1', timestamp: '2026-02-02T00:00:00+00:00' },
+        ],
         ['omits the timestamp when the link carried none', undefined, { fingerprint: 'fp-1' }],
     ])('redirects to the resolved issue and %s', async (_name, timestamp, expectedParams) => {
         logic = errorTrackingFingerprintSceneLogic({ fingerprint: 'fp-1', timestamp })
