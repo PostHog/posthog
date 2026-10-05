@@ -1,6 +1,11 @@
+import pytest
+
 from parameterized import parameterized
 
-from products.ai_observability.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
+from products.ai_observability.backend.providers.formatters.gemini_formatter import (
+    MessageConversionError,
+    convert_anthropic_messages_to_gemini,
+)
 
 
 class TestConvertAnthropicMessagesToGemini:
@@ -8,7 +13,6 @@ class TestConvertAnthropicMessagesToGemini:
         [
             ("dict_input", {"location": "Paris"}, {"location": "Paris"}),
             ("json_string_input", '{"location": "Paris"}', {"location": "Paris"}),
-            ("unparseable_string_input", "not json", {}),
         ]
     )
     def test_tool_use_becomes_function_call(self, _name, input_value, expected_args):
@@ -63,6 +67,17 @@ class TestConvertAnthropicMessagesToGemini:
         assert function_response.id == "call_1"
         assert function_response.name == "get_weather"
         assert function_response.response == expected_response
+
+    def test_unparseable_tool_call_arguments_are_rejected(self):
+        with pytest.raises(MessageConversionError, match="get_weather"):
+            convert_anthropic_messages_to_gemini(
+                [
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "tool_use", "id": "call_1", "name": "get_weather", "input": "not json"}],
+                    }
+                ]
+            )
 
     def test_errored_tool_result_becomes_error_response(self):
         contents = convert_anthropic_messages_to_gemini(

@@ -13,18 +13,34 @@ from products.ai_observability.backend.providers.formatters.anthropic_typeguards
 )
 
 
-def _tool_call_args(input_value: Any) -> dict[str, Any]:
+class MessageConversionError(ValueError):
+    """A message cannot be converted to the provider's wire format.
+
+    The message carries the reason and is safe to show to the user. Defined here instead
+    of `llm.errors` because `llm/__init__` imports the providers, which import this module,
+    so the reverse import would be a cycle. The Gemini adapter maps this to
+    `ProviderRequestRejectedError`.
+    """
+
+
+def _tool_call_args(input_value: Any, tool_name: str) -> dict[str, Any]:
+    if input_value is None:
+        return {}
     if isinstance(input_value, dict):
         return input_value
     # Callers that aggregate streamed tool calls carry the arguments as a JSON string.
+    # Anything that does not parse to an object gets rejected rather than silently
+    # replaced, which would re-run the conversation with different arguments.
     if isinstance(input_value, str):
         try:
             parsed = json.loads(input_value)
         except json.JSONDecodeError:
-            return {}
+            parsed = None
         if isinstance(parsed, dict):
             return parsed
-    return {}
+    raise MessageConversionError(
+        f"Tool call arguments for '{tool_name}' are not a JSON object. Fix the arguments, then run again."
+    )
 
 
 def _tool_response_payload(content: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -96,7 +112,7 @@ def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> Cont
                             function_call=FunctionCall(
                                 id=call_id if isinstance(call_id, str) else None,
                                 name=name,
-                                args=_tool_call_args(block.get("input")),
+                                args=_tool_call_args(block.get("input"), name),
                             )
                         )
                     )
