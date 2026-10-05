@@ -14,6 +14,8 @@
 //! on an error channel; the consumer turns them into a process failure, so
 //! the failure decision stays in the consumer loop.
 
+pub mod worker_pool;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

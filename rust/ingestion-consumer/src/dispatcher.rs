@@ -6,6 +6,7 @@ use k8s_awareness::PeerTracker;
 use metrics::{counter, histogram};
 
 use crate::aperture;
+use crate::batcher::worker_pool::{WorkerPool, WorkerPoolSource};
 use crate::debug_recorder::{
     record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, RoutingDebug, SubBatchInfo,
 };
@@ -316,10 +317,9 @@ pub struct Dispatcher {
     /// order: inner → sentinel; the sentinel never takes the inner lock),
     /// so its check order matches the intended per-key send order.
     key_sentinel: Arc<KeyOrderSentinel>,
-    /// Peer tracker + aperture width for [`RoutingStrategy::Aperture`]: this
-    /// dispatcher's ring slice is derived from its agreed peer index. `None`
-    /// (or a not-yet-known peer index) falls back to the full healthy pool.
-    aperture: Option<(Arc<PeerTracker>, usize)>,
+    /// The healthy pool and, under [`RoutingStrategy::Aperture`], this
+    /// dispatcher's ring slice for fresh keys.
+    pool_source: WorkerPoolSource,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -370,11 +370,11 @@ impl Dispatcher {
                 scheduler: SchedulerImpl::new(kind, router),
                 in_flight: WorkerLoad::new(),
             }),
+            pool_source: WorkerPoolSource::new(Arc::clone(&registry), strategy),
             registry,
             strategy,
             scheduler_kind: kind,
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
-            aperture: None,
             debug_recorder: None,
         }
     }
@@ -390,7 +390,12 @@ impl Dispatcher {
     /// Only consulted under [`RoutingStrategy::Aperture`]. Call before the
     /// dispatcher is shared.
     pub fn set_aperture(&mut self, tracker: Arc<PeerTracker>, min_aperture: usize) {
-        self.aperture = Some((tracker, min_aperture.max(1)));
+        self.pool_source.set_aperture(tracker, min_aperture);
+    }
+
+    /// The worker pool source, shared with the batcher state machine.
+    pub fn worker_pool_source(&self) -> WorkerPoolSource {
+        self.pool_source.clone()
     }
 
     /// Inject the debug UI recorder. Call before the dispatcher is shared.
@@ -423,19 +428,11 @@ impl Dispatcher {
     /// captured in one registry effects — so within one debug response the ring,
     /// slice, and worker rows can't disagree under churn.
     pub fn debug_routing(&self, workers: Vec<WorkerId>, healthy: &[WorkerId]) -> RoutingDebug {
-        let strategy = self.strategy;
         let ring = aperture::sorted_ring(workers);
-        let slice = if strategy == RoutingStrategy::Aperture {
-            self.aperture.as_ref().and_then(|(tracker, width)| {
-                let peers = tracker.snapshot();
-                aperture::ring_slice(&ring, healthy, peers.self_index, peers.peer_count(), *width)
-            })
-        } else {
-            None
-        };
+        let slice = self.pool_source.slice(&ring, healthy);
         RoutingDebug {
-            strategy: strategy.as_str().to_string(),
-            min_aperture: self.aperture.as_ref().map(|(_, width)| *width),
+            strategy: self.strategy.as_str().to_string(),
+            min_aperture: self.pool_source.min_aperture(),
             ring: ring.iter().map(|w| w.to_string()).collect(),
             slice: slice.map(|s| s.iter().map(|w| w.to_string()).collect()),
         }
@@ -446,7 +443,10 @@ impl Dispatcher {
     /// health, and the current load table. The scheduler decides over this
     /// snapshot instead of querying the registry itself.
     fn worker_snapshot(&self, in_flight: &WorkerLoad) -> WorkerSnapshot {
-        let healthy = self.registry.healthy_workers();
+        let WorkerPool {
+            healthy,
+            candidates,
+        } = self.pool_source.pool();
         let workers = self
             .registry
             .workers()
@@ -459,26 +459,6 @@ impl Dispatcher {
                 (worker, health)
             })
             .collect();
-        // Aperture: narrow the candidates to this dispatcher's ring slice, so
-        // the fleet's slices tile the pool and each batch consolidates onto
-        // few workers. Falls back to the full healthy pool while the peer set
-        // is unknown (startup, peer awareness disabled).
-        let narrowed = if self.strategy == RoutingStrategy::Aperture {
-            self.aperture.as_ref().and_then(|(tracker, width)| {
-                let peers = tracker.snapshot();
-                let ring = aperture::sorted_ring(self.registry.workers());
-                aperture::ring_slice(
-                    &ring,
-                    &healthy,
-                    peers.self_index,
-                    peers.peer_count(),
-                    *width,
-                )
-            })
-        } else {
-            None
-        };
-        let candidates = narrowed.unwrap_or_else(|| healthy.clone());
         WorkerSnapshot::new(healthy, candidates, in_flight.clone(), workers)
     }
 
