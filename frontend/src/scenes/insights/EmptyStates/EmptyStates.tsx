@@ -918,6 +918,7 @@ export function InsightErrorState({
                 <div className="mt-4">
                     {remediation && (
                         <p className="max-w-120">
+                            {/* A sole string child keeps the countdown updating after page translation replaces its text node. */}
                             {capacityRetryAt ? remediation : renderDetailWithLinks(remediation)}
                         </p>
                     )}
