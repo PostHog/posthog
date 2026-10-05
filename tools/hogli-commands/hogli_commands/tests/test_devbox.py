@@ -601,6 +601,7 @@ class TestCoderReachable:
         [
             ([200], [], False),
             ([None, 200], [["/usr/bin/tailscale", "set", "--accept-routes"]], False),
+            ([None, None], [["/usr/bin/tailscale", "set", "--accept-routes"]], True),
             ([503], [], True),
         ],
     )
