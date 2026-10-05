@@ -10,7 +10,7 @@ const AUTO_OPEN_AFTER_MS = 10_000
 // A terminal that cannot draw pictures refuses every new frame. This many refusals in a row is the answer.
 const REFUSED_FRAMES_MEAN_NO_PICTURES = 10
 const NO_PICTURES =
-    'The club pane needs a terminal that draws pictures: Ghostty, iTerm2, kitty or WezTerm. Run /hoguin web to open the club in your browser.'
+    'The club pane needs a terminal that draws pictures, such as Ghostty or kitty. Run /hoguin web to open the club in your browser.'
 const KEYS = [
     { key: 'w', label: 'up' },
     { key: 'a', label: 'left' },

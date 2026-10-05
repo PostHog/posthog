@@ -73,7 +73,7 @@ CLUB_HOGUIN_URL=http://localhost:8642 claude --plugin-dir products/games/service
 ```
 
 - `/hoguin` opens or closes the club in a pane. The pane shows the web page itself: the mod opens it in the Chrome on your machine without a window and draws what Chrome sees, about 10 times a second. Set `CLUB_HOGUIN_CHROME` to the browser binary when it is not in a usual place.
-- The pane needs a terminal that draws pictures: Ghostty, iTerm2, kitty, or WezTerm. Anywhere else (macOS Terminal.app, the desktop app) `/hoguin` opens nothing and says so.
+- The pane needs a terminal that draws pictures. It is checked in Ghostty; kitty uses the same picture protocol. In a terminal that cannot draw them (macOS Terminal.app), and in the desktop app, `/hoguin` opens nothing and says so.
 - `/hoguin web` opens the club in your browser.
 - When Claude works for more than 10 seconds, the pane opens by itself, and it closes when Claude is done.
   `/hoguin auto off` turns this off.
