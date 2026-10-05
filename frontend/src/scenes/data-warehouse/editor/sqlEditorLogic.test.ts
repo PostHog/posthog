@@ -2361,6 +2361,37 @@ describe('sqlEditorLogic', () => {
             sort_direction: null,
         }
 
+        it('updates the chart breakdown when dimensions move between shelves or are removed', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: { ...config, rows: [], columns: [timestampField, eventField] },
+            })
+            biLogic.actions.syncGeneratedQuery()
+
+            expect(logic.values.sourceQuery.chartSettings).toMatchObject({
+                xAxis: { column: 'bi_column_timestamp' },
+                seriesBreakdownColumn: 'bi_column_event_2',
+                yAxis: [{ column: 'count' }],
+            })
+
+            biLogic.actions.moveFieldToShelf('columns', 1, 'rows')
+            expect(logic.values.sourceQuery.chartSettings).toMatchObject({
+                xAxis: { column: 'bi_column_timestamp' },
+                seriesBreakdownColumn: 'bi_row_event',
+            })
+
+            biLogic.actions.removeFieldFromShelf('rows', 0)
+            expect(logic.values.sourceQuery.chartSettings?.seriesBreakdownColumn).toBeUndefined()
+            expect(logic.values.sourceQuery.chartSettings?.xAxis).toBeUndefined()
+            expect(logic.values.sourceQuery.chartSettings?.showLegend).toBeUndefined()
+            biLogic.unmount()
+        })
+
         it('captures BI mode selection and query runs without query contents', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
                 [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
@@ -2703,7 +2734,7 @@ describe('sqlEditorLogic', () => {
         })
 
         test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
-            'handles chart-only changes with %s query results and runs changed pivot SQL',
+            'handles chart-only changes with %s query results and runs changed table SQL',
             async (resultState) => {
                 logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
                 logic.mount()
@@ -2733,11 +2764,11 @@ describe('sqlEditorLogic', () => {
                 jest.useFakeTimers()
                 try {
                     biLogic.actions.setAutoUpdate(true)
-                    biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
+                    biLogic.actions.setChartType(ChartDisplayType.ActionsStackedBar)
                     await jest.advanceTimersByTimeAsync(500)
-                    expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsTable)
+                    expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsStackedBar)
                     expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 0 : 1)
-                    biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
+                    biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
                     await jest.advanceTimersByTimeAsync(500)
                     expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 1 : 2)
                 } finally {
