@@ -17,8 +17,9 @@ from prometheus_client import REGISTRY
 
 from posthog.api import streaming
 from posthog.api.streaming import (
+    StreamBudget,
     _instrument_stream,
-    _try_reserve_stream_slot,
+    sse_rotating_event_stream,
     sse_streaming_response,
     streaming_response,
 )
@@ -35,7 +36,7 @@ async def _agen() -> AsyncIterator[bytes]:
 
 
 def _reserve_slot() -> streaming._StreamSlotReservation:
-    reservation = _try_reserve_stream_slot()
+    reservation = streaming._SHARED_STREAM_BUDGET.try_reserve()
     assert reservation is not None
     return reservation
 
@@ -163,7 +164,7 @@ class TestSSEStreamMetrics:
         # the only release on that path, so pin the slot count too, not just
         # the metrics (baseline-relative: this test runs outside the
         # slot-isolation fixture).
-        baseline = streaming._active_stream_count
+        baseline = streaming._SHARED_STREAM_BUDGET.active_count
         stream = _instrument_stream(endless(), "test_async_disconnect", _reserve_slot())
         assert isinstance(stream, AsyncIterable)
         inner = cast(AsyncGenerator[bytes], aiter(stream))
@@ -173,7 +174,7 @@ class TestSSEStreamMetrics:
         assert closed
         assert _open_connections("test_async_disconnect") == 0.0
         assert _closed_total("test_async_disconnect", "client_disconnect") == 1.0
-        assert streaming._active_stream_count == baseline
+        assert streaming._SHARED_STREAM_BUDGET.active_count == baseline
 
 
 class TestStreamingResponse:
@@ -211,7 +212,7 @@ class TestSSEAsyncCancellation:
         # ASGI cancellation is a path where response.close() never runs, so the
         # generator's finally is the only thing releasing the cap slot; pin it
         # (baseline-relative: this test runs outside the slot-isolation fixture).
-        baseline = streaming._active_stream_count
+        baseline = streaming._SHARED_STREAM_BUDGET.active_count
         endpoint = f"test_async_cancel_{synchronous}"
         source = SyncIterableToAsync(blocking_sync()) if synchronous else blocking()
         stream = _instrument_stream(source, endpoint, _reserve_slot())
@@ -231,7 +232,7 @@ class TestSSEAsyncCancellation:
             assert _open_connections(endpoint) == 0.0
             assert _closed_total(endpoint, "client_disconnect") == 1.0
             assert _closed_total(endpoint, "error") == 0.0
-            assert streaming._active_stream_count == baseline
+            assert streaming._SHARED_STREAM_BUDGET.active_count == baseline
         finally:
             release_read.set()
             if synchronous:
@@ -247,7 +248,7 @@ class TestSSEConcurrencyCap:
     def _isolated_slot_count(self):
         # The count is module-global: give each test a zero baseline and put
         # the previous value back so a leak here cannot cascade into other tests.
-        with mock.patch.object(streaming, "_active_stream_count", 0):
+        with mock.patch.object(streaming._SHARED_STREAM_BUDGET, "active_count", 0):
             yield
 
     def test_over_cap_rejects_with_503_and_jittered_retry_after(self):
@@ -262,12 +263,12 @@ class TestSSEConcurrencyCap:
                 assert not isinstance(rejected, StreamingHttpResponse)
                 assert 15 <= int(rejected.headers["Retry-After"]) < 45
                 # A rejection holds no slot, so it must not touch the count.
-                assert streaming._active_stream_count == 1
+                assert streaming._SHARED_STREAM_BUDGET.active_count == 1
             finally:
                 # Always release the slot: a failed assertion must not leak the
                 # active-stream count into other tests.
                 admitted.close()
-            assert streaming._active_stream_count == 0
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 0
 
     def test_capacity_frees_up_when_a_stream_closes(self):
         def endless() -> Iterator[bytes]:
@@ -291,9 +292,9 @@ class TestSSEConcurrencyCap:
         with override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=1):
             first = sse_streaming_response(make_stream(), endpoint="test_cap_unconsumed")
             assert isinstance(first, StreamingHttpResponse)
-            assert streaming._active_stream_count == 1
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 1
             first.close()
-            assert streaming._active_stream_count == 0
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 0
             second = sse_streaming_response(_gen(), endpoint="test_cap_unconsumed")
             assert isinstance(second, StreamingHttpResponse)
             second.close()
@@ -310,7 +311,7 @@ class TestSSEConcurrencyCap:
             assert isinstance(response, StreamingHttpResponse)
             del response
             gc.collect()
-            assert streaming._active_stream_count == 0
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 0
             readmitted = sse_streaming_response(_gen(), endpoint="test_cap_gc")
             assert isinstance(readmitted, StreamingHttpResponse)
             readmitted.close()
@@ -324,18 +325,18 @@ class TestSSEConcurrencyCap:
         with override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=1):
             response = sse_streaming_response(_gen(), endpoint="test_cap_deferred")
             assert isinstance(response, StreamingHttpResponse)
-            streaming._stream_cap_lock.acquire()
+            streaming._SHARED_STREAM_BUDGET.lock.acquire()
             try:
                 del response
                 gc.collect()
                 # The lock was contended, so the slot cannot be freed yet.
-                assert streaming._active_stream_count == 1
+                assert streaming._SHARED_STREAM_BUDGET.active_count == 1
             finally:
-                streaming._stream_cap_lock.release()
+                streaming._SHARED_STREAM_BUDGET.lock.release()
             readmitted = sse_streaming_response(_gen(), endpoint="test_cap_deferred")
             assert isinstance(readmitted, StreamingHttpResponse)
             readmitted.close()
-            assert streaming._active_stream_count == 0
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 0
 
     def test_slot_released_when_building_the_response_fails(self):
         # An exception between reserving the slot and returning the response
@@ -347,7 +348,7 @@ class TestSSEConcurrencyCap:
                 connections.all.side_effect = RuntimeError("db went away")
                 with pytest.raises(RuntimeError) as excinfo:
                     sse_streaming_response(_gen(), endpoint="test_cap_build_error")
-            assert streaming._active_stream_count == 0
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 0
             del excinfo
 
     def test_consumed_then_closed_response_releases_only_once(self):
@@ -357,9 +358,25 @@ class TestSSEConcurrencyCap:
             response = sse_streaming_response(_gen(), endpoint="test_cap_once")
             assert isinstance(response, StreamingHttpResponse)
             assert b"".join(_sync_content(response)) == b"data: hello\n\n"
-            assert streaming._active_stream_count == 0
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 0
             response.close()
-            assert streaming._active_stream_count == 0
+            assert streaming._SHARED_STREAM_BUDGET.active_count == 0
+
+    def test_stream_on_its_own_budget_leaves_the_shared_cap_free(self):
+        # Idle streams open in every tab must not starve the interactive streams on the shared budget.
+        own_budget = StreamBudget("NOTIFICATIONS_SSE_MAX_STREAMS_PER_PROCESS")
+        with override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=1, NOTIFICATIONS_SSE_MAX_STREAMS_PER_PROCESS=1):
+            idle = sse_streaming_response(_gen(), endpoint="test_own_budget", budget=own_budget)
+            assert isinstance(idle, StreamingHttpResponse)
+            try:
+                over_own_cap = sse_streaming_response(_gen(), endpoint="test_own_budget", budget=own_budget)
+                assert over_own_cap.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+                shared = sse_streaming_response(_gen(), endpoint="test_shared_budget")
+                assert isinstance(shared, StreamingHttpResponse)
+                shared.close()
+            finally:
+                idle.close()
+            assert own_budget.active_count == 0
 
     def test_cap_of_zero_rejects_everything(self):
         with override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=0):
@@ -369,3 +386,35 @@ class TestSSEConcurrencyCap:
                 "posthog_sse_rejected_over_cap_total", {"endpoint": "test_cap_zero"}
             )
             assert rejected_count is not None and rejected_count >= 1.0
+
+
+class TestSSERotatingEventStream:
+    async def test_waits_until_the_next_heartbeat_or_deadline_and_ends_with_an_end_event(self):
+        clock = [0.0]
+        waits: list[float] = []
+        arrivals = {1.0: b'{"id":"a"}'}
+
+        async def receive(timeout: float) -> bytes | None:
+            waits.append(timeout)
+            for at, payload in arrivals.items():
+                if clock[0] < at <= clock[0] + timeout:
+                    clock[0] = at
+                    return payload
+            clock[0] += timeout
+            return None
+
+        with mock.patch("posthog.api.streaming.time.monotonic", side_effect=lambda: clock[0]):
+            frames = [
+                frame
+                async for frame in sse_rotating_event_stream(
+                    receive, max_duration_seconds=40, heartbeat_interval_seconds=15
+                )
+            ]
+
+        assert frames == [
+            b'data: {"id":"a"}\n\n',
+            b": heartbeat\n\n",
+            b": heartbeat\n\n",
+            b"event: end\ndata: reconnect\n\n",
+        ]
+        assert waits == [15, 15, 15, 9]

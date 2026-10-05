@@ -1568,3 +1568,8 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # header, so those consumers must reconnect from their onerror handler.
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
+# The real-time notifications stream has its own cap and does not count toward the one above, because every
+# foreground tab holds one. 0 rejects every notifications stream.
+NOTIFICATIONS_SSE_MAX_STREAMS_PER_PROCESS = get_from_env(
+    "NOTIFICATIONS_SSE_MAX_STREAMS_PER_PROCESS", 500, type_cast=int
+)
