@@ -20,7 +20,7 @@ def markdown_content(markdown: str) -> dict[str, Any]:
 
 class TestRunPlanCellShapes(SimpleTestCase):
     """A SQL cell can hold its SQL in `query` rather than `code`, and the editor renders all
-    of these. A run that planned only `code` cells skipped them without saying so."""
+    of these, so the run plan must include each shape."""
 
     @parameterized.expand(
         [
