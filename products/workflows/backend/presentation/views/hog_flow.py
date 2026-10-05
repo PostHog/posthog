@@ -90,7 +90,6 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team, User
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -2203,28 +2202,6 @@ ISP_METRICS_REFRESH_LOCK_SECONDS = 30
 # Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
 # metric. A project with more sending domains gets a breakdown over its first few.
 ISP_METRICS_MAX_DOMAINS = 5
-# Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
-ISP_SENDING_HEALTH_FLAG = "workflows-isp-sending-health"
-
-
-def _isp_breakdown_enabled(team: Team) -> bool:
-    # The shared helper suppresses the $feature_flag_called exposure event (this gate runs on every
-    # reputation request, not once per person) and honors _FORCE_ENABLED_FLAGS like other internal
-    # gates. It does not catch, so the try/except stays to fail closed when a flag-eval errors.
-    try:
-        return posthog_feature_flag_enabled(
-            ISP_SENDING_HEALTH_FLAG,
-            str(team.uuid),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    except Exception:
-        logger.warning(
-            "workflows.isp_sending_health_flag_check_failed_defaulting_off",
-            team_id=team.id,
-            exc_info=True,
-        )
-        return False
 
 
 @frozen
@@ -7082,7 +7059,7 @@ class HogFlowViewSet(
         # sending domain, so object-level grants alone don't earn it.
         isp_domains = (
             _isp_domains(self.team, self.user_access_control, self.user_permissions)
-            if can_read_all_workflows and _isp_breakdown_enabled(self.team)
+            if can_read_all_workflows
             else IspDomains(readable=(), withheld=(), shared=())
         )
 
