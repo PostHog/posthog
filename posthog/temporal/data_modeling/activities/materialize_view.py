@@ -1273,6 +1273,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     objects = await _get_matview_input_objects(inputs)
     bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
+    tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)

@@ -1393,8 +1393,11 @@ class TestMaterializeViewActivity:
     async def test_materializes_view_to_delta_table(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
+        materialized_saved_query_ids: list[str | None] = []
+
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
+            materialized_saved_query_ids.append(get_query_tags().materialized_saved_query_id)
             data = cast(
                 Collection[pa.Array],
                 [pa.array([1, 2, 3], type=pa.int64()), pa.array(["a", "b", "c"], type=pa.string())],
@@ -1430,6 +1433,7 @@ class TestMaterializeViewActivity:
             assert result.saved_query_id == str(asaved_query.id)
             assert f"team_{ateam.pk}_model_{asaved_query.id.hex}" in result.table_uri
             assert len(result.file_uris) > 0
+            assert materialized_saved_query_ids == [str(asaved_query.id)]
 
     async def test_updates_job_progress_during_materialization(
         self, activity_environment, ateam, anode, ajob, bucket_name, adag

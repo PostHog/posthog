@@ -543,6 +543,7 @@ class QueryTags(BaseModel):
     saved_query_ids: Optional[list[str]] = None
     warehouse_table_ids: Optional[list[str]] = None
     directly_read_ids: Optional[list[str]] = None
+    materialized_saved_query_id: Optional[str] = None
 
     trend_volume_type: Optional[str] = None
 
