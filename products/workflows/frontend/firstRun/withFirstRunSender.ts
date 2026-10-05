@@ -13,7 +13,7 @@ export function withFirstRunSender(actions: HogFlowAction[], sender: Pick<FirstR
                           email: {
                               ...action.config.inputs.email,
                               value: {
-                                  ...action.config.inputs.email.value,
+                                  ...action.config.inputs.email?.value,
                                   from: { integrationId: sender.id },
                               },
                           },
