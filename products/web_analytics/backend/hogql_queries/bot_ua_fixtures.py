@@ -200,6 +200,11 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
         "AtlasSearchBot/1.0 (+https://github.com/atlassearch/bot)",
+        "Mozilla/5.0 (compatible; bnf.fr_bot; +https://www.bnf.fr/fr/capture-de-votre-site-web-par-le-robot-de-la-bnf)",
+        "GuthBot/1.0 (+https://guth.news/bot)",
+        "KapllanBot/1.0 (+https://kapllan.ai/bot)",
+        "ElamurBot/0.1 (+https://elamur.ai/)",
+        "image-crawler/0.1",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -249,6 +254,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
         "QlyzeBot/1.0 (+https://app.qlyze.io/bot)",
         "AutozellaBot/1.0 (+https://autozella.com/bot)",
+        "TeardownIQ-Bot/1.0 (+public-surface-analysis; respects robots.txt)",
+        "Alpic-Agentic-Readiness-Scanner/1.0 (+https://alpic.ai)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -373,6 +380,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         # Self-declared crawlers observed in production `$http_log` traffic
         "Mozilla/5.0 (compatible; MrAnandPortfolio/1.0; +https://mranand.com)",
         "PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)",
+        "Mozilla/5.0 (compatible; frontcode-scraper/1.0)",
     ],
     "headless_browser": [
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36",

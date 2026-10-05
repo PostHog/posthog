@@ -719,6 +719,36 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AtlasSearchBot',
         definition: { name: 'AtlasSearch', category: 'search_crawler', trafficType: 'Bot', operator: 'AtlasSearch' },
     },
+    {
+        pattern: 'bnf.fr_bot',
+        definition: {
+            name: 'Bibliothèque nationale de France',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Bibliothèque nationale de France',
+        },
+    },
+    {
+        pattern: 'GuthBot',
+        definition: { name: 'GuthBot', category: 'search_crawler', trafficType: 'Bot', operator: 'guth.news' },
+    },
+    {
+        pattern: 'KapllanBot',
+        definition: { name: 'KapllanBot', category: 'search_crawler', trafficType: 'Bot', operator: 'kapllan.ai' },
+    },
+    {
+        pattern: 'ElamurBot',
+        definition: { name: 'ElamurBot', category: 'search_crawler', trafficType: 'Bot', operator: 'elamur.ai' },
+    },
+    {
+        pattern: 'image-crawler/',
+        definition: {
+            name: 'image-crawler',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'image-crawler',
+        },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -802,6 +832,19 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AutozellaBot',
         definition: { name: 'Autozella', category: 'seo_crawler', trafficType: 'Bot', operator: 'Autozella' },
     },
+    {
+        pattern: 'TeardownIQ-Bot',
+        definition: { name: 'TeardownIQ', category: 'seo_crawler', trafficType: 'Bot', operator: 'TeardownIQ' },
+    },
+    {
+        pattern: 'Alpic-Agentic-Readiness-Scanner',
+        definition: {
+            name: 'Alpic Agentic Readiness Scanner',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'Alpic',
+        },
+    },
     // Social / link-preview crawlers
     {
         pattern: 'PagePeeker',
@@ -872,6 +915,15 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             category: 'http_client',
             trafficType: 'Bot',
             operator: 'PostHog',
+        },
+    },
+    {
+        pattern: 'frontcode-scraper',
+        definition: {
+            name: 'frontcode-scraper',
+            category: 'http_client',
+            trafficType: 'Bot',
+            operator: 'frontcode-scraper',
         },
     },
 ]
