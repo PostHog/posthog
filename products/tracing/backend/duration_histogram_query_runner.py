@@ -29,19 +29,21 @@ def duration_bucket_expr() -> ast.Expr:
     The mantissa expression repeats the decade rather than referencing its alias so HogQL
     resolution never depends on sibling aliases; ClickHouse collapses the common subexpression.
     `round()` before the cast absorbs float wobble in pow/log10 (e.g. 4.9999...e8 → 5e8).
+    A span with `end_time` before `timestamp` wraps `duration_nano` past the Int64 range, and its
+    bucket cast gives NULL, so the outer `if` parks those spans in the 1ns bucket too.
 
     Shared by the duration histogram and the latency heatmap, and mirrored in
     `frontend/durationBuckets.ts` (snapDurationToBucket) — change the series in BOTH places.
     """
     return parse_expr(
         """
-        toInt(round(
+        if(duration_nano > 9223372036854775807, 1, toInt(round(
             pow(10, floor(log10(greatest(duration_nano, 1)))) * multiIf(
                 duration_nano / pow(10, floor(log10(greatest(duration_nano, 1)))) < 2, 1,
                 duration_nano / pow(10, floor(log10(greatest(duration_nano, 1)))) < 5, 2,
                 5
             )
-        ))
+        )))
         """
     )
 

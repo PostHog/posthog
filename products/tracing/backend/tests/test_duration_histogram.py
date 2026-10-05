@@ -15,6 +15,8 @@ TRACES = [
     (dt.timedelta(milliseconds=3), None, "web"),
     (dt.timedelta(milliseconds=3.5), None, "web"),
     (dt.timedelta(milliseconds=700), None, "api"),
+    # end_time before timestamp: the materialized duration_nano wraps to ~1.8e19.
+    (dt.timedelta(milliseconds=-5), None, "clock-skew"),
 ]
 
 MS = 1_000_000  # ns per ms
@@ -69,6 +71,7 @@ class TestTraceSpansDurationHistogram(_TraceSpansTestBase):
                 (1 * MS, "web"): 1,  # 1.5ms → 1ms bucket
                 (2 * MS, "web"): 2,  # 3ms + 3.5ms → 2ms bucket
                 (500 * MS, "api"): 1,  # 700ms → 500ms bucket
+                (1, "clock-skew"): 1,  # inverted span → 1ns bucket, like a zero-length span
             },
         )
         # Implicit in the equality above, but make the design constraint loud: the 5s child span
@@ -85,7 +88,7 @@ class TestTraceSpansDurationHistogram(_TraceSpansTestBase):
             side_effect=Exception("analytics unavailable"),
         ):
             rows = {(row["bucket_ns"], row["service"]): row["count"] for row in self._histogram()}
-        self.assertEqual(rows, {(1 * MS, "web"): 1, (2 * MS, "web"): 2, (500 * MS, "api"): 1})
+        self.assertEqual(rows, {(1 * MS, "web"): 1, (2 * MS, "web"): 2, (500 * MS, "api"): 1, (1, "clock-skew"): 1})
 
     def test_root_spans_false_counts_child_spans_for_operation_scope(self):
         # The operation detail page scopes by span name and needs child spans counted: the 5s
