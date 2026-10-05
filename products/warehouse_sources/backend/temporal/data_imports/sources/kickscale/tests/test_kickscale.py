@@ -209,21 +209,11 @@ class TestKickscaleSourceResumeBehavior:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [KickscaleResumeConfig(page=1)]
 
-    @parameterized.expand(
-        [
-            ("empty_data_list", {"data": [], "meta": {"total": 0}}),
-            ("empty_body", {}),
-        ]
-    )
-    def test_empty_page_yields_no_rows(self, _name: str, body: dict[str, Any]) -> None:
+    def test_empty_page_yields_no_rows(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
-        resp = Response()
-        resp.status_code = 200
-        resp._content = json.dumps(body).encode()
-        resp.headers["Content-Type"] = "application/json"
 
-        rows, sent_params = self._drive("calls", manager, [resp])
+        rows, sent_params = self._drive("calls", manager, [_make_http_response([])])
 
         assert rows == []
         assert [p.get("page") for p in sent_params] == [0]

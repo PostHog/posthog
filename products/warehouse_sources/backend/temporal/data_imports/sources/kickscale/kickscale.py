@@ -122,7 +122,6 @@ def get_resource(
         # whole envelope becomes one row, and the paginator sees a short page and stops.
         "data_selector": "data",
         "data_selector_required": True,
-        "data_selector_empty_ok": True,
         "params": {
             "pageSize": DEFAULT_PAGE_SIZE,
             "sortingOrder": "ascending",
