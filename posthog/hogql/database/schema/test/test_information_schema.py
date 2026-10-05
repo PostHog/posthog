@@ -10,7 +10,7 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery
+from posthog.hogql.database.models import DatabaseField, SavedQuery
 from posthog.hogql.database.schema.information_schema import (
     DeniedTableMatcher,
     _bound_table_names,
@@ -343,6 +343,40 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         names = {row[0] for row in response.results or []}
         assert "system.cohorts" in names
         assert "system.feature_flags" not in names
+
+    def test_catalog_matches_queryable_system_tables_and_fields(self):
+        db = Database.create_for(team=self.team, user=self.user)
+        queryable: dict[str, set[str]] = {}
+        for name in db.get_system_table_names():
+            if not name.startswith("system.") or name.startswith("system.information_schema."):
+                continue
+            try:
+                table = db.get_table(name)
+            except Exception:
+                continue
+            queryable[name] = {
+                field_name
+                for field_name, field in table.fields.items()
+                if isinstance(field, DatabaseField) and not field.hidden
+            }
+
+        catalog: dict[str, set[str]] = {name: set() for name in queryable}
+        rows = execute_hogql_query(
+            "SELECT table_name, column_name, field_kind FROM system.information_schema.columns "
+            "WHERE table_schema = 'system' LIMIT 50000",
+            team=self.team,
+            user=self.user,
+        ).results
+        for table_name, column_name, field_kind in rows or []:
+            if field_kind in ("column", "expression"):
+                catalog.setdefault(table_name, set()).add(column_name)
+
+        assert catalog == queryable
+        for table_name, columns in catalog.items():
+            select = ", ".join(".".join(f"`{part}`" for part in column.split(".")) for column in sorted(columns))
+            prepare_and_print_ast(
+                parse_select(f"SELECT {select} FROM {table_name}"), self._context(db), dialect="clickhouse"
+            )
 
     @parameterized.expand(
         [
