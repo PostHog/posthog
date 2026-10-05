@@ -1,7 +1,3 @@
-//! The batcher state machine: the key queues, the packer, the worker
-//! assigner, and the in-flight requests, coordinated behind one sans-IO
-//! machine.
-//!
 //! A key's messages flow one way: a key queue, then the packer, then a
 //! request on the wire. A request that comes back with returned messages, or
 //! fails on the transport, puts them back at the front of the key's queue
@@ -9,9 +5,7 @@
 //!
 //! Every action consumes the state and returns the next state with one
 //! [`Step`], so a caller cannot act on a state the machine has left. An
-//! action does no I/O. After every action that can make work ready, the
-//! machine claims the ready keys into the packer and pulls packed requests
-//! while workers have free send slots.
+//! action does no I/O.
 //!
 //! A partially processed request is a success: its returned messages are a
 //! per-key suffix that waits for the timeout retry delay, then goes through

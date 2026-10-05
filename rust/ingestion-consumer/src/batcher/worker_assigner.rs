@@ -1,6 +1,3 @@
-//! The worker assigner: picks a worker for each packed request against the
-//! load at that moment.
-//!
 //! A worker at the per-worker request cap is not a candidate, so one slow
 //! worker cannot take every send slot.
 

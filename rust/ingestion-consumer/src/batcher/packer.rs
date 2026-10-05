@@ -1,14 +1,9 @@
-//! The packer: groups claimed runs into requests near a target size.
+//! The packer groups claimed runs into requests near a target size. Sealed
+//! requests wait until [`Packer::take_ready`] pulls them, so the caller pulls
+//! only as many as it has capacity to send.
 //!
-//! The packer keeps one open batch per [`RequestClass`]. A run joins the
-//! open batch of its class. An open batch is sealed into a request when it
-//! reaches the target in events or bytes, when its deadline passes (its
-//! opening time plus the latency budget), or on a flush. Sealed requests
-//! wait in seal order until [`Packer::take_ready`] pulls them, so the caller
-//! pulls only as many as it has capacity to send.
-//!
-//! The packer knows nothing about workers. It holds each key at most once,
-//! because the key queues claim a key until its run settles.
+//! The packer holds each key at most once, because the key queues claim a
+//! key until its run settles.
 
 use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -98,8 +93,6 @@ impl Packer {
         self.sealed.len()
     }
 
-    /// Sealed requests need no timer: they leave when the caller has
-    /// capacity.
     pub fn next_deadline(&self) -> Option<Instant> {
         self.open.iter().map(|batch| batch.deadline).min()
     }

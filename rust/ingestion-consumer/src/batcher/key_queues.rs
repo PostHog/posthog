@@ -35,8 +35,6 @@ pub struct ReadyRun {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Settled {
-    /// Nothing queued, claimed, or waiting: the key is gone, so its
-    /// order-sentinel state can go too.
     Evicted,
     Kept,
     Stale,
@@ -49,8 +47,6 @@ pub struct Purged {
 
 struct QueuedMessage {
     class: RequestClass,
-    /// A returned message restarts its clock, so its wait measures the pause
-    /// before the redelivery.
     queued_at: Instant,
     message: SerializedKafkaMessage,
 }
@@ -157,9 +153,6 @@ impl KeyQueues {
         }
     }
 
-    /// A run is the longest prefix of the key's queue that shares one class,
-    /// because a request never mixes classes. The rest waits for the next
-    /// claim.
     pub fn take_ready(&mut self, now: Instant) -> Vec<ReadyRun> {
         while let Some((at, _)) = self.waiting.first() {
             if *at > now {
@@ -218,7 +211,7 @@ impl KeyQueues {
     /// Release the key's claim. `returned` goes back to the front of the
     /// queue as replay messages under the claimed run's epoch, ahead of
     /// anything that arrived while the run was out, so the redelivery keeps
-    /// offset order. With a `retry_at` after `now`, the key waits until then.
+    /// offset order.
     pub fn settle(
         &mut self,
         routing_key: &str,
@@ -271,9 +264,6 @@ impl KeyQueues {
         Settled::Kept
     }
 
-    /// Drop queued messages on revoked partitions, as `(topic, partition)`,
-    /// and the keys left idle. A claimed key remembers the revocation, so
-    /// its run's returned messages drop at settle.
     pub fn purge(&mut self, revoked: &[(String, i32)]) -> Purged {
         let revoked_set: HashSet<(&str, i32)> = revoked
             .iter()
@@ -393,8 +383,6 @@ mod tests {
         );
         assert_eq!(queues.next_retry_at(), Some(retry_at));
 
-        // The replayed message and the fresh one behind it go out in
-        // separate runs, because a request never mixes classes.
         assert_eq!(
             claimed(&queues.take_ready(retry_at)),
             vec![("a", vec![2], true)]

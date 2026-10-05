@@ -1,5 +1,3 @@
-//! The in-flight requests: what each sent request carried, by request id.
-//!
 //! A response references its request by id only. Resolving it maps the
 //! returned messages back to their keys and checks the per-key contract: a
 //! key's returned messages are a suffix of the run it sent, because the
@@ -16,7 +14,6 @@ use crate::worker_registry::WorkerId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RequestId(u64);
 
-/// One message as sent, without its payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SentMessage {
     pub topic: String,
