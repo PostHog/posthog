@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptingcompany import (
     PromptingCompanySourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.prompting_company.prompting_company import (
+    PromptingCompanyResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.prompting_company.source import (
     PromptingCompanySource,
@@ -39,3 +42,27 @@ def test_start_date_validation(start_date: str, error: str | None) -> None:
     else:
         assert (valid, message) == (True, None)
         probe.assert_called_once_with(config, None)
+
+
+def test_get_resumable_source_manager() -> None:
+    inputs = MagicMock()
+
+    with patch(SOURCE + ".ResumableSourceManager") as manager:
+        result = PromptingCompanySource().get_resumable_source_manager(inputs)
+
+    assert result == manager.return_value
+    manager.assert_called_once_with(inputs, PromptingCompanyResumeConfig)
+
+
+def test_source_for_pipeline() -> None:
+    config = PromptingCompanySourceConfig(
+        api_key="fake-test-key", product_id="product_example", start_date="2025-01-01"
+    )
+    inputs = MagicMock()
+    resumable_source_manager = MagicMock()
+
+    with patch(SOURCE + ".prompting_company_source") as source:
+        result = PromptingCompanySource().source_for_pipeline(config, resumable_source_manager, inputs)
+
+    assert result == source.return_value
+    source.assert_called_once_with(config, inputs, resumable_source_manager)
