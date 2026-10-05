@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -56,7 +58,7 @@ def response(body: object, status: int = 200) -> Response:
 def test_requests_and_terminal_page(endpoint: str, path: str, body: object, expected: list[dict[str, object]]) -> None:
     with patch.object(Session, "send", return_value=response(body)) as send:
         source = semrush_source("fake-api-key", "123", endpoint, 1, "job")
-        rows = [row for page in source.items() for row in page]
+        rows = [row for page in cast(Iterable[Any], source.items()) for row in page]
 
     assert rows == expected
     assert send.call_count == 1
@@ -93,7 +95,7 @@ def test_requests_and_terminal_page(endpoint: str, path: str, body: object, expe
 def test_errors_stop_sync_and_explain_validation_failure(status: int, body: object, message: str) -> None:
     with patch.object(Session, "send", return_value=response(body, status)) as send:
         with pytest.raises(ValueError, match=message):
-            list(semrush_source("fake-api-key", "123", "site_audit", 1, "job").items())
+            list(cast(Iterable[Any], semrush_source("fake-api-key", "123", "site_audit", 1, "job").items()))
         assert send.call_count == 1
         assert validate_credentials("fake-api-key", "123", 1) == (False, message)
         assert send.call_count == 2
@@ -148,4 +150,4 @@ def test_unknown_table_never_makes_a_request() -> None:
 def test_malformed_records_fail_instead_of_erasing_rows(endpoint: str, body: object, message: str) -> None:
     with patch.object(Session, "send", return_value=response(body)):
         with pytest.raises(ValueError, match=message):
-            list(semrush_source("fake-api-key", "123", endpoint, 1, "job").items())
+            list(cast(Iterable[Any], semrush_source("fake-api-key", "123", endpoint, 1, "job").items()))
