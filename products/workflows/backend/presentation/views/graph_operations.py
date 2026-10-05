@@ -3,6 +3,8 @@ from typing import NoReturn
 
 from rest_framework import serializers
 
+from posthog.dataclasses import frozen
+
 # Surgical, id-addressed edits to a workflow graph (actions + edges). The caller sends a small,
 # ordered list of operations instead of re-transmitting the whole graph; these are applied to the
 # stored actions/edges and the result is validated + saved by the serializer. Pure functions here —
@@ -104,3 +106,34 @@ def apply_graph_operations(
             edges.extend(dict(e) for e in op["edges"])
 
     return actions, edges
+
+
+@frozen
+class GraphChange:
+    changed_action_ids: list[str]
+    removed_action_ids: list[str]
+    added_edges: list[dict]
+    removed_edges: list[dict]
+
+
+def _edge_key(edge: dict) -> tuple:
+    return (edge.get("from"), edge.get("to"), edge.get("type"), edge.get("index"))
+
+
+def summarize_graph_change(
+    before_actions: list[dict], before_edges: list[dict], after_actions: list[dict], after_edges: list[dict]
+) -> GraphChange:
+    """Diff two graphs by action id and edge identity. Added and edited actions both count as changed."""
+    before_by_id = {a.get("id"): a for a in before_actions if isinstance(a, dict)}
+    after_ids = {a.get("id") for a in after_actions if isinstance(a, dict)}
+    changed = [a["id"] for a in after_actions if isinstance(a, dict) and a.get("id") and before_by_id.get(a["id"]) != a]
+    removed = [action_id for action_id in before_by_id if action_id and action_id not in after_ids]
+
+    before_edge_keys = {_edge_key(e) for e in before_edges}
+    after_edge_keys = {_edge_key(e) for e in after_edges}
+    return GraphChange(
+        changed_action_ids=changed,
+        removed_action_ids=removed,
+        added_edges=[e for e in after_edges if _edge_key(e) not in before_edge_keys],
+        removed_edges=[e for e in before_edges if _edge_key(e) not in after_edge_keys],
+    )
