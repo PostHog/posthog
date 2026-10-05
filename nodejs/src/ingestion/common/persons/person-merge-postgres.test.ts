@@ -44,7 +44,6 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as any,
             {
                 updateAllProperties: false,
-                isTombstoneTeam: () => false,
                 mergeEvents,
             },
             request,
@@ -149,7 +148,12 @@ describe('PostgresPersonMerge merge events', () => {
             output: PERSON_DISTINCT_IDS_OUTPUT,
             value: Buffer.from('{}'),
         }
-        const tx = { addDistinctId: jest.fn().mockResolvedValue([mappingMessage]) }
+        const tx = {
+            addDistinctId: jest.fn().mockResolvedValue([mappingMessage]),
+            claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
+            isPersonLive: jest.fn().mockResolvedValue(true),
+            releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
+        }
         const store = {
             fetchForUpdate: jest
                 .fn()
@@ -287,7 +291,6 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as never,
             {
                 updateAllProperties: false,
-                isTombstoneTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
                 ...policyOverrides,
             },
@@ -335,7 +338,6 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as never,
             {
                 updateAllProperties: false,
-                isTombstoneTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
             },
             request,

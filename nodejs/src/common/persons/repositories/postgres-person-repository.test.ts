@@ -204,19 +204,6 @@ describe('PostgresPersonRepository', () => {
     })
 
     describe('tombstoned rows', () => {
-        // Revival on create/addDistinctId runs only for allowlisted teams; the
-        // default repository exercises the legacy (master) path.
-        let revivalRepository: PostgresPersonRepository
-
-        beforeEach(() => {
-            revivalRepository = new PostgresPersonRepository(postgres, {
-                calculatePropertiesSize: 0,
-                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
-                personPropertiesTrimTargetBytes: 512 * 1024,
-                personMergeTombstoneTeamAllowlist: '*',
-            })
-        })
-
         async function tombstonePerson(person: InternalPerson): Promise<void> {
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
@@ -371,38 +358,18 @@ describe('PostgresPersonRepository', () => {
 
         it('createPerson revives a tombstoned person and its distinct id at death_version + 1', async () => {
             const uuid = new UUIDT().toString()
-            const first = await revivalRepository.createPerson(
-                TIMESTAMP,
-                { a: 1 },
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid,
-                {
-                    distinctId: 'revive-did',
-                }
-            )
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'revive-did',
+            })
             if (!first.success) {
                 throw new Error('Failed to create person')
             }
             await tombstonePerson(first.person)
             await tombstoneDistinctId(team.id, 'revive-did')
 
-            const revived = await revivalRepository.createPerson(
-                TIMESTAMP,
-                { b: 2 },
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                uuid,
-                {
-                    distinctId: 'revive-did',
-                }
-            )
+            const revived = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, true, uuid, {
+                distinctId: 'revive-did',
+            })
 
             if (!revived.success) {
                 throw new Error('Expected revival to succeed')
@@ -421,36 +388,16 @@ describe('PostgresPersonRepository', () => {
 
         it('createPerson returns CreationConflict against a live person with the same uuid', async () => {
             const uuid = new UUIDT().toString()
-            const first = await revivalRepository.createPerson(
-                TIMESTAMP,
-                { a: 1 },
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid,
-                {
-                    distinctId: 'live-uuid-did',
-                }
-            )
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'live-uuid-did',
+            })
             if (!first.success) {
                 throw new Error('Failed to create person')
             }
 
-            const second = await revivalRepository.createPerson(
-                TIMESTAMP,
-                { b: 2 },
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid,
-                {
-                    distinctId: 'live-uuid-did-2',
-                }
-            )
+            const second = await repository.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'live-uuid-did-2',
+            })
 
             // The holder owns a different distinct ID, so recovering by distinct ID cannot find
             // it. Returning it here is what lets the caller resolve instead of raising an error
@@ -468,11 +415,8 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('returns the uuid holder when the create runs inside a transaction', async () => {
-            // The legacy path recovers from a caught unique violation, which leaves the
-            // transaction aborted. Reading the holder on that transaction raises 25P02 and the
-            // throw escapes the conflict branch entirely, failing the merge saga that reaches
-            // createPerson through inTransaction. `repository` has no allowlist, so it takes
-            // that path rather than the ON CONFLICT one.
+            // The merge saga reaches createPerson through inTransaction, so the conflict
+            // branch has to read the uuid holder on the caller's transaction and hand it back.
             const uuid = new UUIDT().toString()
             const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
                 distinctId: 'tx-uuid-did',
@@ -498,7 +442,7 @@ describe('PostgresPersonRepository', () => {
         it('createPerson dedupes repeated distinct ids instead of failing the multi-insert', async () => {
             const uuid = new UUIDT().toString()
 
-            const result = await revivalRepository.createPerson(
+            const result = await repository.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -523,7 +467,7 @@ describe('PostgresPersonRepository', () => {
             await createTestPerson(team.id, 'contested-did')
             const uuid = new UUIDT().toString()
 
-            const result = await revivalRepository.createPerson(
+            const result = await repository.createPerson(
                 TIMESTAMP,
                 { secret: 'value' },
                 {},
@@ -553,10 +497,10 @@ describe('PostgresPersonRepository', () => {
         it('addDistinctId revives a tombstoned mapping, repointing it at the new person', async () => {
             const newOwner = await createTestPerson(team.id, 'adder-did')
             const oldOwner = await createTestPerson(team.id, 'old-owner-did')
-            await revivalRepository.addDistinctId(oldOwner, 'recycled-did', 0)
+            await repository.addDistinctId(oldOwner, 'recycled-did', 0)
             await tombstoneDistinctId(team.id, 'recycled-did')
 
-            const messages = await revivalRepository.addDistinctId(newOwner, 'recycled-did', 0)
+            const messages = await repository.addDistinctId(newOwner, 'recycled-did', 0)
 
             await expect(repository.fetchPerson(team.id, 'recycled-did')).resolves.toMatchObject({
                 uuid: newOwner.uuid,
@@ -575,7 +519,7 @@ describe('PostgresPersonRepository', () => {
             const person = await createTestPerson(team.id, 'conflict-adder-did')
             await createTestPerson(team.id, 'already-owned-did')
 
-            await expect(revivalRepository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
+            await expect(repository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
                 DistinctIdConflictError
             )
         })
@@ -675,23 +619,12 @@ describe('PostgresPersonRepository', () => {
             })
         })
 
-        describe('tombstone-mode deletes', () => {
-            let tombstoneRepository: PostgresPersonRepository
-
-            beforeEach(() => {
-                tombstoneRepository = new PostgresPersonRepository(postgres, {
-                    calculatePropertiesSize: 0,
-                    personPropertiesDbConstraintLimitBytes: 1024 * 1024,
-                    personPropertiesTrimTargetBytes: 512 * 1024,
-                    personMergeTombstoneTeamAllowlist: '*',
-                })
-            })
-
+        describe('deletes', () => {
             it('deletePerson tombstones the row at the exact death version with scrubbed properties', async () => {
                 const person = await createTestPerson(team.id, 'ts-delete-did', { secret: 'x' })
                 await tombstoneDistinctId(team.id, 'ts-delete-did')
 
-                const messages = await tombstoneRepository.deletePerson(person)
+                const messages = await repository.deletePerson(person)
 
                 expect(messages).toHaveLength(1)
                 const message = parseJSON(messages[0].value!.toString())
@@ -711,7 +644,7 @@ describe('PostgresPersonRepository', () => {
             it('deletePerson refuses while live distinct ids still point at the person', async () => {
                 const person = await createTestPerson(team.id, 'ts-blocked-did')
 
-                await expect(tombstoneRepository.deletePerson(person)).rejects.toThrow(PersonTombstoneBlockedError)
+                await expect(repository.deletePerson(person)).rejects.toThrow(PersonTombstoneBlockedError)
                 await expect(repository.fetchPerson(team.id, 'ts-blocked-did')).resolves.toMatchObject({
                     uuid: person.uuid,
                 })
@@ -724,7 +657,7 @@ describe('PostgresPersonRepository', () => {
                 await tombstoneDistinctId(team.id, 'ts-batch-fresh-did')
                 await tombstonePerson(alreadyDead)
 
-                const messages = await tombstoneRepository.deletePersons([alreadyDead, fresh])
+                const messages = await repository.deletePersons([alreadyDead, fresh])
 
                 expect(messages).toHaveLength(1)
                 const message = parseJSON(messages[0].value!.toString())
@@ -909,62 +842,6 @@ describe('PostgresPersonRepository', () => {
     })
 
     describe('deletePerson()', () => {
-        it('should delete person from postgres', async () => {
-            const uuid = new UUIDT().toString()
-            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, {
-                distinctId: 'delete-test-distinct',
-            })
-            if (!result.success) {
-                throw new Error('Failed to create person')
-            }
-            const person = result.person
-            const kafkaMessages = result.messages
-
-            const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
-                [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
-                    PERSON_DISTINCT_IDS_OUTPUT,
-                    KAFKA_PERSON_DISTINCT_ID,
-                    mockProducer,
-                    'test'
-                ),
-            })
-            await Promise.all(
-                kafkaMessages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
-            )
-
-            // Delete distinct IDs first to avoid FK constraint violation
-            await hub.postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
-                [person.id],
-                'deleteDistinctIds'
-            )
-
-            const deleteMessages = await repository.deletePerson(person)
-
-            // Verify person is deleted from postgres
-            const fetchedPerson = await fetchPersonByPersonId(hub, team.id, person.id)
-            expect(fetchedPerson).toEqual(undefined)
-
-            // Verify kafka messages are generated
-            expect(deleteMessages).toHaveLength(1)
-            expect(deleteMessages[0].output).toBe(PERSONS_OUTPUT)
-            expect(deleteMessages[0].value).not.toBeNull()
-
-            const messageValue = parseJSON(deleteMessages[0].value!.toString())
-            expect(messageValue).toEqual({
-                id: person.uuid,
-                created_at: person.created_at.toFormat('yyyy-MM-dd HH:mm:ss'),
-                properties: JSON.stringify(person.properties),
-                team_id: person.team_id,
-                is_identified: Number(person.is_identified),
-                is_deleted: 1,
-                version: person.version + 100, // version is incremented by 100 for deletions
-                last_seen_at: person.last_seen_at?.toFormat('yyyy-MM-dd HH:mm:ss') ?? null,
-            })
-        })
-
         it('should handle deleting person that does not exist', async () => {
             const nonExistentPerson = {
                 id: '999999',
@@ -3195,7 +3072,7 @@ describe('PostgresPersonRepository', () => {
         it('deletes multiple persons and returns one deletion message each', async () => {
             const person1 = await createTestPerson(team.id, 'fold-delete-1', {})
             const person2 = await createTestPerson(team.id, 'fold-delete-2', {})
-            // Distinct ids reference persons via FK; clear them before deletion
+            // The tombstone refuses while live mappings still point at a person; move them first
             const target = await createTestPerson(team.id, 'fold-delete-target', {})
             await repository.moveDistinctIdsFromPersons([person1, person2], target)
 
@@ -3204,8 +3081,8 @@ describe('PostgresPersonRepository', () => {
             expect(messages).toHaveLength(2)
             const deletedUuids = messages.map((message) => parseJSON(message.value!.toString()).id).sort()
             expect(deletedUuids).toEqual([person1.uuid, person2.uuid].sort())
-            expect(await fetchPersonByPersonId(hub, team.id, person1.id)).toBeUndefined()
-            expect(await fetchPersonByPersonId(hub, team.id, person2.id)).toBeUndefined()
+            expect(await fetchPersonByPersonId(hub, team.id, person1.id)).toMatchObject({ is_deleted: true })
+            expect(await fetchPersonByPersonId(hub, team.id, person2.id)).toMatchObject({ is_deleted: true })
         })
 
         it('returns no messages for already-deleted persons and empty input', async () => {

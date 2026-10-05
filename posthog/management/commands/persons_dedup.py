@@ -30,12 +30,10 @@ the same as proving the survivor is right:
     GATE_REACHABLE_SQL           no row we delete may be reachable
     GATE_SURVIVOR_REACHABLE_SQL  if any row in the group is reachable, one we keep must be
 
-DO NOT REORDER THE LOCK AND THE GATE. Ingestion's stranded-row claim path selects exactly the
-rows this command deletes, the unreachable holder of a (team_id, uuid), and repoints it to a
-live distinct id. It takes FOR UPDATE on that row and so does LOCK_VICTIMS_SQL, which is the
-only reason the two serialize instead of racing. The teams on
-PERSON_CREATE_CLAIM_TEAM_ALLOWLIST are the teams with duplicates, so a run against them will
-meet a claim in flight, and the batch-level prune is what absorbs it.
+DO NOT REORDER THE LOCK AND THE GATE. Ingestion's create path upserts onto the row holding a
+(team_id, uuid) with ON CONFLICT DO UPDATE, which locks that row, and so does LOCK_VICTIMS_SQL,
+which is the only reason the two serialize instead of racing. A run against a team with
+duplicates can meet such a create in flight, and the batch-level prune is what absorbs it.
 
 n_did = 0 is the safety condition and nothing else is. Being referenced is not the same as
 being live: a row owning no distinct ID is dead whatever else points at it, and skipping it
