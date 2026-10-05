@@ -56,6 +56,10 @@
             "description": "Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
             "type": "string"
         },
+        "person_uuid": {
+            "description": "UUID of a person. Matches tickets whose `distinct_id` is one of the person's distinct IDs (max 1000). Combines with `distinct_ids` and `emails` (OR).",
+            "type": "string"
+        },
         "priority": {
             "description": "Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.",
             "type": "string"
