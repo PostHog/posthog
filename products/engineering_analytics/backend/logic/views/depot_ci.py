@@ -395,11 +395,11 @@ def windowed_jobs(jobs_table: str, depot: DepotJobAttempts | None, window: Creat
     duplicates = _github_jobs(jobs_table, window.rows_and_earlier())
     if depot is None:
         return workflow_jobs.JobsTable(rows=f"({rows})", duplicates=f"({duplicates})")
-    # Depot lists the copies of an attempt next to it, under the same start time, so its rows hold
-    # their own duplicates. A later attempt of the run decides how many copies an attempt gets.
+    # Depot lists the copies of an attempt next to it, so its rows hold their own duplicates. The highest
+    # attempt of the run sets the number of copies, and another job can reach it on an earlier or later day.
     depot_jobs = _jobs(
         _attempts(depot, pull_requests_table=None, where=window.rows("a.attempt_started_at")),
-        run_attempts=_attempts(depot, pull_requests_table=None, where=window.rows_and_later("a.attempt_started_at")),
+        run_attempts=_attempts(depot, pull_requests_table=None, where=window.rows_and_around("a.attempt_started_at")),
     )
     return workflow_jobs.JobsTable(
         rows=f"({rows} UNION ALL {depot_jobs})",

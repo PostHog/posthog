@@ -23,6 +23,7 @@ it after that age. The older days are first stored together, so their ages are s
 all expire in one refresh.
 """
 
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -79,6 +80,7 @@ _OLDER_DAYS_MAX_AGE_SPREAD_SECONDS = 2 * 24 * 60 * 60
 
 # A refresh that runs out of this keeps the days it stored, and the next load continues from there.
 _REFRESH_BUDGET_SECONDS = 4 * 60
+_TASK_BUDGET_SECONDS = 20 * 60
 
 
 def _raw_day(moment: str) -> str:
@@ -189,10 +191,11 @@ STORED_JOBS = StoredRows(
 )
 
 
-def _max_age_schedule(team: Team) -> TtlSchedule:
+def _max_age_schedule() -> TtlSchedule:
+    # UTC bands, like the jobs: a cut at the team's midnight ages the previous UTC day too early.
     return parse_ttl_schedule(
         {"1d": _RECENT_DAYS_MAX_AGE_SECONDS, "7d": _LAST_WEEK_MAX_AGE_SECONDS, "default": _OLDER_DAYS_MAX_AGE_SECONDS},
-        team.timezone,
+        "UTC",
         max_window_days=1,
         default_ttl_jitter_seconds=_OLDER_DAYS_MAX_AGE_SPREAD_SECONDS,
     )
@@ -207,6 +210,7 @@ def ensure_stored(
     database: Database | None = None,
     run_inserts: bool,
     stale_while_revalidate_seconds: float | None = None,
+    wait_timeout_seconds: float = _REFRESH_BUDGET_SECONDS,
 ) -> LazyComputationResult:
     """The stored days of one repository from the day of ``since`` to now.
 
@@ -218,10 +222,10 @@ def ensure_stored(
         insert_query=stored.insert_query(source),
         time_range_start=since,
         time_range_end=datetime.now(UTC),
-        ttl_seconds=_max_age_schedule(team),
+        ttl_seconds=_max_age_schedule(),
         table=stored.table,
         query_type=stored.query_type,
-        wait_timeout_seconds=_REFRESH_BUDGET_SECONDS,
+        wait_timeout_seconds=wait_timeout_seconds,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
         # No read follows a refresh in the same request.
@@ -246,10 +250,21 @@ def refresh_after_load(team: Team, schema_name: str) -> None:
         bypass_warehouse_access_control=True,
         trigger="engineering_analytics",
     )
-    now = datetime.now(UTC)
+    deadline = time.monotonic() + _TASK_BUDGET_SECONDS
     for source in sources:
         for stored in tables:
-            result = ensure_stored(stored, team, source, since=now - stored.days, database=database, run_inserts=True)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            result = ensure_stored(
+                stored,
+                team,
+                source,
+                since=datetime.now(UTC) - stored.days,
+                database=database,
+                run_inserts=True,
+                wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, remaining),
+            )
             if not result.ready:
                 logger.warning(
                     "engineering_analytics_ci_precompute_incomplete",

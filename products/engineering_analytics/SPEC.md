@@ -69,7 +69,8 @@ Rules, when adding or changing a capability:
 
 - **Domain knowledge is defined once, in `logic/`.** Bot detection, attribution joins, metric naming, default exclusions: never re-derive them in an endpoint, tool, or the UI.
 - **Never hardcode warehouse table names.** The GitHub source prefix is user-chosen; resolve per team and repo via `logic/sources.py`.
-- **Never register anything in `Database.create_for`.** Run the builders privately via `execute_hogql_query`; a global view puts the product on every team's per-query hot path.- **One endpoint set for every consumer.** A capability is a named typed endpoint returning `facade/contracts.py` types; the UI and MCP tools consume that same endpoint (no client-side HogQL, no UI-only read paths), and its `mcp/tools.yaml` entry is set in the same PR.
+- **Never register anything in `Database.create_for`.** Run the builders privately via `execute_hogql_query`; a global view puts the product on every team's per-query hot path.
+- **One endpoint set for every consumer.** A capability is a named typed endpoint returning `facade/contracts.py` types; the UI and MCP tools consume that same endpoint (no client-side HogQL, no UI-only read paths), and its `mcp/tools.yaml` entry is set in the same PR.
 - **When tools change, update the family skill in `skills/`.** Skills teach tool selection and carry the metric caveats.
 
 ## 4. Canonical types
@@ -107,7 +108,7 @@ A query on the raw tables parses every payload and repeats the hand-off shell fi
 - A runs row keeps a hand-off shell and marks it with `is_handoff_shell`, where the raw read drops it (§6). A stored job row cannot tell a dropped run from a run that never synced, and a read needs that difference to leave the jobs of a shell out.
 - `stopped_reporting` is not stored. It depends on the clock, so a read derives it from `status` and `updated_at`.
 - Each row carries its `source_id` and its `repository` (`owner/name` in lower case). A repository that two GitHub sources sync is stored once for each source, with its Depot CI rows. A read takes the rows of one source, so they never count twice.
-- A load of runs, jobs or Depot job attempts starts a refresh in a Celery task. The refresh stores each day that is missing or too old: 5 minutes for today and yesterday in the team's timezone, 6 hours for the last week, and 5 to 7 days for older days. Most runs stop changing within a day of their creation. A re-run or an expired run changes an older row, and the table shows it after the age of its band.
+- A load of runs, jobs or Depot job attempts starts a refresh in a Celery task. The refresh stores each day that is missing or too old: 5 minutes for today and yesterday in UTC, 6 hours for the last week, and 5 to 7 days for older days. Most runs stop changing within a day of their creation. A re-run or an expired run changes an older row, and the table shows it after the age of its band.
 - The scans that give a row its flags reach a fixed 7 days around the day. A run that fails in a re-run more than 7 days after its creation, and then passes again, can keep a shell flag it should lose. A job that is re-listed more than 7 days after its first listing is not flagged as a copy.
 - A team stores rows only while the `engineering-analytics-stored-reads` flag targets its organization or project, because a refresh runs with no user.
 - A change to a builder changes the insert query, and the framework keys its jobs on that query. So a deploy that changes a builder starts a new set of days, and no read mixes rows of two builder versions.
