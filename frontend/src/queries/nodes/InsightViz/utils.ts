@@ -14,7 +14,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
-import { ActionType, DashboardTile, DashboardType, InsightModel, InsightType, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardTile, DashboardType, InsightModel, InsightType } from '~/types'
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
 
@@ -41,9 +41,9 @@ export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType
 }
 
 export const getCachedResults = (
-    cachedInsight: Partial<QueryBasedInsightModel> | undefined | null,
+    cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
-): Partial<QueryBasedInsightModel> | undefined => {
+): Partial<InsightModel> | undefined => {
     if (!cachedInsight) {
         return undefined
     }
@@ -67,30 +67,17 @@ export const getCachedResults = (
     return cachedInsight
 }
 
-// these types exist so that the return type reflects the input model
-// i.e. when given a partial model the return model is types as
-// partial as well
-type InputInsightModel = InsightModel | Partial<InsightModel>
-
-type ReturnInsightModel<T> = T extends InsightModel
-    ? QueryBasedInsightModel
-    : T extends Partial<InsightModel>
-      ? Partial<QueryBasedInsightModel>
-      : never
-
-/** Get an insight with `query` only. */
-export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
-    const { filters, ...baseInsight } = insight
-    // The API is phasing out the deprecated `dashboards` field (already omitted for token
-    // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
-    // keep working regardless of whether the response still carries it.
+/**
+ * Backfill the deprecated `dashboards` field from `dashboard_tiles`.
+ *
+ * Session-authenticated callers already never receive `dashboards`, and token callers will stop
+ * receiving it too, so derive it here to keep the remaining readers working whether or not the
+ * response still carries the field.
+ */
+export function getQueryBasedInsightModel<T extends InsightModel | Partial<InsightModel>>(insight: T): T {
     const dashboards =
         insight.dashboards ?? insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
-    return {
-        ...baseInsight,
-        ...(dashboards ? { dashboards } : {}),
-        query: insight.query ?? null,
-    } as unknown as ReturnInsightModel<T>
+    return { ...insight, ...(dashboards ? { dashboards } : {}) }
 }
 
 export const queryFromKind = (
@@ -144,10 +131,8 @@ export const getDefaultQuery = (
     throw new Error('encountered unexpected type for view')
 }
 
-/** Get a dashboard whose tiles carry `query` only. */
-export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
-): DashboardType<QueryBasedInsightModel> | null => {
+/** Backfill the deprecated `dashboards` field on each tile's insight. */
+export const getQueryBasedDashboard = (dashboard: DashboardType | null): DashboardType | null => {
     if (dashboard == null) {
         return null
     }
@@ -159,7 +144,7 @@ export const getQueryBasedDashboard = (
                 ({
                     ...tile,
                     ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                }) as DashboardTile<QueryBasedInsightModel>
+                }) as DashboardTile
         ),
     }
 }

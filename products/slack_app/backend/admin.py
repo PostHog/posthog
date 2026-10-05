@@ -16,6 +16,7 @@ class SlackSettingsAdmin(admin.ModelAdmin):
         "slack_user_id",
         "permission_modes",
         "default_integration",
+        "channel_welcome_mode",
         "updated_at",
     )
     list_filter = ("slack_workspace_id", "created_at")

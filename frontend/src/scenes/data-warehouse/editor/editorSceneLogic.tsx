@@ -14,10 +14,10 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { DataWarehouseSavedQuery, LinkBreadcrumb, QueryBasedInsightModel } from '../../../types'
+import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
 import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 
@@ -62,7 +62,7 @@ export interface EditorSceneLogicProps {
 export function buildSqlNotebook(
     queryInput: string,
     activeTab: QueryTab | null,
-    editingInsight: QueryBasedInsightModel | null,
+    editingInsight: InsightModel | null,
     featureFlags: FeatureFlagsSet
 ): { title: string; content: JSONContent[] } {
     const activeTabName = activeTab?.name === NEW_QUERY ? undefined : activeTab?.name
@@ -102,7 +102,7 @@ export interface editorSceneLogicValues {
     activeTab: QueryTab | null // sqlEditorLogic
     dashboardId: number | null // sqlEditorLogic
     dataLogicKey: string // sqlEditorLogic
-    editingInsight: QueryBasedInsightModel | null // sqlEditorLogic
+    editingInsight: InsightModel | null // sqlEditorLogic
     editingView: DataWarehouseSavedQuery | undefined // sqlEditorLogic
     editorSource: SqlEditorSource // sqlEditorLogic
     featureFlags: FeatureFlagsSet // sqlEditorLogic
@@ -112,6 +112,7 @@ export interface editorSceneLogicValues {
     viewLoading: boolean // sqlEditorLogic
     breadcrumbs: Breadcrumb[]
     isHistoryModalOpen: boolean
+    projectTreeRef: ProjectTreeRef | null
     saveAsMenuItems: {
         primary: SaveAsMenuItem
         secondary: SaveAsMenuItem[]
@@ -190,11 +191,12 @@ export interface editorSceneLogicActions {
 export interface editorSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        projectTreeRef: (
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
+        ) => ProjectTreeRef | null
         breadcrumbs: (activeTab: QueryTab | null) => Breadcrumb[]
         titleSectionProps: (
-            editingInsight: QueryBasedInsightModel<
-                import('~/queries/schema/schema-general').Node<Record<string, any>>
-            > | null,
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
             insightLoading: boolean,
             editingView: DataWarehouseSavedQuery | undefined,
             viewLoading: boolean,
@@ -236,9 +238,8 @@ export interface editorSceneLogicMeta {
         updateInsightButtonEnabled: (
             sourceQuery: DataVisualizationNode,
             activeTab: QueryTab | null,
-            editingInsight: QueryBasedInsightModel<
-                import('~/queries/schema/schema-general').Node<Record<string, any>>
-            > | null
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
+            queryInput: string | null
         ) => boolean
     }
 }
@@ -291,6 +292,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     }),
     selectors({
+        projectTreeRef: [
+            (s) => [s.editingInsight],
+            (editingInsight: InsightModel | null): ProjectTreeRef | null =>
+                editingInsight ? { type: 'insight', ref: editingInsight.short_id } : null,
+        ],
         breadcrumbs: [
             (s) => [s.activeTab],
             (activeTab: null | import('./sqlEditorLogic').QueryTab): Breadcrumb[] => {
@@ -347,7 +353,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 s.activeTab,
             ],
             (
-                editingInsight: null | import('~/types').QueryBasedInsightModel,
+                editingInsight: null | import('~/types').InsightModel,
                 insightLoading: boolean,
                 editingView: import('~/types').DataWarehouseSavedQuery | undefined,
                 viewLoading: boolean,
@@ -523,11 +529,12 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab, s.editingInsight],
+            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.queryInput],
             (
                 sourceQuery: DataVisualizationNode,
                 activeTab: null | import('./sqlEditorLogic').QueryTab,
-                editingInsight: null | import('~/types').QueryBasedInsightModel
+                editingInsight: null | import('~/types').InsightModel,
+                queryInput: string | null
             ) => {
                 if (!editingInsight?.query) {
                     return false
@@ -535,7 +542,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
 
                 const updatedName = activeTab?.name !== editingInsight.name
                 const updatedDescription = (activeTab?.description ?? '') !== (editingInsight.description ?? '')
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull({
+                    ...sourceQuery,
+                    source: { ...sourceQuery.source, query: queryInput ?? sourceQuery.source.query },
+                })
                 // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
                 const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
 

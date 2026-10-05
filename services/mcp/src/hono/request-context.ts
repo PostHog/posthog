@@ -13,16 +13,16 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { hash } from '@/lib/utils'
 import type { Context, Env, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
+import { getClientIpSigningKeys, getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
     getEffectiveMCPClientContext,
     getEffectiveMCPClientIdentity,
+    resolveSessionKey,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -33,11 +33,11 @@ const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
-    private userCacheInstance: RedisCache<State> | undefined
     private sessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
     private distinctIdPromise: Promise<string> | undefined
+    private readonly sessionUuidPromises = new Map<string, Promise<string>>()
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
@@ -64,18 +64,6 @@ export class RequestContext {
             this.tokenCacheInstance = new RedisCache<State>(this.props.userHash, this.redis, 'token')
         }
         return this.tokenCacheInstance
-    }
-
-    getUserCache(distinctId: string): RedisCache<State> {
-        if (!this.userCacheInstance) {
-            this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
-        }
-        return this.userCacheInstance
-    }
-
-    /** State scoped to one MCP session, such as the skills-first gate markers. */
-    getSessionCache(mcpSessionId: string): RedisCache<State> {
-        return new RedisCache<State>(hash(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
     }
 
     get cache(): RedisCache<State> {
@@ -141,6 +129,8 @@ export class RequestContext {
                 // reach the API unattributed.
                 oauthClientName: await this.readCachedOAuthClientName(),
                 taskId: this.props.taskId,
+                clientIp: this.props.clientIp,
+                clientIpSigningKeys: getClientIpSigningKeys(),
             })
         }
         return this.apiInstance
@@ -153,23 +143,37 @@ export class RequestContext {
         return this.sessionManagerInstance
     }
 
+    // Memoized per key because a tool call emits several events and each producer resolved
+    // the same id, and because concurrent producers otherwise race to write the same mapping.
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
         if (!sessionId) {
             return undefined
         }
-        return this.sessionManager.getSessionUuid(sessionId)
+        const cached = this.sessionUuidPromises.get(sessionId)
+        if (cached) {
+            return cached
+        }
+        // Evicted on failure so a later lookup can retry. Three tool-error paths await this
+        // outside a try, so a cached rejection would replace the tool's own error for the rest
+        // of the request.
+        const pending = this.sessionManager.getSessionUuid(sessionId).catch((error: unknown) => {
+            this.sessionUuidPromises.delete(sessionId)
+            throw error
+        })
+        this.sessionUuidPromises.set(sessionId, pending)
+        return pending
     }
 
     /**
-     * Resolves the UUID emitted as `$session_id`. Prefers the explicit
-     * `?sessionId=` param and falls back to the MCP protocol session id, so
-     * sessions are still attributed for clients that don't pass an explicit
-     * session id. Without the fallback `$session_id` is absent on most events
-     * and the MCP analytics dashboard — which aggregates sessions on
-     * `$session_id` — counts zero.
+     * Resolves the UUID emitted as `$session_id` from the first id the request
+     * carried. The agent's `conversation_id` wins because MCP 2026-07-28 removed
+     * `initialize` and the `Mcp-Session-Id` header, so for those clients the other
+     * two are absent and every tool call would ship with no `$session_id` at all.
+     * Every id here is caller-supplied, so `SessionManager` maps it to a UUID this
+     * server minted instead of emitting it.
      */
     async getEffectiveSessionUuid(requestContext: MCPRequestContext): Promise<string | undefined> {
-        return this.getSessionUuid(requestContext.sessionId ?? requestContext.mcpSessionId)
+        return this.getSessionUuid(resolveSessionKey(requestContext))
     }
 
     getDistinctId(): Promise<string> {
@@ -323,6 +327,7 @@ export class RequestContext {
                     ...previousContextProperties,
                     ...properties,
                     is_impersonated: apiKey?.is_impersonated === true,
+                    suppress_analytics: this.props.suppressAnalytics === true || apiKey?.suppress_analytics === true,
                 },
             })
         } catch {

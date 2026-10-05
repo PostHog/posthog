@@ -55,7 +55,7 @@ class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConf
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Humanitix API key to pull your Humanitix data into the PostHog Data warehouse.
 
-You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events and tags.
+You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events, tags, orders, and tickets.
 """,
             iconPath="/static/services/humanitix.png",
             docsUrl="https://posthog.com/docs/cdp/sources/humanitix",
@@ -99,8 +99,7 @@ You can generate an API key under **Account → Advanced → Public API key** in
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Humanitix's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
+        # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty); settings.py explains why.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

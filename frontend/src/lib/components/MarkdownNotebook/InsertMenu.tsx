@@ -234,7 +234,8 @@ export function buildInsertCommands(
     focusInsertedCode: (nodeId: string) => void,
     openAIPrompt?: (nodeId: string) => void,
     isAskAIDisabled?: boolean,
-    extraCommands: InsertCommand[] = []
+    extraCommands: InsertCommand[] = [],
+    openBtw?: (nodeId: string) => void
 ): InsertCommand[] {
     const commonCategory = COMMON_INSERT_COMMAND_CATEGORY
 
@@ -620,6 +621,20 @@ export function buildInsertCommands(
 
     return sortProductInsertCommandsLast([
         ...aiCommands,
+        ...(openBtw
+            ? [
+                  {
+                      key: 'ai-btw',
+                      label: 'BTW',
+                      category: commonCategory,
+                      description: 'Ask a side question about this notebook',
+                      aliases: ['btw', 'by the way', 'question'],
+                      icon: <IconSparkles />,
+                      disabled: isAskAIDisabled,
+                      run: openBtw,
+                  },
+              ]
+            : []),
         ...textCommands,
         ...sqlCommands,
         ...queryCommands,

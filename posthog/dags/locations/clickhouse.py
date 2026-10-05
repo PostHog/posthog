@@ -13,6 +13,7 @@ from posthog.dags import (
     export_query_log_archive_to_s3,
     fix_missing_person_overrides,
     fix_person_id_overrides,
+    flag_evaluations_backfill,
     orm_examples,
     part_breaker,
     person_overrides,
@@ -44,6 +45,7 @@ defs = dagster.Definitions(
         backfill_materialized_column.backfill_materialized_column,
         fix_missing_person_overrides.fix_missing_person_overrides_job,
         fix_person_id_overrides.fix_person_id_overrides_job,
+        flag_evaluations_backfill.flag_evaluations_backfill_job,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         person_pg_cleanup_drain.person_pg_cleanup_drain_job,
@@ -60,6 +62,7 @@ defs = dagster.Definitions(
     schedules=[
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
         person_overrides.squash_schedule,
+        person_pg_cleanup_drain.person_pg_cleanup_drain_schedule,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_hourly_schedule,
         property_definitions.property_definitions_hourly_schedule,
         backups.full_sharded_backup_schedule,

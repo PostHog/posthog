@@ -15,6 +15,7 @@ from PIL import Image
 from posthog.models.comment import Comment
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 
 from products.conversations.backend.api.tests.mailgun_signing import MailgunWebhookTestMixin, post_mailgun
@@ -41,6 +42,12 @@ def _make_png_bytes() -> bytes:
     """Generate a minimal valid 1x1 PNG."""
     buf = BytesIO()
     Image.new("RGB", (1, 1), color="red").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _make_image_bytes(image_format: str) -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (1, 1), color="red").save(buf, format=image_format)
     return buf.getvalue()
 
 
@@ -126,6 +133,15 @@ class TestEmailChannelPermissions(BaseTest):
                 "post",
                 "/api/conversations/v1/email/set-default",
                 {"config_id": "00000000-0000-0000-0000-000000000999"},
+            ),
+            (
+                "set-trusted-relay",
+                "post",
+                "/api/conversations/v1/email/set-trusted-relay",
+                {
+                    "config_id": "00000000-0000-0000-0000-000000000999",
+                    "trusted_relay_sender": "relay@example.com",
+                },
             ),
         ]
     )
@@ -1486,6 +1502,90 @@ class TestEmailMultiConfig(BaseTest):
         assert response.status_code == 404
 
 
+class TestEmailTrustedRelaySettings(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.force_login(self.user)
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="relay-settings",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    def test_admin_can_set_and_clear_trusted_relay_sender(self):
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(self.config.id),
+                "trusted_relay_sender": "Relay@Example.COM",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        self.config.refresh_from_db()
+        assert self.config.trusted_relay_sender == "relay@example.com"
+
+        status_response = self.client.get("/api/conversations/v1/email/status")
+        assert status_response.json()["configs"][0]["trusted_relay_sender"] == "relay@example.com"
+
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(self.config.id),
+                "trusted_relay_sender": "",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        self.config.refresh_from_db()
+        assert self.config.trusted_relay_sender == ""
+
+    def test_trusted_relay_update_is_scoped_to_the_current_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_config = EmailChannel.objects.create(
+            team=other_team,
+            inbound_token="other-relay-settings",
+            from_email="other@example.com",
+            from_name="Other",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(other_config.id),
+                "trusted_relay_sender": "relay@example.com",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+        other_config.refresh_from_db()
+        assert other_config.trusted_relay_sender == ""
+
+    def test_invalid_trusted_relay_sender_returns_field_error(self):
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(self.config.id),
+                "trusted_relay_sender": "not-an-email",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["attr"] == "trusted_relay_sender"
+        assert response.json()["detail"] == "Enter a valid email address."
+
+
 class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -2271,6 +2371,186 @@ class TestEmailInboundDmarcRewrite(MailgunWebhookTestMixin, BaseTest):
         assert comment.item_context["email_from_name"] == "Alex Smith"
 
 
+class TestEmailInboundTrustedRelay(MailgunWebhookTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="aa11bb22cc33dd44",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            trusted_relay_sender="relay@relay.example.com",
+        )
+
+    def _post(self, message_id: str, extra: dict[str, str]) -> None:
+        post_mailgun(
+            self.client,
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-aa11bb22cc33dd44@mg.posthog.com",
+                "from": "Relay <relay@relay.example.com>",
+                "sender": "relay@relay.example.com",
+                "X-Mailgun-Spf": "Pass",
+                "Message-Id": message_id,
+                "subject": "Support request",
+                "stripped-text": "Please help",
+                **extra,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "posthog_requester",
+                {"message-headers": '[["X-PostHog-Requester", "Alex Smith <alex@example.net>"]]'},
+                "alex@example.net",
+                "Alex Smith",
+            ),
+            (
+                "reply_to",
+                {"Reply-To": "Jane Doe <jane@example.net>"},
+                "jane@example.net",
+                "Jane Doe",
+            ),
+            (
+                "requester_precedes_reply_to",
+                {
+                    "X-PostHog-Requester": "Alex Smith <alex@example.net>",
+                    "Reply-To": "jane@example.net",
+                },
+                "alex@example.net",
+                "Alex Smith",
+            ),
+            (
+                "posthog_inbound_requester_falls_back_to_reply_to",
+                {
+                    "X-PostHog-Requester": "team-deadbeef@mg.eu.posthog.com",
+                    "Reply-To": "Jane Doe <jane@example.net>",
+                },
+                "jane@example.net",
+                "Jane Doe",
+            ),
+            (
+                "dkim_signed_requester",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject:x-posthog-requester; b=abc",
+                    "X-PostHog-Requester": "Alex Smith <alex@example.net>",
+                },
+                "alex@example.net",
+                "Alex Smith",
+            ),
+        ]
+    )
+    def test_trusted_relay_attributes_ticket_to_requester(
+        self,
+        name: str,
+        headers: dict[str, str],
+        expected_email: str,
+        expected_name: str,
+    ):
+        self._post(f"<trusted-relay-{name}@example.com>", headers)
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.distinct_id == expected_email
+        assert ticket.anonymous_traits == {"name": expected_name, "email": expected_email, "email_relayed": True}
+        assert ticket.identity_verified is False
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
+        assert comment.item_context["email_from"] == expected_email
+        assert comment.item_context["email_from_name"] == expected_name
+        assert comment.item_context["email_relay_from"] == "relay@relay.example.com"
+
+    @parameterized.expand(
+        [
+            (
+                "different_from",
+                {
+                    "from": "Other <other@relay.example.com>",
+                    "sender": "other@relay.example.com",
+                },
+                "other@relay.example.com",
+            ),
+            (
+                "different_envelope_sender",
+                {"sender": "other@relay.example.com"},
+                "relay@relay.example.com",
+            ),
+            (
+                "unauthenticated_relay",
+                {"X-Mailgun-Spf": ""},
+                "relay@relay.example.com",
+            ),
+            (
+                "dkim_does_not_sign_requester",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject; b=abc",
+                },
+                "relay@relay.example.com",
+            ),
+            (
+                "dkim_signs_one_of_duplicate_requesters",
+                {
+                    "X-Mailgun-Spf": "",
+                    "X-Mailgun-Dkim-Check-Result": "Pass",
+                    "DKIM-Signature": "v=1; d=relay.example.com; h=from:subject:x-posthog-requester; b=abc",
+                    "message-headers": '[["X-PostHog-Requester", "Alex Smith <alex@example.net>"]]',
+                },
+                "relay@relay.example.com",
+            ),
+        ]
+    )
+    def test_untrusted_mail_cannot_override_requester(
+        self,
+        name: str,
+        sender_fields: dict[str, str],
+        expected_email: str,
+    ):
+        self._post(
+            f"<untrusted-relay-{name}@example.com>",
+            {
+                "X-PostHog-Requester": "Victim <victim@example.net>",
+                **sender_fields,
+            },
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.distinct_id == expected_email
+
+    def test_same_domain_relay_does_not_authenticate_the_requester(self):
+        self.config.trusted_relay_sender = "relay@posthog.com"
+        self.config.save(update_fields=["trusted_relay_sender"])
+
+        self._post(
+            "<same-domain-relay@posthog.com>",
+            {
+                "from": "Relay <relay@posthog.com>",
+                "sender": "relay@posthog.com",
+                "X-PostHog-Requester": self.user.email,
+            },
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is False
+        assert ticket.unread_team_count == 1
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
+        assert comment.item_context["author_type"] == "customer"
+        assert comment.created_by is None
+
+
 class TestEmailInboundSelfAddressedAutoreply(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -2686,9 +2966,17 @@ class TestEmailInboundAttachments(MailgunWebhookTestMixin, BaseTest):
             "stripped-text": "See attached",
         }
 
+    @parameterized.expand(
+        [
+            ("png", _make_png_bytes(), "image/png"),
+            ("jpeg_labelled_png", _make_image_bytes("JPEG"), "image/jpeg"),
+        ]
+    )
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    def test_inbound_with_image_attachment(self, mock_storage: MagicMock):
-        attachment = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
+    def test_inbound_with_image_attachment(
+        self, _name: str, content: bytes, expected_content_type: str, mock_storage: MagicMock
+    ):
+        attachment = SimpleUploadedFile("photo.png", content, content_type="image/png")
 
         data = self._base_post_data("<img@test.com>")
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -2708,7 +2996,8 @@ class TestEmailInboundAttachments(MailgunWebhookTestMixin, BaseTest):
         assert image_nodes[0]["attrs"]["alt"] == "photo.png"
         assert comment.item_context["email_attachments"] is not None
         assert len(comment.item_context["email_attachments"]) == 1
-        assert comment.item_context["email_attachments"][0]["content_type"] == "image/png"
+        assert comment.item_context["email_attachments"][0]["content_type"] == expected_content_type
+        assert UploadedMedia.objects.get(team=self.team).content_type == expected_content_type
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
     def test_inbound_with_non_image_attachment(self, mock_storage: MagicMock):
@@ -2789,9 +3078,15 @@ class TestEmailInboundAttachments(MailgunWebhookTestMixin, BaseTest):
         assert comment.content == "See attached"
         assert comment.rich_content is None
 
+    @parameterized.expand(
+        [
+            ("html", b"<html>not an image</html>"),
+            ("tiff", _make_image_bytes("TIFF")),
+        ]
+    )
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    def test_inbound_invalid_image_is_rejected(self, mock_storage: MagicMock):
-        fake_image = SimpleUploadedFile("evil.png", b"<html>not an image</html>", content_type="image/png")
+    def test_inbound_invalid_image_is_rejected(self, _name: str, content: bytes, mock_storage: MagicMock):
+        fake_image = SimpleUploadedFile("evil.png", content, content_type="image/png")
 
         data = self._base_post_data("<evil@test.com>")
         with self.settings(OBJECT_STORAGE_ENABLED=True):

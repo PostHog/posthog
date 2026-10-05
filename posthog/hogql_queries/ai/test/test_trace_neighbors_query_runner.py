@@ -290,6 +290,35 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(response.olderTraceId)
         self.assertEqual(response.newerTraceId, "trace_recent")
 
+    def test_calendar_day_date_to_covers_the_whole_day(self):
+        """A `date_to` naming a calendar day reaches the traces recorded later that day."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_morning",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 9, 0, tzinfo=UTC),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_evening",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 20, 0, tzinfo=UTC),
+        )
+
+        response = TraceNeighborsQueryRunner(
+            team=self.team,
+            query=TraceNeighborsQuery(
+                traceId="trace_morning",
+                timestamp=datetime(2025, 1, 15, 9, 0, tzinfo=UTC).isoformat(),
+                dateRange=DateRange(date_from="2025-01-15", date_to="2025-01-15"),
+            ),
+        ).calculate()
+
+        self.assertEqual(response.newerTraceId, "trace_evening")
+        self.assertIsNone(response.olderTraceId)
+
     def test_default_date_range_window(self):
         """Test that default date range is ±3 days around trace timestamp."""
         _create_person(distinct_ids=["person1"], team=self.team)

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import F, Func, IntegerField, OuterRef, Prefetch, Subquery, Value
+from django.db.models import F, Func, IntegerField, OuterRef, Prefetch, Q, Subquery, Value
 from django.db.models.functions import Greatest
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -14,9 +14,22 @@ from products.warehouse_sources.backend.types import ExternalDataJobPipelineVers
 
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
+
+    # Overridden from CreatedMetaFields. Import workflows create every job row, so the column is
+    # always NULL, and its index only cost a write per insert. With no index, a user delete would
+    # seq-scan this table twice (Django's SET_NULL update, then the Postgres FK check), so the
+    # constraint goes too and Django's cascade skips it.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_index=False,
+        db_constraint=False,
+    )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
@@ -28,7 +41,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
-    pipeline_version = models.CharField(max_length=400, choices=PipelineVersion, null=True, blank=True)
+    pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
     # The destinations this run delivers to, snapshotted when the run started so a config
     # change mid-run cannot alter where an in-flight run lands or what it bills. Empty means
@@ -68,6 +81,22 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             models.Index(
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
+            ),
+            # Serves the sweeps that look for live runs (sweep_stopped_schema_syncs, the CDC
+            # orphan sweep, teardown, repair): status equality with a created_at range and no
+            # team or pipeline to narrow on first. Running is a fraction of a percent of the
+            # table, so the partial index holds only live rows instead of the whole history.
+            models.Index(
+                fields=["created_at"],
+                condition=Q(status=ExternalDataJobStatus.RUNNING),
+                name="idx_extdatajob_running",
+            ),
+            # Serves the source sync-history list (the `jobs` action): equality on pipeline
+            # ordered by created_at DESC with LIMIT. The polling settings tab reads it every
+            # few seconds. Without it the FK index walks every job of the source and sorts.
+            models.Index(
+                fields=["pipeline", "-created_at"],
+                name="idx_extdatajob_pipe_created",
             ),
         ]
 

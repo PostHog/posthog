@@ -128,7 +128,7 @@ export function InboxDetailFrameView({
   return (
     <div className="@container flex min-h-full flex-col">
       {!ownsChrome && (
-        <ChromeBar inset="control" actions={actions}>
+        <ChromeBar inset="title" actions={actions}>
           {trail}
         </ChromeBar>
       )}

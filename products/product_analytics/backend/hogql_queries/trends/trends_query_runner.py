@@ -1,7 +1,7 @@
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from functools import partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -43,15 +43,9 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql import ast, query_stats
-from posthog.hogql.constants import (
-    INSIGHT_QUERY_FANOUT_CONCURRENCY,
-    MAX_SELECT_RETURNED_ROWS,
-    HogQLGlobalSettings,
-    LimitContext,
-)
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.query_stats import QueryStats
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import (
@@ -59,9 +53,7 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -72,6 +64,7 @@ from posthog.hogql_queries.utils.breakdowns import (
     has_breakdown_filter,
 )
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -422,28 +415,22 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
-            query_tags: Optional[QueryTags] = None,
-            stats: Optional[QueryStats] = None,
         ):
             try:
-                if query_tags:
-                    query_tagging.update_tags(query_tags)
-
                 series_with_extra = self.series[index]
 
-                with query_stats.use(stats):
-                    response = execute_hogql_query(
-                        query_type="TrendsQuery",
-                        query=query,
-                        team=self.team,
-                        user=self.user,
-                        workload=self.workload,
-                        settings=self.hogql_settings,
-                        timings=timings,
-                        modifiers=self.modifiers,
-                        limit_context=self.limit_context,
-                        context=self.build_hogql_context(),
-                    )
+                response = execute_hogql_query(
+                    query_type="TrendsQuery",
+                    query=query,
+                    team=self.team,
+                    user=self.user,
+                    workload=self.workload,
+                    settings=self.hogql_settings,
+                    timings=timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                    context=self.build_hogql_context(),
+                )
 
                 timings_matrix[index + 1] = response.timings
                 res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
@@ -469,26 +456,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
-                # A worker thread starts with an empty context, so the query tags and the query scan
-                # accumulator are handed over explicitly.
-                parent_tags = query_tagging.get_query_tags().model_copy(deep=True)
-                parent_stats = query_stats.get_active()
-                max_workers = min(INSIGHT_QUERY_FANOUT_CONCURRENCY, len(queries))
-                with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="trends_series") as executor:
-                    futures = [
-                        executor.submit(
-                            run,
-                            index,
-                            query,
-                            self.timings.clone_for_subquery(index),
-                            True,
-                            parent_tags,
-                            parent_stats,
-                        )
+                run_in_parallel_threads(
+                    [
+                        partial(run, index, query, self.timings.clone_for_subquery(index), True)
                         for index, query in enumerate(queries)
-                    ]
-                    for future in futures:
-                        future.result()
+                    ],
+                    thread_name_prefix="trends_series",
+                )
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:

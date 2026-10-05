@@ -55,7 +55,10 @@ describe('maxLogic', () => {
         initKeaTests()
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+        if (logic?.isMounted()) {
+            await expectLogic(logic).toFinishAllListeners()
+        }
         threadLogic?.unmount()
         threadLogic = null
         sidePanelStateLogic.unmount()
