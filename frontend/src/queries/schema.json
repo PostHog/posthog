@@ -51101,6 +51101,22 @@
                 }
             ]
         },
+        "SQLEditorConfiguration": {
+            "additionalProperties": {},
+            "description": "Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients.",
+            "properties": {
+                "vim_mode_enabled": {
+                    "description": "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference.",
+                    "type": "boolean"
+                },
+                "vimrc": {
+                    "description": "Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.",
+                    "maxLength": 10000,
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "SampleRatioMismatch": {
             "additionalProperties": false,
             "properties": {
@@ -56068,6 +56084,9 @@
             "properties": {
                 "sidebar": {
                     "$ref": "#/definitions/SidebarConfiguration"
+                },
+                "sql_editor": {
+                    "$ref": "#/definitions/SQLEditorConfiguration"
                 },
                 "version": {
                     "description": "Schema version of this configuration blob, for future format migrations.",
