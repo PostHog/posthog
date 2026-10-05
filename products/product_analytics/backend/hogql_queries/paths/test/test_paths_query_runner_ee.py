@@ -3109,7 +3109,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             session_id="s1",
             distinct_id="p1",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
         timestamp1 = timezone.now()
         produce_replay_summary(
@@ -3117,7 +3117,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             session_id="s3",
             distinct_id="p1",
             first_timestamp=timestamp1,
-            last_timestamp=timestamp1,
+            last_timestamp=timestamp1 + timedelta(seconds=10),
         )
 
         # User with path matches, but no recordings
@@ -3315,7 +3315,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             session_id="s1",
             distinct_id="p1",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         results = (
@@ -3420,7 +3420,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             session_id="s1",
             distinct_id="p1",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         # No matching events for dropoff

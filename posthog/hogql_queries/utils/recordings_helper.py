@@ -9,6 +9,9 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.models.user import User
 
+# The player ends a clip this short almost as soon as it loads, so viewers think the recording is broken.
+MIN_RECORDING_DURATION_MS = 1000
+
 
 class RecordingsHelper:
     def __init__(self, team: Team, user: User | None = None):
@@ -41,10 +44,24 @@ class RecordingsHelper:
             right=ast.Constant(value=0),
         )
 
+        long_enough = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Call(
+                name="dateDiff",
+                args=[
+                    ast.Constant(value="millisecond"),
+                    ast.Field(chain=["start_time"]),
+                    ast.Field(chain=["end_time"]),
+                ],
+            ),
+            right=ast.Constant(value=MIN_RECORDING_DURATION_MS),
+        )
+
         query = """
                 SELECT
                     session_id,
                     min(min_first_timestamp) as start_time,
+                    max(max_last_timestamp) as end_time,
                     max(retention_period_days) as retention_period_days,
                     dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
                 FROM
@@ -62,7 +79,7 @@ class RecordingsHelper:
             query,
             placeholders={
                 "where_predicates": matches_provided_session_ids,
-                "having_predicates": ast.And(exprs=[not_expired, not_deleted]),
+                "having_predicates": ast.And(exprs=[not_expired, not_deleted, long_enough]),
             },
             team=self.team,
             user=self.user,
