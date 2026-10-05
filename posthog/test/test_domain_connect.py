@@ -430,6 +430,7 @@ class TestTemplateResolverAlignment(BaseTest):
                 {"type": "dkim", "recordHostname": f"ccc._domainkey.{sender_domain}"},
             ]
         }
+        mock_email.mail_from_subdomain = "feedback"
         mock_email_cls.return_value = mock_email
 
         with (

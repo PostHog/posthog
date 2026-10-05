@@ -2432,7 +2432,7 @@ class IntegrationViewSet(
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        email = EmailIntegration(self.get_object())
+        email = EmailIntegration(self.get_object(), acting_user=cast(User, request.user))
         verification_result = email.verify()
         return Response(verification_result)
 
@@ -2445,7 +2445,7 @@ class IntegrationViewSet(
         serializer = NativeEmailIntegrationSerializer(data=config)
         serializer.is_valid(raise_exception=True)
 
-        email = EmailIntegration(instance)
+        email = EmailIntegration(instance, acting_user=cast(User, request.user))
         email.update_native_integration(serializer.validated_data, instance.team_id)
 
         return Response(IntegrationSerializer(email.integration).data)
@@ -2497,7 +2497,7 @@ class IntegrationViewSet(
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                resolved = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(integration_id, self.team_id, acting_user=cast(User, request.user))
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(

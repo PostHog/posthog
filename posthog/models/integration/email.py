@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -14,6 +15,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model
@@ -23,30 +25,57 @@ if TYPE_CHECKING:
 
 
 DEFAULT_MAIL_FROM_SUBDOMAIN = "feedback"
-
-
-def stored_mail_from_subdomain(config: dict) -> str:
-    return config.get("mail_from_subdomain") or DEFAULT_MAIL_FROM_SUBDOMAIN
+EMAIL_DOMAIN_AGENT_SETUP_FLAG = "workflows-email-domain-agent-setup"
 
 
 class EmailIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: model.Integration, acting_user: User | None = None) -> None:
         if integration.kind != "email":
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+        self.acting_user = acting_user
+
+    @staticmethod
+    def _domain_shares_one_mail_from_label(team: Team, acting_user: User | None) -> bool:
+        return feature_enabled_or_false(
+            EMAIL_DOMAIN_AGENT_SETUP_FLAG,
+            acting_user.distinct_id if acting_user and acting_user.distinct_id else str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+            send_feature_flag_events=False,
+        )
+
+    @cached_property
+    def _shares_domain_label(self) -> bool:
+        return self._domain_shares_one_mail_from_label(self.integration.team, self.acting_user)
+
+    @property
+    def mail_from_subdomain(self) -> str:
+        if self._shares_domain_label:
+            return self._shared_mail_from_subdomain(self.integration.config)
+        return self.integration.config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
+
+    @staticmethod
+    def _shared_mail_from_subdomain(config: dict) -> str:
+        return config.get("mail_from_subdomain") or DEFAULT_MAIL_FROM_SUBDOMAIN
 
     @classmethod
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> model.Integration:
+        if not cls._domain_shares_one_mail_from_label(Team.objects.get(id=team_id), created_by):
+            return cls._create_native_integration(
+                config, team_id, organization_id, created_by, shares_domain_label=False
+            )
         with cls._exclusive_domain_access(cls._email_domain(config["email"])):
-            return cls._create_native_integration(config, team_id, organization_id, created_by)
+            return cls._create_native_integration(
+                config, team_id, organization_id, created_by, shares_domain_label=True
+            )
 
     @classmethod
     def _create_native_integration(
-        cls, config: dict, team_id: int, organization_id: str, created_by: User | None
+        cls, config: dict, team_id: int, organization_id: str, created_by: User | None, *, shares_domain_label: bool
     ) -> model.Integration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
@@ -65,8 +94,10 @@ class EmailIntegration:
                     f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
                 )
 
-        mail_from_subdomain = cls._domain_wide_mail_from_subdomain(
-            domain, config.get("mail_from_subdomain"), same_domain_integrations
+        mail_from_subdomain = (
+            cls._domain_wide_mail_from_subdomain(domain, config.get("mail_from_subdomain"), same_domain_integrations)
+            if shares_domain_label
+            else config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
         )
 
         # Create domain in the appropriate provider
@@ -122,11 +153,22 @@ class EmailIntegration:
                 cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"email-domain:{domain}"])
             yield
 
+    @contextmanager
+    def _domain_guard(self) -> Iterator[None]:
+        if not self._shares_domain_label:
+            yield
+            return
+        with self._exclusive_domain_access(self.integration.config["domain"]):
+            self.integration.refresh_from_db(fields=["config"])
+            yield
+
     @staticmethod
     def _domain_wide_mail_from_subdomain(
         domain: str, requested_subdomain: str | None, same_domain_integrations: Iterable[model.Integration]
     ) -> str:
-        domain_subdomains = {stored_mail_from_subdomain(integration.config) for integration in same_domain_integrations}
+        domain_subdomains = {
+            EmailIntegration._shared_mail_from_subdomain(integration.config) for integration in same_domain_integrations
+        }
         if not domain_subdomains:
             return requested_subdomain or DEFAULT_MAIL_FROM_SUBDOMAIN
         if len(domain_subdomains) > 1:
@@ -144,8 +186,7 @@ class EmailIntegration:
         return domain_subdomain
 
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
-        with self._exclusive_domain_access(self.integration.config["domain"]):
-            self.integration.refresh_from_db(fields=["config"])
+        with self._domain_guard():
             return self._update_native_integration(config)
 
     def _update_native_integration(self, config: dict) -> model.Integration:
@@ -153,9 +194,7 @@ class EmailIntegration:
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
         name: str = config.get("name", self.integration.config.get("name"))
-        mail_from_subdomain: str = config.get("mail_from_subdomain") or stored_mail_from_subdomain(
-            self.integration.config
-        )
+        mail_from_subdomain = self._edited_mail_from_subdomain(config.get("mail_from_subdomain"))
 
         # Update domain in the appropriate provider
         if provider == "ses":
@@ -176,9 +215,15 @@ class EmailIntegration:
             }
         )
         self.integration.save()
-        self._share_mail_from_subdomain_with_domain_senders(domain, mail_from_subdomain)
+        if self._shares_domain_label:
+            self._share_mail_from_subdomain_with_domain_senders(domain, mail_from_subdomain)
 
         return self.integration
+
+    def _edited_mail_from_subdomain(self, requested_subdomain: str | None) -> str:
+        if self._shares_domain_label:
+            return requested_subdomain or self.mail_from_subdomain
+        return self.mail_from_subdomain if requested_subdomain is None else requested_subdomain
 
     def _share_mail_from_subdomain_with_domain_senders(self, domain: str, mail_from_subdomain: str) -> None:
         domain_senders = (
@@ -195,14 +240,13 @@ class EmailIntegration:
             sender.save(update_fields=["config"])
 
     def verify(self) -> "EmailDomainVerification":
-        with self._exclusive_domain_access(self.integration.config["domain"]):
-            self.integration.refresh_from_db(fields=["config"])
+        with self._domain_guard():
             return self._verify()
 
     def _verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
-        mail_from_subdomain = stored_mail_from_subdomain(self.integration.config)
+        mail_from_subdomain = self.mail_from_subdomain
 
         verification_result: EmailDomainVerification
         # Use the appropriate provider for verification

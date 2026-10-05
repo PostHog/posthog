@@ -2,7 +2,7 @@
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
@@ -13,7 +13,24 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 
+def email_domain_flag(*, organization_id: str | None = None, distinct_id: str | None = None):
+    def feature_enabled(key: str, flag_distinct_id: str, groups: dict | None = None, **_kwargs) -> bool:
+        return key == "workflows-email-domain-agent-setup" and (
+            (groups or {}).get("organization") == organization_id or flag_distinct_id == distinct_id
+        )
+
+    return feature_enabled
+
+
 class TestEmailIntegrationDomainValidation(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patcher = patch(
+            "posthoganalytics.feature_enabled", side_effect=email_domain_flag(organization_id=str(self.organization.id))
+        )
+        self.feature_enabled: MagicMock = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_successful_domain_creation_ses(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
@@ -129,11 +146,14 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         mock_create_email_domain.assert_not_called()
         assert not Integration.objects.filter(integration_id="new@example.com").exists()
 
+    @parameterized.expand([("rolled_out_to_the_organization", False), ("enabled_for_the_acting_user", True)])
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain", return_value={"status": "pending"})
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     def test_verifying_any_sender_keeps_a_changed_mail_from_label(
-        self, mock_update_mail_from_subdomain, mock_verify_email_domain
+        self, _name, flag_targets_user, mock_update_mail_from_subdomain, mock_verify_email_domain
     ):
+        if flag_targets_user:
+            self.feature_enabled.side_effect = email_domain_flag(distinct_id=self.user.distinct_id)
         other_team = Team.objects.create(organization=self.organization, name="other team")
         senders = {
             email: Integration.objects.create(
@@ -155,14 +175,14 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             ]
         }
 
-        EmailIntegration(senders["edited@example.com"]).update_native_integration(
+        EmailIntegration(senders["edited@example.com"], acting_user=self.user).update_native_integration(
             {"mail_from_subdomain": "bounce"}, team_id=self.team.id
         )
         mock_update_mail_from_subdomain.assert_called_once_with("example.com", mail_from_subdomain="bounce")
 
         verified_labels = {}
         for email, sender in senders.items():
-            EmailIntegration(sender).verify()
+            EmailIntegration(sender, acting_user=self.user).verify()
             verified_labels[email] = mock_verify_email_domain.call_args.kwargs["mail_from_subdomain"]
         assert verified_labels == {
             "edited@example.com": "bounce",
@@ -192,6 +212,41 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
         assert mock_update_mail_from_subdomain.call_args.kwargs["mail_from_subdomain"] == "bounce"
         assert Integration.objects.get(pk=senders[1].pk).config["mail_from_subdomain"] == "bounce"
+
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain", return_value={"status": "pending"})
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_each_sender_keeps_its_own_mail_from_label_while_the_flag_is_off(
+        self, mock_create_email_domain, mock_update_mail_from_subdomain, mock_verify_email_domain
+    ):
+        self.feature_enabled.side_effect = email_domain_flag(organization_id="another-organization")
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="existing@example.com",
+            config={
+                "email": "existing@example.com",
+                "domain": "example.com",
+                "mail_from_subdomain": "bounce",
+                "provider": "ses",
+            },
+        )
+
+        created = EmailIntegration.create_native_integration(
+            {"email": "new@example.com", "name": "New", "provider": "ses", "mail_from_subdomain": "feedback"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        EmailIntegration(existing, acting_user=self.user).update_native_integration(
+            {"mail_from_subdomain": "returns"}, team_id=self.team.id
+        )
+        EmailIntegration(created, acting_user=self.user).verify()
+
+        assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == "feedback"
+        assert mock_update_mail_from_subdomain.call_args.kwargs["mail_from_subdomain"] == "returns"
+        assert mock_verify_email_domain.call_args.kwargs["mail_from_subdomain"] == "feedback"
+        assert Integration.objects.get(pk=created.pk).config["mail_from_subdomain"] == "feedback"
 
     def test_unsupported_email_domain(self):
         # Test with a free email domain
