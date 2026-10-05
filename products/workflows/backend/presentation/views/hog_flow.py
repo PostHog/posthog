@@ -5168,28 +5168,27 @@ class HogFlowViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action in ("list", "search"):
-            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
-            # otherwise repeat on one page and never appear on another.
-
-            pending = (
-                WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
-                .order_by()
-                .values("hog_flow")
-                .annotate(count=Count("id"))
-                .values("count")
-            )
-            queryset = queryset.annotate(
-                pending_suggestions=Coalesce(Subquery(pending), 0),
-                suggestions_enabled=Exists(
-                    HogFlowOptimization.objects.filter(hog_flow=OuterRef("pk"), enabled=True).values("pk")
-                ),
-            )
+            # Search rows do not show suggestions, so only the list pays for these subqueries.
+            if self.action == "list":
+                pending = (
+                    WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
+                    .order_by()
+                    .values("hog_flow")
+                    .annotate(count=Count("id"))
+                    .values("count")
+                )
+                queryset = queryset.annotate(
+                    pending_suggestions=Coalesce(Subquery(pending), 0),
+                    suggestions_enabled=Exists(
+                        HogFlowOptimization.objects.filter(hog_flow=OuterRef("pk"), enabled=True).values("pk")
+                    ),
+                )
             # A suggestion waits on a person, so the page that shows them sorts it above recency. Every
             # other reader of this list — the MCP tool, any other surface — keeps recency, or a stale
             # workflow with one suggestion would push a fresh one off their first page.
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
-            if self.request.GET.get("suggestions_first") in ("true", "1"):
+            if self.action == "list" and self.request.GET.get("suggestions_first") in ("true", "1"):
                 queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
             else:
                 queryset = queryset.order_by("-updated_at", "-id")
