@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 
 import { IconMagicWand, IconPencil, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSnack, LemonSwitch, Link } from '@posthog/lemon-ui'
@@ -108,6 +108,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         processingProgress,
         areaSelectionActive,
         heatmapAreaFilter,
+        editingAreaSelector,
         loadingAllElementStats,
         loadAllPagesLoaded,
     } = useValues(heatmapToolbarMenuLogic)
@@ -124,8 +125,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         cancelAreaSelection,
         selectHeatmapAreaFilter,
         editHeatmapAreaSelector,
+        setEditingAreaSelector,
     } = useActions(heatmapToolbarMenuLogic)
-    const [editingAreaSelector, setEditingAreaSelector] = useState(false)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
@@ -246,11 +247,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             <SelectorEditingModal
                                 isOpen
                                 setIsOpen={setEditingAreaSelector}
-                                activeElementChain={toElementsChain(heatmapAreaFilter.element).map((element) => ({
-                                    ...element,
-                                    // a container's text is the whole region, which buries the chain
-                                    text: undefined,
-                                }))}
+                                // a container's text is the whole region, which buries the chain
+                                activeElementChain={toElementsChain(heatmapAreaFilter.element, false)}
                                 startingSelector={heatmapAreaFilter.selector}
                                 onChange={(selector) => {
                                     if (selector) {

@@ -14,13 +14,14 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { PostHog } from 'posthog-js'
-import { collectAllElementsDeep, querySelectorDeep } from 'query-selector-shadow-dom'
+import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { escapeUnescapedRegex, heatmapUrlPatternToRegex } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createSliceYielder } from 'lib/utils/async'
 import { createVersionChecker } from 'lib/utils/semver'
 
@@ -226,13 +227,15 @@ export function containsInComposedTree(container: HTMLElement, element: HTMLElem
 }
 
 // a deep query, like the uniqueness check in elementToAreaSelector, so an area inside a shadow
-// root can still be found after a re-render
+// root can still be found after a re-render. An ambiguous selector resolves to nothing rather
+// than to whichever area comes first.
 export function findElementBySelector(selector: string | null): HTMLElement | null {
     if (!selector) {
         return null
     }
     try {
-        return querySelectorDeep(selector) as HTMLElement | null
+        const matches = querySelectorAllDeep(selector)
+        return matches.length === 1 ? (matches[0] as HTMLElement) : null
     } catch {
         // toolbar-derived selectors are not guaranteed to be valid querySelector input
         return null
@@ -370,6 +373,7 @@ export interface heatmapToolbarMenuLogicValues {
         }
     >
     elementStats: PaginatedResponse<ElementsEventType> | null
+    editingAreaSelector: boolean
     elementStatsLoading: boolean
     elementsLoading: boolean
     heatmapAreaFilter: {
@@ -470,6 +474,9 @@ export interface heatmapToolbarMenuLogicActions {
     }
     editHeatmapAreaSelector: (selector: string) => {
         selector: string
+    }
+    setEditingAreaSelector: (editing: boolean) => {
+        editing: boolean
     }
     enableHeatmap: () => {
         value: true
@@ -728,6 +735,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setAreaCandidates: (candidates: HTMLElement[]) => ({ candidates }),
         selectHeatmapAreaFilter: (element: HTMLElement | null) => ({ element }),
         editHeatmapAreaSelector: (selector: string) => ({ selector }),
+        setEditingAreaSelector: (editing: boolean) => ({ editing }),
         setHeatmapAreaFilter: (element: HTMLElement | null, selector: string | null) => ({ element, selector }),
         // swap the tracked node for a re-resolved one without refetching: the selector is
         // unchanged, so the server response would be byte-identical
@@ -739,6 +747,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         windowHeight: (window: Window) => window.innerHeight,
     })),
     reducers({
+        editingAreaSelector: [
+            false,
+            {
+                setEditingAreaSelector: (_, { editing }) => editing,
+                setHeatmapAreaFilter: () => false,
+            },
+        ],
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
         // exits picking mode only — an already-applied filter is cleared separately via
         // selectHeatmapAreaFilter(null) (the snack's close button)
@@ -1290,6 +1305,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         editHeatmapAreaSelector: ({ selector }) => {
             const element = findElementBySelector(selector)
             if (!element) {
+                lemonToast.warning(
+                    'This selector must match exactly one area of the page. Choose a different selector.'
+                )
                 return
             }
             actions.setHeatmapAreaFilter(element, selector)

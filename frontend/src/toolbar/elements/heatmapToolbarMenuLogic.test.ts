@@ -165,6 +165,15 @@ describe('heatmapToolbarMenuLogic', () => {
                 null,
             ],
             [
+                'returns null when the node is gone and the selector matches more than one area',
+                (element: HTMLElement) => {
+                    element.remove()
+                    document.body.insertAdjacentHTML('beforeend', '<nav data-testid="second"></nav>')
+                    return { element, selector: 'nav' }
+                },
+                null,
+            ],
+            [
                 'returns null when the node is gone and no selector was derived',
                 (element: HTMLElement) => {
                     element.remove()

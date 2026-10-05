@@ -223,7 +223,7 @@ export function elementToAreaSelector(element: HTMLElement, dataAttributes: stri
     const tagName = element.tagName.toLowerCase()
     const candidates: [escaped: string, unescaped: string][] = []
     const addAttribute = (name: string, value: string | null, prefix = ''): void => {
-        if (value && value.length < 100 && !value.includes('"') && !containsUnstableGeneratedId(value)) {
+        if (value && value.length < 100 && !/["\\]/.test(value) && !containsUnstableGeneratedId(value)) {
             candidates.push([`${prefix}[${CSS.escape(name)}="${CSS.escape(value)}"]`, `${prefix}[${name}="${value}"]`])
         }
     }
@@ -259,7 +259,7 @@ export function elementToAreaSelector(element: HTMLElement, dataAttributes: stri
     return elementToQuery(element, dataAttributes)
 }
 
-export function toElementsChain(element: HTMLElement): ElementType[] {
+export function toElementsChain(element: HTMLElement, includeText = true): ElementType[] {
     const chain: HTMLElement[] = []
     let currentElement: HTMLElement | null | undefined = element
     while (currentElement && currentElement !== document.documentElement) {
@@ -286,7 +286,7 @@ export function toElementsChain(element: HTMLElement): ElementType[] {
 
                 href: element.getAttribute('href') || undefined,
                 tag_name: element.tagName.toLowerCase(),
-                text: index === 0 ? element.innerText : undefined,
+                text: includeText && index === 0 ? element.innerText : undefined,
             }) as ElementType
     )
 }
