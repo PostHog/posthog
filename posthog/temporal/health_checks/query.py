@@ -1,3 +1,5 @@
+import time
+import random
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -5,8 +7,16 @@ from typing import Any
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CH_TRANSIENT_ERRORS
 
 logger = structlog.get_logger(__name__)
+
+# A batch that exhausts its Temporal attempts marks all of its teams failed, which can trip the
+# workflow's not-processed threshold. Cluster memory pressure is short-lived, so a few seconds of
+# backoff inside the activity gets past it. The whole budget stays far below the activity's
+# start_to_close_timeout.
+CH_RETRY_MAX_ATTEMPTS = 3
+CH_RETRY_BASE_DELAY_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -59,4 +69,23 @@ def execute_clickhouse_health_team_query(
         query_settings.update(settings)
 
     logger.info("running health clickhouse query", team_count=len(team_ids))
+
+    for attempt in range(1, CH_RETRY_MAX_ATTEMPTS):
+        try:
+            return sync_execute(sql, query_params, settings=query_settings)
+        except CH_TRANSIENT_ERRORS as error:
+            # Jitter keeps concurrent checks from retrying in lockstep.
+            ceiling = CH_RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            delay = random.uniform(ceiling / 2, ceiling)
+            logger.warning(
+                "retrying health clickhouse query after transient error",
+                error=str(error),
+                error_type=type(error).__name__,
+                attempt=attempt,
+                max_attempts=CH_RETRY_MAX_ATTEMPTS,
+                delay=round(delay, 1),
+                team_count=len(team_ids),
+            )
+            time.sleep(delay)
+
     return sync_execute(sql, query_params, settings=query_settings)
