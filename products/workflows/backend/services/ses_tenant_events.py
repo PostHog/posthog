@@ -78,7 +78,7 @@ def _confirm_subscription(message: Mapping[str, Any]) -> None:
 
 
 def _handle_notification(message: Mapping[str, Any]) -> None:
-    """Enqueue a tenant-state sync for the team the EventBridge event names.
+    """Enqueue a tenant-state sync for the sandbox tenant or the team the EventBridge event names.
 
     Every unusable payload is dropped rather than raised, because a redelivery would carry the
     same unusable payload.
