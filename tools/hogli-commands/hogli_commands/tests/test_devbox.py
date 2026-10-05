@@ -572,7 +572,7 @@ class TestCoderReachable:
         recorded_properties: dict[str, object],
     ) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
-        monkeypatch.setattr(coder, "coder_reachable", lambda: False)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: None)
         monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
         monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
         monkeypatch.setattr(
@@ -597,20 +597,34 @@ class TestCoderReachable:
         assert recorded_properties == {"devbox_failure_cause": "stubbed_code"}
 
     @pytest.mark.parametrize(
-        "probe_results, expected_tailscale_commands",
+        "probe_statuses, expected_tailscale_commands, exits",
         [
-            ([True], []),
-            ([False, True], [["/usr/bin/tailscale", "set", "--accept-routes"]]),
+            ([200], [], False),
+            ([None, 200], [["/usr/bin/tailscale", "set", "--accept-routes"]], False),
+            ([503], [], True),
         ],
     )
-    def test_ensure_coder_reachable_changes_tailscale_only_after_a_failed_probe(
+    def test_ensure_coder_reachable_changes_tailscale_only_when_coder_does_not_respond(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        probe_results: list[bool],
+        probe_statuses: list[int | None],
         expected_tailscale_commands: list[list[str]],
+        exits: bool,
     ) -> None:
-        probes = iter(probe_results)
-        monkeypatch.setattr(coder, "coder_reachable", lambda: next(probes))
+        def response(status: int | None) -> coder.requests.Response | None:
+            if status is None:
+                return None
+            resp = coder.requests.Response()
+            resp.status_code = status
+            return resp
+
+        probes = iter(probe_statuses)
+        monkeypatch.setattr(coder, "_probe_coder", lambda timeout=5.0: response(next(probes)))
+        monkeypatch.setattr(
+            coder,
+            "_diagnose_unreachable_coder",
+            lambda: coder.CoderReachabilityDiagnosis(code="stubbed_code", cause="", next_step="", facts=[]),
+        )
         monkeypatch.setattr(coder, "tailscale_connected", lambda: True)
         monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
         monkeypatch.setattr(coder, "_resolve_tailscale", lambda: "/usr/bin/tailscale")
@@ -623,7 +637,11 @@ class TestCoderReachable:
 
         monkeypatch.setattr(coder.subprocess, "run", fake_run)
 
-        coder.ensure_coder_reachable()
+        if exits:
+            with pytest.raises(SystemExit):
+                coder.ensure_coder_reachable()
+        else:
+            coder.ensure_coder_reachable()
 
         assert commands == expected_tailscale_commands
 

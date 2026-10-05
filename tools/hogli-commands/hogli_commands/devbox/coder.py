@@ -528,14 +528,19 @@ def ensure_tailscale_routes_accepted() -> bool:
     return True
 
 
-def coder_reachable(timeout: float = 5.0) -> bool:
-    """Return whether the Coder deployment responds on /api/v2/buildinfo."""
+def _probe_coder(timeout: float = 5.0) -> requests.Response | None:
+    """Return the response from /api/v2/buildinfo, or None when no response arrives."""
     coder_url = get_coder_url()
     try:
-        resp = requests.get(f"{coder_url}/api/v2/buildinfo", timeout=timeout)
+        return requests.get(f"{coder_url}/api/v2/buildinfo", timeout=timeout)
     except requests.RequestException:
-        return False
-    return resp.ok
+        return None
+
+
+def coder_reachable(timeout: float = 5.0) -> bool:
+    """Return whether the Coder deployment responds on /api/v2/buildinfo."""
+    resp = _probe_coder(timeout)
+    return resp is not None and resp.ok
 
 
 @dataclass(frozen=True)
@@ -718,16 +723,18 @@ def ensure_coder_reachable(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     the single most-likely cause + next step instead of dumping a list of
     commands the engineer has to interpret themselves.
 
-    The Tailscale checks run only after a failed probe. A host inside the
-    Coder network, such as a devbox, reaches the API without Tailscale, and
-    accepting a subnet route that covers its own network sends local traffic
-    through the tailnet and disconnects its workspace agent.
+    The Tailscale checks run only when the probe gets no response. A host
+    inside the Coder network, such as a devbox, reaches the API without
+    Tailscale, and accepting a subnet route that covers its own network sends
+    local traffic through the tailnet and disconnects its workspace agent. An
+    error response proves the network path works, so Tailscale is not the cause.
     """
-    if coder_reachable():
-        return
-
-    ensure_tailscale_connected(setup_hint)
-    if ensure_tailscale_routes_accepted() and coder_reachable():
+    resp = _probe_coder()
+    if resp is None:
+        ensure_tailscale_connected(setup_hint)
+        if ensure_tailscale_routes_accepted() and coder_reachable():
+            return
+    elif resp.ok:
         return
 
     diagnosis = _diagnose_unreachable_coder()
