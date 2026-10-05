@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -145,38 +146,93 @@ describe('messageTemplateLogic', () => {
         })
     })
 
-    it('keeps the editor usable while a save is in flight', async () => {
-        let finishSave!: () => void
-        const saveHeld = new Promise<void>((resolve) => {
-            finishSave = resolve
-        })
+    it('moves a created template to its own URL with a clean form', async () => {
         const content = { email: { subject: 'Hello' } }
         useMocks({
-            get: {
-                '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'Existing', content },
-            },
-            patch: {
-                '/api/environments/:team_id/messaging_templates/:id/': async () => {
-                    await saveHeld
-                    return [200, { id: 'existing-id', name: 'Saved', content }]
-                },
+            post: {
+                '/api/environments/:team_id/messaging_templates/': () => [
+                    201,
+                    { id: 'created-id', name: 'Welcome email', content },
+                ],
             },
         })
-        logic = messageTemplateLogic({ id: 'existing-id' })
+        logic = messageTemplateLogic({ id: 'new' })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
-        logic.actions.setTemplateValue('name', 'Saved')
+        logic.actions.setTemplateValues({ name: 'Welcome email', content })
 
-        logic.actions.submitTemplate()
-        await expectLogic(logic).toDispatchActions(['saveTemplate'])
-        expect(logic.values.templateLoading).toBe(false)
-        logic.actions.setTemplateValue('name', 'Typed while saving')
+        await expectLogic(logic, () => {
+            logic.actions.submitTemplate()
+        })
+            .toDispatchActions(['saveTemplateSuccess'])
+            .toFinishAllListeners()
 
-        finishSave()
-        await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
-        await expectLogic(logic).toMatchValues({ templateChanged: true })
-        expect(logic.values.template.name).toBe('Typed while saving')
-        expect(logic.values.originalTemplate.name).toBe('Saved')
+        expect(router.values.location.pathname).toContain(urls.workflowsLibraryTemplate('created-id'))
+        await expectLogic(logic).toMatchValues({ templateChanged: false })
+    })
+
+    describe('while a save is in flight', () => {
+        let finishSave: () => void
+        let confirmSpy: jest.SpyInstance
+
+        beforeEach(async () => {
+            const saveHeld = new Promise<void>((resolve) => {
+                finishSave = resolve
+            })
+            const content = { email: { subject: 'Hello' } }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        id: 'existing-id',
+                        name: 'Existing',
+                        content,
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                        await saveHeld
+                        return [200, { id: 'existing-id', name: 'Saved', content }]
+                    },
+                },
+            })
+            confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            router.actions.push(urls.workflowsLibraryTemplate('existing-id'))
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            logic.actions.setTemplateValue('name', 'Saved')
+            logic.actions.submitTemplate()
+            await expectLogic(logic).toDispatchActions(['saveTemplate'])
+        })
+
+        afterEach(() => {
+            confirmSpy.mockRestore()
+        })
+
+        it.each([
+            {
+                description: 'keeps edits typed during the save',
+                duringSave: () => logic.actions.setTemplateValue('name', 'Typed while saving'),
+                name: 'Typed while saving',
+                changed: true,
+            },
+            {
+                description: 'shows the saved copy after a discard during the save',
+                duringSave: () => logic.actions.resetTemplate(logic.values.originalTemplate),
+                name: 'Saved',
+                changed: false,
+            },
+        ])('keeps the editor on screen and $description', async ({ duringSave, name, changed }) => {
+            expect(logic.values.templateLoading).toBe(false)
+            duringSave()
+
+            finishSave()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ templateChanged: changed })
+            expect(logic.values.template.name).toBe(name)
+            expect(logic.values.originalTemplate.name).toBe('Saved')
+            expect(confirmSpy).not.toHaveBeenCalled()
+        })
     })
 
     describe('edited elsewhere', () => {

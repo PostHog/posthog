@@ -514,14 +514,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         saveTemplateSuccess: async ({ savedTemplate, payload: submittedTemplate }) => {
             lemonToast.success('Template saved')
             actions.setOriginalTemplate(savedTemplate)
+            const isNewTemplate = savedTemplate.id !== props.id
+            const editedWhileSaving = values.templateChanged && !objectsEqual(values.template, submittedTemplate)
             // A new template reloads at its own URL, so only an existing one keeps edits typed during the save.
-            const editedWhileSaving = props.id !== 'new' && !objectsEqual(values.template, submittedTemplate)
-            if (!editedWhileSaving) {
-                // Clear the unsaved-changes state before navigating so the beforeUnload guard
-                // does not intercept the post-save redirect.
+            if (isNewTemplate || !editedWhileSaving) {
                 actions.resetTemplate(savedTemplate)
             }
-            savedTemplate.id && router.actions.replace(urls.workflowsLibraryTemplate(savedTemplate.id))
+            if (isNewTemplate) {
+                // The reset above clears the unsaved-changes state, so the beforeUnload guard
+                // does not intercept this redirect.
+                router.actions.replace(urls.workflowsLibraryTemplate(savedTemplate.id))
+            }
             actions.replayDeferredExternalEdit()
         },
         loadMessageSuccess: async ({ message }) => {
