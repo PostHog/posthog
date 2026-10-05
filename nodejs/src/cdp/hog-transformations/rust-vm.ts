@@ -1,3 +1,5 @@
+import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
+
 import { logger } from '~/common/utils/logger'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
@@ -37,6 +39,23 @@ export function isUnsupportedByRustVm(error: string): boolean {
         error.includes(UNSUPPORTED_EXT_FN_ERROR) ||
         error.startsWith(UNKNOWN_FUNCTION_ERROR_PREFIX) ||
         error.startsWith(UNKNOWN_GLOBAL_ERROR_PREFIX)
+    )
+}
+
+/**
+ * True when the error is an `Unknown function <name>` call that the Node VM can't resolve either. A
+ * fallback would only rerun the program to the same failure, so the Rust error is the final result.
+ */
+export function isUnknownToNodeVm(error: string, nodeFunctions: Record<string, unknown>): boolean {
+    if (!error.startsWith(UNKNOWN_FUNCTION_ERROR_PREFIX)) {
+        return false
+    }
+    const name = error.slice(UNKNOWN_FUNCTION_ERROR_PREFIX.length)
+    return !(
+        Object.hasOwn(nodeFunctions, name) ||
+        Object.hasOwn(STL, name) ||
+        Object.hasOwn(BYTECODE_STL, name) ||
+        Object.hasOwn(ASYNC_STL, name)
     )
 }
 
