@@ -88,11 +88,10 @@ function hasRecovery(item) {
     return item.same_commit_recovery_run_count > 0
 }
 
-// A same-commit recovery proves a flake, so only suppress likely one-merge bursts
-// when the endpoint has no recovery proof.
+// A known Trunk flake can fail repeatedly on master without a recorded recovery.
 function isMasterBurst(item) {
     return (
-        !hasRecovery(item) &&
+        !item.knownFlake &&
         item.failed_run_count > 0 &&
         item.master_failed_run_count / item.failed_run_count >= 0.5 &&
         item.failed_pr_count <= 3
@@ -102,7 +101,7 @@ function isMasterBurst(item) {
 // A test with no file on master runs only on the branch that added it, so only that branch can fix
 // it. The span scan is branch-agnostic by design, so the checkout is what tells the two apart.
 function selectReportCandidates(items, runner, toRepoPaths) {
-    const qualifying = items.filter((item) => item.runner === runner && !isMasterBurst(item))
+    const qualifying = items.filter((item) => item.runner === runner)
     const onMaster = []
     const branchOnly = []
     for (const item of qualifying) {
@@ -237,7 +236,7 @@ function fetchTrunkQuarantine() {
 function trunkFixBy(quarantinedAt, ttlDays) {
     const startedAt = Date.parse(quarantinedAt)
     if (Number.isNaN(startedAt) || typeof ttlDays !== 'number' || !(ttlDays > 0)) {
-        return undefined
+        return null
     }
     return new Date(startedAt + ttlDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
@@ -402,7 +401,9 @@ async function buildRunnerReports(
             }
             // Without Trunk state a quarantine cannot be told from an unproven failure, so all stay.
             const knownFlakes = trunkFor ? facts.filter((item) => item.knownFlake) : facts
-            const ranked = rankByReportedCounts(knownFlakes.filter((item) => !item.expectedFailureOnly))
+            const ranked = rankByReportedCounts(
+                knownFlakes.filter((item) => !item.expectedFailureOnly && !isMasterBurst(item))
+            )
             const queue = collapseClusters(ranked.slice(0, CANDIDATE_POOL), masksCi)
             const extrasFor = await getEnrichment(runner, queue)
             return { runner, candidates: rankByReportedCounts(queue).slice(0, TOP_N), extrasFor }

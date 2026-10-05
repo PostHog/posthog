@@ -155,7 +155,7 @@ describe('weekly flaky report', () => {
 
         assert.deepEqual(
             selectReportCandidates(items, 'pytest', onMasterResolver).map((candidate) => candidate.selector),
-            ['test_proved.py::test_proved', 'test_pr_only.py::test_pr_only']
+            ['test_proved.py::test_proved', 'test_burst.py::test_burst', 'test_pr_only.py::test_pr_only']
         )
         assert.deepEqual(
             selectReportCandidates(items, 'jest', onMasterResolver).map((candidate) => candidate.selector),
@@ -240,15 +240,22 @@ describe('weekly flaky report', () => {
             failed_pr_count: 0,
             quarantined_failed_run_count: 2,
         }
-        const master = { ...common, selector: 'master.py::test_master', master_failed_run_count: 1 }
+        const master = {
+            ...common,
+            selector: 'master.py::test_master',
+            failed_pr_count: 1,
+            master_failed_run_count: 4,
+        }
+        const trunkedMaster = { ...master, selector: 'trunked_master.py::test_trunked_master' }
         const getEnrichment = async () => () => ({ evidence: [] })
         const candidatePools = await fetchCandidatePools(['pytest'], onMasterResolver, async () => ({
-            items: [...plainRegressions, trunked, confirmed, expectedFailure, master],
+            items: [...plainRegressions, trunked, confirmed, expectedFailure, master, trunkedMaster],
         }))
         const [{ candidates }] = await buildRunnerReports(
             candidatePools,
             getEnrichment,
-            async () => (item) => (item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null)
+            async () => (item) =>
+                item === trunked || item === trunkedMaster ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
         )
 
         assert.deepEqual(
@@ -256,12 +263,13 @@ describe('weekly flaky report', () => {
             [
                 [confirmed.selector, 6],
                 [trunked.selector, 6],
+                [trunkedMaster.selector, 6],
             ]
         )
         assert.ok(logs.mock.calls.some(({ arguments: [message] }) => message.includes(expectedFailure.selector)))
 
         const [{ candidates: candidatesWithoutTrunk }] = await buildRunnerReports(
-            [{ runner: 'pytest', candidates: [plainRegressions[0], expectedFailure] }],
+            [{ runner: 'pytest', candidates: [plainRegressions[0], expectedFailure, master] }],
             getEnrichment,
             async () => null
         )
@@ -492,8 +500,8 @@ describe('weekly flaky report', () => {
         const trunkRows = new Map([
             [trunked.selector, { quarantinedAt: '2026-07-13T17:12:22Z', overdue: false, fixBy: '2026-07-28' }],
             [overdue.selector, { quarantinedAt: '2026-06-20T08:00:00Z', overdue: true, fixBy: '2026-07-05' }],
-            [unlimited.selector, { quarantinedAt: '2026-07-13T17:12:22Z', overdue: false, fixBy: undefined }],
-            [undated.selector, { quarantinedAt: null, overdue: false, fixBy: undefined }],
+            [unlimited.selector, { quarantinedAt: '2026-07-13T17:12:22Z', overdue: false, fixBy: null }],
+            [undated.selector, { quarantinedAt: null, overdue: false, fixBy: null }],
         ])
         const trunkFor = (item) => trunkRows.get(item.selector) || null
 
@@ -622,7 +630,7 @@ describe('weekly flaky report', () => {
                 selector:
                     'frontend/src/lib/components/ActivityLog/activityLogLogic.person.test.tsx::the activity log logic humanizing persons can handle addition of a property',
             }),
-            { quarantinedAt: '2026-07-11T16:45:09.000Z', overdue: false, fixBy: undefined }
+            { quarantinedAt: '2026-07-11T16:45:09.000Z', overdue: false, fixBy: null }
         )
     })
 })
