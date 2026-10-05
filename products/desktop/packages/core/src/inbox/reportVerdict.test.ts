@@ -75,7 +75,7 @@ describe("deriveReportVerdict", () => {
     [
       { status: "ready", actionability: "not_actionable" },
       false,
-      "For your awareness",
+      "Not actionable after research",
       "info",
     ],
     [{ status: "ready" }, false, "Ready for review", "decision"],
@@ -96,5 +96,53 @@ describe("deriveReportVerdict", () => {
       hasExistingPr: true,
     });
     expect(verdict.title).toBe("Agent investigating");
+  });
+
+  it("carries the research reasoning on a report parked as not actionable", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "not_actionable" }),
+      {
+        hasExistingPr: false,
+        actionabilityExplanation: "  The rate limit is working as designed.  ",
+      },
+    );
+    expect(verdict.rationale).toBe("The rate limit is working as designed.");
+    expect(verdict.body).toContain("Read the reasoning");
+  });
+
+  it.each([undefined, null, "   "])(
+    "omits the rationale when research recorded %j",
+    (explanation) => {
+      const verdict = deriveReportVerdict(
+        report({ status: "ready", actionability: "not_actionable" }),
+        { hasExistingPr: false, actionabilityExplanation: explanation },
+      );
+      expect(verdict.rationale).toBeUndefined();
+      expect(verdict.body).toContain("Open Activity for the judgment");
+    },
+  );
+
+  it("keeps the research verdict over a running task that has no PR", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "not_actionable" }),
+      { hasExistingPr: false, hasLiveImplementationTask: true },
+    );
+    expect(verdict.title).toBe("Not actionable after research");
+  });
+
+  it("still leads with a real PR on a report research parked", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "not_actionable" }),
+      { hasExistingPr: true, hasLiveImplementationTask: true },
+    );
+    expect(verdict.title).toBe("Review the open PR");
+  });
+
+  it("names the task, not a PR, while an actionable report is being fixed", () => {
+    const verdict = deriveReportVerdict(
+      report({ status: "ready", actionability: "immediately_actionable" }),
+      { hasExistingPr: false, hasLiveImplementationTask: true },
+    );
+    expect(verdict.title).toBe("Implementation in progress");
   });
 });

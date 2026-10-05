@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   deriveReportImplementationState,
   needsImplementationDecision,
+  reportImplementationTone,
 } from "./reportImplementation";
 import { ReportImplementationService } from "./reportImplementationService";
 import { partitionInboxReports } from "./reportInboxSections";
@@ -480,6 +481,22 @@ describe("reportInboxSections", () => {
       );
       expect(state).toBe("no_pr");
       expect(needsImplementationDecision(state)).toBe(true);
+    },
+  );
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "reads the research verdict, not a %s run, on a report research parked",
+    (status) => {
+      const state = deriveReportImplementationState(
+        report({
+          actionability: "not_actionable",
+          assignee: { kind: "task", task_id: "implementation-1" },
+        }),
+        implementationTask(status),
+      );
+      expect(state).toBe("not_actionable");
+      expect(state && reportImplementationTone(state)).toBe("neutral");
+      expect(needsImplementationDecision(state)).toBe(false);
     },
   );
 });

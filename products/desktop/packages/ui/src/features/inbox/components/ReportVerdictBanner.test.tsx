@@ -561,7 +561,11 @@ describe("ReportVerdictBanner", () => {
     });
     render(
       <ReportVerdictBanner
-        report={{ ...report, assignee: { kind: "task", task_id: task.id } }}
+        report={{
+          ...report,
+          actionability: "immediately_actionable",
+          assignee: { kind: "task", task_id: task.id },
+        }}
         variant="triage-actions"
         surface="triage"
       />,
@@ -576,6 +580,7 @@ describe("ReportVerdictBanner", () => {
       <ReportVerdictBanner
         report={{
           ...report,
+          actionability: "immediately_actionable",
           assignee: { kind: "task", task_id: "implementation-gone" },
         }}
         variant="triage-actions"
@@ -602,5 +607,33 @@ describe("ReportVerdictBanner", () => {
     expect(updateInboxReportCaches).toHaveBeenCalledWith(expect.anything(), [
       expect.objectContaining({ status: "suppressed" }),
     ]);
+  });
+
+  it("leads a parked report with the research verdict and its reasoning", () => {
+    useInboxReportArtefacts.mockReturnValue({
+      data: {
+        count: 1,
+        results: [
+          {
+            id: "actionability-1",
+            type: "actionability_judgment",
+            created_at: "2026-08-26T00:00:00.000Z",
+            content: {
+              actionability: "not_actionable",
+              already_addressed: false,
+              explanation: "The rate limit is working as designed.",
+            },
+          },
+        ],
+      },
+      isLoading: false,
+    });
+    render(<ReportVerdictBanner report={report} />);
+    expect(
+      screen.getByText("Not actionable after research"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("The rate limit is working as designed."),
+    ).toBeInTheDocument();
   });
 });

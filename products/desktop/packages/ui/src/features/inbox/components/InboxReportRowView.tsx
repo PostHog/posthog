@@ -3,10 +3,7 @@ import {
   GitMergeIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
-import {
-  REPORT_IMPLEMENTATION_LABELS,
-  type ReportImplementationState,
-} from "@posthog/core/inbox/reportImplementation";
+import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import {
   deriveHeadline,
   humanizeReportTitle,
@@ -17,6 +14,7 @@ import { dismissalReasonLabel } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { ReportImplementationStatus } from "@posthog/ui/features/inbox/components/ReportImplementationStatus";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import type { HTMLAttributes, ReactNode } from "react";
@@ -96,15 +94,7 @@ export function InboxReportRowView({
           </span>
         )}
         {implementationState && (
-          <span
-            className={`flex items-center gap-1.5 text-[12px] ${implementationState === "working" ? "text-blue-11" : "text-amber-11"}`}
-          >
-            <span
-              aria-hidden="true"
-              className="size-1.5 rounded-full bg-current"
-            />
-            {REPORT_IMPLEMENTATION_LABELS[implementationState]}
-          </span>
+          <ReportImplementationStatus state={implementationState} />
         )}
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[12.5px] text-gray-10">
           {pr && (

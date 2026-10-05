@@ -105,4 +105,10 @@ export const inboxStoryImplementations = [
     summary:
       "The player does not show when its buffer is empty. The task finished its investigation but did not create a PR.",
   }),
+  inboxStoryImplementation("parked", "completed", {
+    title: "chore(surveys): review the response export limit",
+    summary:
+      "The export limit is documented and matches the plan, so research judged the report not actionable after the task had already started.",
+    actionability: "not_actionable",
+  }),
 ];
