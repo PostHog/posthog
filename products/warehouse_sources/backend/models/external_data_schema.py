@@ -1672,6 +1672,46 @@ def finalize_repartition_scheme(
     return wrote
 
 
+def stage_partition_scheme_for_full_refresh(
+    schema: ExternalDataSchema,
+    *,
+    partitioning_keys: list[str],
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+) -> None:
+    """Pin a new partition scheme for the next full refresh to write, and retire the repartition markers.
+
+    A full-refresh sync deletes the table and writes it again, so it can lay out the new scheme with
+    no rewrite at all. The scheme goes in as the `*_override` keys because the reset at the start of
+    that sync removes the plain partition settings, and the overrides are the keys it keeps for the
+    sync to consume (see `update_sync_type_config_for_reset_pipeline` and `set_partitioning_enabled`).
+    `partition_format` survives the reset on its own.
+    """
+    overrides: dict[str, Any] = {
+        "partitioning_keys_override": partitioning_keys or None,
+        "partition_count_override": partition_count,
+        "partition_size_override": partition_size,
+        "partition_mode_override": partition_mode,
+    }
+
+    def _write(config: dict[str, Any]) -> None:
+        for key, value in overrides.items():
+            if value is None:
+                config.pop(key, None)
+            else:
+                config[key] = value
+        if partition_format is not None:
+            config["partition_format"] = partition_format
+        # The cooldown stops detection from flagging the old layout again before the sync rewrites it.
+        config["last_repartition_at"] = timezone.now().isoformat()
+        for key in ("repartition_swap", "repartition_pending", "repartition_rewrite"):
+            config.pop(key, None)
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+
+
 def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
     """Paint a schema Running at the start of a run, unless a CDC halt marker holds.
 

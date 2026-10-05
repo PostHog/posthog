@@ -2674,6 +2674,43 @@ class TestClaimFencing:
         assert swap.await_args.kwargs["temp_uri"] == "s3://bucket/live__repartitioned"
 
 
+class TestDeferToFullRefresh:
+    @pytest.mark.parametrize(
+        "purge_error",
+        [pytest.param(None, id="temp_swept"), pytest.param(OSError("throttled"), id="sweep_fails")],
+    )
+    def test_stages_the_target_and_sweeps_left_over_temps(self, purge_error):
+        # No later rewrite of a full-refresh table sweeps temps, so this is the only chance. A failed
+        # sweep costs storage, not correctness, so the scheme is staged either way.
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="month"
+        )
+        schema = _schema(id="s1")
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(
+                repartition_module, "_purge_stale_temp_tables", new=AsyncMock(side_effect=purge_error)
+            ) as purge,
+            patch.object(repartition_module, "stage_partition_scheme_for_full_refresh") as stage,
+        ):
+            result = asyncio.run(
+                repartition_module.defer_repartition_to_full_refresh(
+                    table_ref=_make_table_ref(), schema=schema, target=target, logger=logger
+                )
+            )
+
+        purge.assert_awaited_once()
+        stage.assert_called_once()
+        assert stage.call_args.kwargs == {
+            "partitioning_keys": ["created_at"],
+            "partition_count": None,
+            "partition_size": None,
+            "partition_mode": "datetime",
+            "partition_format": "month",
+        }
+        assert result["outcome"] == "deferred"
+
+
 @pytest.mark.parametrize(
     "data",
     [

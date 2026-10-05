@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionTarget,
     RepartitionTooLargeForBudgetError,
     RepartitionUnpartitionableError,
+    defer_repartition_to_full_refresh,
     repartition_table_in_place,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -376,6 +377,11 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     )
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
 
+    # Never while a swap is staged: live may already be deleted, and temp is then the only intact copy.
+    if swap is None and schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+        _defer_to_full_refresh(inputs, schema, table_ref, target, trigger_reason, logger)
+        return
+
     # `_handle_failure` also gives up at the cap, but only for an attempt that survives to run it.
     # A rewrite whose worker is OOM-killed never reaches it, so the count has to be read here too.
     # Never while a swap is staged: an interrupted swap may already have deleted live, leaving temp
@@ -633,6 +639,43 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         outcome=outcome,
         duration_seconds=duration,
     )
+
+
+def _defer_to_full_refresh(
+    inputs: RepartitionActivityInputs,
+    schema: ExternalDataSchema,
+    table_ref: DeltaTableRef,
+    target: RepartitionTarget,
+    trigger_reason: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Hand the new scheme to the full refresh that runs next, instead of rewriting the table.
+
+    The fresh claim fences out a rewrite attempt that may still run as a zombie. Without it, that
+    attempt could finish its swap after the full refresh and put its stale copy back over live.
+    """
+    try:
+        schema.set_repartition_claim(
+            {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+        )
+        result = async_to_sync(defer_repartition_to_full_refresh)(
+            table_ref=table_ref, schema=schema, target=target, logger=logger
+        )
+    except Exception as e:
+        # Like a failed rewrite, this must not block the sync: the table keeps its layout and the
+        # next run tries again.
+        transient = _is_transient_infra_error(e)
+        if not transient:
+            capture_exception(e)
+        logger.warning("repartition: could not stage the scheme for the next full refresh", exc_info=True)
+        DELTA_REPARTITION_TOTAL.labels(
+            team_id=str(inputs.team_id), outcome="transient" if transient else "failed"
+        ).inc()
+        return
+    DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="deferred").inc()
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update({"trigger_reason": trigger_reason, **result})
+    capture_repartition_event("warehouse_repartition_skipped", props)
 
 
 def _capture_stood_down(

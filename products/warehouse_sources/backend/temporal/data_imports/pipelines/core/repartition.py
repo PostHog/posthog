@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     finalize_repartition_scheme,
     save_repartition_checkpoint_if_claimed,
+    stage_partition_scheme_for_full_refresh,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
@@ -1186,6 +1187,46 @@ def _restart_would_run_out_of_budget(checkpoint: dict[str, Any], live_rows: int)
         return False
     covered = int(checkpoint.get("rows_written") or 0)
     return 0 < covered < live_rows
+
+
+async def defer_repartition_to_full_refresh(
+    table_ref: DeltaTableRef,
+    schema: ExternalDataSchema,
+    target: RepartitionTarget,
+    logger: FilteringBoundLogger,
+) -> dict[str, Any]:
+    """Apply `target` through the next full refresh instead of rewriting the table.
+
+    A full-refresh sync deletes the table and writes every row again, so a rewrite only copies data
+    the next sync throws away. Its live version also moves on every sync. The scheme is staged for
+    that sync to write (see `stage_partition_scheme_for_full_refresh`), and any temp table an earlier
+    rewrite left behind is swept, because no later rewrite of this table will sweep it.
+    """
+    try:
+        live_uri = await table_ref.get_table_uri()
+        async with aget_s3_client(fresh_instance=True) as s3:
+            await _purge_stale_temp_tables(s3, live_uri)
+    except Exception:
+        await logger.awarning("repartition: could not sweep stale temp tables", exc_info=True)
+
+    def _write() -> None:
+        stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=target.partition_keys,
+            partition_count=target.partition_count,
+            partition_size=target.partition_size,
+            partition_mode=target.partition_mode,
+            partition_format=target.partition_format,
+        )
+
+    await asyncio.to_thread(retry_on_db_connection_drop, _write)
+    await logger.ainfo(
+        f"repartition: full-refresh table, staged scheme={_format_scheme(target)} for the next sync to write "
+        f"schema_id={schema.id}",
+        scheme=_format_scheme(target),
+        schema_id=str(schema.id),
+    )
+    return {"outcome": "deferred", "reason": "full_refresh_rewrites_the_table"}
 
 
 async def repartition_table_in_place(
