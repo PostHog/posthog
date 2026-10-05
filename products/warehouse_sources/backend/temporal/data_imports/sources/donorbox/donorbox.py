@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from requests import HTTPError
 
@@ -14,6 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    PaginatorConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -89,25 +93,24 @@ def donorbox_source(
     if date_from is not None:
         params["date_from"] = date_from
 
+    resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {"path": path, "params": params, "data_selector_required": True},
+        "columns": {
+            field["field"]: {
+                "data_type": "date" if field["field"] == "started_at" else "timestamp",
+            }
+            for field in INCREMENTAL_FIELDS.get(endpoint, [])
+        },
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{API_BASE_URL}{api_version}/",
             "auth": {"type": "http_basic", "username": config.email, "password": config.api_key},
-            "paginator": {"type": "page_number", "base_page": 1},
+            "paginator": cast(PaginatorConfig, {"type": "page_number", "base_page": 1}),
             "request_timeout": 30,
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {"path": path, "params": params, "data_selector_required": True},
-                "columns": {
-                    field["field"]: {
-                        "data_type": "date" if field["field"] == "started_at" else "timestamp",
-                    }
-                    for field in INCREMENTAL_FIELDS.get(endpoint, [])
-                },
-            }
-        ],
+        "resources": [resource],
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:

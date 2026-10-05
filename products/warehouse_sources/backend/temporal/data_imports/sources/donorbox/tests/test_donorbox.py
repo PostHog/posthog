@@ -44,7 +44,7 @@ def http_send() -> Iterator[MagicMock]:
                 return_value=session,
             ),
             patch.object(session, "send") as send,
-            patch.object(RESTClient._send_request.retry, "sleep"),
+            patch.object(cast(Any, RESTClient._send_request).retry, "sleep"),
         ):
             yield send
 
