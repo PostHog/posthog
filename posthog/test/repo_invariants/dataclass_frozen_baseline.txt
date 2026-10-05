@@ -1398,7 +1398,6 @@
 2 products/batch_exports/backend/temporal/destinations/s3_batch_export.py
 2 products/batch_exports/backend/temporal/pipeline/types.py
 2 products/batch_exports/backend/tests/temporal/pipeline/test_entrypoint.py
-2 products/cohorts/backend/parity/classifier.py
 2 products/cohorts/backend/parity/eligibility.py
 2 products/data_modeling/backend/logic/freshness.py
 2 products/demo/backend/logic/matrix/models.py
