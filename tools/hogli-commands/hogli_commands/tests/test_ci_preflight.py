@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -9,9 +10,57 @@ from click.testing import CliRunner
 from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 from hogli_commands.change_detection import matches_globs
-from hogli_commands.ci_preflight import DIFF_CHECKS, _pnpm_workspace_root, _run_workspace_scoped, _staleness_risks
+from hogli_commands.ci_preflight import (
+    DIFF_CHECKS,
+    DiffCheck,
+    _pnpm_workspace_root,
+    _run_workspace_scoped,
+    _staleness_risks,
+)
+from hogli_commands.preflight_checks import Scope, Status
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def no_diff_reading_checks() -> Iterator[None]:
+    # The real ones shell out to node and semgrep on any changed path.
+    with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]):
+        yield
+
+
+class TestDiffReadingChecks:
+    @pytest.mark.parametrize(
+        "status,warn_only,expected_exit",
+        [("fail", False, 1), ("advisory", False, 0), (None, False, 0), ("warning", True, 0)],
+    )
+    @patch("hogli_commands.ci_preflight._merge_base", return_value="abc123")
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["frontend/snapshots.yml"])
+    def test_only_a_failed_check_blocks_the_push_and_a_warn_only_check_is_skipped(
+        self,
+        mock_changed: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+        mock_merge_base: MagicMock,
+        status: Status | None,
+        warn_only: bool,
+        expected_exit: int,
+    ) -> None:
+        def run(scope: Scope) -> tuple[Status, str]:
+            if status is None:
+                raise KeyError("unexpected tool output")
+            return status, "detail"
+
+        check = DiffCheck(key="probe", label="probe", triggers=["frontend/*"], verify=None, run=run, soft=warn_only)
+        with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [check]):
+            result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        assert result.exit_code == expected_exit
+        assert ("[probe]" in result.output) != warn_only
 
 
 class TestKillSwitch:

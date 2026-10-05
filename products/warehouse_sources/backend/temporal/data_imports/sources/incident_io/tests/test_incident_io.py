@@ -5,6 +5,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import time_machine
 from unittest import mock
 
 from requests import Response
@@ -234,6 +235,19 @@ class TestValidateCredentials:
                 ],
                 True,
             ),
+            # Schedule entries take no page-size param, so the child probe sends only the parent id.
+            (
+                "schedule_entries",
+                "schedules",
+                [{"id": "S1"}],
+                200,
+                [
+                    "https://api.incident.io/v2/schedules?page_size=1",
+                    "https://api.incident.io/v2/schedules",
+                    "https://api.incident.io/v2/schedule_entries?schedule_id=S1",
+                ],
+                True,
+            ),
             # No parent row to bind, so the child scope can't be probed and the parent probe decides.
             (
                 "catalog_entries",
@@ -372,6 +386,16 @@ class TestGetRows:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_alert_sources_drop_secret_token(self, MockSession):
+        session = MockSession.return_value
+        body = {"alert_sources": [{"id": "01A", "name": "Datadog", "secret_token": "not-a-real-token"}]}
+        rows, _ = _source(session, [_response(body)], "alert_sources", _make_manager())
+
+        assert rows == [{"id": "01A", "name": "Datadog"}]
+        # The raw body still carries the token, so it must never reach HTTP sample capture.
+        assert MockSession.call_args.kwargs["capture"] is False
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_response_yields_no_rows(self, MockSession):
         session = MockSession.return_value
         manager = _make_manager()
@@ -435,14 +459,23 @@ class TestGetRows:
 
 class TestFanout:
     @pytest.mark.parametrize(
-        "endpoint, parent_key, child_path, parent_id_param",
+        "endpoint, parent_key, child_path, parent_id_param, parent_params",
         [
-            ("catalog_entries", "catalog_types", "/v3/catalog_entries", "catalog_type_id"),
-            ("custom_field_options", "custom_fields", "/v1/custom_field_options", "custom_field_id"),
+            ("catalog_entries", "catalog_types", "/v3/catalog_entries", "catalog_type_id", {}),
+            ("custom_field_options", "custom_fields", "/v1/custom_field_options", "custom_field_id", {}),
+            (
+                "status_page_incidents",
+                "status_pages",
+                "/v2/status_page_incidents",
+                "status_page_id",
+                {"page_size": 250},
+            ),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fetches_child_pages_per_parent(self, MockSession, endpoint, parent_key, child_path, parent_id_param):
+    def test_fetches_child_pages_per_parent(
+        self, MockSession, endpoint, parent_key, child_path, parent_id_param, parent_params
+    ):
         session = MockSession.return_value
         manager = _make_manager()
         urls: list[str] = []
@@ -461,13 +494,90 @@ class TestFanout:
         rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
         assert [(r["id"], r[parent_id_param]) for r in rows] == [("C1", "P1"), ("C2", "P1"), ("C3", "P2")]
-        # The unpaginated parent list takes no params; each child request is bound to its parent.
-        assert params[0] == {}
+        assert params[0] == parent_params
         assert [urlsplit(url).path for url in urls[1:]] == [child_path] * 3
         assert [parse_qs(urlsplit(url).query)[parent_id_param] for url in urls[1:]] == [["P1"], ["P1"], ["P2"]]
         assert [p.get("page_size") for p in params[1:]] == [250, 250, 250]
         assert [p.get("after") for p in params[1:]] == [None, "C1", None]
         assert manager.save_state.call_args.args[0].fanout_state is not None
+
+    @time_machine.travel(datetime(2026, 3, 1, 12, 0, tzinfo=UTC), tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_schedule_entries_page_through_window_per_schedule(self, MockSession):
+        session = MockSession.return_value
+        urls: list[str] = []
+
+        def _entries_body(final: list[dict[str, Any]], after: str | None) -> dict[str, Any]:
+            body: dict[str, Any] = {
+                "schedule_entries": {"final": final, "scheduled": [{"fingerprint": "raw"}], "overrides": []}
+            }
+            if after is not None:
+                body["pagination_meta"] = {"after": after, "after_url": "https://api.incident.io/next"}
+            return body
+
+        manager = _make_manager()
+        params = _wire(
+            session,
+            [
+                _response({"schedules": [{"id": "S1"}, {"id": "S2"}], "pagination_meta": {"page_size": 250}}),
+                _response(_entries_body([{"fingerprint": "F1", "start_at": "2026-01-01T00:00:00Z"}], "opaque-1")),
+                _response(_entries_body([{"fingerprint": "F2", "start_at": "2026-01-08T00:00:00Z"}], None)),
+                _response(_entries_body([{"fingerprint": "F3", "start_at": "2026-01-02T00:00:00Z"}], None)),
+            ],
+            urls,
+        )
+
+        response = incident_io_source(
+            "key", "schedule_entries", team_id=1, job_id="j", resumable_source_manager=manager
+        )
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
+
+        assert [(r["schedule_id"], r["fingerprint"]) for r in rows] == [("S1", "F1"), ("S1", "F2"), ("S2", "F3")]
+        assert params[0] == {"page_size": 250}
+        assert [parse_qs(urlsplit(url).query)["schedule_id"] for url in urls[1:]] == [["S1"], ["S1"], ["S2"]]
+        # The cursor replaces the window start; the window end stays fixed across pages.
+        assert [p.get("entry_window_start") for p in params[1:]] == [
+            "2025-03-01T12:00:00Z",
+            "opaque-1",
+            "2025-03-01T12:00:00Z",
+        ]
+        assert {p.get("entry_window_end") for p in params[1:]} == {"2026-03-31T12:00:00Z"}
+        assert all("page_size" not in p for p in params[1:])
+        assert manager.save_state.call_args.args[0].window_params == {
+            "entry_window_start": "2025-03-01T12:00:00Z",
+            "entry_window_end": "2026-03-31T12:00:00Z",
+        }
+
+    @time_machine.travel(datetime(2026, 3, 2, 12, 0, tzinfo=UTC), tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_schedule_entries_resume_keeps_original_window(self, MockSession):
+        session = MockSession.return_value
+        window = {"entry_window_start": "2025-03-01T12:00:00Z", "entry_window_end": "2026-03-31T12:00:00Z"}
+        manager = _make_manager(
+            IncidentIoResumeConfig(
+                fanout_state={
+                    "completed": [],
+                    "current": "/v2/schedule_entries?schedule_id=S1",
+                    "child_state": {"cursor": "opaque-1"},
+                },
+                window_params=window,
+            )
+        )
+        params = _wire(
+            session,
+            [
+                _response({"schedules": [{"id": "S1"}], "pagination_meta": {"page_size": 250}}),
+                _response({"schedule_entries": {"final": [{"fingerprint": "F1"}]}}),
+            ],
+        )
+
+        response = incident_io_source(
+            "key", "schedule_entries", team_id=1, job_id="j", resumable_source_manager=manager
+        )
+        list(cast("Iterable[Any]", response.items()))
+
+        assert params[1]["entry_window_start"] == "opaque-1"
+        assert params[1]["entry_window_end"] == "2026-03-31T12:00:00Z"
 
 
 class TestIncidentIoSourceResponse:
@@ -490,7 +600,7 @@ class TestIncidentIoSourceResponse:
     @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:
-            assert config.partition_key == "created_at"
+            assert config.partition_key in {"created_at", "start_at", "published_at"}
 
     @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
     def test_endpoint_paths_are_versioned(self, config):
