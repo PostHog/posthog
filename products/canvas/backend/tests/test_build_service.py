@@ -52,9 +52,12 @@ class BuildServiceBaseTest(APIBaseTest):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
             patcher.start()
             self.addCleanup(patcher.stop)
-        enqueue = patch("products.canvas.backend.tasks.process_canvas_build.delay")
+        enqueue = patch("products.canvas.backend.temporal.client.execute_canvas_build_workflow")
         self.enqueue = enqueue.start()
         self.addCleanup(enqueue.stop)
+        celery_enqueue = patch("products.canvas.backend.tasks.process_canvas_build.delay")
+        self.celery_enqueue = celery_enqueue.start()
+        self.addCleanup(celery_enqueue.stop)
         with team_scope(self.team.id):
             self.channel = Channel.objects.create(team=self.team, name="general")
             self.canvas = Canvas.objects.create(team=self.team, channel=self.channel, name="C")
@@ -373,35 +376,17 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
 
 
 class TestBuildDispatch(BuildServiceBaseTest):
-    def test_flagged_in_team_dispatches_to_temporal_instead_of_celery(self) -> None:
-        with (
-            patch.object(build_service.posthoganalytics, "feature_enabled", return_value=True),
-            patch("products.canvas.backend.temporal.client.execute_canvas_build_workflow") as start_workflow,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            build = self._publish()
-        start_workflow.assert_called_once_with(self.team.id, str(build.id))
-        self.enqueue.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("flag_check_fails", RuntimeError("flag service down"), None),
-            ("workflow_start_fails", True, RuntimeError("temporal down")),
-        ]
-    )
-    def test_temporal_failure_falls_back_to_celery(
-        self, _name: str, flag_result: bool | Exception, workflow_error: Exception | None
-    ) -> None:
-        with (
-            patch.object(build_service.posthoganalytics, "feature_enabled", side_effect=[flag_result]),
-            patch(
-                "products.canvas.backend.temporal.client.execute_canvas_build_workflow",
-                side_effect=workflow_error,
-            ),
-            self.captureOnCommitCallbacks(execute=True),
-        ):
+    def test_build_dispatches_to_temporal_instead_of_celery(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
             build = self._publish()
         self.enqueue.assert_called_once_with(self.team.id, str(build.id))
+        self.celery_enqueue.assert_not_called()
+
+    def test_temporal_failure_falls_back_to_celery(self) -> None:
+        self.enqueue.side_effect = RuntimeError("temporal down")
+        with self.captureOnCommitCallbacks(execute=True):
+            build = self._publish()
+        self.celery_enqueue.assert_called_once_with(self.team.id, str(build.id))
 
 
 class TestSweeper(BuildServiceBaseTest):
