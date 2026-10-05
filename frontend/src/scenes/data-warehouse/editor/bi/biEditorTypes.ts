@@ -992,13 +992,24 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
     const dimensions = [...rowDimensions, ...columnDimensions]
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const hasSeriesBreakdown =
+        dimensions.length === 2 &&
+        [
+            ChartDisplayType.Auto,
+            ChartDisplayType.ActionsBar,
+            ChartDisplayType.ActionsStackedBar,
+            ChartDisplayType.ActionsLineGraph,
+            ChartDisplayType.ActionsAreaGraph,
+        ].includes(config.chartType)
     const pivotRowAxis = isPivotTable ? pivotAxis('row', rowDimensions) : null
     const pivotColumnAxis = isPivotTable ? pivotAxis('column', columnDimensions) : null
     const dimensionSelectExpressions = isPivotTable
         ? [pivotRowAxis, pivotColumnAxis]
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
-        : dimensionExpressions
+        : dimensions.map(({ field, alias }) =>
+              hasSeriesBreakdown ? `${fieldExpression(field)} AS ${alias}` : fieldExpression(field)
+          )
     const valueExpressions =
         configuredValues.length > 0
             ? configuredValues.map(
@@ -1036,6 +1047,23 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
 
     const query = queryParts.join('\n')
 
+    const chartDimensions = [...columnDimensions, ...rowDimensions]
+    const xDimension = chartDimensions.find(({ field }) => isDateTimeBIField(field)) ?? chartDimensions[0]
+    const breakdownDimension = chartDimensions.find((dimension) => dimension !== xDimension)
+    const seriesSettings =
+        hasSeriesBreakdown && xDimension && breakdownDimension
+            ? {
+                  xAxis: { column: xDimension.alias },
+                  xAxisLabel: getBIFieldPillLabel(xDimension.field),
+                  yAxis:
+                      configuredValues.length > 0
+                          ? configuredValues.map(({ alias }) => ({ column: alias }))
+                          : [{ column: 'count' }],
+                  seriesBreakdownColumn: breakdownDimension.alias,
+                  showLegend: true,
+              }
+            : undefined
+
     const pivotTableSettings = isPivotTable
         ? {
               heatmap: {
@@ -1058,7 +1086,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 connectionId: config.source.connectionId,
             },
             display: config.chartType,
-            ...(pivotTableSettings ? { chartSettings: pivotTableSettings } : {}),
+            ...(pivotTableSettings || seriesSettings ? { chartSettings: pivotTableSettings ?? seriesSettings } : {}),
         },
     }
 }

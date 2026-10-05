@@ -240,6 +240,54 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain('count(*) AS count')
     })
 
+    it.each([
+        { chartType: ChartDisplayType.ActionsBar, rows: [], columns: [timestampField, browserField], values: [] },
+        { chartType: ChartDisplayType.ActionsStackedBar, rows: [browserField], columns: [timestampField], values: [] },
+        { chartType: ChartDisplayType.ActionsLineGraph, rows: [timestampField, browserField], columns: [], values: [] },
+        { chartType: ChartDisplayType.ActionsAreaGraph, rows: [timestampField], columns: [browserField], values: [] },
+        {
+            chartType: ChartDisplayType.Auto,
+            rows: [browserField],
+            columns: [timestampField],
+            values: [{ field: revenueField, aggregation: 'sum' as const }],
+        },
+    ])('maps two dimensions to an axis and a breakdown for $chartType', ({ chartType, rows, columns, values }) => {
+        const result = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source: { table: 'events' },
+            chartType,
+            rows: rows.map((field) => (field === timestampField ? { ...field, dateBucket: 'day' } : field)),
+            columns: columns.map((field) => (field === timestampField ? { ...field, dateBucket: 'day' } : field)),
+            values,
+        })!
+
+        const settings = result.node.chartSettings!
+        expect(result.query).toContain(`toStartOfDay(timestamp) AS ${settings.xAxis!.column}`)
+        expect(result.query).toContain(`properties.$browser AS ${settings.seriesBreakdownColumn}`)
+        expect(settings.xAxis!.column).not.toBe(settings.seriesBreakdownColumn)
+        expect(settings.yAxis).toEqual([{ column: values.length ? 'sum_revenue' : 'count' }])
+        expect(result.node.display).toBe(chartType)
+    })
+
+    it('keeps a numeric column dimension on the x-axis instead of treating it as a measure', () => {
+        const result = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsStackedBar,
+            rows: [browserField],
+            columns: [revenueField],
+        })!
+
+        expect(result.node.chartSettings).toEqual({
+            xAxis: { column: 'bi_column_revenue' },
+            xAxisLabel: 'revenue',
+            yAxis: [{ column: 'count' }],
+            seriesBreakdownColumn: 'bi_row_browser',
+            showLegend: true,
+        })
+        expect(result.query).toContain('properties.revenue AS bi_column_revenue')
+    })
+
     it.each([100, 1000, 10000, 50000] as const)(
         'maps every BI row and column dimension to pivot table axes with limit %i',
         (limit) => {

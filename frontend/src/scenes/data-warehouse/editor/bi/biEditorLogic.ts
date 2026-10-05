@@ -964,20 +964,27 @@ export const biEditorLogic = kea<biEditorLogicType>([
             const editorLogic = sqlEditorLogic({ tabId: logicProps.tabId })
             const sourceQuery = editorLogic.values.sourceQuery
             const generatedChartSettings = values.generatedQuery.node.chartSettings
+            const chartSettings = { ...sourceQuery.chartSettings }
+            if (chartSettings.seriesBreakdownColumn?.startsWith('bi_')) {
+                delete chartSettings.xAxis
+                delete chartSettings.xAxisLabel
+                delete chartSettings.yAxis
+                delete chartSettings.seriesBreakdownColumn
+            }
             editorLogic.actions.setQueryInput(values.generatedQuery.query)
             editorLogic.actions.setSourceQuery({
                 ...sourceQuery,
                 ...values.generatedQuery.node,
                 chartSettings: generatedChartSettings
                     ? {
-                          ...sourceQuery.chartSettings,
+                          ...chartSettings,
                           ...generatedChartSettings,
                           heatmap: {
                               ...sourceQuery.chartSettings?.heatmap,
                               ...generatedChartSettings.heatmap,
                           },
                       }
-                    : sourceQuery.chartSettings,
+                    : chartSettings,
                 source: {
                     ...sourceQuery.source,
                     ...values.generatedQuery.node.source,
