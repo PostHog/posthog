@@ -825,7 +825,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def _validate_experiment_scanner(self, attrs: dict[str, Any]) -> None:
         """The experiment-type checks that need a viewer or the experiments product, which the
         pydantic config validation has no access to: experiment access, and a resolvable exposed
-        population (launched, person-aggregated, variants exist)."""
+        population (launched, person-aggregated, variants exist). A draft experiment passes only
+        for a scanner saved off with `start_on_launch`, which `experiment_launch` turns on."""
         scanner_type = attrs.get("scanner_type", getattr(self.instance, "scanner_type", None))
         if scanner_type != ScannerType.EXPERIMENT:
             return
@@ -833,12 +834,34 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             raise serializers.ValidationError(
                 {"experiment_targeting": "An experiment scanner keeps its experiment in scanner_config."}
             )
-        if "scanner_config" not in attrs and "scanner_type" not in attrs:
-            return
+        # Deferred: the experiments replay facade pulls in the recordings query modules, which
+        # circle back into this package's importers.
+        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+            experiment_status,
+            resolve_exposure_linkage,
+            validate_draft_experiment_scope,
+        )
+
+        team = self.context["get_team"]()
         config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None)) or {}
+        enabled = attrs.get("enabled", self.instance.enabled if self.instance is not None else True)
         if self.instance is not None and config_experiment_scope(config) == self.instance.experiment_scope():
             # Unchanged scope (the restore already required experiment access on updates): the
-            # experiment's launch state was checked when the scope was written.
+            # linkage was checked when the scope was written. Only the launch can have moved since.
+            experiment_id = config.get("experiment_id")
+            turning_on = enabled and not self.instance.enabled
+            writes_marker = "start_on_launch" in config and "scanner_config" in attrs
+            if isinstance(experiment_id, int) and (turning_on or writes_marker):
+                status = experiment_status(team, experiment_id=experiment_id)
+                if turning_on and status is not None and status.start_date is None:
+                    raise serializers.ValidationError(
+                        {"enabled": "This experiment hasn't launched. Turn the scanner on after launch."}
+                    )
+                launched = status is not None and status.start_date is not None
+                if "start_on_launch" in config and (turning_on or (writes_marker and launched)):
+                    # A stale form can send the marker back after the launch consumed it, and the
+                    # reconciler's launch catch-up would then turn the scanner on.
+                    attrs["scanner_config"] = {k: v for k, v in config.items() if k != "start_on_launch"}
             return
         experiment_id = config.get("experiment_id")
         if not isinstance(experiment_id, int):
@@ -848,16 +871,21 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # validate_experiment_targeting: a denied or cross-team id reads as not-found.
         if not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
             raise serializers.ValidationError({"scanner_config": "Experiment not found in this project."})
-        # Deferred: the experiments replay facade pulls in the recordings query modules, which
-        # circle back into this package's importers.
-        from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
-
+        status = experiment_status(team, experiment_id=experiment_id)
+        waits_for_launch = (
+            status is not None and status.start_date is None and not enabled and config.get("start_on_launch") is True
+        )
         try:
-            resolve_exposure_linkage(
-                self.context["get_team"](), experiment_id=experiment_id, variants=config.get("variants")
-            )
+            if waits_for_launch:
+                validate_draft_experiment_scope(team, experiment_id=experiment_id, variants=config.get("variants"))
+            else:
+                resolve_exposure_linkage(team, experiment_id=experiment_id, variants=config.get("variants"))
         except serializers.ValidationError as exc:
             raise serializers.ValidationError({"scanner_config": exc.detail}) from exc
+        if not waits_for_launch and "start_on_launch" in config and "scanner_config" in attrs:
+            # Only a draft has a launch to wait for. A stale key would turn the scanner on at a
+            # later relaunch.
+            attrs["scanner_config"] = {k: v for k, v in config.items() if k != "start_on_launch"}
 
     def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         # The field already validated the blob's shape; this adds the access check, which needs the
