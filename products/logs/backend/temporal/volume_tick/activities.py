@@ -16,7 +16,6 @@ from products.logs.backend.temporal.volume_tick.aggregation import RollupPreview
 from products.logs.backend.temporal.volume_tick.constants import (
     BUCKET_MINUTES,
     BUCKET_SECONDS,
-    FINALIZATION_ALLOWANCE,
     TEAM_ALLOWLIST,
     TEAMS_WITH_LOGS_WINDOW,
 )
@@ -27,6 +26,7 @@ from products.logs.backend.temporal.volume_tick.metrics import (
     record_rollup_preview,
     record_teams_with_logs,
 )
+from products.logs.backend.volume_rollup import FINALIZATION_ALLOWANCE
 
 logger = structlog.get_logger(__name__)
 

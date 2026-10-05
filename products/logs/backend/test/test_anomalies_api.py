@@ -33,12 +33,13 @@ def _scan_result(**overrides) -> ScanResult:
         "service_name": "svc",
         "eval_start": T0,
         "eval_end": T0 + dt.timedelta(hours=1),
-        "lookback_buckets": 6 * 7 * 288,
-        "eval_clipped": False,
-        "degraded": False,
+        "lookback_buckets": 5 * 7 * 288,
         "binding_constraints": [],
+        "series_truncated": False,
         "series": [
             ScanSeries(
+                namespace="checkout",
+                environment="prod",
                 severity="info",
                 stage=BaselineStage.MATURE,
                 tier=TrafficTier.B,
@@ -59,6 +60,8 @@ def _scan_result(**overrides) -> ScanResult:
         ],
         "issues": [
             ScanIssue(
+                namespace="checkout",
+                environment="prod",
                 direction=Direction.UP,
                 severity="info",
                 kind=VerdictType.SPIKE,
@@ -147,9 +150,15 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         self.addCleanup(self._ff_patcher.stop)
 
     def _payload(self) -> dict:
+        # Relative to now: the window must sit inside the volume rollup's
+        # retention, which ClickHouse enforces against the real clock.
+        date_to = dt.datetime.now(UTC) - dt.timedelta(hours=1)
         return {
             "serviceName": "svc",
-            "dateRange": {"date_from": "2026-06-01T12:00:00Z", "date_to": "2026-06-01T13:00:00Z"},
+            "dateRange": {
+                "date_from": (date_to - dt.timedelta(hours=1)).isoformat(),
+                "date_to": date_to.isoformat(),
+            },
         }
 
     def test_flag_off_is_forbidden(self):
@@ -176,9 +185,10 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         data = response.json()
         assert data["service_name"] == "svc"
         assert data["binding_constraints"] == []
-        assert data["lookback_days"] == 42.0
+        assert data["lookback_days"] == 35.0
+        assert data["series_truncated"] is False
         series = data["series"][0]
-        assert series["severity"] == "info"
+        assert (series["namespace"], series["environment"], series["severity"]) == ("checkout", "prod", "info")
         assert series["buckets"][0]["observed"] == 120.0
         assert series["buckets"][0]["verdict"] is None
         issue = data["issues"][0]
@@ -205,6 +215,18 @@ class TestLogsAnomalyScanAPI(APIBaseTest):
         ):
             response = self.client.post(self.url, self._payload(), format="json")
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_window_older_than_the_rollup_is_rejected_before_scanning(self):
+        payload = self._payload()
+        payload["dateRange"] = {
+            "date_from": (dt.datetime.now(UTC) - dt.timedelta(days=60)).isoformat(),
+            "date_to": (dt.datetime.now(UTC) - dt.timedelta(days=59)).isoformat(),
+        }
+        with patch("products.logs.backend.presentation.views.anomalies_api.run_scan") as run:
+            response = self.client.post(self.url, payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.assert_not_called()
 
 
 class TestSeriesBandsRequestValidation(SimpleTestCase):
