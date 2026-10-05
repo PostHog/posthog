@@ -115,10 +115,10 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
             # Twitter was rebranded to X; match the terms users now search by.
             keywords=["x", "x.com"],
             caption=(
-                "Sync one X account's profile, posts, mentions and audience. Create an app in the "
-                "[X developer portal](https://developer.x.com/en/portal/dashboard), attach it to a project, "
-                "then copy the app's **Bearer Token**. X charges per post read, so the project also needs "
-                "API credits."
+                "Sync one X account's profile, posts, mentions and audience. "
+                "**X charges your own developer project for every post this source reads.** "
+                "Create an app in the [X developer portal](https://developer.x.com/en/portal/dashboard), "
+                "attach it to a project that has API credits, then copy the app's **Bearer Token**."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/twitter",
             iconPath="/static/services/twitter.png",
