@@ -192,7 +192,7 @@ export const textViewLogic = kea<textViewLogicType>([
 
                 try {
                     // Call Django API with timeout
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsTextReprCreate() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.create(
                         `api/projects/${props.teamId}/llm_analytics/text_repr/`,
                         requestData,

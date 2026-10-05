@@ -11,8 +11,8 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.facade.contracts import PlatformAlertUpsert, SourceKind
-from products.alerts.backend.facade.platform_alerts import upsert_configuration
+from products.alerts_platform.backend.facade.api import upsert_configuration
+from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +50,7 @@ def backfill_platform_alert_configurations(*, team_id: int | None = None) -> Bac
                 cooldown_minutes=configuration.cooldown_minutes,
                 schedule_restriction=configuration.schedule_restriction,
                 next_check_at=configuration.next_check_at,
+                snooze_until=configuration.snooze_until,
             )
         )
         if was_created:

@@ -17,7 +17,8 @@ use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 use crate::authorizer::Signal;
-use crate::metric_record::{compute_series_fingerprint, override_timestamp, KafkaMetricRow};
+use crate::log_record::override_timestamp;
+use crate::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use crate::service::Service;
 
 const METRIC_NAME_LABEL: &str = "__name__";

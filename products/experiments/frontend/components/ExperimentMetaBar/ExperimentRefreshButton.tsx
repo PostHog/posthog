@@ -38,7 +38,7 @@ function RefreshButton({
             icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
             onClick={onRefresh}
             disabledReason={isRefreshing ? (queuedHint ?? loadingText) : undefined}
-            tooltip={isRefreshing ? undefined : 'Refresh results'}
+            aria-label={isRefreshing ? undefined : 'Refresh results'}
             data-attr="refresh-experiment"
         >
             {isRefreshing ? (
@@ -88,6 +88,7 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
         secondaryMetricsResults,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
+        exposuresLoading,
         currentRefresh,
     } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
@@ -97,7 +98,7 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
 
     return (
         <RefreshButton
-            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading || exposuresLoading}
             lastRefresh={lastRefresh}
             onRefresh={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {

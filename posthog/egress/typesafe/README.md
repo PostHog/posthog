@@ -3,17 +3,24 @@
 TypeSafe serves Jev, a System One model that answers typed questions (`noul`, `choice`, `score`) about a `state`.
 It returns probabilities, not free text.
 
+The request and answer types live in `posthog/llm/system_one.py`, because the Go ai-gateway serves the same API with models PostHog hosts.
+A caller builds its client with `build_system_one_client` from `posthog/llm/system_one_client.py`.
+It reaches the ai-gateway where `AI_GATEWAY_URL` is set.
+PostHog Cloud uses the ai-gateway with a PostHog-hosted System One model. This domain is available only in local development or self-hosted instances, when the caller passes a `TypeSafeFallback`.
+The transport rejects TypeSafe requests from Cloud before an HTTP call, even if someone configures an API key or calls it directly. The Cloud check ignores case in deployment values.
+
 ## Usage policy
 
-TypeSafe is approved for experiments only.
+TypeSafe is approved for local experiments only. Do not use it for Cloud features.
+Use `build_system_one_client(model=..., ai_product=...)` with the PostHog-hosted model on the ai-gateway instead. Do not pass `TypeSafeFallback` for a Cloud feature.
 Every caller meets these rules before it merges, and a reviewer blocks a caller that does not:
 
 - **Gate the caller behind a feature flag.** Until launch, the flag reaches PostHog staff only.
 - **Send no customer data during the experiment.** Customer data is anything from a customer's project or account: events, persons, recordings, insights, names, and text a user types into PostHog. Use synthetic data or data that PostHog owns.
-- **A launch that sends customer data needs an explicit opt-in.** Each customer turns it on before any of their data goes to TypeSafe. Use the approved opt-in copy. Until that copy exists, no caller sends customer data.
-- **A launch that sends customer data needs sign-off from leadership** before it ships, in addition to the opt-in.
 
-A self-hosted instance has no `TYPESAFE_API_KEY`, so it sends nothing.
+An API key, feature flag, or customer opt-in cannot enable TypeSafe on PostHog Cloud. Changing the Cloud guard needs a separate privacy review and explicit approval before any customer data can be sent.
+
+An instance without `TYPESAFE_API_KEY` sends nothing.
 
 ## Identity
 
@@ -44,7 +51,7 @@ Raise both settings when real traffic outgrows them.
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-No caller exists on master yet. Each new caller adds itself here with its lane and its feature flag.
+No TypeSafe caller exists on master yet. Each new local caller adds itself here with its lane and its feature flag.
 
 ## Rate-limit headers
 

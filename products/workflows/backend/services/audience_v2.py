@@ -95,7 +95,8 @@ def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_mod
         context=HogQLContext(team_id=team.pk, database=database),
         settings=count_settings(sample_modulus),
     )
-    return response.results[0][0] if response.results else 0
+    # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.
+    return (response.results[0][0] if response.results else None) or 0
 
 
 def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:

@@ -167,6 +167,7 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
             const toastId = `save-cohort-${cohort.id}-${Date.now()}`
             try {
                 lemonToast.info('Saving cohort...', { toastId, autoClose: false })
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPartialUpdate() from 'products/cohorts/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentProjectId}/cohorts/${cohort.id}`, {
                     query: query,
                 })

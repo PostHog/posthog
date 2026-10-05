@@ -20,6 +20,7 @@ export function downloadBlob(content: Blob, filename: string): void {
 
 export async function exportedAssetBlob(asset: ExportedAssetType): Promise<Blob> {
     const contentUrl = api.exports.determineExportFetchUrl(asset.id)
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     const response = await api.getResponse(contentUrl)
     return await response.blob()
 }

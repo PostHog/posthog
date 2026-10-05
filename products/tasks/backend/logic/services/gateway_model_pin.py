@@ -17,8 +17,26 @@ _FIRST_PARTY_AGENT_MODELS: list[str] = list(
     dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS if "/" not in model.id)])
 )
 
+# Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
+_DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini")
+
+# Every model a PostHog Desktop session or cloud run may call, slash ids included. Go picks the provider.
+DESKTOP_AGENT_MODELS: list[str] = list(
+    dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS), *_DESKTOP_LEGACY_MODELS])
+)
+# The Go gateway refuses a pin longer than this at mint.
+MAX_GATEWAY_PIN_LENGTH = 32
+assert len(DESKTOP_AGENT_MODELS) <= MAX_GATEWAY_PIN_LENGTH, "the desktop model pin outgrew the gateway limit"
+
+FREE_TIER_MODELS: list[str] = ["@cf/zai-org/glm-5.2", "deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3"]
+
+# Stamped on a free-plan run in place of its product, so the model-change guard reads the narrower pin.
+FREE_TIER_PIN_KEY = "posthog_code:free"
+
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _FIRST_PARTY_AGENT_MODELS,
+    "posthog_code": DESKTOP_AGENT_MODELS,
+    FREE_TIER_PIN_KEY: FREE_TIER_MODELS,
     "review_hog": _FIRST_PARTY_AGENT_MODELS,
     "slack_app": _FIRST_PARTY_AGENT_MODELS,
     "workflows": _FIRST_PARTY_AGENT_MODELS,

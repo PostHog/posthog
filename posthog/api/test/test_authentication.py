@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -27,7 +28,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import authentication, status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -40,10 +41,13 @@ from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
+    SessionAuthentication,
     TeamSecretTokenAuthentication,
     TeamSecretTokenUser,
+    WidgetAuthentication,
     _extract_phs_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod
@@ -1606,7 +1610,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        self.assertNotIn("Content-Length", response.headers)
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
@@ -2538,6 +2542,15 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
 
+class TestWidgetAuthentication(SimpleTestCase):
+    @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
+    def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
+        request = Request(APIRequestFactory().get("/", HTTP_X_CONVERSATIONS_TOKEN="test-widget-token"))
+        with patch("posthog.models.Team.objects.get", side_effect=lookup_error):
+            with self.assertRaises(AuthenticationFailed):
+                WidgetAuthentication().authenticate(request)
+
+
 class TestSyntheticUser(SimpleTestCase):
     def _team(self, team_id=42):
         return type("FakeTeam", (), {"id": team_id})()
@@ -2976,6 +2989,66 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
+
+
+class TestAuthenticatorsRunOncePerRequest(APIBaseTest):
+    def _personal_api_key_header(self) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="once per request",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["dashboard:read"],
+        )
+        return f"Bearer {value}"
+
+    def _oauth_access_token_header(self) -> str:
+        application = OAuthApplication.objects.create(
+            name="Once per request",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_once_per_request",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="dashboard:read",
+        )
+        return f"Bearer {token.token}"
+
+    @parameterized.expand(
+        [
+            ("session", SessionAuthentication, None),
+            ("personal_api_key", PersonalAPIKeyAuthentication, _personal_api_key_header),
+            ("oauth_access_token", OAuthAccessTokenAuthentication, _oauth_access_token_header),
+        ]
+    )
+    def test_authenticate_runs_once_per_request(
+        self,
+        _name: str,
+        authenticator_class: type[authentication.BaseAuthentication],
+        authorization_header: Callable[..., str] | None,
+    ) -> None:
+        headers = {}
+        if authorization_header is not None:
+            self.client.logout()
+            headers["authorization"] = authorization_header(self)
+
+        with patch.object(
+            authenticator_class,
+            "authenticate",
+            autospec=True,
+            wraps=authenticator_class.authenticate,
+        ) as authenticate:
+            response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/", headers=headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(authenticate.call_count, 1)
 
 
 class TestOAuthLoginNotification(APIBaseTest):

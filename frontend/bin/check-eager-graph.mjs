@@ -4,6 +4,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { AUTHENTICATED_SHELL, ENTRY, LOGGED_OUT_BOOT } from './bootEntries.mjs'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendDir = path.resolve(__dirname, '..')
 const metaPath = path.join(frontendDir, 'posthog-app-esbuild-meta.json')
@@ -36,7 +38,7 @@ const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 // raise a budget only as a conscious, reviewed decision in the PR that needs it.
 const ROOTS = [
     {
-        root: 'src/index.tsx',
+        root: ENTRY,
         label: 'entry (logged-out pages, app bootstrap)',
         // 2026-09-11: 1.54 MiB eager output (0.18 MiB JS + the 1.36 MiB linked stylesheet, 22 files).
         // ~20% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
@@ -64,7 +66,7 @@ const ROOTS = [
     {
         // index.tsx imports App and bootApp as sibling dynamic imports, so neither alone is what
         // a logged-out page downloads: measure the deduplicated union of all three closures.
-        root: ['src/index.tsx', 'src/scenes/App.tsx', 'src/scenes/bootApp.ts'],
+        root: LOGGED_OUT_BOOT,
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
         // `js`), so this is the whole JS cost of /login. 2026-09-11: 3.51 MiB eager output = 2.14 MiB
@@ -87,11 +89,11 @@ const ROOTS = [
         ],
     },
     {
-        root: 'src/scenes/AuthenticatedShell.tsx',
+        root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-09-11: 8.27 MiB eager output = 6.91 MiB JS (2688 files) + the 1.36 MiB linked
+        // 2026-09-24: 7.25 MiB eager output = 5.86 MiB JS (2292 files) + the 1.39 MiB linked
         // stylesheet. ~15% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 9_970_000,
+        budgetBytes: 8_745_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -119,6 +121,43 @@ const ROOTS = [
                 verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
             },
         ],
+    },
+    // The most visited logged-in scenes, whose JS gates their LCP. A scene root counts every chunk the
+    // scene needs, so code it shares with the shell is in both numbers. Like the other roots it adds the
+    // whole linked stylesheet, not the per-scene CSS the stable build serves, so a budget tracks JS.
+    {
+        root: 'src/scenes/dashboard/Dashboard.tsx',
+        label: 'dashboard scene',
+        // 2026-10-01: 12.25 MiB (4720 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 14_130_000,
+        forbidden: [],
+    },
+    {
+        root: [
+            AUTHENTICATED_SHELL,
+            'src/scenes/project-homepage/ProjectHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayHome.tsx',
+        ],
+        label: 'today home path',
+        budgetBytes: 9_000_000,
+        forbidden: [
+            'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayReportPage.tsx',
+        ],
+    },
+    {
+        root: 'src/scenes/activity/explore/EventsScene.tsx',
+        label: 'events scene',
+        // 2026-10-01: 11.48 MiB (4382 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 13_250_000,
+        forbidden: [],
+    },
+    {
+        root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
+        label: 'replay detail scene',
+        // 2026-10-01: 14.29 MiB (5280 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 16_480_000,
+        forbidden: [],
     },
 ]
 
@@ -274,7 +313,7 @@ function eagerChunkClosure(entry) {
 
 // The page links only the src/index.tsx entry's stylesheet (writePreloadManifest in build.mjs). esbuild
 // gives other chunks a `cssBundle` too, but the browser never downloads those files.
-const linkedStylesheet = outputs[entryChunk('src/index.tsx')]?.cssBundle
+const linkedStylesheet = outputs[entryChunk(ENTRY)]?.cssBundle
 
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
 const report = { roots: [], errors: [], warnings: [] }

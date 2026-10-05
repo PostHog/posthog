@@ -143,11 +143,131 @@ DEEL_ENDPOINTS: dict[str, DeelEndpointConfig] = {
         primary_keys=["hris_profile_id", "id"],
         page_size_param=None,
     ),
+    "departments": DeelEndpointConfig(
+        name="departments",
+        path="/departments",
+        pagination="none",
+        page_size_param=None,
+    ),
+    "teams": DeelEndpointConfig(
+        name="teams",
+        path="/teams",
+        pagination="none",
+        page_size_param=None,
+    ),
+    "groups": DeelEndpointConfig(
+        name="groups",
+        path="/groups",
+        pagination="cursor",
+        cursor_param="cursor",
+        params={"sort_order": "ASC"},
+        partition_key="created_at",
+    ),
+    "onboarding_tracker": DeelEndpointConfig(
+        name="onboarding_tracker",
+        path="/onboarding/tracker",
+        pagination="cursor",
+        cursor_param="cursor",
+        # One row per worker being onboarded; the tracker carries no id of its own.
+        primary_keys=["unique_id"],
+        params={"sort_order": "ASC"},
+    ),
+    "offboarding_tracker": DeelEndpointConfig(
+        name="offboarding_tracker",
+        path="/offboarding/tracker",
+        pagination="cursor",
+        cursor_param="cursor",
+        primary_keys=["unique_id"],
+        # Without `ignore_date_range` Deel returns only the last 45 days of terminations.
+        params={"sort_order": "ASC", "ignore_date_range": "true"},
+    ),
+    "payroll_cycles": DeelEndpointConfig(
+        name="payroll_cycles",
+        path="/legal-entities/{legal_entity_id}/payroll-events",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # Deel does not document the cycle id as unique outside its legal entity.
+        primary_keys=["legal_entity_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="legal_entities",
+            resolve_param="legal_entity_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "legal_entity_id"},
+            parent_params={"limit": PAGE_SIZE, "sort_order": "ASC"},
+            child_params={"limit": PAGE_SIZE},
+        ),
+    ),
+    "payroll_reports": DeelEndpointConfig(
+        name="payroll_reports",
+        path="/gp/legal-entities/{legal_entity_id}/reports",
+        pagination="none",
+        # Global payroll events sit in their own id space; scope them to their legal entity.
+        primary_keys=["legal_entity_id", "id"],
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="legal_entities",
+            resolve_param="legal_entity_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "legal_entity_id"},
+            parent_params={"limit": PAGE_SIZE, "sort_order": "ASC"},
+        ),
+    ),
+    "payroll_gross_to_net": DeelEndpointConfig(
+        name="payroll_gross_to_net",
+        path="/reports/payroll/cycles/{cycle_id}/gross-to-net",
+        pagination="cursor",
+        cursor_path=("next_cursor",),
+        cursor_param="cursor",
+        has_more_path=("has_more",),
+        # One row per contract in a payroll cycle. The cycle is only unique within its legal
+        # entity, so the entity leads the key here the same way it does on payroll_cycles.
+        primary_keys=["legal_entity_id", "cycle_id", "contract_oid"],
+    ),
+    "countries": DeelEndpointConfig(
+        name="countries",
+        path="/lookups/countries",
+        pagination="none",
+        primary_keys=["code"],
+        page_size_param=None,
+    ),
+    "currencies": DeelEndpointConfig(
+        name="currencies",
+        path="/lookups/currencies",
+        pagination="none",
+        primary_keys=["code"],
+        page_size_param=None,
+    ),
+    "job_titles": DeelEndpointConfig(
+        name="job_titles",
+        path="/lookups/job-titles",
+        pagination="cursor",
+        # Job titles echo a cursor even past the last page, so the walk ends on the empty page
+        # that cursor returns rather than on a missing cursor.
+        cursor_param="after_cursor",
+        # /lookups/job-titles accepts no page-size param.
+        page_size_param=None,
+    ),
+    "seniorities": DeelEndpointConfig(
+        name="seniorities",
+        path="/lookups/seniorities",
+        pagination="none",
+        page_size_param=None,
+    ),
 }
 
 # `/time_offs/time-off-events` takes its worker profile as a query param, which the shared fan-out
 # helper cannot bind (it binds path params only), so it walks its parent by hand.
 TIME_OFF_EVENTS_ENDPOINT = "time_off_events"
 TIME_OFF_EVENTS_PARENT = "people"
+
+# Gross-to-net is keyed by payroll cycle, and cycles are only listed per legal entity, so this
+# endpoint is two hops from a top-level listing — one more than the shared fan-out helper binds.
+GROSS_TO_NET_ENDPOINT = "payroll_gross_to_net"
+GROSS_TO_NET_PARENT = "payroll_cycles"
+GROSS_TO_NET_ROOT = "legal_entities"
 
 ENDPOINTS = tuple(DEEL_ENDPOINTS.keys())

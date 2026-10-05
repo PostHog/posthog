@@ -209,6 +209,45 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
                 prepare_query("SELECT properties FROM events", self.team.pk)
             )
 
+    @parameterized.expand(
+        [
+            ("restricted", "SELECT properties.`$feature/secret` AS flag FROM events", "NULL"),
+            ("visible", "SELECT properties.`$feature/checkout` AS flag FROM events", "JSONExtractRaw("),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @patch("products.batch_exports.backend.api.batch_export.get_restricted_properties_with_group_type_index_for_team")
+    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
+    def test_native_export_hides_a_restricted_flag(
+        self, _name: str, query: str, expected: str, _use_new_events_schema, get_restricted_properties
+    ):
+        get_restricted_properties.return_value = {
+            RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)
+        }
+        serializer = BatchExportSerializer(
+            context={"team_id": self.team.pk, "request": SimpleNamespace(user=self.user)}
+        )
+
+        schema = serializer.serialize_hogql_query_to_batch_export_schema(prepare_query(query, self.team.pk))
+
+        expression = schema["fields"][0]["expression"]
+        assert expression == expected if expected == "NULL" else expected in expression, expression
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
+    def test_native_export_names_a_bare_flag_column(self, _use_new_events_schema):
+        serializer = BatchExportSerializer(
+            context={"team_id": self.team.pk, "request": SimpleNamespace(user=self.user)}
+        )
+
+        schema = serializer.serialize_hogql_query_to_batch_export_schema(
+            prepare_query("SELECT properties.`$feature/checkout` FROM events", self.team.pk)
+        )
+
+        field = schema["fields"][0]
+        assert field["alias"] == "`$feature/checkout`", field
+        assert "JSONExtractRaw(" in field["expression"], field
+
 
 class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
     def _make_integration(self, team: Team) -> Integration:

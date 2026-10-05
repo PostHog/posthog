@@ -1,6 +1,5 @@
 """Django models for tracing."""
 
-import logging
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
@@ -11,14 +10,12 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
-logger = logging.getLogger(__name__)
 
 # Define your models here
 # Important:
@@ -150,9 +147,6 @@ class TeamTracingConfig(models.Model):
 
     # When `retention_days` was last changed, for the once-per-24-hours throttle.
     retention_last_updated = models.DateTimeField(null=True, blank=True)
-
-
-register_team_extension_signal(TeamTracingConfig, logger=logger)
 
 
 class TracesRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):

@@ -6,10 +6,10 @@ from typing import Optional
 
 from django.conf import settings
 from django.core.cache import cache, caches
+from django.core.cache.backends.base import BaseCache
 
 import structlog
 import redis.exceptions
-from botocore.exceptions import BotoCoreError, ClientError
 from django_redis.exceptions import ConnectionInterrupted
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
@@ -266,6 +266,13 @@ class HyperCache:
         return data
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
+        # Call-time import: hypercache loads at django.setup() (via group_type_mapping) and botocore
+        # is only needed to classify S3 read failures.
+        from botocore.exceptions import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            BotoCoreError,
+            ClientError,
+        )
+
         cache_key = self.get_cache_key(key)
         try:
             data = self.cache_client.get(cache_key)
@@ -609,15 +616,26 @@ class HyperCache:
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                # One DEL per cache drops the payload and its ETag together. A reader that
-                # checks the ETag first would otherwise answer 304 for a payload that is
-                # already gone. The ETag key goes even when enable_etag is off, to clear a
-                # stale ETag from when it was on.
-                redis_keys = [cache_key, self.get_etag_key(key)]
-                # Mirror the delete so the secondary never serves an entry the primary dropped,
-                # and mirror first so a primary failure cannot block it.
-                self._mirror_to_secondary(lambda c: c.delete_many(redis_keys))
-                self.cache_client.delete_many(redis_keys)
+                # Single-key DELs: the keys can hash to different cluster slots. The ETag is deleted before
+                # and after the payload so a reader or racing write never sees an ETag without its payload,
+                # and even with enable_etag off, to clear a stale one.
+                etag_key = self.get_etag_key(key)
+                redis_keys = (etag_key, cache_key, etag_key)
+
+                def delete_each(client: BaseCache) -> None:
+                    # Every key is attempted, so a failed ETag DEL cannot leave the payload behind.
+                    first_error: Exception | None = None
+                    for redis_key in redis_keys:
+                        try:
+                            client.delete(redis_key)
+                        except Exception as e:
+                            first_error = first_error or e
+                    if first_error is not None:
+                        raise first_error
+
+                # Mirror first so a primary failure cannot block the secondary.
+                self._mirror_to_secondary(delete_each)
+                delete_each(self.cache_client)
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
         finally:

@@ -36,6 +36,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
+from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -46,6 +47,7 @@ from posthog.models.file_system.file_system import (
 )
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
@@ -74,6 +76,11 @@ MAX_META_BYTES = 1_000_000
 # Search-within-Recents scans this many of the user's most-recent views, then the text filter trims
 # them to a page. Bounds the hydration key set so the query stays cheap on heavy view-log histories.
 RECENTS_SEARCH_SCAN_LIMIT = 200
+
+
+def get_file_system_insight_type(query_kind: str | None, legacy_type: str | None) -> str:
+    insight_type = str(query_kind).removesuffix("Query").lower() if query_kind else str(legacy_type or "TRENDS").lower()
+    return {"hogql": "hog", "pathsv2": "paths", "journeys": "paths"}.get(insight_type, insight_type)
 
 
 def validate_file_system_path(path: Any) -> str:
@@ -495,6 +502,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
+        if self.action in ("list", "retrieve"):
+            queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
@@ -559,12 +568,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
-    def _add_content_types(self, results: builtins.list[dict[str, object]]) -> None:
+    def _add_object_types(self, results: builtins.list[dict[str, object]], *, include_content_type: bool) -> None:
+        entry_types = ("notebook", "insight") if include_content_type else ("insight",)
         entry_teams = {
             str(entry_id): team_id
             for entry_id, team_id in FileSystem.objects.filter(
                 team__project_id=self.team.project_id,
-                id__in=[item["id"] for item in results if item.get("type") in ("notebook", "insight")],
+                id__in=[item["id"] for item in results if item.get("type") in entry_types],
             ).values_list("id", "team_id")
         }
         denied: set[tuple[str, str, int]] = set()
@@ -581,10 +591,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             )
         content_types: dict[tuple[str, int, str], str] = {}
+        insight_types: dict[tuple[int, str], str] = {}
         for entry_type, app_label, model_name in (
             ("notebook", "notebooks", "Notebook"),
             ("insight", "product_analytics", "Insight"),
         ):
+            if entry_type == "notebook" and not include_content_type:
+                continue
             refs = {
                 item["ref"]
                 for item in results
@@ -609,23 +622,37 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     _markdown_type="string",
                 )
                 content_type = "text/markdown"
+                for team_id, ref in queryset.values_list("team_id", "short_id"):
+                    if (entry_type, ref, team_id) not in denied:
+                        content_types[(entry_type, team_id, ref)] = content_type
             else:
-                queryset = queryset.filter(query__source__kind="HogQLQuery")
-                content_type = "application/sql"
-            for team_id, ref in queryset.values_list("team_id", "short_id"):
-                if (entry_type, ref, team_id) not in denied:
-                    content_types[(entry_type, team_id, ref)] = content_type
+                for team_id, ref, kind, source_kind, nested_kind, legacy_type in queryset.values_list(
+                    "team_id",
+                    "short_id",
+                    "query__kind",
+                    "query__source__kind",
+                    "query__source__source__kind",
+                    "filters__insight",
+                ):
+                    if (entry_type, ref, team_id) in denied:
+                        continue
+                    insight_types[(team_id, ref)] = get_file_system_insight_type(
+                        nested_kind or source_kind or kind, legacy_type
+                    )
+                    if source_kind == "HogQLQuery":
+                        content_types[(entry_type, team_id, ref)] = "application/sql"
         for item in results:
-            if item.get("type") not in ("notebook", "insight"):
+            if item.get("type") not in entry_types:
                 continue
             meta = item.get("meta")
-            item["meta"] = {
-                **(meta if isinstance(meta, dict) else {}),
-                "content_type": content_types.get(
-                    (str(item["type"]), entry_teams.get(str(item["id"]), -1), str(item.get("ref"))),
-                    "application/json",
-                ),
-            }
+            metadata = {**(meta if isinstance(meta, dict) else {})}
+            team_id = entry_teams.get(str(item["id"]), -1)
+            ref = str(item.get("ref"))
+            if item.get("type") == "insight":
+                metadata["insight_type"] = insight_types.get((team_id, ref))
+            if include_content_type:
+                metadata["content_type"] = content_types.get((str(item["type"]), team_id, ref), "application/json")
+            item["meta"] = metadata
 
     @extend_schema(parameters=[FileSystemListQuerySerializer])
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -639,8 +666,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             response = super().list(request, *args, **kwargs)
             response.data["users"] = self._created_by_users(response.data.get("results", []))
-        if query_serializer.validated_data["include_content_type"]:
-            self._add_content_types(response.data.get("results", []))
+        self._add_object_types(
+            response.data.get("results", []),
+            include_content_type=query_serializer.validated_data["include_content_type"],
+        )
         return response
 
     def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:
@@ -680,10 +709,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = max(1, min(limit, 1000))
 
         not_type_param = request.query_params.get("not_type")
-        exclude_types = [not_type_param] if not_type_param else None
+        # Drop retired types before the view-log limit, or their views take slots that hydration then empties.
+        exclude_types = [*RETIRED_FILE_SYSTEM_TYPES, *([not_type_param] if not_type_param else [])]
         search_param = request.query_params.get("search")
 
-        base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
+        base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
+            type__in=RETIRED_FILE_SYSTEM_TYPES
+        )
         base_queryset = self._filter_by_access_control(base_queryset)
         if search_param:
             base_queryset = self._apply_search_to_queryset(
@@ -745,6 +777,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 descendants = self._scope_by_project_and_environment(descendants)
                 descendants = self._filter_by_access_control(descendants)
                 stack.extend(descendants)
+                continue
+
+            # A retired row has no backing object to authorize or lock.
+            if current.type in RETIRED_FILE_SYSTEM_TYPES:
                 continue
 
             entries_to_check.append(current)
@@ -837,6 +873,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             entry.delete()
             return deleted_objects
 
+        if entry.type in RETIRED_FILE_SYSTEM_TYPES:
+            entry.delete()
+            return deleted_objects
+
         if not is_file_system_type_registered(entry.type):
             raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
 
@@ -885,20 +925,28 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 descendants = self._scope_by_project_and_environment(
                     FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 )
+                hidden_descendants = self._filter_by_access_control(
+                    descendants.filter(type__in=RETIRED_FILE_SYSTEM_TYPES)
+                )
                 empty_folder = FileSystem.objects.filter(
                     pk=instance.pk, team_id=instance.team_id, path=instance.path, type="folder"
-                ).filter(~Exists(descendants))
+                ).filter(~Exists(descendants.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)))
                 # Keep the emptiness predicate in the DELETE statement. Folders have no dependent rows,
                 # and the view-log cleanup signal only applies to files, so no collector is needed.
                 if not empty_folder._raw_delete(empty_folder.db):
                     raise Conflict("Folder is not empty.", code="directory_not_empty")
+                # The tree hides these rows, so a folder that holds only them looks empty to the user.
+                hidden_descendants.delete()
                 deleted_objects = []
             else:
                 reaches_backing_object = self._ensure_can_delete(instance)
                 deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
 
         if instance.type == "folder":
-            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))
+            # The tree hides retired rows, so a retired leftover needs no folder to sit in.
+            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/")).exclude(
+                type__in=RETIRED_FILE_SYSTEM_TYPES
+            )
             first_leftover = leftovers.first()
             if first_leftover:
                 created_by = first_leftover.created_by or instance_created_by or cast(User, self.request.user)
@@ -978,6 +1026,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    def _move_folder_shortcuts(self, old_path: str, new_path: str, team_id: int) -> None:
+        shortcuts = self._scope_by_project(
+            FileSystemShortcut.objects.filter(team_id=team_id, type="folder", ref=old_path)
+        )
+        shortcuts.filter(path=join_path([split_path(old_path)[-1]])).update(path=join_path([split_path(new_path)[-1]]))
+        shortcuts.update(ref=new_path)
+
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -998,9 +1053,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 qs = self._scope_by_project_and_environment(qs)
                 qs = self._filter_by_access_control(qs)
                 for file in qs:
+                    old_child_path = file.path
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
                     file.save()
+                    if file.type == "folder":
+                        self._move_folder_shortcuts(old_child_path, file.path, file.team_id)
+
+                self._move_folder_shortcuts(old_path, new_path, instance.team_id)
 
                 targets = FileSystem.objects.filter(path=new_path).all()
                 targets = self._scope_by_project_and_environment(targets)
@@ -1088,7 +1148,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
         qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/").order_by("depth", "path")
-        qs = self._scope_by_project_and_environment(qs)
+        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()
@@ -1147,6 +1207,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=request.user.id,
             surface=self.file_system_surface,
             type=validated.get("type") or None,
+            exclude_types=RETIRED_FILE_SYSTEM_TYPES,
             limit=validated.get("limit"),
         )
 
@@ -1160,7 +1221,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         qs = FileSystem.objects.filter(path__startswith=f"{path_param}/").order_by("depth", "path")
-        qs = self._scope_by_project_and_environment(qs)
+        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()

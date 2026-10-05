@@ -13,11 +13,10 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { hash } from '@/lib/utils'
 import type { Context, Env, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
+import { getClientIpSigningKeys, getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
@@ -34,7 +33,6 @@ const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
-    private userCacheInstance: RedisCache<State> | undefined
     private sessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
@@ -66,13 +64,6 @@ export class RequestContext {
             this.tokenCacheInstance = new RedisCache<State>(this.props.userHash, this.redis, 'token')
         }
         return this.tokenCacheInstance
-    }
-
-    getUserCache(distinctId: string): RedisCache<State> {
-        if (!this.userCacheInstance) {
-            this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
-        }
-        return this.userCacheInstance
     }
 
     get cache(): RedisCache<State> {
@@ -138,6 +129,8 @@ export class RequestContext {
                 // reach the API unattributed.
                 oauthClientName: await this.readCachedOAuthClientName(),
                 taskId: this.props.taskId,
+                clientIp: this.props.clientIp,
+                clientIpSigningKeys: getClientIpSigningKeys(),
             })
         }
         return this.apiInstance
@@ -334,6 +327,7 @@ export class RequestContext {
                     ...previousContextProperties,
                     ...properties,
                     is_impersonated: apiKey?.is_impersonated === true,
+                    suppress_analytics: this.props.suppressAnalytics === true || apiKey?.suppress_analytics === true,
                 },
             })
         } catch {
