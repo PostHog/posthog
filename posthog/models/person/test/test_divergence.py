@@ -9,11 +9,14 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
+from confluent_kafka import KafkaError
 from parameterized import parameterized
 from personhog.types.v1 import person_pb2
 
 from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
+from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
 from posthog.models.person.divergence import (
     DivergentPerson,
@@ -22,6 +25,7 @@ from posthog.models.person.divergence import (
     RepairAction,
     RepairOutcome,
     RepairSummary,
+    _WritePacer,
     repair_persons,
     scan_hidden_persons,
     scan_stale_persons,
@@ -126,11 +130,25 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert stored is not None
         return stored.version
 
-    def _repair(self, *person_uuids: UUID | str, apply: bool = True) -> tuple[RepairSummary, list[RepairAction]]:
+    def _ch_last_seen_at(self, person_uuid: UUID | str) -> datetime | None:
+        # argMax skips NULL values, so read the newest row itself.
+        [[last_seen_at]] = sync_execute(
+            """
+            SELECT last_seen_at FROM person WHERE team_id = %(team_id)s AND id = %(person_uuid)s
+            ORDER BY version DESC LIMIT 1
+            """,
+            {"team_id": self.team.pk, "person_uuid": str(person_uuid)},
+        )
+        return last_seen_at
+
+    def _repair(
+        self, *person_uuids: UUID | str, apply: bool = True, include_stale: bool = False
+    ) -> tuple[RepairSummary, list[RepairAction]]:
         actions: list[RepairAction] = []
         summary = repair_persons(
             [PersonRef(team_id=self.team.pk, person_uuid=str(u)) for u in person_uuids],
             apply=apply,
+            include_stale=include_stale,
             on_action=actions.append,
             log=lambda _: None,
         )
@@ -271,7 +289,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
     ) -> None:
         person = self._divergent_person(case)
 
-        summary, actions = self._repair(person.uuid)
+        summary, actions = self._repair(person.uuid, include_stale=True)
 
         assert actions == [
             self._action(
@@ -286,6 +304,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert (summary.persons, summary.undelivered) == (1, 0)
         assert self._pg_version(person) == target_version
         assert self._ch_person(person.uuid) == (0, target_version, PG_PROPERTIES)
+        # Postgres has no last_seen_at for this person, and ingestion publishes that as null.
+        assert self._ch_last_seen_at(person.uuid) is None
 
     @parameterized.expand([("dry_run", False), ("apply", True)])
     def test_repairs_a_hidden_person_only_when_applied(self, _name: str, apply: bool) -> None:
@@ -347,6 +367,17 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
         assert self._ch_person(person.uuid) == (0, 104, updated)
 
+    def test_a_failed_kafka_delivery_counts_as_undelivered(self) -> None:
+        person = self._divergent_person("hidden")
+        failed = ProduceResult(topic=KAFKA_PERSON)
+        failed.set_result(KafkaError(-192, "Local: Message timed out"), None)
+
+        with patch.object(ClickhouseProducer, "produce", return_value=failed):
+            summary, actions = self._repair(person.uuid)
+
+        assert [a.outcome for a in actions] == ["repaired"]
+        assert summary.undelivered == 1
+
     def test_skips_publishing_when_the_reread_misses_the_raise(self) -> None:
         person = self._divergent_person("hidden")
         fake = get_active_fake()
@@ -369,6 +400,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             tombstone_persons_in_postgres(self.team.pk, [person.uuid])
             self._ch_person_row(person.uuid, 103, deleted=True)
             return person.uuid
+        if case == "stale_without_include_stale":
+            return self._divergent_person("stale").uuid
         absent = uuid4()
         self._ch_person_row(absent, 103, deleted=True)
         return absent
@@ -378,6 +411,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("in_sync", ["skipped_not_divergent"]),
             ("tombstoned_in_postgres", ["skipped_not_live"]),
             ("absent_from_postgres", ["skipped_not_live"]),
+            ("stale_without_include_stale", ["skipped_stale"]),
         ]
     )
     def test_leaves_a_person_alone_unless_it_is_live_in_postgres_and_divergent(
@@ -409,6 +443,26 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
         assert [a.outcome for a in actions] == ["skipped_tombstoned"]
         assert self._ch_person(person.uuid)[:2] == (1, 103)
+
+
+class TestWritePacer(SimpleTestCase):
+    def test_idle_time_before_the_writes_buys_no_burst(self) -> None:
+        clock = [0.0]
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        with patch("posthog.models.person.divergence.time") as time_module:
+            time_module.monotonic.side_effect = lambda: clock[0]
+            time_module.sleep.side_effect = sleep
+            pacer = _WritePacer(max_per_second=2)
+            clock[0] = 10.0
+            for _ in range(3):
+                pacer.before_write()
+
+        assert sleeps == [0.5, 0.5]
 
 
 class TestScanTeamRanges(SimpleTestCase):

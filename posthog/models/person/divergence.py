@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
+from dataclasses import field
 from typing import Any, Literal, TypeVar
 from uuid import UUID
 
@@ -18,11 +19,14 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.routing import flush_all_producers
+from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
+from posthog.models.person.sql import INSERT_PERSON_SQL
 from posthog.models.person.util import (
     _batched_get_persons_by_uuids,
-    create_person,
+    _person_row,
     get_person_tombstones,
     get_persons_by_uuids,
 )
@@ -37,6 +41,7 @@ RepairOutcome = Literal[
     "skipped_not_live",
     "skipped_tombstoned",
     "skipped_reread_lagging",
+    "skipped_stale",
 ]
 
 # The legacy delete path wrote ClickHouse tombstones at version + 100, so those rows sit at 100 or above.
@@ -60,6 +65,8 @@ _VERSION_ONLY_READ_OPTIONS = ReadOptions(field_mask=["id", "uuid", "team_id", "v
 
 _REPAIR_CHUNK_SIZE = 100
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
+# Confirmed produce results are dropped this often, so a long repair does not hold one per published row.
+_DELIVERY_PRUNE_EVERY = 1_000
 
 _T = TypeVar("_T")
 
@@ -107,6 +114,7 @@ class RepairSummary:
     applied: bool
     persons: int
     person_outcomes: dict[RepairOutcome, int]
+    # Published rows that Kafka did not confirm: the delivery failed, or it was still queued at the deadline.
     undelivered: int
 
 
@@ -487,10 +495,36 @@ def _person_action(plan: _PersonPlan, outcome: RepairOutcome) -> RepairAction:
     )
 
 
-def _execute_plan(plan: _PersonPlan, *, apply: bool, before_write: Callable[[], None]) -> list[RepairAction]:
+def _publish_person(team_id: int, person: Person) -> ProduceResult:
+    row = _person_row(
+        team_id=team_id,
+        uuid=str(person.uuid),
+        version=int(person.version or 0),
+        properties=person.properties,
+        is_identified=person.is_identified,
+        is_deleted=False,
+        created_at=person.created_at,
+        last_seen_at=person.last_seen_at,
+    )
+    # _person_row fills a missing last_seen_at with the current hour, but ingestion publishes null for it.
+    if person.last_seen_at is None:
+        row["last_seen_at"] = None
+    return ClickhouseProducer().produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=row)
+
+
+def _execute_plan(
+    plan: _PersonPlan,
+    *,
+    apply: bool,
+    include_stale: bool,
+    before_write: Callable[[], None],
+    published: Callable[[ProduceResult], None],
+) -> list[RepairAction]:
     person = plan.person
     if person is None:
         return [_person_action(plan, "skipped_not_live")]
+    if plan.kind == "stale" and not include_stale:
+        return [_person_action(plan, "skipped_stale")]
 
     if not apply:
         person_outcome: RepairOutcome = "would_repair" if plan.kind is not None else "skipped_not_divergent"
@@ -524,16 +558,7 @@ def _execute_plan(plan: _PersonPlan, *, apply: bool, before_write: Callable[[], 
         # The replica has not caught up with the raise, so its properties may predate the raised version.
         person_outcome = "skipped_reread_lagging"
     else:
-        create_person(
-            team_id=plan.team_id,
-            uuid=plan.person_uuid,
-            version=int(reread.version or 0),
-            properties=reread.properties,
-            is_identified=reread.is_identified,
-            is_deleted=False,
-            created_at=reread.created_at,
-            last_seen_at=reread.last_seen_at,
-        )
+        published(_publish_person(plan.team_id, reread))
         person_outcome = "repaired"
 
     return [_person_action(plan, person_outcome)]
@@ -541,22 +566,56 @@ def _execute_plan(plan: _PersonPlan, *, apply: bool, before_write: Callable[[], 
 
 @frozen(frozen=False)
 class _WritePacer:
+    """Space writes at least 1 / max_per_second apart, so idle time never buys a later burst."""
+
     max_per_second: float | None
-    started: float
-    writes: int = 0
+    next_write_at: float = 0.0
 
     def before_write(self) -> None:
-        if self.max_per_second:
-            ahead = self.writes / self.max_per_second - (time.monotonic() - self.started)
-            if ahead > 0:
-                time.sleep(ahead)
-        self.writes += 1
+        if self.max_per_second is None:
+            return
+        now = time.monotonic()
+        if now < self.next_write_at:
+            time.sleep(self.next_write_at - now)
+            now = self.next_write_at
+        self.next_write_at = now + 1 / self.max_per_second
+
+
+@frozen(frozen=False)
+class _Deliveries:
+    """Kafka produce results of the published rows, so a failed delivery counts as undelivered."""
+
+    pending: list[ProduceResult] = field(default_factory=list)
+    failed: int = 0
+
+    def track(self, result: ProduceResult) -> None:
+        self.pending.append(result)
+        if len(self.pending) >= _DELIVERY_PRUNE_EVERY:
+            self._prune()
+
+    def undelivered(self, timeout: float) -> int:
+        flush_all_producers(timeout)
+        self._prune()
+        return self.failed + len(self.pending)
+
+    def _prune(self) -> None:
+        waiting: list[ProduceResult] = []
+        for result in self.pending:
+            if not result.done():
+                waiting.append(result)
+                continue
+            try:
+                result.get(timeout=0)
+            except Exception:
+                self.failed += 1
+        self.pending = waiting
 
 
 def repair_persons(
     targets: Sequence[PersonRef],
     *,
     apply: bool,
+    include_stale: bool = False,
     max_writes_per_second: float | None = None,
     on_action: Callable[[RepairAction], None],
     log: Callable[[str], None],
@@ -568,7 +627,13 @@ def repair_persons(
     guarded by a version floor, and a person whose earlier publish never landed is still divergent.
     ``max_writes_per_second`` paces every version-floor write on the persons primary, one per
     divergent person.
+
+    A stale person is skipped unless ``include_stale`` is set, because its repair replaces the
+    ClickHouse properties with the Postgres ones for good, and a team waiting for a restore from
+    its ClickHouse rows needs the ClickHouse ones.
     """
+    if max_writes_per_second is not None and max_writes_per_second <= 0:
+        raise ValueError("max_writes_per_second must be above 0")
     by_team: dict[int, list[str]] = defaultdict(list)
     for target in dict.fromkeys(targets):
         by_team[target.team_id].append(target.person_uuid)
@@ -576,19 +641,26 @@ def repair_persons(
     person_outcomes: Counter[RepairOutcome] = Counter()
     processed = 0
     undelivered = 0
-    pacer = _WritePacer(max_per_second=max_writes_per_second, started=time.monotonic())
+    pacer = _WritePacer(max_per_second=max_writes_per_second)
+    deliveries = _Deliveries()
     try:
         for team_id, person_uuids in sorted(by_team.items()):
             for chunk in _chunks(person_uuids, _REPAIR_CHUNK_SIZE):
                 for plan in _plan_chunk(team_id, chunk):
-                    for action in _execute_plan(plan, apply=apply, before_write=pacer.before_write):
+                    for action in _execute_plan(
+                        plan,
+                        apply=apply,
+                        include_stale=include_stale,
+                        before_write=pacer.before_write,
+                        published=deliveries.track,
+                    ):
                         person_outcomes[action.outcome] += 1
                         on_action(action)
                     processed += 1
             log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")
     finally:
         if apply:
-            undelivered = flush_all_producers(_FLUSH_TIMEOUT_SECONDS)
+            undelivered = deliveries.undelivered(_FLUSH_TIMEOUT_SECONDS)
             if undelivered:
                 log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")
     return RepairSummary(

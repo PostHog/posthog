@@ -105,8 +105,14 @@ class Command(BaseCommand):
             help="Write to Postgres and ClickHouse. Without it the repair only reports what it would do.",
         )
         repair.add_argument(
+            "--include-stale",
+            action="store_true",
+            help="Also repair persons a scan classified stale. Their repair replaces the ClickHouse properties "
+            "with the Postgres ones for good, so never use it on a team waiting for a restore from ClickHouse.",
+        )
+        repair.add_argument(
             "--max-writes-per-second",
-            type=float,
+            type=_positive_float,
             default=50.0,
             help="Divergent persons repaired per second, each one a Postgres write (default: %(default)s).",
         )
@@ -166,6 +172,7 @@ class Command(BaseCommand):
             summary = repair_persons(
                 targets,
                 apply=apply,
+                include_stale=options["include_stale"],
                 max_writes_per_second=options["max_writes_per_second"],
                 on_action=_csv_sink(handle, RepairAction),
                 log=self._log,
@@ -185,6 +192,13 @@ def _positive_int(value: str) -> int:
     number = int(value)
     if number < 1:
         raise argparse.ArgumentTypeError(f"{value} must be 1 or more")
+    return number
+
+
+def _positive_float(value: str) -> float:
+    number = float(value)
+    if not number > 0:
+        raise argparse.ArgumentTypeError(f"{value} must be above 0")
     return number
 
 
