@@ -28,7 +28,7 @@ import {
     COMMON_REPLAYER_CONFIG,
     speedDependentStyleRules,
     CanvasReplayerPlugin,
-    CorsPlugin,
+    createCorsPlugin,
     SnapshotStore,
     createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
@@ -772,6 +772,7 @@ export interface sessionRecordingPlayerLogicValues {
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
     isSnapshotUnauthorized: boolean // snapshotDataLogic
+    replayProxyToken: string | null // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -1491,6 +1492,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values: [
             snapshotDataLogic(props),
             [
+                'replayProxyToken',
                 'snapshotsLoaded',
                 'snapshotsLoading',
                 'snapshotSources',
@@ -2741,7 +2743,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
             if (values.preflight?.cloud || window.location.hostname === 'localhost') {
-                plugins.push(CorsPlugin)
+                plugins.push(createCorsPlugin(() => values.replayProxyToken))
             }
 
             const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>

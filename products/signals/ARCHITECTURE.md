@@ -16,7 +16,8 @@ Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping
 
 The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker by `posthog/management/commands/start_temporal_worker.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by `posthog/management/commands/start_temporal_worker.py`.
+The inbox ranking scoring sweep is the one exception. `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` register it only on `SELF_DRIVING_TASK_QUEUE`, which the `temporal-worker-self-driving` fleet polls. See the [self-driving Temporal worker runbook](../../docs/internal/self-driving-temporal-worker-runbook.md) for the fleet, its schedule, and its checks.
 If you add or remove a Signals workflow/activity from `backend/temporal/__init__.py`, you also need to update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`). That test intentionally snapshots the registered workflow/activity lists and will fail until its expected names are updated.
 
 Several additional Signals workflows also exist but are not part of the main report pipeline:
@@ -680,11 +681,14 @@ These are definitions for later evaluations; saving them does not score runs or 
 The rubric editor and `/api/projects/{team_id}/signals/scout/rubrics/{config_id}/` endpoints require a staff user in project 2.
 The API lives in `backend/presentation/scout_rubrics.py` and calls `backend/facade/rubrics.py`; rubric persistence and generation dispatch stay in `backend/scout_harness/rubrics.py`.
 `PUT` replaces the criteria only when the supplied revision matches, returning `409` for stale edits.
+Its optional `adopt_generation_id` adopts that completed generation's governing reference context for the whole saved rubric. The generation identifier must still match, even when the rubric revision has not changed.
+Ordinary criterion edits preserve the saved reference. Skill edits and later generations never update it automatically.
 Every save must include all shared defaults. Owners can edit or disable them, but cannot remove them.
 `POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
 It accepts optional `context` (up to 2,000 characters), saved on that generation request. Concurrent requests keep the first request's context; later requests do not inherit it.
 The editor exposes this as a single optional paragraph. It adds priorities without replacing the scout's responsibilities, shared defaults or saved choices.
 The backend supplies current instructions, bounded reference text from the exact skill version and recent run summaries to a background session.
+It captures the exact governing description, instructions, report rules and reference texts before the session starts, including clipping and omission metadata. This context is immutable within a generation and is reused if that attempt resumes. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
 The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
 One conditional format correction is shared across both steps. The generator does not inspect historical transcripts or full reports.
@@ -692,6 +696,7 @@ Criteria explain the required result in plain language, with specific source ref
 The generation prompt ends with writing guidance and a short example for the scout's owner. The selection step also writes an owner-facing summary; it cannot change the selected criteria.
 Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
 Completion preserves saved criteria, rejects results from replaced requests, and requires explicit user selection and saving to adopt suggestions.
+The saved reference context and its generation identifier survive replacement of the latest suggestions. Legacy rubrics without a captured reference remain readable; reading or editing them does not invent provenance.
 Expired or terminal requests reject late worker updates. An update to an expired request records the failure and completion time.
 A request that cannot start, because of the daily limit or a dispatch failure, restores the last completed suggestions.
 
@@ -1659,7 +1664,8 @@ Signal {index}:
 | `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                                                                   |
 | `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                                                                    |
 | Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                                                                        |
-| Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                                                                 |
+| Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows except the ranking sweep                                                                                                        |
+| Ranking sweep task queue                 | `SELF_DRIVING_TASK_QUEUE`     | Temporal task queue for the inbox ranking scoring sweep, polled by the `temporal-worker-self-driving` fleet                                                           |
 | `BUFFER_MAX_SIZE`                        | `20`                          | Max signals buffered in memory before flush to S3                                                                                                                     |
 | `BUFFER_FLUSH_TIMEOUT_SECONDS`           | `5`                           | Max seconds to wait for buffer to fill before flushing                                                                                                                |
 | S3 prefix                                | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)                                                                                      |

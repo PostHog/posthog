@@ -6,8 +6,10 @@ is bounded by the size of the incoming batch and a few concurrency knobs —
 **never by the size of the target table**.
 
 delta-rs stays the storage and protocol layer (transaction log, checkpoints,
-Parquet writing, Add-action statistics, S3 conditional-put commits, conflict
-resolution). deltalite replaces only the *merge execution*.
+Parquet encoding, S3 conditional-put commits, conflict resolution). deltalite
+replaces only the *merge execution*, and writes output files through a streaming
+writer that produces the same files and Add-action statistics as delta-rs's
+`RecordBatchWriter` without holding a second copy of each file.
 
 ```python
 import deltalite
@@ -152,7 +154,8 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 |---|---|---|
 | `max_parallel_partitions` | `2` | Partitions merged concurrently. |
 | `max_parallel_files` | `4` | Files read concurrently within a partition. |
-| `max_buffered_bytes` | `64 MiB` | Output buffered in memory before flushing. |
+| `max_buffered_bytes` | `64 MiB` | Decoded rows in flight between the file readers and the writer. |
+| `max_fetch_bytes` | `128 MiB` | Compressed row-group bytes the file readers hold before decoding. A reader reserves its file's largest row group before fetching; a row group larger than the cap still runs, alone. |
 | `prune_strategy` | `"probe"` | `"probe"` skips files that can't contain a source key; `"none"` scans all. |
 | `skip_unmatched_files` | `True` | Convenience toggle: `False` ≡ `prune_strategy="none"`. |
 | `probe_concurrency` | `8` | Concurrent statistics/probe reads. |
@@ -170,6 +173,7 @@ budgets:
 `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS` (8),
 `DELTALITE_PROCESS_MAX_PARALLEL_FILES` (16),
 `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` (256 MiB),
+`DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB),
 `DELTALITE_MAX_SOURCE_BYTES`, `DELTALITE_MULTIPART_THRESHOLD_BYTES`,
 `DELTALITE_MULTIPART_PART_SIZE_BYTES`.
 
