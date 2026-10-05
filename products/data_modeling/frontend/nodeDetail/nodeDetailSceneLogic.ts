@@ -1,3 +1,4 @@
+import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -75,6 +76,7 @@ export interface nodeDetailSceneLogicValues {
     lineageGraphError: boolean
     lineageGraphLoading: boolean
     lineageModalOpen: boolean
+    lineageNodePositions: Record<string, XYPosition>
     node: DataModelingNode | null
     nodeLoading: boolean
     nodeType: NodeTypeEnumApi | null
@@ -124,6 +126,13 @@ export interface nodeDetailSceneLogicActions {
     }
     closeLineageModal: () => {
         value: true
+    }
+    lineageNodeDragStopped: (
+        nodeId: string,
+        position: XYPosition
+    ) => {
+        nodeId: string
+        position: XYPosition
     }
     loadLineageGraph: () => any
     loadLineageGraphFailure: (
@@ -219,6 +228,9 @@ export interface nodeDetailSceneLogicActions {
     openLineageModal: () => {
         value: true
     }
+    resetLineageNodePositions: () => {
+        value: true
+    }
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
         tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
@@ -302,6 +314,8 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         canonicalizeTab: true,
         openLineageModal: true,
         closeLineageModal: true,
+        lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
+        resetLineageNodePositions: true,
     }),
     reducers({
         // What the address bar asks for. Tab links navigate, so nothing else may write this.
@@ -379,6 +393,13 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             {
                 openLineageModal: () => true,
                 closeLineageModal: () => false,
+            },
+        ],
+        lineageNodePositions: [
+            {} as Record<string, XYPosition>,
+            {
+                lineageNodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
+                resetLineageNodePositions: () => ({}),
             },
         ],
     }),

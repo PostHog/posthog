@@ -32,6 +32,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { biConnectionsLogic } from 'products/data_warehouse/frontend/bi/biConnectionsLogic'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
@@ -2361,6 +2362,37 @@ describe('sqlEditorLogic', () => {
             sort_direction: null,
         }
 
+        it('updates the chart breakdown when dimensions move between shelves or are removed', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: { ...config, rows: [], columns: [timestampField, eventField] },
+            })
+            biLogic.actions.syncGeneratedQuery()
+
+            expect(logic.values.sourceQuery.chartSettings).toMatchObject({
+                xAxis: { column: 'bi_column_timestamp' },
+                seriesBreakdownColumn: 'bi_column_event_2',
+                yAxis: [{ column: 'count' }],
+            })
+
+            biLogic.actions.moveFieldToShelf('columns', 1, 'rows')
+            expect(logic.values.sourceQuery.chartSettings).toMatchObject({
+                xAxis: { column: 'bi_column_timestamp' },
+                seriesBreakdownColumn: 'bi_row_event',
+            })
+
+            biLogic.actions.removeFieldFromShelf('rows', 0)
+            expect(logic.values.sourceQuery.chartSettings?.seriesBreakdownColumn).toBeUndefined()
+            expect(logic.values.sourceQuery.chartSettings?.xAxis).toBeUndefined()
+            expect(logic.values.sourceQuery.chartSettings?.showLegend).toBeUndefined()
+            biLogic.unmount()
+        })
+
         it('captures BI mode selection and query runs without query contents', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
                 [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
@@ -2549,6 +2581,23 @@ describe('sqlEditorLogic', () => {
             biLogic.unmount()
         })
 
+        it('ignores hydration and status from a different connection', async () => {
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            databaseLogic.actions.hydrateTableFieldsFailure(['events'])
+            await expectLogic(databaseLogic, () =>
+                biLogic.actions.restoreState({
+                    editorView: BIEditorView.BI,
+                    config: { ...config, source: { table: 'events', connectionId: 'other-connection' } },
+                })
+            ).toNotHaveDispatchedActions(['hydrateTableFields'])
+            expect(biLogic.values.dataPaneFieldsError).toBe(false)
+            databaseLogic.actions.hydrateTableFieldsStart(['events'])
+            expect(biLogic.values.dataPaneFieldsLoading).toBe(false)
+            biLogic.unmount()
+        })
+
         it('hydrates fields when the schema arrives after restoring a worksheet', async () => {
             await expectLogic(databaseLogic).toFinishAllListeners()
             const biLogic = biEditorLogic({ tabId: TAB_ID })
@@ -2588,6 +2637,171 @@ describe('sqlEditorLogic', () => {
                 expect.objectContaining({ name: 'event', expression: 'event' }),
             ])
             expect(biLogic.values.dataPaneFieldsError).toBe(false)
+            biLogic.unmount()
+        })
+
+        it.each([false, true])(
+            'loads connected fields on expansion and keeps their rooted paths (alias=%s)',
+            async (alias) => {
+                await expectLogic(databaseLogic).toFinishAllListeners()
+                const biLogic = biEditorLogic({ tabId: TAB_ID })
+                biLogic.mount()
+                biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+                databaseLogic.actions.loadDatabaseSuccess({
+                    tables: {
+                        events: {
+                            id: 'events',
+                            name: 'events',
+                            type: 'posthog',
+                            fields: {
+                                ...(alias
+                                    ? {
+                                          pdi: {
+                                              name: 'pdi',
+                                              type: 'lazy_table' as const,
+                                              table: 'person_distinct_ids',
+                                              hogql_value: 'pdi',
+                                              schema_valid: true,
+                                          },
+                                      }
+                                    : {}),
+                                person: {
+                                    name: 'person',
+                                    type: alias ? 'field_traverser' : 'lazy_table',
+                                    chain: alias ? ['pdi', 'person'] : undefined,
+                                    table: alias ? undefined : 'persons',
+                                    hogql_value: 'person',
+                                    schema_valid: true,
+                                },
+                            },
+                        },
+                        persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                        ...(alias
+                            ? {
+                                  person_distinct_ids: {
+                                      id: 'person_distinct_ids',
+                                      name: 'person_distinct_ids',
+                                      type: 'posthog' as const,
+                                      fields: {},
+                                  },
+                              }
+                            : {}),
+                    },
+                    joins: [],
+                })
+                databaseLogic.actions.setDatabaseFieldsComplete(false)
+                const connections = biConnectionsLogic({ tabId: TAB_ID })
+                connections.mount()
+                expect(connections.values.connections.find((c) => c.name === 'person')).toMatchObject({
+                    expanded: false,
+                    state: 'loading',
+                })
+                expect(databaseLogic.values.tableFieldsStatus.persons).toBeUndefined()
+
+                queryEndpointMock.mockReturnValue([
+                    200,
+                    {
+                        tables: {
+                            persons: {
+                                id: 'persons',
+                                name: 'persons',
+                                type: 'posthog',
+                                fields: {
+                                    email: { name: 'email', type: 'string', hogql_value: 'email', schema_valid: true },
+                                },
+                            },
+                        },
+                        joins: [],
+                    },
+                ])
+                if (alias) {
+                    queryEndpointMock.mockReturnValueOnce([
+                        200,
+                        {
+                            tables: {
+                                person_distinct_ids: {
+                                    id: 'person_distinct_ids',
+                                    name: 'person_distinct_ids',
+                                    type: 'posthog',
+                                    fields: {
+                                        person: {
+                                            name: 'person',
+                                            type: 'lazy_table',
+                                            table: 'persons',
+                                            hogql_value: 'person',
+                                            schema_valid: true,
+                                        },
+                                    },
+                                },
+                            },
+                            joins: [],
+                        },
+                    ])
+                }
+                useMocks({ post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': queryEndpointMock } })
+                await expectLogic(databaseLogic, () =>
+                    connections.actions.toggleConnection('["person"]', alias ? 'person_distinct_ids' : 'persons')
+                ).toDispatchActions(
+                    alias ? ['hydrateTableFieldsSuccess', 'hydrateTableFieldsSuccess'] : ['hydrateTableFieldsSuccess']
+                )
+                expect(connections.values.connections.find((c) => c.name === 'person')!.fields.dimensions).toEqual([
+                    expect.objectContaining({
+                        name: 'person.email',
+                        expression: 'person.email',
+                        source: config.source,
+                    }),
+                ])
+                biLogic.actions.setDataSource({ table: 'persons' })
+                expect(connections.values.connections).toEqual([])
+                connections.unmount()
+                biLogic.unmount()
+            }
+        )
+
+        it('creates and edits a calculated measure without applying canceled drafts or losing its sort', () => {
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.editCalculatedMeasure()
+            biLogic.actions.setCalculatedMeasureDraft({
+                index: null,
+                name: 'ARPU',
+                expression: 'sum(revenue) / nullIf(count(DISTINCT user_id), 0)',
+            })
+            biLogic.actions.updateTab({
+                ...biLogic.values.activeTab!,
+                biEditorState: { editorView: BIEditorView.BI, config },
+            })
+            expect(biLogic.values.calculatedMeasureDraft?.name).toBe('ARPU')
+            expect(biLogic.values.config.values).toEqual([])
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.calculatedMeasureDraft).toBeNull()
+            expect(biLogic.values.generatedQuery?.query).toContain(
+                'sum(revenue) / nullIf(count(DISTINCT user_id), 0) AS ARPU'
+            )
+            const value = biLogic.values.config.values[0]
+            biLogic.actions.setSort({ key: `values:${value.field.id}`, direction: 'asc' })
+            biLogic.actions.editCalculatedMeasure(0)
+            biLogic.actions.setCalculatedMeasureDraft({ index: 0, name: 'Canceled name', expression: 'avg(revenue)' })
+            biLogic.actions.setCalculatedMeasureDraft(null)
+            expect(biLogic.values.config.values[0]).toEqual(value)
+            biLogic.actions.editCalculatedMeasure(0)
+            expect(biLogic.values.calculatedMeasureDraft?.name).toBe('ARPU')
+            biLogic.actions.setCalculatedMeasureDraft({ index: 0, name: 'Average revenue', expression: 'avg(revenue)' })
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.config.values).toHaveLength(1)
+            expect(biLogic.values.config.values[0].field.id).toBe(value.field.id)
+            expect(biLogic.values.generatedQuery?.query).toContain('avg(revenue) AS "Average revenue"')
+            expect(biLogic.values.generatedQuery?.query).toContain('ORDER BY\n    "Average revenue" ASC')
+            biLogic.actions.moveFieldToShelf('values', 0, 'filters')
+            expect(biLogic.values.config.values).toHaveLength(1)
+            expect(biLogic.values.config.filters).toEqual(config.filters)
+            biLogic.actions.editCalculatedMeasure(0)
+            biLogic.actions.setDataSource({ table: 'other_table' })
+            expect(biLogic.values.calculatedMeasureDraft).toBeNull()
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.config.values).toEqual([])
             biLogic.unmount()
         })
 
@@ -2639,7 +2853,7 @@ describe('sqlEditorLogic', () => {
         })
 
         test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
-            'handles chart-only changes with %s query results and runs changed pivot SQL',
+            'handles chart-only changes with %s query results and runs changed table SQL',
             async (resultState) => {
                 logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
                 logic.mount()
@@ -2669,11 +2883,11 @@ describe('sqlEditorLogic', () => {
                 jest.useFakeTimers()
                 try {
                     biLogic.actions.setAutoUpdate(true)
-                    biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
+                    biLogic.actions.setChartType(ChartDisplayType.ActionsStackedBar)
                     await jest.advanceTimersByTimeAsync(500)
-                    expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsTable)
+                    expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsStackedBar)
                     expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 0 : 1)
-                    biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
+                    biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
                     await jest.advanceTimersByTimeAsync(500)
                     expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 1 : 2)
                 } finally {
@@ -2685,7 +2899,7 @@ describe('sqlEditorLogic', () => {
             }
         )
 
-        test.each(['disable', 'sql', 'clear', 'unchanged'] as const)(
+        test.each(['disable', 'sql', 'clear', 'invalid', 'unchanged'] as const)(
             'handles a pending automatic query when the worksheet is %s',
             async (transition) => {
                 logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
@@ -2705,6 +2919,22 @@ describe('sqlEditorLogic', () => {
                         logic.actions.setQueryInput('SELECT 42')
                     } else if (transition === 'clear') {
                         biLogic.actions.resetConfig()
+                    } else if (transition === 'invalid') {
+                        biLogic.actions.restoreState({
+                            editorView: BIEditorView.BI,
+                            config: {
+                                ...config,
+                                filters: [
+                                    {
+                                        field: { ...eventField, type: 'integer' },
+                                        operator: 'between',
+                                        value: '0',
+                                        valueTo: 'abc',
+                                    },
+                                ],
+                            },
+                        })
+                        biLogic.actions.setLimit(10000)
                     }
                     await jest.advanceTimersByTimeAsync(500)
                     expect(runQuery).toHaveBeenCalledTimes(transition === 'unchanged' ? 1 : 0)
@@ -2786,6 +3016,42 @@ describe('sqlEditorLogic', () => {
                 ...persistedConfig,
                 filters: [{ ...persistedConfig.filters[0], value: 'purchase' }],
             })
+
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'in')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].values).toEqual(['purchase'])
+            await expectLogic(biLogic, () =>
+                biLogic.actions.updateFilter(0, { values: ['purchase', 'renewal'] })
+            ).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: false })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            expect(router.values.hashParams.bi.filters[0]).toEqual(
+                expect.objectContaining({ enabled: false, values: ['purchase', 'renewal'] })
+            )
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: true })).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { values: [] })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'equals')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].value).toBe('')
+
+            biLogic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: {
+                    ...config,
+                    filters: [{ field: { ...eventField, type: 'integer' }, operator: 'between', value: '0' }],
+                },
+            })
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { valueTo: 'abc' })).toFinishAllListeners()
+            const lastRunQuery = logic.values.lastRunQuery
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.error).toBe('Fix invalid worksheet filters before running the query.')
+            expect(logic.values.lastRunQuery).toEqual(lastRunQuery)
+            await expectLogic(biLogic, () =>
+                biLogic.actions.updateFilter(0, { valueTo: '9007199254740993' })
+            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.lastRunQuery?.source.query).toContain('event <= 9007199254740993')
 
             biLogic.unmount()
         })
