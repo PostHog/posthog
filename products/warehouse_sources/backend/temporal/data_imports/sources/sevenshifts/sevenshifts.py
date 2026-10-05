@@ -6,6 +6,7 @@ from requests import HTTPError
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -94,6 +95,15 @@ def sevenshifts_source(
             else (watermark - timedelta(seconds=1)).isoformat()
         )
 
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": f"{company_path(config.company_id)}/{endpoint}",
+            "params": params,
+            "data_selector": "data",
+            "data_selector_required": True,
+        },
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
@@ -109,17 +119,7 @@ def sevenshifts_source(
             "allow_redirects": False,
             "request_timeout": 30,
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": f"{company_path(config.company_id)}/{endpoint}",
-                    "params": params,
-                    "data_selector": "data",
-                    "data_selector_required": True,
-                },
-            }
-        ],
+        "resources": [resource_config],
     }
     resume = manager.load_state() if manager.can_resume() else None
 

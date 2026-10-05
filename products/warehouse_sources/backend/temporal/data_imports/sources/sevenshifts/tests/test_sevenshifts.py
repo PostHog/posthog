@@ -1,7 +1,8 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from http import HTTPStatus
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -71,7 +72,7 @@ def test_pages_auth_and_resume(
     send.side_effect = [response([{"id": 1}], "next-cursor"), response([{"id": 2}])]
 
     result = sevenshifts_source(config, endpoint, "2026-01-01", 1, "test-job", manager, True, None)
-    pages = iter(result.items())
+    pages = iter(cast(Iterable[Any], result.items()))
     assert next(pages) == [{"id": 1}]
     assert list(pages) == [[{"id": 2}]]
     manager.save_state.assert_called_once_with(SevenShiftsResumeConfig(cursor="next-cursor"))
@@ -121,7 +122,7 @@ def test_incremental_filter_and_full_refresh(
 ) -> None:
     send.side_effect = [response([{"id": 1}], "page-two"), response([])]
     result = sevenshifts_source(config, endpoint, "2026-01-01", 1, "test-job", manager, incremental, watermark)
-    list(result.items())
+    list(cast(Iterable[Any], result.items()))
     for call in send.call_args_list:
         params = parse_qs(urlparse(call.args[0].url).query)
         assert params.get("modified_since") == ([expected] if incremental else None)
@@ -133,7 +134,7 @@ def test_terminal_page(
 ) -> None:
     send.return_value = response(rows)
     result = sevenshifts_source(config, "locations", "2026-01-01", 1, "test-job", manager, False, None)
-    assert [row for page in result.items() for row in page] == rows
+    assert [row for page in cast(Iterable[Any], result.items()) for row in page] == rows
     send.assert_called_once()
     manager.save_state.assert_not_called()
 
@@ -141,7 +142,7 @@ def test_terminal_page(
 def test_empty_page_with_next_cursor(config: SevenShiftsSourceConfig, manager: MagicMock, send: MagicMock) -> None:
     send.side_effect = [response([], "page-two"), response([{"id": 2}])]
     result = sevenshifts_source(config, "users", "2026-01-01", 1, "test-job", manager, False, None)
-    assert [row for page in result.items() for row in page] == [{"id": 2}]
+    assert [row for page in cast(Iterable[Any], result.items()) for row in page] == [{"id": 2}]
     assert send.call_count == 2
 
 
@@ -149,7 +150,7 @@ def test_repeated_cursor_fails(config: SevenShiftsSourceConfig, manager: MagicMo
     send.side_effect = [response([{"id": 1}], "same-cursor"), response([{"id": 1}], "same-cursor")]
     result = sevenshifts_source(config, "users", "2026-01-01", 1, "test-job", manager, False, None)
     with pytest.raises(ValueError, match="not advancing"):
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
 
 
 def test_missing_data_fails(config: SevenShiftsSourceConfig, manager: MagicMock, send: MagicMock) -> None:
@@ -158,7 +159,7 @@ def test_missing_data_fails(config: SevenShiftsSourceConfig, manager: MagicMock,
     send.return_value = payload
     result = sevenshifts_source(config, "users", "2026-01-01", 1, "test-job", manager, False, None)
     with pytest.raises(ValueError, match="data_selector"):
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
 
 
 @pytest.mark.parametrize("company_id", ["", "abc", "0", "-1", "123/../users", "１２３"])
@@ -206,7 +207,7 @@ def test_error_classification(
         result = sevenshifts_source(config, "users", "2026-01-01", 1, "test-job", manager, False, None)
         error_type = RESTClientRetryableError if status in (429, 500) else HTTPError
         with pytest.raises(error_type) as caught:
-            list(result.items())
+            list(cast(Iterable[Any], result.items()))
     patterns = SevenShiftsSource().get_non_retryable_errors()
     assert any(pattern in str(caught.value) for pattern in patterns) == (status in (401, 403))
 
