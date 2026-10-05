@@ -411,10 +411,12 @@ _LEADING_INDEXES_SQL = """
     FROM pg_index idx
     JOIN pg_class table_class ON table_class.oid = idx.indrelid
     JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+    JOIN pg_am am ON am.oid = index_class.relam
     JOIN pg_attribute att ON att.attrelid = idx.indrelid AND att.attnum = idx.indkey[0]
     WHERE table_class.relname = %(table)s
       AND pg_table_is_visible(table_class.oid)
       AND att.attname = %(column)s
+      AND am.amname = 'btree'
       AND idx.indisvalid
       AND idx.indpred IS NULL
 """
@@ -436,7 +438,7 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
 
     The op raises instead of guessing when another single-column index on the key exists that
     no Meta index names. It also raises when a parent delete still reads the column and no
-    other index leads with it: the foreign key check at COMMIT and every `on_delete` but
+    other btree index leads with it: the foreign key check at COMMIT and every `on_delete` but
     `DO_NOTHING` would then scan the whole table.
     """
 
@@ -485,8 +487,8 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
                 covering = {name for (name,) in cursor.fetchall()} - {index_name}
             if not covering:
                 raise ValueError(
-                    f"No other index on {table} leads with {field.column}. Without one, a delete of the parent "
-                    f"row scans {table} for child rows. Add an index that leads with {field.column} first."
+                    f"No other btree index on {table} leads with {field.column}. Without one, a delete of the "
+                    f"parent row scans {table} for child rows. Add a btree index that leads with {field.column} first."
                 )
         _disable_timeouts(schema_editor)
         schema_editor.execute(_build_drop_sql(index_name))

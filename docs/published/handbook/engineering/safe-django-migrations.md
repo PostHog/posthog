@@ -553,7 +553,7 @@ Dropping an index uses the mirror helper, `SafeRemoveIndexConcurrently`
 The index Django creates for a `ForeignKey` comes from the field's `db_index`, not from a Django `Index`, so `SafeRemoveIndexConcurrently` cannot find it.
 Set `db_index=False` on the field and use `DropForeignKeyIndexConcurrently(model_name="mymodel", name="team")` in place of the `AlterField` that `makemigrations` writes.
 It derives the index name the way Django does, so no hash-suffixed name is typed by hand.
-It refuses when the table holds another index on only that column that no `Meta` index names, and when no other index leads with the column while a parent delete still reads it.
+It refuses when the table holds another index on only that column that no `Meta` index names, and when no other btree index leads with the column while a parent delete still reads it.
 
 ### Raw-SQL variant: `CreateIndexConcurrently` / `DropIndexConcurrently`
 

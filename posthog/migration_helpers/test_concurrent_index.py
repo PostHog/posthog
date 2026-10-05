@@ -554,9 +554,13 @@ def test_drop_foreign_key_index_drops_only_the_automatic_index(key_tables, on_de
     "on_delete,db_constraint,stray_index,error",
     [
         pytest.param(models.CASCADE, True, True, "Find out what created it", id="an_unexpected_index_on_the_column"),
-        pytest.param(models.CASCADE, True, False, "No other index", id="no_other_index_leads_with_the_column"),
-        pytest.param(models.DO_NOTHING, True, False, "No other index", id="only_the_commit_check_reads_the_column"),
-        pytest.param(models.CASCADE, False, False, "No other index", id="only_the_delete_collector_reads_the_column"),
+        pytest.param(models.CASCADE, True, False, "No other btree index", id="no_other_index_leads_with_the_column"),
+        pytest.param(
+            models.DO_NOTHING, True, False, "No other btree index", id="only_the_commit_check_reads_the_column"
+        ),
+        pytest.param(
+            models.CASCADE, False, False, "No other btree index", id="only_the_delete_collector_reads_the_column"
+        ),
     ],
 )
 def test_drop_foreign_key_index_refuses_and_keeps_the_index(key_tables, on_delete, db_constraint, stray_index, error):
