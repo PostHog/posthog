@@ -3,11 +3,12 @@
 //! fails on the transport, puts them back at the front of the key's queue
 //! with a retry time. Retried messages go through the packer like fresh ones.
 
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{GroupCompletion, Offset, Partition};
-use metrics::gauge;
+use metrics::{gauge, histogram};
 
 use super::in_flight::{InFlightRequest, InFlightRequests, KeyOutcome, RequestId};
 use super::key_queues::{KeyQueues, KeyRun, Settled};
@@ -476,45 +477,67 @@ impl Work {
 
     fn place(&mut self, now: Instant, pool: &WorkerPool, step: &mut Step) {
         let mut retry = std::mem::take(&mut self.unplaced);
-        let mut still_unplaced = VecDeque::new();
         loop {
-            let request = match retry.pop_front() {
-                Some(request) => request,
-                None => {
-                    if self.assigner.free_slots(&pool.healthy) == 0 {
-                        break;
-                    }
-                    match self.packer.take_ready(now, 1).pop() {
-                        Some(request) => request,
-                        None => break,
-                    }
-                }
-            };
-            // A replay escapes the aperture slice and routes over the whole
-            // healthy pool: the slice may be exactly what it failed in.
-            let candidates = if request.class.replay {
-                &pool.healthy
-            } else {
-                &pool.candidates
-            };
-            let Some(worker) = self.assigner.assign(candidates, request.message_count) else {
-                // Requests carry disjoint keys, so their send order does not
-                // matter for per-key order. A request that no candidate can
-                // take must not hold back the requests behind it.
-                still_unplaced.push_back(request);
-                continue;
-            };
-            let id = self
-                .in_flight
-                .register(worker.clone(), request.class, &request.runs);
-            step.sends.push(Send {
-                request: id,
-                worker,
-                class: request.class,
-                runs: request.runs,
-            });
+            let free = self.assigner.free_slots(&pool.healthy);
+            let mut batch: Vec<PackedRequest> = retry.drain(..).collect();
+            batch.extend(
+                self.packer
+                    .take_ready(now, free.saturating_sub(batch.len())),
+            );
+            if batch.is_empty() {
+                break;
+            }
+            if self.assigner.prefers_largest_first() {
+                // Bin-packing places the heavy requests first, so they drive
+                // the load distribution.
+                batch.sort_by_key(|request| Reverse(request.message_count));
+            }
+            let mut placed_any = false;
+            for request in batch {
+                // A replay escapes the aperture slice and routes over the whole
+                // healthy pool: the slice may be exactly what it failed in.
+                let candidates = if request.class.replay {
+                    &pool.healthy
+                } else {
+                    &pool.candidates
+                };
+                let Some(worker) = self.assigner.assign(candidates, request.message_count) else {
+                    // Requests carry disjoint keys, so their send order does
+                    // not matter for per-key order. A request that no
+                    // candidate can take must not hold back the others.
+                    self.unplaced.push_back(request);
+                    continue;
+                };
+                placed_any = true;
+                self.send(now, worker, request, step);
+            }
+            if !placed_any {
+                break;
+            }
         }
-        self.unplaced = still_unplaced;
+    }
+
+    fn send(&mut self, now: Instant, worker: WorkerId, request: PackedRequest, step: &mut Step) {
+        let kind = if request.class.replay {
+            "replay"
+        } else {
+            "fresh"
+        };
+        histogram!("ingestion_consumer_request_events").record(request.message_count as f64);
+        histogram!("ingestion_consumer_request_bytes").record(request.bytes as f64);
+        histogram!("ingestion_consumer_request_queue_wait_seconds", "kind" => kind).record(
+            now.saturating_duration_since(request.oldest_arrival)
+                .as_secs_f64(),
+        );
+        let id = self
+            .in_flight
+            .register(worker.clone(), request.class, &request.runs);
+        step.sends.push(Send {
+            request: id,
+            worker,
+            class: request.class,
+            runs: request.runs,
+        });
     }
 
     fn finish(&mut self, now: Instant, step: &mut Step) -> Result<(), String> {
@@ -554,7 +577,14 @@ impl Work {
         gauge!("ingestion_consumer_machine_waiting_keys").set(self.keys.waiting_keys() as f64);
         gauge!("ingestion_consumer_machine_packer_held_messages")
             .set(self.packer.held_messages() as f64);
+        gauge!("ingestion_consumer_machine_packer_held_keys").set(self.packer.held_keys() as f64);
         gauge!("ingestion_consumer_machine_unplaced_requests").set(self.unplaced.len() as f64);
+        gauge!("ingestion_consumer_machine_unplaced_messages").set(
+            self.unplaced
+                .iter()
+                .map(|request| request.message_count)
+                .sum::<usize>() as f64,
+        );
         gauge!("ingestion_consumer_machine_in_flight_requests").set(self.in_flight.len() as f64);
     }
 }
@@ -810,6 +840,26 @@ mod tests {
         assert_eq!(step.sends.len(), 1);
         assert!(step.sends[0].class.replay);
         assert_eq!(shape(&step.sends[0]), vec![("b", vec![2])]);
+    }
+
+    #[test]
+    fn bin_packing_places_the_largest_request_first() {
+        let now = Instant::now();
+        let workers = pool(&["w1", "w2"]);
+        let machine = machine(config(1, Duration::ZERO, 4), now);
+
+        let (_, step) = machine.on_groups(
+            now,
+            &workers,
+            0,
+            vec![run("small", &[1]), run("large", &[2, 3, 4])],
+        );
+        let placed: Vec<_> = step
+            .sends
+            .iter()
+            .map(|send| (send.runs[0].routing_key.as_str(), send.worker.as_ref()))
+            .collect();
+        assert_eq!(placed, vec![("large", "w1"), ("small", "w2")]);
     }
 
     #[test]

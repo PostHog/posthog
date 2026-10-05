@@ -31,6 +31,8 @@ pub struct PackedRequest {
     pub runs: Vec<KeyRun>,
     pub message_count: usize,
     pub bytes: usize,
+    /// When the oldest message of the request was queued.
+    pub oldest_arrival: Instant,
 }
 
 #[derive(Clone, Copy)]
@@ -105,7 +107,10 @@ impl Packer {
     /// queues claim a key until its run settles.
     pub fn push(&mut self, ready: ReadyRun, now: Instant) {
         let ReadyRun {
-            class, run, bytes, ..
+            class,
+            run,
+            bytes,
+            first_arrival,
         } = ready;
         let index = match self
             .open
@@ -120,6 +125,7 @@ impl Packer {
                         runs: Vec::new(),
                         message_count: 0,
                         bytes: 0,
+                        oldest_arrival: first_arrival,
                     },
                     deadline: now + self.targets.latency_budget,
                 });
@@ -129,6 +135,7 @@ impl Packer {
         let request = &mut self.open[index].request;
         request.message_count += run.messages.len();
         request.bytes += bytes;
+        request.oldest_arrival = request.oldest_arrival.min(first_arrival);
         request.runs.push(run);
         if self.targets.reached(request.message_count, request.bytes) {
             self.seal(index, SealReason::Full);

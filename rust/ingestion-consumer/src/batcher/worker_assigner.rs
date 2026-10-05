@@ -32,6 +32,10 @@ impl WorkerAssigner {
         }
     }
 
+    pub fn prefers_largest_first(&self) -> bool {
+        self.router.prefers_largest_first()
+    }
+
     pub fn free_slots(&self, pool: &[WorkerId]) -> usize {
         pool.iter()
             .map(|worker| self.max_requests_per_worker - self.requests_on(worker))
