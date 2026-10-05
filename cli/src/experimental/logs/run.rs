@@ -10,6 +10,7 @@ use super::config::LokiImportConfig;
 use super::emit::{batch_records, Batch};
 use super::loki::{Entry, LokiClient, Page, INSTANT_LIMIT};
 use super::mapping::Mapper;
+use super::retention::retention_cutoff;
 use super::send::{backoff, classify, Disposition};
 use super::shard::shards;
 
@@ -67,6 +68,9 @@ pub struct Importer<'a> {
     pub intake_url: String,
     pub project_key: String,
     pub checkpoint_path: &'a Path,
+    /// The project's default logs retention. Each shard starts at the retention cutoff when it
+    /// begins before it, because intake would drop the records before the cutoff.
+    pub retention_days: Option<i64>,
 }
 
 pub fn project_key_from_env() -> Result<String> {
@@ -118,8 +122,16 @@ impl Importer<'_> {
             );
 
             for window in windows {
-                let mut cursor = window
-                    .start
+                // Starts at the cutoff when the shard begins before it, so no record intake would
+                // drop is sent. Rechecked per shard, because the cutoff moves forward during a run.
+                let start = match self.retention_days {
+                    Some(days) => window.start.max(retention_cutoff(days, chrono::Utc::now())),
+                    None => window.start,
+                };
+                if start >= window.end {
+                    continue;
+                }
+                let mut cursor = start
                     .timestamp_nanos_opt()
                     .context("shard start is outside the nanosecond range")?;
                 let mut tally = ShardTally::default();

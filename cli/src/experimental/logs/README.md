@@ -118,5 +118,24 @@ PostHog keeps only the records that are still inside the project's retention. A 
 timestamp plus the retention is already in the past is dropped at intake, even though the request
 succeeds, so a range older than the retention adds nothing but transfer time.
 
+Before it sends anything, the import reads the project's logs retention and says which part of the
+range would be dropped. `--dry-run` prints the same summary. To keep that part, raise logs
+retention in the project settings first.
+
+When part of the range is past retention, the import asks before it goes ahead, and then skips
+those records instead of sending them. One answer covers the whole run, even though the cutoff
+moves forward while a long import runs. Without a terminal, for example in a Kubernetes Job, the
+import stops before sending anything unless you pass `--skip-expired`, which answers the question
+in advance.
+
+If the import cannot read the retention, for example because the API key lacks `project:read`,
+it says so and asks the same question. Nothing is skipped in that case, and intake still drops
+whatever is past retention.
+
+The check uses the project's default logs retention only. Retention rules can give some logs a
+longer or shorter retention than the default, and the import does not read them. If you use
+retention rules, logs that a longer rule would keep may still be skipped, and logs that a shorter
+rule covers may be dropped at intake without a warning.
+
 Records that are kept take their retention from when they were imported, not from their own
 timestamp, so they expire the configured number of retention days after the import finishes.

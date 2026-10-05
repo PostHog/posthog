@@ -8,6 +8,9 @@ use super::mapping::MappingHits;
 /// What a run will do, computed before it moves any data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunPlan {
+    /// Where the records the run sends begin, which is later than `range.from` when part of the
+    /// range is past retention.
+    pub from: DateTime<Utc>,
     pub shards: u64,
     pub bytes: u64,
     pub seconds: u64,
@@ -19,11 +22,12 @@ impl RunPlan {
     /// send a hundred records, which is about a second for any run.
     pub fn build(
         config: &LokiImportConfig,
+        from: DateTime<Utc>,
         volume_bytes: u64,
         sample_records: u64,
         sample_bytes: u64,
     ) -> Self {
-        let span = (config.range.to - config.range.from).num_seconds().max(0) as u64;
+        let span = (config.range.to - from).num_seconds().max(0) as u64;
         let shard = config.tuning.shard.seconds().max(1);
         let shards = span.div_ceil(shard) * config.range.select.len() as u64;
         let rate = u64::from(config.tuning.max_records_per_second.get());
@@ -34,6 +38,7 @@ impl RunPlan {
             .unwrap_or(0);
 
         Self {
+            from,
             shards,
             bytes: volume_bytes,
             seconds: if bytes_per_record == 0 {
@@ -62,9 +67,9 @@ pub fn render(
     let _ = writeln!(
         out,
         "Range       {} to {}  ({} days, {} shards)",
-        day(config.range.from),
+        day(plan.from),
         day(config.range.to),
-        (config.range.to - config.range.from).num_days(),
+        whole_days(plan.from, config.range.to),
         plan.shards
     );
     let _ = writeln!(
@@ -101,8 +106,13 @@ pub fn render(
     out
 }
 
-fn day(at: DateTime<Utc>) -> String {
+pub(super) fn day(at: DateTime<Utc>) -> String {
     at.format("%Y-%m-%d").to_string()
+}
+
+/// Days from `from` to `to`, a part day counting as a whole one.
+pub(super) fn whole_days(from: DateTime<Utc>, to: DateTime<Utc>) -> i64 {
+    ((to - from).num_hours().max(0) as u64).div_ceil(24) as i64
 }
 
 fn human_bytes(bytes: u64) -> String {
@@ -154,8 +164,10 @@ tuning:
     #[test]
     fn shard_count_covers_every_selector_and_rounds_up() {
         // Two days at 6h is 8 shards per selector; a partial shard still has to run.
-        let two_selectors = RunPlan::build(&config("'{a=\"1\"}', '{b=\"2\"}'", "6h"), 0, 0, 0);
-        let uneven = RunPlan::build(&config("'{a=\"1\"}'", "5h"), 0, 0, 0);
+        let two = config("'{a=\"1\"}', '{b=\"2\"}'", "6h");
+        let two_selectors = RunPlan::build(&two, two.range.from, 0, 0, 0);
+        let five_hours = config("'{a=\"1\"}'", "5h");
+        let uneven = RunPlan::build(&five_hours, five_hours.range.from, 0, 0, 0);
 
         assert_eq!(two_selectors.shards, 16);
         assert_eq!(uneven.shards, 10, "48h at 5h must round up to 10, not 9");
@@ -178,9 +190,10 @@ tuning:
             ("trace_id", None),
         ];
 
+        let one_hour = config("'{a=\"1\"}'", "1h");
         let report = render(
-            &config("'{a=\"1\"}'", "1h"),
-            &RunPlan::build(&config("'{a=\"1\"}'", "1h"), 0, 0, 0),
+            &one_hour,
+            &RunPlan::build(&one_hour, one_hour.range.from, 0, 0, 0),
             &hits,
             &samples,
         );
