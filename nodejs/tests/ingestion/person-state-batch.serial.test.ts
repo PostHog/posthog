@@ -2354,7 +2354,16 @@ describe('PersonState.processEvent()', () => {
     })
 
     describe('illegal aliasing', () => {
-        const illegalIds = ['', '   ', 'null', 'undefined', '"undefined"', '[object Object]', '"[object Object]"']
+        const illegalIds = [
+            '',
+            '   ',
+            'null',
+            'undefined',
+            '"undefined"',
+            '[object Object]',
+            '"[object Object]"',
+            '$posthog_cookieless',
+        ]
         it.each(illegalIds)('stops $identify if current distinct_id is illegal: `%s`', async (illegalId: string) => {
             const mergeService = personMergeService({
                 event: '$identify',
