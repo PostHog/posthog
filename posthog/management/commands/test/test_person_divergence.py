@@ -54,12 +54,32 @@ class TestPersonDivergenceCommand(ClickhouseTestMixin, BaseTest):
 
 
 class TestPersonDivergenceArguments(SimpleTestCase):
-    @parameterized.expand([("zero", "0"), ("negative", "-5")])
-    def test_scan_rejects_a_team_step_below_one(self, _name: str, team_step: str) -> None:
+    @parameterized.expand(
+        [
+            ("team_step_zero", ["hidden", "--team-step", "0"], "0 must be 1 or more"),
+            ("team_step_negative", ["hidden", "--team-step", "-5"], "-5 must be 1 or more"),
+            ("modulus_zero", ["sample", "--modulus", "0", "--residue", "0"], "0 must be 1 or more"),
+            ("residue_at_modulus", ["sample", "--modulus", "4", "--residue", "4"], "--residue must be between 0 and 3"),
+            ("residue_negative", ["sample", "--modulus", "4", "--residue", "-1"], "--residue must be between 0 and 3"),
+            (
+                "written_within_zero",
+                ["sample", "--modulus", "4", "--residue", "0", "--written-within-days", "0"],
+                "0 must be 1 or more",
+            ),
+            (
+                "sample_size_zero",
+                ["team", "--team-id", "1", "--before", "2026-01-01", "--sample-size", "0"],
+                "0 must be 1 or more",
+            ),
+        ]
+    )
+    def test_scan_rejects_arguments_that_would_check_nothing(
+        self, _name: str, scan_args: list[str], message: str
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / "hidden.csv"
-            with self.assertRaisesMessage(CommandError, f"{team_step} must be 1 or more"):
-                call_command("person_divergence", "scan", "hidden", "--output", str(output), "--team-step", team_step)
+            output = Path(tmp) / "scan.csv"
+            with self.assertRaisesMessage(CommandError, message):
+                call_command("person_divergence", "scan", *scan_args, "--output", str(output))
             assert not output.exists()
 
     def test_repair_names_the_line_of_a_short_row(self) -> None:

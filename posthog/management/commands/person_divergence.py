@@ -103,12 +103,15 @@ class Command(BaseCommand):
         self._add_output(sample)
         self._add_team_range(sample)
         sample.add_argument(
-            "--modulus", type=int, required=True, help="Sample the persons where cityHash64(id) %% MODULUS = RESIDUE."
+            "--modulus",
+            type=_positive_int,
+            required=True,
+            help="Sample the persons where cityHash64(id) %% MODULUS = RESIDUE.",
         )
         sample.add_argument("--residue", type=int, required=True, help="See --modulus.")
         sample.add_argument(
             "--written-within-days",
-            type=int,
+            type=_positive_int,
             default=None,
             help="Only persons whose winner was written in the last N days.",
         )
@@ -125,7 +128,10 @@ class Command(BaseCommand):
         self._add_output(team)
         team.add_argument("--team-id", type=int, action="append", required=True, help="Team to check. Repeatable.")
         team.add_argument(
-            "--sample-size", type=int, default=200, help="Persons and mappings per team (default: %(default)s)."
+            "--sample-size",
+            type=_positive_int,
+            default=200,
+            help="Persons and mappings per team (default: %(default)s).",
         )
         team.add_argument(
             "--before",
@@ -183,6 +189,9 @@ class Command(BaseCommand):
 
     def _scan(self, options: dict[str, Any]) -> None:
         name = options["scan"]
+        # A residue outside the modulus samples nothing and would read as a clean fleet.
+        if name == "sample" and not 0 <= options["residue"] < options["modulus"]:
+            raise CommandError(f"--residue must be between 0 and {options['modulus'] - 1}")
         with _open_output(options["output"]) as handle:
             if name in _DIVERGENT_SCANS:
                 scan_fn, _, _ = _DIVERGENT_SCANS[name]
