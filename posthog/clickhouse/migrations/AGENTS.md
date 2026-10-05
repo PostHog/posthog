@@ -31,7 +31,7 @@ The repo can trail the clusters: older migrations, the HCL `local` layers and sh
 describe a layout that some environments have already moved away from. Before choosing `node_roles`
 for a new table, use the ClickHouse MCP to check each of dev, prod-us and prod-eu: where comparable
 tables live, which satellite tables the main cluster reads through `Distributed` tables, and that the
-new table names are unused. See the Housekeeper MCP runbook for setup and usage.
+new table names are unused. See the [Housekeeper MCP runbook](https://runbooks.posthog.com/services/clickhouse/concepts/housekeeper-mcp) for setup and usage.
 
 When precedents disagree, follow the newest migration for that table family and confirm it matches
 all three environments. A layout that only some environments still run is mid-migration, not a
