@@ -972,7 +972,6 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                     provider: 'google',
                                     emits_signals: true,
                                     scanner_config: { prompt: 'Did the user hesitate at checkout?' },
-                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -983,7 +982,6 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                         key_moment_ms: 154000,
                                     },
                                     signals_count: 0,
-                                    verification: null,
                                 },
                                 viewed: false,
                             }),
@@ -1007,7 +1005,6 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                     provider: 'google',
                                     emits_signals: false,
                                     scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
-                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -1017,7 +1014,6 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                         reasoning: 'Compared plans, opened billing, invited a teammate.',
                                     },
                                     signals_count: 0,
-                                    verification: null,
                                 },
                                 viewed: true,
                             }),
