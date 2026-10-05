@@ -7,13 +7,18 @@ escalation channel - save a query over a restricted table, publish, read it thro
 public link.
 """
 
+from dataclasses import replace
 from typing import Any
 
 from django.db.models import Q
 
 from rest_framework import serializers
 
+from posthog.schema import HogQLQuery
+
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import get_direct_connection_source, raw_query_denied_by_table_access
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_ast_for_printing
@@ -28,6 +33,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 
 def check_can_add_insight_to_shared_dashboard(
@@ -74,7 +80,7 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
     if not queries:
         return []
 
-    # One context for all queries: the publisher's schema is built on first prepare and reused.
+    # Reuse the default catalog to avoid rebuilding it for each insight.
     context = HogQLContext(
         team_id=team.pk,
         team=team,
@@ -91,6 +97,30 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
                 continue
             # Resource-level check first for product runners (logs, metrics, customer analytics, ...)
             runner.validate_query_runner_access(user)
+            if isinstance(runner.query, HogQLQuery) and runner.query.connectionId:
+                source = get_direct_connection_source(
+                    team, runner.query.connectionId, require_pure_direct=bool(runner.query.sendRawQuery)
+                )
+                if source is None:
+                    continue
+                if get_direct_connection_source(team, runner.query.connectionId, user=user) is None:
+                    raise UserAccessControlError("external_data_source", "viewer", str(source.id))
+                if runner.query.sendRawQuery:
+                    managed_mode = source.managed_warehouse_sql_mode if source.has_managed_warehouse_prefix else None
+                    if managed_mode != ManagedWarehouseSQLMode.BUILT_IN and raw_query_denied_by_table_access(
+                        team, source, user=user
+                    ):
+                        raise UserAccessControlError("warehouse_table", "viewer")
+                    continue
+                # Resolve against the selected connection so denied external tables raise access errors.
+                direct_context = replace(
+                    context,
+                    database=Database.create_for(
+                        team=team, user=user, connection_id=str(source.id), modifiers=context.modifiers
+                    ),
+                )
+                prepare_ast_for_printing(runner.to_query(), context=direct_context, dialect="hogql")
+                continue
             prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except UserAccessControlError as e:
             blocked.add(e.resource)
