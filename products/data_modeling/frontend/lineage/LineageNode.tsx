@@ -5,6 +5,7 @@ import React, { useCallback, useState } from 'react'
 import {
     IconActivity,
     IconClockRewind,
+    IconExternal,
     IconPauseFilled,
     IconPencil,
     IconPlay,
@@ -55,7 +56,7 @@ export interface LineageNodeState {
 }
 
 export interface LineageNodeCallbacks {
-    onClick?: () => void
+    onClick?: (event: React.MouseEvent | React.KeyboardEvent) => void
     onEdit?: () => void
     onMaterialize?: () => void
     onRunUpstream?: () => void
@@ -68,6 +69,8 @@ export interface LineageNodeData extends Record<string, unknown> {
     node: LineageNodeShape
     variant: LineageVariant
     direction: ElkDirection
+    draggable?: boolean
+    openUrl?: string
     state: LineageNodeState
     callbacks: LineageNodeCallbacks
     handles: NodeHandle[]
@@ -270,7 +273,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const handleKeyDown = (e: React.KeyboardEvent): void => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            callbacks.onClick?.()
+            callbacks.onClick?.(e)
         }
     }
 
@@ -286,7 +289,9 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         <Tooltip title={node.name} delayMs={500}>
             <div
                 className={clsx(
-                    'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
+                    'relative rounded-lg border bg-bg-light min-w-[180px]',
+                    callbacks.onClick && 'cursor-pointer',
+                    !callbacks.onClick && data.draggable && 'cursor-grab active:cursor-grabbing',
                     state.isRunning && 'animate-pulse',
                     state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
                     state.isSelected && 'border-link ring-4 ring-link/40',
@@ -314,6 +319,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 role={callbacks.onClick ? 'button' : undefined}
                 tabIndex={callbacks.onClick ? 0 : undefined}
                 aria-label={callbacks.onClick ? ariaLabel : undefined}
+                data-attr="lineage-node"
             >
                 {data.handles.map((handle) => (
                     <Handle
@@ -352,11 +358,27 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                             <NodeTypeTag type={node.type} />
                             {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
                         </div>
-                        {node.user_tag && (
-                            <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
-                                #{node.user_tag}
-                            </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                            {node.user_tag && (
+                                <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
+                                    #{node.user_tag}
+                                </span>
+                            )}
+                            {data.openUrl && (
+                                <LemonButton
+                                    className="nodrag nopan"
+                                    size="xxsmall"
+                                    type="secondary"
+                                    to={data.openUrl}
+                                    targetBlank
+                                    stopPropagation
+                                    tooltip="Open in new tab"
+                                    aria-label={`Open ${node.name} in new tab`}
+                                    icon={<IconExternal />}
+                                    data-attr="lineage-node-open"
+                                />
+                            )}
+                        </div>
                     </div>
                     <div className="flex items-center justify-between gap-2 py-2">
                         <span className="font-medium text-sm truncate">{node.name}</span>

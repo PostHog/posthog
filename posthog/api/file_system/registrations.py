@@ -151,17 +151,6 @@ def _insight_post_restore(context: RestoreContext, insight: Any) -> None:
     )
 
 
-def _link_post_delete(context: DeletionContext, link: Any) -> None:
-    ref = context.entry.ref
-    link_name = getattr(link, "short_code", None) or getattr(link, "redirect_url", None) or ref
-    _log_deletion_activity(
-        context,
-        scope="Link",
-        item_id=ref,
-        name=link_name,
-    )
-
-
 def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
     # Deferred: session_recording_playlist_api pulls session_recording_api -> the session_summary
     # temporal workflow (-> google-genai). This module is imported from AppConfig.ready(), so a
@@ -400,15 +389,6 @@ def register_core_file_system_types() -> None:
     )
     register_post_delete_hook("insight", _insight_post_delete)
     register_post_restore_hook("insight", _insight_post_restore)
-
-    register_file_system_type(
-        "link",
-        "links",
-        "Link",
-        allow_restore=False,
-        undo_message="Create a new link with the same details.",
-    )
-    register_post_delete_hook("link", _link_post_delete)
 
     register_file_system_type(
         "session_recording_playlist",

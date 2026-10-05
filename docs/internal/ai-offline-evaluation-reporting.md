@@ -186,6 +186,15 @@ Retrieve a specific version at the same path followed by `{version_id}/`.
 These operations use the existing scorer read permissions and include historical versions without recent results.
 Archived scorers remain addressable, including their versions and offline history, while default scorer selection excludes them.
 Creating another version with an unchanged configuration remains supported.
+Scorer configurations can optionally define which values pass:
+
+- Boolean `true_is_failure: false` makes true pass; `true_is_failure: true` makes false pass. Omitted or null polarity defaults to true passing.
+- Categorical `passing_rule` contains `categories`, a list of configured category keys. Every selected category must be included for a result to pass. Single-select rules require at least one passing category; a multi-select rule may have an empty list, making all accepted results fail. Offline results still require a nonempty selection. Omit the rule or set it to null for neutral scores.
+- Numeric `passing_rule` contains `operator: "gte"` (at or above) or `operator: "lte"` (at or below), and a finite `threshold` within the scorer's configured bounds. Omit the rule or set it to null for neutral scores. Thresholds need not align with the input step.
+
+Passing rules classify accepted scores; a failing score still has execution status `ok`.
+Each immutable version keeps its own polarity and rule. Changing a scorer creates a new configuration version without reinterpreting historical offline results or saved manual review snapshots.
+Numeric scorers without a passing rule remain neutral. The editor always offers a passing value for boolean scorers and persists the default polarity when saving a configuration.
 
 Experiment summaries and scorer history use the same aggregation rules over all matching results, independently of item pagination or payload availability.
 Different scorer versions remain separate, even when their configurations match.
@@ -196,12 +205,17 @@ Different scorer versions remain separate, even when their configurations match.
 | Boolean     | True and false counts, with the true rate among successful results.                    |
 | Categorical | Counts and rates per key from the pinned version, including keys with no observations. |
 
+Boolean scorers and numeric or categorical scorers with a passing rule also return `pass_count`, `fail_count`, and `pass_rate`.
+The rate divides passing results by successful results, excluding errors, skipped, not-applicable, and missing results.
+Numeric pass counts evaluate each result against the threshold, independently of the mean.
+Without successful results, boolean scorers and numeric or categorical scorers with a passing rule return zero pass/fail counts and a null rate. Numeric and categorical scorers without a rule return null for all three fields.
+
 Multiple-selection category rates divide by the successful result count and can add up to more than 100%.
 Error, skipped, and not-applicable outcomes are counted separately and excluded from value summaries.
 No successful results produces a null mean or rate.
 Missing results among observed items are reported separately and do not indicate how many entirely absent items were intended.
 Each repeated trial contributes one item; summaries also expose case and trial coverage without applying per-case weighting.
-Numeric increases and boolean true do not imply better quality unless that meaning is established by the scorer.
+Numeric increases do not imply better quality unless that meaning is established by the pinned scorer configuration. Boolean true passes by default unless the pinned version sets `true_is_failure: true`.
 
 ## Reading payload availability
 
@@ -235,7 +249,12 @@ Different scorer versions retain their pinned configurations and are not average
 Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
 The card summary aggregates the loaded experiments in the selected period for the displayed scorer version, using the same history points as the chart.
 Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
-The card count shows distinct experiments, including experiments without successful scores. History is limited to 100 experiment/version results, so incomplete-history summaries cover only the loaded results.
+Boolean charts show the passing rate, with true passing by default when polarity is omitted.
+Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.
+Summaries and tooltips show actual passing and failing counts separately from numeric means. Pooled passing rates divide total passing results by total passing plus failing results.
+Long score summaries truncate to fit their container, with the full value available on hover.
+Percentage displays use at most two decimal places across summaries, charts, and tooltips. Numeric scores and means normally use six significant digits, retaining more precision when rounding would change their passing verdict. Numeric tooltips and threshold labels show the exact value.
+Below the passing and failing counts, each card shows distinct experiments with the scored item count in parentheses. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores. History is limited to 100 experiment/version results, so incomplete-history summaries cover only the loaded results.
 Output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
 Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
 Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts.
@@ -247,6 +266,7 @@ Short date ranges show time-of-day labels, and short period comparisons show ela
 An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
 Scroll horizontally to reach additional scorer columns.
 Open an item or score cell for input, output, expected output, reasoning, and payload availability.
+Boolean score cells and numeric or categorical cells with a passing rule retain their raw values or custom labels, with a success/check or danger/cross treatment based on the pinned version's rule. Execution errors use a separate warning treatment; skipped, not-applicable, missing, and numeric or categorical results without a passing rule remain neutral.
 The inspector separates payload fields into collapsible labeled panels. Metadata and long text or large JSON start collapsed; each field can be expanded independently. Result details show the selected scorer and score above its reasoning.
 These larger payloads load only when the inspector requests them.
 Upload completion is separate from score quality. **Mark as completed** checks declared expected counts on the server; it cannot force a mismatched upload to complete.
@@ -254,12 +274,16 @@ Upload completion is separate from score quality. **Mark as completed** checks d
 Manage scorer definitions and versions under **Evaluations → Scorers**.
 The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
 Scorer management remains available for manual reviews when offline evaluations are disabled.
+Scorer names open the full-page editor at `/ai-evals/evaluations/scorers/{scorer_id}`; `/ai-evals/evaluations/scorers/new` creates a scorer.
+The editor combines metadata and score configuration in one form. Passing settings are shown only when offline evaluations are enabled; hiding those controls preserves existing rules. **Save** patches metadata when configuration is unchanged; configuration changes save metadata and a new immutable version together. Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
+Saving a new configuration checks the version observed when editing started. A concurrent version change returns 409 without saving either the draft metadata or configuration.
+The **More → Create new version** action can create an unchanged configuration version after confirmation. Save or discard a dirty draft before using this action.
+The **Offline evals history** button in the editor opens a scorer's experiment timeline.
 With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
 Its experiment table keeps names and coverage on one line, shows execution time in its own column, and opens run details with the arrow beside each name.
 Compare against a previous or custom period.
 Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
-Version creation copies the current stored configuration unchanged and requires refreshing after a concurrent version change.
 
 The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
 The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.

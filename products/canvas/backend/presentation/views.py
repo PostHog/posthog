@@ -351,6 +351,9 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
             raise PermissionDenied(f"This sandbox can file canvases only in its task's space.{hint}")
 
 
+CANVAS_LIST_ORDERINGS = ["-created_at", "-updated_at"]
+
+
 class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -509,6 +512,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 required=False,
                 description="Only return canvases whose name or description contains this text (case-insensitive).",
             ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                required=False,
+                enum=CANVAS_LIST_ORDERINGS,
+                description="Sort order. -created_at (default) puts the newest canvases first. "
+                "-updated_at puts the most recently changed canvases first.",
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -521,11 +532,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             "user_access_control": None if is_service_auth(request) else self.user_access_control,
             "include_all_if_admin": request.query_params.get("admin_include_all") == "true",
         }
+        requested_ordering = request.query_params.get("ordering")
+        ordering = requested_ordering if requested_ordering in CANVAS_LIST_ORDERINGS else None
         return self._paginated(
             request,
             lambda offset, limit: (
                 CanvasSerializer(
-                    canvas_api.list_canvases(viewer, offset=offset, limit=limit, **filters), many=True
+                    canvas_api.list_canvases(viewer, offset=offset, limit=limit, ordering=ordering, **filters),
+                    many=True,
                 ).data
             ),
             canvas_api.count_canvases(viewer, **filters),

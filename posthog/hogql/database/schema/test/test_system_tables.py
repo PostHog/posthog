@@ -350,6 +350,21 @@ def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
     return SimpleNamespace(pk=autoresearch_testing.create_pipeline(team_id=team.pk, name=f"pipeline_{label}"))
 
 
+def _create_autoresearch_training_run(team: Team, label: str) -> SimpleNamespace:
+    pipeline = _create_autoresearch_pipeline(team, label)
+    return SimpleNamespace(pk=autoresearch_testing.create_training_run(pipeline_id=pipeline.pk))
+
+
+def _create_autoresearch_iteration(team: Team, label: str) -> SimpleNamespace:
+    training_run = _create_autoresearch_training_run(team, label)
+    return SimpleNamespace(pk=autoresearch_testing.create_iteration(training_run_id=training_run.pk))
+
+
+def _create_autoresearch_model(team: Team, label: str) -> SimpleNamespace:
+    pipeline = _create_autoresearch_pipeline(team, label)
+    return SimpleNamespace(pk=autoresearch_testing.create_model(pipeline_id=pipeline.pk))
+
+
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
     cohort = Cohort.objects.create(team=team, name=f"cohort_for_calc_{label}")
     return CohortCalculationHistory.objects.create(team=team, cohort=cohort, filters={})
@@ -935,7 +950,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("autoresearch_iterations", _create_autoresearch_iteration),
+    ("autoresearch_models", _create_autoresearch_model),
     ("autoresearch_pipelines", _create_autoresearch_pipeline),
+    ("autoresearch_training_runs", _create_autoresearch_training_run),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_export_on_demands", _create_batch_export_on_demand),
     ("batch_export_runs", _create_batch_export_run),

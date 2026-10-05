@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import { TodayAskBox } from './TodayAskBox'
+import { WALK_THROUGH_QUESTION } from './todayAskPrompt'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
@@ -32,7 +33,7 @@ function TodayMetaLine(): JSX.Element {
 }
 
 function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.Element {
-    const { hoveredReportId, reports, teamReportPreviews } = useValues(todayLogic)
+    const { hoveredReportId, reports, teamReportPreviews, reportStateOverrides } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
     const { reportId } = segment
     if (!reportId) {
@@ -46,6 +47,7 @@ function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.El
             subtle
             className="TodayReportLink"
             data-active={hoveredReportId === reportId}
+            data-state={reportStateOverrides[reportId] ?? 'open'}
             data-attr="today-briefing-report"
             onClick={() => report && reportOpened(report, 'briefing')}
             onMouseEnter={() => setHoveredReportId(reportId)}
@@ -106,7 +108,7 @@ function TodayBriefingReports(): JSX.Element {
                 <button
                     type="button"
                     data-attr="today-ask-about-edition"
-                    onClick={() => askAi('Walk me through what changed in my product today.')}
+                    onClick={() => askAi(WALK_THROUGH_QUESTION, 'walk_through')}
                 >
                     ask PostHog AI to walk you through it
                 </button>

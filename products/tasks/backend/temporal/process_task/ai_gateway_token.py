@@ -5,18 +5,20 @@ gateway credential: pinned product and on-behalf-of team, per-run spend cap, one
 wallet. Minting is best-effort and the matching must agree with `resolveGatewayTarget` in
 packages/agent/packages/agent/src/utils/gateway.ts; the agent routes to the Go gateway
 only when the product is allowlisted AND a token is present, so a mint failure or matcher
-disagreement degrades the run to the Python gateway rather than failing it.
+disagreement degrades ordinary runs to the Python gateway. Private trials fail closed.
 """
 
 import time
 import random
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 
 import requests
 from prometheus_client import Counter
+
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_PRODUCT,
@@ -286,8 +288,45 @@ def token_cap_usd(team_id: int, ai_product: str) -> str:
     return str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD)
 
 
+def revoke_scoped_token(token: str) -> None:
+    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
+    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+    if not base_url or not mint_key:
+        raise GatewayNotConfiguredError("The AI gateway mint configuration is required to revoke a private token")
+    for attempt in range(_MINT_ATTEMPTS):
+        try:
+            response = requests.post(
+                f"{base_url}/v1/tokens/revoke",
+                json={"token": token},
+                headers={"Authorization": f"Bearer {mint_key}"},
+                timeout=_MINT_TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
+        except requests.RequestException:
+            pass
+        else:
+            if response.status_code == 200:
+                try:
+                    if response.json().get("revoked") is True:
+                        return
+                except (ValueError, AttributeError):
+                    pass
+                break
+            if response.status_code != 429 and response.status_code < 500:
+                break
+        if attempt < _MINT_ATTEMPTS - 1:
+            time.sleep((0.5 * 2**attempt) + random.uniform(0, 0.25))
+    raise GatewayNotConfiguredError("The private AI gateway credential could not be revoked")
+
+
 def mint_scoped_token(
-    *, ai_product: str, team_id: int, user: str | None = None, allowed_models: list[str] | None = None
+    *,
+    ai_product: str,
+    team_id: int,
+    user: str | None = None,
+    allowed_models: list[str] | None = None,
+    capture_mode: Literal["none"] | None = None,
+    expires_in_seconds: int | None = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -295,7 +334,7 @@ def mint_scoped_token(
     per-user ledger and budget attribution instead of pooling under the team.
     `allowed_models` narrows the product's pin (a free Desktop plan).
     Retries mint rate limits (429) and transient upstream errors with jittered
-    backoff. Callers treat None as "route this run to the Python gateway".
+    backoff. Private callers require an acknowledged capture pin and fail closed on None.
     """
     base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
     mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
@@ -304,7 +343,9 @@ def mint_scoped_token(
 
     body: dict[str, Any] = {
         "cap_usd": token_cap_usd(team_id, ai_product),
-        "ttl_seconds": _token_ttl_seconds(ai_product),
+        "ttl_seconds": max(60, min(expires_in_seconds, 86400))
+        if expires_in_seconds is not None
+        else _token_ttl_seconds(ai_product),
         "product": ai_product,
         "obo": str(team_id),
     }
@@ -313,6 +354,8 @@ def mint_scoped_token(
     pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)
     if pin:
         body["allowed_models"] = pin
+    if capture_mode is not None:
+        body["capture_mode"] = capture_mode
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:
@@ -327,19 +370,29 @@ def mint_scoped_token(
         else:
             if 200 <= response.status_code < 300:
                 try:
-                    token = response.json().get("token")
+                    payload = response.json()
+                    token = payload.get("token")
                     last_error = "mint response had no token"
                 except (ValueError, AttributeError):
                     token = None
                     last_error = "mint response was not a JSON object"
-                if token:
+                if isinstance(token, str) and token:
+                    if capture_mode is not None and payload.get("capture_mode") != capture_mode:
+                        # Older gateways ignore unknown fields; never use their unprotected token.
+                        revoke_scoped_token(token)
+                        last_error = "mint response did not acknowledge capture suppression"
+                        break
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token
             elif response.status_code in (429,) or response.status_code >= 500:
                 last_error = f"HTTP {response.status_code}"
             else:
                 # 4xx other than 429 will not improve on retry (bad credential, bad body).
-                last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                last_error = (
+                    f"HTTP {response.status_code}"
+                    if capture_mode is not None
+                    else f"HTTP {response.status_code}: {response.text[:200]}"
+                )
                 break
         if attempt < _MINT_ATTEMPTS - 1:
             time.sleep((0.5 * 2**attempt) + random.uniform(0, 0.25))
@@ -348,7 +401,7 @@ def mint_scoped_token(
     # The deploy's log formatter drops `extra`, so the message carries the fields.
     # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and the mint error, never the token or mint key
     logger.warning(
-        "ai_gateway_token: mint failed, run falls back to the Python gateway (ai_product=%s team_id=%s error=%s)",
+        "ai_gateway_token: mint failed (ai_product=%s team_id=%s error=%s)",
         ai_product,
         team_id,
         last_error,

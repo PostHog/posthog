@@ -40,6 +40,7 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_TITLE_LENGTH,
     MIN_CHECK_INTERVAL_MINUTES,
     CheckConfigValidationError,
+    MetricThresholdConfig,
     parse_check_config,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -1113,16 +1114,22 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         default=None,
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
+    # Proposed goals live in follow-up checks, so the metric authoring schema must not advertise them.
+    goal_value = None  # type: ignore[assignment]
+    goal_direction = None  # type: ignore[assignment]
+    goal_grain = None  # type: ignore[assignment]
+    decision_window_days = None  # type: ignore[assignment]
+    minimum_data_points = None  # type: ignore[assignment]
 
-    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
-        if any(
-            attrs.get(field) is not None
+    def to_internal_value(self, data: object) -> dict[str, object]:
+        # DRF ignores undeclared keys, so check the raw payload to keep the rejection explicit.
+        # `goal_grain` stays out of this check: an older client fills its schema default on every metric.
+        if isinstance(data, Mapping) and any(
+            data.get(field) is not None
             for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
         ):
-            raise serializers.ValidationError(
-                "Write proposed goals as impact_measurement_plan artefacts, not report metrics."
-            )
-        return attrs
+            raise serializers.ValidationError("Write proposed goals as follow-up checks, not report metrics.")
+        return super().to_internal_value(data)
 
 
 class ReportMetricListSerializer(ReportMetricSerializer):
@@ -1870,10 +1877,15 @@ class SignalNodeSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(SignalReportSerializer)
+class SerializedSignalReportField(serializers.JSONField):
+    pass
+
+
 class ReportSignalsResponseSerializer(serializers.Serializer):
     """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
 
-    report = SignalReportSerializer(help_text="The report these signals were clustered into.")
+    report = SerializedSignalReportField(help_text="The report these signals were clustered into.")
     signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
 
 
@@ -1907,6 +1919,11 @@ class SignalReportCheckConfigField(serializers.JSONField):
     """Kind-specific check configuration, validated against its kind's schema on every write."""
 
 
+@extend_schema_field(MetricThresholdConfig)  # type: ignore[arg-type]
+class MetricThresholdCheckConfigField(serializers.JSONField):
+    """Metric threshold check configuration, for requests that accept no other kind."""
+
+
 def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccessPolicy) -> dict[str, object]:
     """Hide the data-bearing fields of a check config this viewer may not read.
 
@@ -1934,6 +1951,22 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         representation = dict(super().to_representation(instance))
         config = representation.get("config")
         if isinstance(config, Mapping):
+            config = dict(config)
+            if instance.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+                metric = next(
+                    (
+                        metric
+                        for metric in instance.report.metrics or []
+                        if isinstance(metric, Mapping)
+                        and metric.get("metric_id") == config.get("metric_id")
+                        and metric.get("query") == config.get("query")
+                    ),
+                    None,
+                )
+                if metric is not None:
+                    for field, source in (("metric_kind", "kind"), ("value_format", "value_format"), ("unit", "unit")):
+                        if config.get(field) is None:
+                            config[field] = metric.get(source)
             representation["config"] = redact_check_config(config, report_metric_access_policy(self.context))
         return representation
 
@@ -1946,6 +1979,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "kind",
             "status",
             "config",
+            "approved_at",
             "next_run_at",
             "soak_minutes",
             "run_interval_minutes",
@@ -1996,6 +2030,23 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "consecutive_errors": {"help_text": "Runs that could not be measured since the last clean one."},
         }
+
+
+class SignalReportCheckReplacementSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=MAX_CHECK_TITLE_LENGTH, help_text="Label for the new metric check.")
+    rationale = serializers.CharField(
+        required=False, allow_blank=True, max_length=MAX_CHECK_RATIONALE_LENGTH, help_text="Why this check is better."
+    )
+    config = MetricThresholdCheckConfigField(
+        help_text="Metric threshold configuration, including a bounded query and comparison."
+    )
+
+    def validate_config(self, value: dict) -> dict:
+        try:
+            parse_check_config(SignalReportCheck.Kind.METRIC_THRESHOLD, value)
+        except CheckConfigValidationError as error:
+            raise serializers.ValidationError(str(error))
+        return value
 
 
 class SignalReportCheckWriteSerializer(serializers.Serializer):

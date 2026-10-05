@@ -326,6 +326,8 @@ rules:
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |QueueSchedulerDecision
+                              |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -335,7 +337,7 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
-                              |ReplayScannerPromptSuggestion
+                              |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -389,6 +391,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertThread
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -760,6 +763,8 @@ rules:
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
@@ -769,7 +774,7 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
-                        |ReplayScannerPromptSuggestion
+                        |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
@@ -823,6 +828,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertThread
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
