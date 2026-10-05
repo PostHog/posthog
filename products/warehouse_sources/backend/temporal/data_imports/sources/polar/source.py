@@ -56,7 +56,6 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/polar",
             iconPath="/static/services/polar.png",
             iconClassName="rounded dark:bg-white p-[2px]",
-            featureFlag="dwh_polar",
             fields=cast(
                 list[FieldType],
                 [
