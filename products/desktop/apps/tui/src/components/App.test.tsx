@@ -411,16 +411,22 @@ describe("App", () => {
     }
   });
 
-  it("renames the chat and its workspace from the composer", async () => {
+  it("renames the chat at once, keeps it, and puts the old name back when a rename fails", async () => {
     const split = openTask(
       splitFocused(openTask(initialLayout(), "t1", "Old name"), "row"),
       "t2",
       "Other",
     );
     saveLayout(focusPane(split, paneIds(activeWorkspace(split).root)[0]));
+    let answer = (): void => {};
     const rename = vi.fn(
-      async (taskId: string, title: string) =>
-        ({ id: taskId, title, runtime: "pi" }) as Task,
+      (taskId: string, title: string) =>
+        new Promise<Task>((resolve, reject) => {
+          answer = () =>
+            title === "Bad name"
+              ? reject(new Error("forbidden"))
+              : resolve({ id: taskId, title, runtime: "pi" } as Task);
+        }),
     );
     const mouse: MouseEvents = new EventEmitter();
     const { instance, output } = renderInTerminal(
@@ -458,10 +464,24 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(rename).toHaveBeenCalledWith("t1", "New name"),
       );
+      // Shown before the server answers.
+      await vi.waitFor(() => expect(output()).toContain("New name"));
+      answer();
       await vi.waitFor(() =>
         expect(
           allPanes(loadLayout()).find((pane) => pane.taskId === "t1")?.title,
         ).toBe("New name"),
+      );
+
+      type("/rename Bad name");
+      await vi.waitFor(() => expect(output()).toContain("Bad name"));
+      answer();
+      await vi.waitFor(() => expect(output()).toContain("Couldn't rename"));
+      // The latest frames draw the old name again.
+      await vi.waitFor(() =>
+        expect(output().lastIndexOf("New name")).toBeGreaterThan(
+          output().lastIndexOf("Bad name"),
+        ),
       );
     } finally {
       instance.unmount();
