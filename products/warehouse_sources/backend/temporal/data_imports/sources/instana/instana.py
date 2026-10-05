@@ -1,14 +1,15 @@
 import json
 import time
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     PAGE_SIZE,
     SNAPSHOTS_MAX_SIZE,
     InstanaEndpointConfig,
+    InstanaFanOutConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -95,10 +97,12 @@ def _read_capped_body(response: requests.Response) -> bytes:
     return b"".join(chunks)
 
 
-@dataclasses.dataclass
+@frozen
 class InstanaResumeConfig:
     # Next page to fetch for the page-paginated application-monitoring catalogs.
     next_page: int | None = None
+    # Next `offset` to fetch for offset/limit-paginated endpoints. Instana counts it in pages.
+    next_offset: int | None = None
     # Epoch-ms start of the next `/api/events` window chunk.
     events_window_from: int | None = None
 
@@ -281,6 +285,22 @@ def _get_event_rows(
         window_from = window_to
 
 
+def _check_walk_bounds(config: InstanaEndpointConfig, walk_deadline: float, pages_walked: int) -> None:
+    # A self-hosted host can return a full page forever while never signalling the end, so the
+    # termination conditions never trip; bound the walk so the loop (and its ingestion) can't run
+    # for the whole activity. Both bounds are non-retryable — the same host replays the same loop.
+    # The wall-clock budget is the effective bound: a slow host can stay under the page cap while
+    # streaming each page for MAX_DOWNLOAD_SECONDS, so pages alone wouldn't cap worker time.
+    if time.monotonic() > walk_deadline:
+        raise InstanaPaginationLimitError(
+            f"{PAGINATION_LIMIT_ERROR}: exceeded {MAX_CATALOG_WALK_SECONDS}s walk budget for {config.name}"
+        )
+    if pages_walked >= MAX_CATALOG_PAGES:
+        raise InstanaPaginationLimitError(
+            f"{PAGINATION_LIMIT_ERROR}: stopped after {MAX_CATALOG_PAGES} pages for {config.name}"
+        )
+
+
 def _get_paged_rows(
     session: requests.Session,
     root: str,
@@ -303,20 +323,7 @@ def _get_paged_rows(
     pages_walked = 0
     walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
     while True:
-        # A self-hosted host can return a full page forever while omitting `totalHits`, so the
-        # termination conditions below never trip; bound the walk so the loop (and its ingestion)
-        # can't run for the whole activity. Both bounds are non-retryable — the same host replays
-        # the same loop. The wall-clock budget is the effective bound: a slow host can stay under
-        # the page cap while streaming each page for MAX_DOWNLOAD_SECONDS, so pages alone wouldn't
-        # cap worker time.
-        if time.monotonic() > walk_deadline:
-            raise InstanaPaginationLimitError(
-                f"{PAGINATION_LIMIT_ERROR}: exceeded {MAX_CATALOG_WALK_SECONDS}s walk budget for {config.name}"
-            )
-        if pages_walked >= MAX_CATALOG_PAGES:
-            raise InstanaPaginationLimitError(
-                f"{PAGINATION_LIMIT_ERROR}: stopped after {MAX_CATALOG_PAGES} pages for {config.name}"
-            )
+        _check_walk_bounds(config, walk_deadline, pages_walked)
         params: dict[str, Any] = {"pageSize": PAGE_SIZE}
         if page is not None:
             params["page"] = page
@@ -343,13 +350,100 @@ def _get_paged_rows(
         page = next_page
 
 
+def _get_offset_rows(
+    session: requests.Session,
+    root: str,
+    config: InstanaEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[InstanaResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk an offset/limit-paginated list (synthetic CI/CD runs) until a short page.
+
+    Instana's `offset` is the number of pages of `limit` items to skip, not an item count.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    offset = resume.next_offset if resume is not None and resume.next_offset is not None else 0
+    if offset:
+        logger.debug(f"Instana: resuming {config.name} from offset={offset}")
+
+    pages_walked = 0
+    walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
+    while True:
+        _check_walk_bounds(config, walk_deadline, pages_walked)
+        url = _build_url(root, config.path, {"offset": offset, "limit": PAGE_SIZE})
+        items = _extract_items(_fetch(session, url, logger), config)
+        pages_walked += 1
+
+        if not items:
+            break
+
+        yield items
+
+        if len(items) < PAGE_SIZE:
+            break
+
+        offset += 1
+        resumable_source_manager.save_state(InstanaResumeConfig(next_offset=offset))
+
+
+def _get_fan_out_rows(
+    session: requests.Session,
+    root: str,
+    config: InstanaEndpointConfig,
+    fan_out: InstanaFanOutConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[InstanaResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the parent catalog and fetch one child resource per parent row.
+
+    Each child response is yielded on its own, so memory stays bounded by one response rather
+    than one parent page of them. Resume state is the parent walk's page, which the parent walk
+    saves only after all of that page's children are yielded, so a resumed run re-fetches the
+    children of at most one parent page.
+    """
+    parent_config = INSTANA_ENDPOINTS[fan_out.parent]
+    if parent_config.pagination == "page":
+        parent_pages = _get_paged_rows(session, root, parent_config, logger, resumable_source_manager)
+    else:
+        parent_pages = _get_list_rows(session, root, parent_config, logger)
+
+    # The parent walk checks its bounds only between parent pages, so the child requests of one
+    # page need their own: one page holds up to PAGE_SIZE slow or retried child requests.
+    children_fetched = 0
+    walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
+    for parent_rows in parent_pages:
+        yielded_any = False
+        for parent_row in parent_rows:
+            parent_id = parent_row.get(fan_out.parent_field)
+            if not isinstance(parent_id, str) or not parent_id:
+                continue
+            _check_walk_bounds(config, walk_deadline, children_fetched)
+            children_fetched += 1
+            url = _build_url(root, config.path.format(**{fan_out.child_field: quote(parent_id, safe="")}), {})
+            try:
+                data = _fetch(session, url, logger)
+            except requests.HTTPError as e:
+                # The parent can be deleted between listing it and fetching its child.
+                if e.response is not None and e.response.status_code == 404:
+                    logger.debug(f"Instana: {config.name} not found for {fan_out.child_field}={parent_id}, skipping")
+                    continue
+                raise
+            records = data if isinstance(data, list) else [data]
+            child_rows = [{**record, fan_out.child_field: parent_id} for record in records if isinstance(record, dict)]
+            if child_rows:
+                yielded_any = True
+                yield child_rows
+        if not yielded_any:
+            resumable_source_manager.safe_point()
+
+
 def _get_list_rows(
     session: requests.Session,
     root: str,
     config: InstanaEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Fetch a single-shot list endpoint (websites, alerting settings, snapshots)."""
+    """Fetch a single-shot list endpoint (websites, alerting settings, snapshots, releases, ...)."""
     url = _build_url(root, config.path, dict(config.extra_params))
     items = _extract_items(_fetch(session, url, logger), config)
     if config.name == "infrastructure_snapshots" and len(items) >= SNAPSHOTS_MAX_SIZE:
@@ -389,8 +483,12 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.fan_out is not None:
+        yield from _get_fan_out_rows(session, root, config, config.fan_out, logger, resumable_source_manager)
     elif config.pagination == "page":
         yield from _get_paged_rows(session, root, config, logger, resumable_source_manager)
+    elif config.pagination == "offset":
+        yield from _get_offset_rows(session, root, config, logger, resumable_source_manager)
     else:
         yield from _get_list_rows(session, root, config, logger)
 
@@ -419,7 +517,7 @@ def instana_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         # Event windows ascend, so batches arrive in (chunk-level) ascending `start` order; the
         # catalog endpoints are full refresh where the watermark is unused.
         sort_mode="asc",
