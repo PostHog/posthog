@@ -108,6 +108,7 @@ from .activities.relay_sandbox_events import (
 )
 from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
+    REBIND_DEFERRED_OUTCOME,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
     TURN_IN_FLIGHT_OUTCOME,
@@ -449,6 +450,11 @@ _PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY = "tasks-preserve-completion-durin
 
 _PATCH_ID_ROTATION_ACTIVITY_GUARD = "tasks-rotation-activity-guard"
 
+# A follow-up from a new actor needs an MCP rebind, which the agent-server refuses during an open turn.
+# Patched runs hold that follow-up until the turn ends. Pre-patch histories recorded a failed delivery
+# for it, so replay must keep sending the fail-closed request.
+_PATCH_ID_DEFER_FOLLOWUP_REBIND_ON_OPEN_TURN = "tasks-defer-followup-rebind-on-open-turn"
+
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
@@ -472,6 +478,12 @@ def _rotation_activity_guard() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_GUARD)
+
+
+def _defer_followup_rebind_on_open_turn() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_DEFER_FOLLOWUP_REBIND_ON_OPEN_TURN)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -573,6 +585,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._accepted_message_ids: list[str] = []
         self._accepted_message_id_set: set[str] = set()
         self._active_followup_task: asyncio.Task[None] | None = None
+        # The turn-completion count seen when a follow-up's rebind was deferred. Queued follow-ups
+        # wait until the count moves, because the turn that refused the rebind is still open.
+        self._rebind_deferred_turn_count: int | None = None
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
@@ -671,8 +686,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return TaskEvent.SANDBOX_GONE
         return TaskEvent.SIGNAL_RECEIVED
 
+    def _awaits_turn_end_for_rebind(self) -> bool:
+        return (
+            self._rebind_deferred_turn_count is not None
+            and self._rebind_deferred_turn_count == self._turn_completion_signal_count
+        )
+
     def _has_dispatchable_followup(self) -> bool:
         if self._active_followup_task is None:
+            if self._awaits_turn_end_for_rebind():
+                return False
             return self._pending_followup is not None or bool(self._pending_followups)
         if self._active_followup_task.done():
             return True
@@ -708,6 +731,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._dispatch_followup(followup)
             return True
 
+        if self._awaits_turn_end_for_rebind():
+            return False
         followup = self._pop_next_followup()
         if followup is None:
             return False
@@ -724,6 +749,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
+        turn_completion_count = self._turn_completion_signal_count
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -742,6 +768,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     context=followup.context,
                     sequence=followup.sequence,
                 ),
+            )
+        elif outcome == REBIND_DEFERRED_OUTCOME:
+            # The count from before the send: a turn that ended while the activity ran must not
+            # leave this message waiting for a later turn end that never comes.
+            self._rebind_deferred_turn_count = turn_completion_count
+            self._insert_followup_in_arrival_order(followup)
+            workflow.logger.info(
+                "followup_deferred_until_turn_end",
+                extra={"run_id": self.context.run_id},
             )
 
     async def _finish_active_followup(self) -> None:
@@ -3851,6 +3886,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     context=context,
                     steer=steer,
                     max_attempts=max_attempts,
+                    # Only the follow-up queue holds a deferred message. CI nudges and the final drain
+                    # keep the fail-closed failure.
+                    defer_rebind_on_open_turn=(
+                        user_originated and not self._shutting_down and _defer_followup_rebind_on_open_turn()
+                    ),
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
                 heartbeat_timeout=timedelta(minutes=1),
@@ -3860,7 +3900,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ),
             )
             # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
-            if outcome != STEER_DECLINED_OUTCOME:
+            if outcome not in (STEER_DECLINED_OUTCOME, REBIND_DEFERRED_OUTCOME):
                 turn_opens_on_dispatch = _turn_opens_on_dispatch()
                 preserve_completion = _preserve_completion_during_delivery()
                 completion_arrived = self._turn_completion_signal_count != turn_completion_count

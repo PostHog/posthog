@@ -81,6 +81,7 @@ from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_cre
     refresh_sandbox_credentials,
 )
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
+    REBIND_DEFERRED_OUTCOME,
     TURN_IN_FLIGHT_OUTCOME,
     SendFollowupToSandboxInput,
 )
@@ -1115,6 +1116,45 @@ class TestProcessTaskFollowupDispatch:
             ("use green instead", False),
             ("use blue instead", False),
         ]
+
+    @pytest.mark.parametrize("turn_ends_during_send", [False, True])
+    async def test_rebind_deferred_followup_waits_for_the_open_turn_to_end(self, monkeypatch, turn_ends_during_send):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        outcomes = [REBIND_DEFERRED_OUTCOME, None]
+        deliveries: list[str | None] = []
+
+        async def fake_send_followup(
+            *, message, artifact_ids, actor_user_id=None, message_id=None, context=None, steer=False
+        ):
+            deliveries.append(message)
+            if turn_ends_during_send and len(deliveries) == 1:
+                await workflow.agent_state_changed(False)
+            return outcomes.pop(0)
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("from a second user", [], "message-1", actor_user_id=2)
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+        assert await workflow._dispatch_next_followup() is True
+
+        assert [followup.message for followup in workflow._pending_followups] == ["from a second user"]
+        if not turn_ends_during_send:
+            assert workflow._has_dispatchable_followup() is False
+            assert await workflow._dispatch_next_followup() is False
+            await workflow.agent_state_changed(False)
+
+        assert workflow._has_dispatchable_followup() is True
+        assert await workflow._dispatch_next_followup() is True
+        await workflow._finish_active_followup()
+
+        assert deliveries == ["from a second user", "from a second user"]
+        assert workflow._pending_followups == []
 
     async def test_sender_message_id_survives_concurrent_dispatch(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

@@ -18,6 +18,7 @@ from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
+    REFRESH_SESSION_TURN_IN_FLIGHT_ERROR,
     REFRESH_TIMEOUT_SECONDS,
     TURN_ENDED_WITHOUT_RESPONSE_ERROR,
     CommandResult,
@@ -72,6 +73,7 @@ class SandboxRebindFailure(StrEnum):
     TOKEN_MINT_FAILED = "token_mint_failed"
     NO_CONFIGS_ON_TRANSITION = "no_configs_on_transition"
     REFRESH_SESSION_FAILED = "refresh_session_failed"
+    TURN_IN_FLIGHT = "turn_in_flight"
     NO_SANDBOX_HANDLE = "no_sandbox_handle"
     SANDBOX_NOT_RUNNING = "sandbox_not_running"
     CREDENTIAL_LOCK_UNAVAILABLE = "credential_lock_unavailable"
@@ -101,6 +103,8 @@ SEND_FOLLOWUP_MAX_ATTEMPTS = 3
 SEND_FOLLOWUP_HEARTBEAT_FACTOR = 4
 STEER_DECLINED_OUTCOME = "steer_declined"
 TURN_IN_FLIGHT_OUTCOME = "turn_in_flight"
+# Nothing reached the sandbox: the actor's MCP rebind has to wait for the open turn to end.
+REBIND_DEFERRED_OUTCOME = "rebind_deferred"
 STEER_DECLINE_REASON_UNREPORTED = "unreported"
 STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
 
@@ -119,6 +123,9 @@ class SendFollowupToSandboxInput:
     context: dict[str, Any] | None = None
     steer: bool = False
     max_attempts: int = SEND_FOLLOWUP_MAX_ATTEMPTS
+    # Only a caller that holds the message and sends it again after the turn ends may set this.
+    # Other callers keep the fail-closed failure, so the message does not vanish.
+    defer_rebind_on_open_turn: bool = False
 
 
 @activity.defn
@@ -398,6 +405,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             actor_user=actor_user,
             state=state,
         )
+        if mcp_failure == SandboxRebindFailure.TURN_IN_FLIGHT and input.defer_rebind_on_open_turn:
+            logger.info(
+                "send_followup_rebind_deferred",
+                run_id=input.run_id,
+                actor_user_id=actor_user.id if actor_user is not None else None,
+            )
+            return REBIND_DEFERRED_OUTCOME
         if mcp_failure is not None:
             _fail_rebind_closed(
                 input.run_id,
@@ -837,6 +851,12 @@ def _refresh_sandbox_mcp(
         mark_sandbox_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
         return None
+
+    if result.error == REFRESH_SESSION_TURN_IN_FLIGHT_ERROR:
+        # The open turn keeps the previous binding, so the session stays safe. A retry
+        # half a second later meets the same turn.
+        logger.info("refresh_mcp_turn_in_flight", run_id=run_id, user_id=actor_user.id)
+        return SandboxRebindFailure.TURN_IN_FLIGHT
 
     logger.info(
         "refresh_mcp_retrying",
