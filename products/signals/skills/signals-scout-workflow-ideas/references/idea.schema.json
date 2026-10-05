@@ -143,7 +143,7 @@
         "covered_by": {
             "type": "string",
             "maxLength": 200,
-            "description": "The workflow id already covering it, when coverage is `partial`."
+            "description": "When coverage is `partial`: the id of the live workflow that covers it, or the event that shows another messaging tool already sends it."
         },
         "confidence": {
             "enum": ["low", "medium", "high"],

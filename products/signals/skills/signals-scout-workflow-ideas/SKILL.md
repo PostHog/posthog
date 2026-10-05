@@ -51,6 +51,11 @@ Read what each live workflow triggers on, not just its name.
 A workflow called "Onboarding" may fire on one event and leave the rest of onboarding silent, which is a `partial` coverage idea rather than a duplicate.
 The list shows triggers, not messages, so read a live workflow with `workflows-get` whenever its trigger overlaps a moment you are weighing, and judge coverage from what it actually sends.
 
+A project can also message people through another tool, and many capture that tool's sends as events: `braze_email_sent`, `Email Delivered`, or their own `<something>_email_sent`.
+Look for such events before calling anything uncovered.
+A moment another tool already messages is `partial` coverage: put the event that shows it in `covered_by`, and make the idea about what moving it to Workflows adds, such as triggering on product events the other tool never sees.
+An event that records a message being sent is never a trigger or a goal: it is the other tool's echo, not something a person did.
+
 **A project with no workflows is the case this scout matters most for, not a reason to stop.**
 Its first workflow is the one most likely to get built, and every moment it has is uncovered.
 Do not read an empty list as "messaging is not in use, so there is nothing to suggest".
