@@ -41,7 +41,7 @@ function useManualWithoutAi(scannerId: string): boolean {
 
 export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
-    { value: 'medium', label: 'Medium (1 paragraph)' },
+    { value: 'medium', label: 'Medium (4-6 sentences)' },
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
