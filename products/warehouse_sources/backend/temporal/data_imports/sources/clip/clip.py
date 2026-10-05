@@ -86,7 +86,7 @@ def payment_parent(row: dict[str, Any]) -> dict[str, Any]:
 
 def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: datetime) -> RESTAPIConfig:
     if endpoint == "transactions":
-        return {
+        result: RESTAPIConfig = {
             "client": {
                 "base_url": BASE_URL,
                 "auth": HttpBasicAuth(config.api_key, config.secret_key),
@@ -112,6 +112,7 @@ def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: 
                 }
             ],
         }
+        return result
     token = base64.b64encode(f"{config.api_key}:{config.secret_key}".encode()).decode()
     parent: EndpointResource = {
         "name": "settlements",
@@ -142,7 +143,7 @@ def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: 
                 },
             }
         )
-    return {
+    result: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
             "auth": APIKeyAuth(api_key=f"Basic {token}", name="x-api-key"),
@@ -152,6 +153,7 @@ def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: 
         },
         "resources": resources,
     }
+    return result
 
 
 def clip_source(
