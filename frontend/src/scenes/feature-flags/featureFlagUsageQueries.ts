@@ -53,12 +53,13 @@ export interface FlagUsageChart<Q extends FlagUsageQuery = FlagUsageQuery> {
     emptyState?: Pick<QueryContext, 'emptyStateHeading' | 'emptyStateDetail'>
 }
 
-// The generic empty state asks the user to change the query. For a new flag the query is right and
-// the calls are only in the log so far, so point there instead.
+// The generic empty state asks the user to change the query. For a new flag the query is right, but a
+// daily result stays cached for hours, so an empty result cached before the first calls arrived can
+// hide calls that the log below already lists. Point at Reload, which skips the cache, and at the log.
 const FLAG_CALLS_EMPTY_STATE: FlagUsageChart['emptyState'] = {
     emptyStateHeading: 'No calls to this flag in this date range',
     emptyStateDetail:
-        'New calls can take a few minutes to show in the charts. The log below lists them as they arrive.',
+        'New calls can take a few minutes to show in the charts. Click Reload to check again. The log below lists calls as they arrive.',
 }
 
 function flagCalledProperties({ flagKey, aggregationGroupTypeIndex }: FlagUsageQueryOptions): AnyPropertyFilter[] {

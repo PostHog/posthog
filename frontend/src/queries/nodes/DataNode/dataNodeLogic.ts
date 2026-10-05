@@ -120,8 +120,6 @@ export interface DataNodeLogicProps {
     doNotLoad?: boolean
     /** Refresh behaviour for queries. */
     refresh?: RefreshType
-    /** Refresh type for the loads this logic starts itself, on mount and when the query changes. */
-    refreshOnLoad?: RefreshType
     /** Callback when data is successfully loader or provided from cache. */
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** Callback when an error is returned */
@@ -996,9 +994,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 refreshType =
                     isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
             } else {
-                refreshType =
-                    props.refreshOnLoad ??
-                    (isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking')
+                refreshType = isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking'
             }
 
             actions.loadData(refreshType)
@@ -2235,7 +2231,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.setResponse(props.cachedResults)
         } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
             // Initial load should use non-force variant
-            const refreshType = props.refreshOnLoad ?? (isInsightQueryNode(props.query) ? 'async' : 'blocking')
+            const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
             actions.loadData(refreshType)
         }
     }),
