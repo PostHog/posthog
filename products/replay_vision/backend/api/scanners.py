@@ -1714,6 +1714,14 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "so a quiet window answers with a handful of rows rather than a full page of newest clips."
         ),
     )
+    ranker = serializers.ChoiceField(
+        choices=["weighted-score", "jev"],
+        help_text=(
+            "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, "
+            "`weighted-score` on the deterministic blend. The arm is decided server-side per team, so "
+            "clients read it from here rather than evaluating the flag themselves."
+        ),
+    )
 
 
 class ScannerCreatorsResponseSerializer(serializers.Serializer):
@@ -2412,8 +2420,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         # The flag selects one of two independent rankers; nothing is blended between them. Shadow
         # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
-        # the hourly sweep cached. Neither arm makes a model call here.
-        if watch_feed_ranker(self.team_id) == "jev":
+        # the hourly sweep cached. Neither arm makes a model call here. The response names the
+        # ranker that ordered it, so the shadow arm reads as weighted-score to the client.
+        ranker = "jev" if watch_feed_ranker(self.team_id) == "jev" else "weighted-score"
+        if ranker == "jev":
             probabilities = load_watch_ranks(self.team_id, allowed_ids)
             jev_rows = list(candidate_rows)
             # The recency slice above holds only each scanner's newest rows, which on a high-volume
@@ -2469,7 +2479,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results})
+        return Response({"results": results, "ranker": ranker})
 
     @extend_schema(
         request=ObserveRequestSerializer,

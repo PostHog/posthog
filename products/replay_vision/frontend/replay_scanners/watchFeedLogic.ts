@@ -13,9 +13,10 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 
 import { visionScannersWatchFeedRetrieve } from '../generated/api'
-import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
+import type { ReplayScannerApi, VisionQuotaApi, WatchFeedResponseApi } from '../generated/api.schemas'
 import type { VisionScannersWatchFeedRetrieveParams, WatchFeedItemApi } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
+import type { RankerEnumApi } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { csvParam, parseCsvParam } from '../utils/urlParams'
@@ -35,6 +36,7 @@ export interface watchFeedLogicValues {
     feedFailed: boolean
     feedItems: WatchFeedItemApi[] | null
     feedItemsLoading: boolean
+    feedRanker: WatchFeedRanker
     hasFeedFilters: boolean
     scannerIdsFilter: string[]
     scannerTypeFilter: ScannerType | null
@@ -92,6 +94,9 @@ export interface watchFeedLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setFeedRanker: (ranker: WatchFeedRanker) => {
+        ranker: RankerEnumApi
+    }
     setScannerIdsFilter: (scannerIds: string[]) => {
         scannerIds: string[]
     }
@@ -146,6 +151,10 @@ export const DEFAULT_FEED_DATE_FROM: string = '-7d'
 
 export type WatchFeedView = 'grid' | 'list'
 
+/** Which ranker ordered the loaded feed. Server-decided per team (the flag evaluates against the
+ * team, not the viewer), so the client reads it from the response instead of checking the flag. */
+export type WatchFeedRanker = WatchFeedResponseApi['ranker']
+
 function reportFiltered(values: watchFeedLogicValues): void {
     posthog.capture('replay_vision_watch_feed_filtered', {
         date_from: values.dateFrom,
@@ -187,9 +196,10 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         clearFeedFilters: true,
         loadFeed: true,
         setView: (view: WatchFeedView) => ({ view }),
+        setFeedRanker: (ranker: WatchFeedRanker) => ({ ranker }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         feedItems: [
             null as WatchFeedItemApi[] | null,
             {
@@ -220,6 +230,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     const response = await visionScannersWatchFeedRetrieve(String(teamId), params)
                     // Drop out-of-order responses — the most recent filter change owns the feed.
                     breakpoint()
+                    actions.setFeedRanker(response.ranker ?? 'weighted-score')
                     return response.results
                 },
             },
@@ -291,6 +302,13 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 loadFeedFailure: () => true,
             },
         ],
+        // Set from each response, so the card layout always matches the ranking it shows.
+        feedRanker: [
+            'weighted-score' as WatchFeedRanker,
+            {
+                setFeedRanker: (_, { ranker }) => ranker,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -339,6 +357,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 clip_count: items.length,
                 scanner_count: new Set(items.map((item) => item.observation.scanner_id)).size,
                 reason_kind_counts: countByReasonKind,
+                ranker: values.feedRanker,
                 view: values.view,
                 signal_share: items.length > 0 ? (countByReasonKind.signal_emitted ?? 0) / items.length : 0,
                 // Which dead end the reader hit, so the empty screens can be counted and ranked
