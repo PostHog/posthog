@@ -44,7 +44,7 @@
 #   from GitHub Actions.
 # - Hourly scheduled master run: only this workflow has the `schedule` trigger, so the run
 #   needs no hand-off and `wait-for-handoff` accepts it outright. Canonical keeps its
-#   `!= 'api'` arms for the drift check, with no trigger to reach them.
+#   `!= 'workflow_dispatch'` arms for the drift check, with no trigger to reach them.
 #   build_django_matrix picks the events_json hours from the UTC clock, where canonical
 #   compared `github.event.schedule` against a second cron.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
@@ -198,7 +198,7 @@ env:
     TEST: 1
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
-    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'api' && '0' || '1' }}
+    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'workflow_dispatch' && '0' || '1' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -304,7 +304,7 @@ jobs:
                   if [ "$IS_FORK" = true ]; then
                       # The fork controls its own copy of the GitHub Actions workflow, so its hand-off is not trusted.
                       echo "::notice::Fork pull requests never run on Depot CI."
-                  elif [ "$EVENT" = api ]; then
+                  elif [ "$EVENT" = workflow_dispatch ]; then
                       # Only this workflow has the hourly trigger, so no other engine can run it.
                       handed_off=true
                       echo "::notice::The hourly master run belongs to Depot CI."
@@ -448,7 +448,7 @@ jobs:
               # defaults to true. See "The hourly master lane" in
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
-              if: github.event_name != 'push' && github.event_name != 'api'
+              if: github.event_name != 'push' && github.event_name != 'workflow_dispatch'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -1651,7 +1651,7 @@ jobs:
     # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
     sdk-major-guard:
         needs: [changes]
-        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push' && github.event_name != 'api'
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push' && github.event_name != 'workflow_dispatch'
         timeout-minutes: 5
         permissions: {}
         name: SDK major-version guard (depot-ubuntu-24.04)
@@ -1664,7 +1664,7 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'push' && github.event_name != 'api'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'push' && github.event_name != 'workflow_dispatch'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1856,7 +1856,7 @@ jobs:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'api'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'workflow_dispatch'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.
@@ -2567,7 +2567,7 @@ jobs:
     check-openapi-types:
         needs: [changes]
         # Not on master push: master only primes the schema cache.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push' && github.event_name != 'api'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push' && github.event_name != 'workflow_dispatch'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -3138,7 +3138,7 @@ jobs:
                   # Only every third hourly run takes the events_json leg. The merge queue already
                   # runs that leg before every commit lands, and this cadence still gives Trunk's
                   # master monitors enough runs.
-                  if [[ "$GITHUB_EVENT_NAME" == "api" ]] && (( 10#$(date -u +%H) % 1 != 0 )); then
+                  if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] && (( 10#$(date -u +%H) % 1 != 0 )); then
                       echo "Skipping the events_json rows on this hourly run"
                       json_targets_count=0
                   fi
@@ -3702,7 +3702,7 @@ jobs:
                           JSON_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
                                       --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
-                      if [[ "$GITHUB_EVENT_NAME" == "api" ]]; then
+                      if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
                           # The hourly run keeps every listed test and records which ones read the
                           # JSON tables. The timing workflow builds the prune manifest from it.
                           export POSTHOG_EVENTS_SCHEMA_RECORD_PATH=events-schema-record.json
@@ -3920,7 +3920,7 @@ jobs:
 
             - name: Upload events schema recording
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && matrix.json-targets && github.event_name == 'api') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && matrix.json-targets && github.event_name == 'workflow_dispatch') }}
               with:
                   name: events-schema-record-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: events-schema-record.json
