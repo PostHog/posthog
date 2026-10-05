@@ -20,23 +20,3 @@ export const MAX_ZOOM = 2
 // Below this, a node's description renders as an illegible smudge (it's 0.3rem at zoom 1), so we drop
 // it and leave the node as a labelled block for reading the overall shape of the workflow.
 export const LOW_DETAIL_ZOOM = 0.4
-
-export const TOP_HANDLE_POSITION = {
-    x: NODE_WIDTH / 2,
-    y: 0,
-}
-
-export const BOTTOM_HANDLE_POSITION = {
-    x: NODE_WIDTH / 2,
-    y: NODE_HEIGHT,
-}
-
-export const LEFT_HANDLE_POSITION = {
-    x: 0,
-    y: NODE_HEIGHT / 2,
-}
-
-export const RIGHT_HANDLE_POSITION = {
-    x: NODE_WIDTH,
-    y: NODE_HEIGHT / 2,
-}

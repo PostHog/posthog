@@ -82,7 +82,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
-            <StepView action={props.data} />
+            <StepView action={props.data} showEmailPreview />
         </div>
     )
 }

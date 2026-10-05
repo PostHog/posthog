@@ -676,6 +676,77 @@ describe('hogFlowEditorLogic', () => {
         })
     })
 
+    describe('email step layout', () => {
+        const flowWithEmail: HogFlow = {
+            id: 'email-flow',
+            team_id: 1,
+            version: 1,
+            name: 'Email flow',
+            status: 'draft',
+            exit_condition: 'exit_only_at_end',
+            actions: [
+                {
+                    id: 'trigger',
+                    name: 'Trigger',
+                    description: '',
+                    type: 'trigger',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: { type: 'event', filters: {} },
+                },
+                {
+                    id: 'email',
+                    name: 'Welcome email',
+                    description: '',
+                    type: 'function_email',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: {
+                        template_id: 'template-email',
+                        inputs: { email: { value: { subject: 'Welcome', html: '<p>Welcome aboard</p>' } } },
+                    },
+                },
+                {
+                    id: 'exit',
+                    name: 'Exit',
+                    description: '',
+                    type: 'exit',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: { reason: '' },
+                },
+            ],
+            edges: [
+                { from: 'trigger', to: 'email', type: 'continue' },
+                { from: 'email', to: 'exit', type: 'continue' },
+            ],
+            updated_at: '2026-01-01T00:00:00Z',
+            created_at: '2026-01-01T00:00:00Z',
+        }
+
+        beforeEach(async () => {
+            await expectLogic(logic).toDispatchActions(['setNodesRaw'])
+        })
+
+        it('makes room for the email preview and connects the next step to the bottom of it', async () => {
+            await expectLogic(logic, () => logic.actions.resetFlowFromHogFlow(flowWithEmail)).toDispatchActions([
+                'setNodesRaw',
+            ])
+
+            const nodeById = (id: string): HogFlowActionNode => logic.values.nodes.find((node) => node.id === id)!
+            const trigger = nodeById('trigger')
+            const email = nodeById('email')
+            const exit = nodeById('exit')
+
+            expect(email.height).toBeGreaterThan(trigger.height!)
+            expect(email.handles?.find((handle) => handle.type === 'source')).toMatchObject({
+                x: email.width! / 2,
+                y: email.height,
+            })
+            expect(exit.position.y).toBeGreaterThan(email.position.y + email.height!)
+        })
+    })
+
     describe('showDropzones branch-join placement', () => {
         const makeNode = (id: string): HogFlowActionNode =>
             ({

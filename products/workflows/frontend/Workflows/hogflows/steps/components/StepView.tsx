@@ -11,15 +11,23 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
-import { NODE_HEIGHT, NODE_WIDTH } from '../../react_flow_utils/constants'
+import { DEFAULT_NODE_SIZE, getNodeSize } from '../../react_flow_utils/nodeSize'
 import { HogFlowAction } from '../../types'
+import { hasEmailPreview } from '../emailStepHtml'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { isScheduleTrigger } from '../types'
+import { EmailStepPreview } from './EmailStepPreview'
 import { buildSummary } from './rrule-helpers'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 import { StepViewMetrics } from './StepViewMetrics'
 
-export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
+export function StepView({
+    action,
+    showEmailPreview = false,
+}: {
+    action: HogFlowAction
+    showEmailPreview?: boolean
+}): JSX.Element {
     const {
         selectedNode,
         mode,
@@ -67,7 +75,9 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     } = useActions(stepViewLogic(stepViewLogicProps))
 
     const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
-    const height = shouldShowMetricsSummary ? NODE_HEIGHT + 10 : NODE_HEIGHT
+    const showsEmailPreview = showEmailPreview && hasEmailPreview(action)
+    const { width, height: nodeHeight } = showsEmailPreview ? getNodeSize(action) : DEFAULT_NODE_SIZE
+    const height = shouldShowMetricsSummary ? nodeHeight + 10 : nodeHeight
 
     const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
@@ -93,7 +103,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         <div
             className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary transition-[border-color] duration-300"
             style={{
-                width: NODE_WIDTH,
+                width,
                 height,
                 borderWidth: 1,
                 borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
@@ -250,6 +260,13 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
             ) : null}
+            {showsEmailPreview && (
+                <EmailStepPreview
+                    action={action}
+                    emailWidth={width}
+                    className="flex-1 min-h-0 rounded-b border-t border-primary"
+                />
+            )}
             {shouldShowMetricsSummary && (
                 <div
                     style={{
