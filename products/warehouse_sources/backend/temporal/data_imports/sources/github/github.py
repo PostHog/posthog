@@ -1810,7 +1810,7 @@ async def _chain_webhook_items_with_reconciliation(
 
 
 def _format_github_time(value: datetime) -> str:
-    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _iter_startup_failure_runs(
@@ -1822,8 +1822,8 @@ def _iter_startup_failure_runs(
 ) -> Iterator[dict[str, Any]]:
     """Yield the startup_failure runs created in the window. A window that returns GitHub's 1,000-run
     cap is split in half and polled again, so a dense range is not truncated and a quiet range costs
-    one call. Runs at a split boundary or from the capped query come back twice; the merge on run id
-    dedupes them."""
+    one call. Runs at a split boundary or from the capped query come back more than once, so the
+    caller dedupes by run id."""
     window_count = 0
     for runs, _page_url in fetch_pages(url_for_window(window_start, window_end)):
         for run in runs:
@@ -1875,7 +1875,12 @@ def _get_startup_failure_runs(
         )
 
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    # The delta merge doesn't dedupe within a source batch, so a run polled twice must be dropped here.
+    seen_run_ids: set[int] = set()
     for run in _iter_startup_failure_runs(url_for_window, fetch_pages, logger, created_since, _now_utc()):
+        if run["id"] in seen_run_ids:
+            continue
+        seen_run_ids.add(run["id"])
         batcher.batch(run)
         if batcher.should_yield():
             yield batcher.get_table()

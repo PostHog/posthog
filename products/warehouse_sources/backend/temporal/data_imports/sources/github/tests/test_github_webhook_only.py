@@ -325,3 +325,30 @@ def test_poll_mode_workflow_runs_still_polls() -> None:
     # A legacy poll-mode schema is NOT webhook_only, so a reset still wipes and rebuilds.
     assert response.webhook_only is False
     webhook_source_manager.get_items.assert_not_called()
+
+
+def test_startup_failure_poll_drops_runs_seen_in_an_earlier_window() -> None:
+    def page_of(run_ids: Iterable[int]) -> mock.Mock:
+        page = mock.Mock()
+        page.headers = {}
+        page.json.return_value = {"workflow_runs": [{"id": run_id} for run_id in run_ids]}
+        return page
+
+    capped_page = page_of(range(1000))
+    half_page = page_of([7])
+
+    with (
+        mock.patch.object(github, "_fetch_page", side_effect=[capped_page, half_page, half_page]),
+        mock.patch.object(github, "_now_utc", return_value=datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC)),
+    ):
+        tables = list(
+            github._get_startup_failure_runs(
+                personal_access_token="tok",
+                repository="acme/widgets",
+                logger=mock.Mock(),
+                created_since=datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC),
+            )
+        )
+
+    run_ids = pa.concat_tables(tables).column("id").to_pylist()
+    assert sorted(run_ids) == list(range(1000))
