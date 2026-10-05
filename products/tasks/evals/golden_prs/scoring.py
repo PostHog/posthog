@@ -1,13 +1,17 @@
 import os
 import re
 import json
+import math
 import tempfile
 import subprocess
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
+from statistics import mean
 
 import anthropic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 DEFAULT_JUDGE_MODEL = "claude-opus-5"
 
@@ -44,6 +48,24 @@ class DiffScores:
     file_precision: float
     file_jaccard: float
     added_line_f1: float
+
+
+FAST_CASE_SECONDS = 30
+SLOW_CASE_SECONDS = 30 * 60
+SLOW_CASE_SPEED_FACTOR = 0.5
+
+
+def speed_factor(seconds: float) -> float:
+    """1 up to FAST_CASE_SECONDS, falling on a log scale to SLOW_CASE_SPEED_FACTOR at SLOW_CASE_SECONDS and after."""
+    slowness = math.log(max(seconds, FAST_CASE_SECONDS) / FAST_CASE_SECONDS) / math.log(
+        SLOW_CASE_SECONDS / FAST_CASE_SECONDS
+    )
+    return 1 - (1 - SLOW_CASE_SPEED_FACTOR) * min(slowness, 1)
+
+
+def eval_score(judge_scores: Iterable[float], seconds: float) -> float:
+    """The mean judge score scaled by speed. Accuracy dominates: the slowest agent keeps half its score."""
+    return mean(judge_scores) * speed_factor(seconds)
 
 
 def is_artifact(path: str) -> bool:
@@ -109,39 +131,76 @@ def judge(
         f"<golden_diff>\n{_bounded(golden)}\n</golden_diff>\n\n"
         f"<candidate_diff>\n{_bounded(candidate)}\n</candidate_diff>"
     )
+    answer = structured_answer(model, JUDGE_SYSTEM_PROMPT, request, Verdict, client)
+    # A missing verdict is a broken judge, which must score 0 rather than vanish from the mean.
+    return answer.value or Verdict(score=0.0, reasoning=f"The judge returned no verdict: {answer.failure}")
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Answer[T: BaseModel]:
+    value: T | None
+    failure: str = ""
+
+
+def structured_answer[T: BaseModel](
+    model: str,
+    system_prompt: str,
+    request: str,
+    output_type: type[T],
+    client: anthropic.Anthropic | None = None,
+    *,
+    read_dir: Path | None = None,
+) -> Answer[T]:
+    """Ask a model for an `output_type`, through the SDK with an API key or the signed-in `claude` CLI without one.
+
+    A `gpt-` model answers through the signed-in `codex` CLI. Only the `claude` CLI can read `read_dir`;
+    the other paths see the request alone.
+    """
+    if model.startswith("gpt-"):
+        if read_dir is not None:
+            raise ValueError("Only a Claude judge can read the checkout.")
+        return _answer_with_codex_cli(model, system_prompt, request, output_type)
     if client is None and not os.environ.get("ANTHROPIC_API_KEY"):
-        return _judge_with_claude_cli(model, request)
+        return _answer_with_claude_cli(model, system_prompt, request, output_type, read_dir)
     client = client or anthropic.Anthropic()
     response = client.messages.parse(
         model=model,
         max_tokens=4096,
-        system=JUDGE_SYSTEM_PROMPT,
+        system=system_prompt,
         messages=[{"role": "user", "content": request}],
-        output_format=Verdict,
+        output_format=output_type,
     )
-    # A missing verdict is a broken judge, which must score 0 rather than vanish from the mean.
-    return response.parsed_output or Verdict(score=0.0, reasoning="The judge returned no verdict.")
+    return Answer(value=response.parsed_output, failure="the model returned no structured output")
 
 
 JUDGE_CLI_TIMEOUT_SECONDS = 10 * 60
+# User-level CLAUDE.md differs per machine, and a devbox's tells Claude to report to a tool it does not have.
+USER_INSTRUCTIONS_OFF = ("--setting-sources", "project,local")
 
 
-def _judge_with_claude_cli(model: str, request: str) -> Verdict:
+def _answer_with_claude_cli[T: BaseModel](
+    model: str, system_prompt: str, request: str, output_type: type[T], read_dir: Path | None
+) -> Answer[T]:
     """The CLI signs in with its own credentials, so a devbox with `claude` logged in needs no API key."""
+    reading = ["--tools", "Read,Grep,Glob", "--add-dir", str(read_dir)] if read_dir is not None else ["--tools", ""]
+    if read_dir is not None:
+        system_prompt += (
+            f"\nThe repository after the change is at {read_dir}. Read it to check code the diff relies on."
+        )
     command = [
         "claude",
         "-p",
         "--no-session-persistence",
         "--model",
         model,
-        "--tools",
-        "",
+        *reading,
+        *USER_INSTRUCTIONS_OFF,
         "--output-format",
         "json",
         "--system-prompt",
-        JUDGE_SYSTEM_PROMPT,
+        system_prompt,
         "--json-schema",
-        json.dumps(Verdict.model_json_schema()),
+        json.dumps(output_type.model_json_schema()),
     ]
     # A neutral working directory, so the CLI does not load this repository's CLAUDE.md and hooks into the judge.
     try:
@@ -155,12 +214,56 @@ def _judge_with_claude_cli(model: str, request: str) -> Verdict:
             timeout=JUDGE_CLI_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
-        return Verdict(score=0.0, reasoning="The judge returned no verdict: the CLI timed out.")
+        return Answer(value=None, failure="the CLI timed out")
     try:
         report = json.loads(completed.stdout)
     except json.JSONDecodeError:
         report = {}
     if report.get("structured_output"):
-        return Verdict.model_validate(report["structured_output"])
+        return Answer(value=output_type.model_validate(report["structured_output"]))
     failure = report.get("result") or completed.stderr.strip() or f"exit code {completed.returncode}"
-    return Verdict(score=0.0, reasoning=f"The judge returned no verdict: {failure}")
+    return Answer(value=None, failure=str(failure))
+
+
+def _answer_with_codex_cli[T: BaseModel](
+    model: str, system_prompt: str, request: str, output_type: type[T]
+) -> Answer[T]:
+    # codex takes no system prompt, so the instructions lead the request. The user config is off
+    # for the same reason as USER_INSTRUCTIONS_OFF, and the scratch directory holds no AGENTS.md.
+    with tempfile.TemporaryDirectory() as scratch:
+        schema, reply = Path(scratch) / "schema.json", Path(scratch) / "reply.json"
+        # The OpenAI structured output mode refuses a schema that allows other keys.
+        schema.write_text(json.dumps(output_type.model_json_schema() | {"additionalProperties": False}))
+        command = [
+            "codex",
+            "exec",
+            "--model",
+            model,
+            "--ignore-user-config",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--output-schema",
+            str(schema),
+            "--output-last-message",
+            str(reply),
+            "-",
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=scratch,
+                input=f"{system_prompt}\n\n{request}",
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=JUDGE_CLI_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return Answer(value=None, failure="the CLI timed out")
+        text = reply.read_text() if reply.exists() else ""
+    try:
+        return Answer(value=output_type.model_validate_json(text))
+    except ValidationError:
+        return Answer(value=None, failure=text or f"exit code {completed.returncode}")

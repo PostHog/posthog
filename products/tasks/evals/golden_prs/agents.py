@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from products.tasks.evals.golden_prs.scoring import USER_INSTRUCTIONS_OFF
+
 Runtime = Literal["claude", "codex"]
 
 DEFAULT_MODELS: dict[Runtime, str] = {"claude": "claude-opus-5", "codex": "gpt-5.5"}
@@ -30,9 +32,20 @@ class AgentRun:
     stderr: str
 
 
-def agent_command(runtime: Runtime, model: str) -> list[str]:
+def agent_command(runtime: Runtime, model: str, *, disable_hooks: bool = False) -> list[str]:
     if runtime == "claude":
-        return ["claude", "-p", "--model", model, "--dangerously-skip-permissions", "--output-format", "json"]
+        settings = ["--settings", json.dumps({"disableAllHooks": True})] if disable_hooks else []
+        return [
+            "claude",
+            "-p",
+            "--model",
+            model,
+            "--dangerously-skip-permissions",
+            *USER_INSTRUCTIONS_OFF,
+            "--output-format",
+            "json",
+            *settings,
+        ]
     return ["codex", "exec", "--model", model, "--dangerously-bypass-approvals-and-sandbox", "--json", "-"]
 
 
@@ -59,10 +72,50 @@ def _claude_report(run: AgentRun) -> dict:
         return {}
 
 
+TOKEN_KEYS = ("input_tokens", "cached_input_tokens", "output_tokens")
+
+
+def _codex_turn_usage(run: AgentRun) -> list[dict]:
+    if run.runtime != "codex":
+        return []
+    turns = []
+    for line in run.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "turn.completed" and isinstance(event.get("usage"), dict):
+            turns.append(event["usage"])
+    return turns
+
+
 def agent_usage(run: AgentRun) -> dict[str, float | int]:
-    """Cost and turn count as the Claude CLI reports them; Codex emits an event stream we do not parse."""
+    """Cost, turns and tokens. Claude reports its own cost; Codex reports tokens per turn and no price."""
     report = _claude_report(run)
-    return {key: report[key] for key in ("total_cost_usd", "num_turns") if key in report}
+    usage: dict[str, float | int] = {key: report[key] for key in ("total_cost_usd", "num_turns") if key in report}
+    claude_tokens = report.get("usage") or {}
+    usage.update({key: claude_tokens[key] for key in TOKEN_KEYS if key in claude_tokens})
+    turns = _codex_turn_usage(run)
+    if turns:
+        usage["num_turns"] = len(turns)
+        usage.update({key: sum(turn.get(key, 0) for turn in turns) for key in TOKEN_KEYS})
+    return usage
+
+
+def agent_reply(run: AgentRun) -> str:
+    """The agent's last message to the user, which a rule that asks for a warning is judged on."""
+    if run.runtime == "claude":
+        return str(_claude_report(run).get("result") or "")
+    messages = []
+    for line in run.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item") or {}
+        if event.get("type") == "item.completed" and item.get("type") == "agent_message":
+            messages.append(str(item.get("text") or ""))
+    return messages[-1] if messages else ""
 
 
 def agent_failure(run: AgentRun) -> str | None:
@@ -78,7 +131,36 @@ def agent_failure(run: AgentRun) -> str | None:
     return stderr_lines[-1] if stderr_lines else f"The agent exited with code {run.exit_code}."
 
 
-def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int) -> AgentRun:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class AgentOutcome:
+    """What scoring needs from one attempt, whether the agent ran here or as a cloud task."""
+
+    agent_version: str
+    exit_code: int
+    timed_out: bool
+    duration_seconds: float
+    failure: str | None
+    reply: str
+    usage: dict[str, float | int]
+    log: str
+
+    @classmethod
+    def from_run(cls, run: AgentRun) -> "AgentOutcome":
+        return cls(
+            agent_version=run.agent_version,
+            exit_code=run.exit_code,
+            timed_out=run.timed_out,
+            duration_seconds=run.duration_seconds,
+            failure=agent_failure(run),
+            reply=agent_reply(run),
+            usage=agent_usage(run),
+            log=run.stdout + run.stderr,
+        )
+
+
+def run_agent(
+    runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int, *, disable_hooks: bool = False
+) -> AgentRun:
     # Read before the agent runs: a failing version probe after a completed run would otherwise
     # raise past the point where the caller collects the diff and log, discarding both.
     version = agent_version(runtime)
@@ -86,7 +168,7 @@ def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_
     timed_out = False
     try:
         completed = subprocess.run(
-            agent_command(runtime, model),
+            agent_command(runtime, model, disable_hooks=disable_hooks),
             cwd=workdir,
             env=agent_environment(os.environ, runtime),
             input=prompt,
