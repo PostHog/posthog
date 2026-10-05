@@ -19,9 +19,13 @@ from pydantic import TypeAdapter, ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.llm.managed_decision_model import ManagedDecisionModel
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneRequestFailed, SystemOneResult
-from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
+from posthog.llm.system_one_client import (
+    DECISION_MODEL,
+    GATEWAY_MAX_QUESTIONS,
+    SystemOneClient,
+    build_system_one_client,
+)
 from posthog.models import EventDefinition
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
@@ -36,7 +40,6 @@ MATCH_THRESHOLD = 0.7
 # The picker shows at most this many, after it removes the events it excludes, so the endpoint returns them all.
 MAX_MATCHES = 3
 CACHE_KEY_PREFIX = "taxonomic_search_intent:event_match:v1"
-EVENT_MATCH_MODEL = ManagedDecisionModel("taxonomic-filter-event-match")
 
 _CACHED_MATCHES = TypeAdapter(list[EventMatch])
 
@@ -150,7 +153,7 @@ def _cache_key(team_id: int, query: str, model: str) -> str:
 
 
 def likely_core_events(
-    team_id: int, query: str, *, use_cache: bool = True, require_complete: bool = False, model: str | None = None
+    team_id: int, query: str, *, use_cache: bool = True, require_complete: bool = False
 ) -> list[EventMatch]:
     """Every core event the model finds likely, strongest first, before the check against ingested events.
 
@@ -160,8 +163,7 @@ def likely_core_events(
     model_query = redact_values(query)
     if model_query is None:
         return []
-    model = model or EVENT_MATCH_MODEL.current()
-    key = _cache_key(team_id, model_query, model)
+    key = _cache_key(team_id, model_query, DECISION_MODEL)
     if use_cache:
         cached = cache.get(key)
         # The Django cache pickles what it stores, so matches go in as JSON text and come out schema-validated.
@@ -170,7 +172,7 @@ def likely_core_events(
                 return _CACHED_MATCHES.validate_json(cached)
             except ValidationError:
                 pass
-    answers = _probabilities(team_id, model_query, model)
+    answers = _probabilities(team_id, model_query, DECISION_MODEL)
     if require_complete and not answers.complete:
         raise SystemOneRequestFailed("Some event match requests failed")
     likely = sorted(

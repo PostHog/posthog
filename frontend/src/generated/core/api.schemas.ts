@@ -4532,11 +4532,6 @@ export interface SearchIntentResponseApi {
      * * `skipped` - Not classified */
     method: SearchIntentSourceEnumApi
     /**
-     * The version of the managed search intent prompt the model read. Null for a value pattern, a skipped search, or the bundled fallback prompt.
-     * @nullable
-     */
-    prompt_version: number | null
-    /**
      * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
      * @nullable
      */
