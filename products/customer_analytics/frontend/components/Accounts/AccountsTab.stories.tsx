@@ -420,7 +420,7 @@ export const ManyColumns: Story = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
-                'api/environments/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
+                'api/projects/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
                 'api/projects/:team_id/custom_property_definitions/': {
                     count: ADDITIONAL_COLUMN_DEFINITIONS.length,
                     next: null,
@@ -562,6 +562,7 @@ export const ClearCustomProperties: Story = {
             return mswDecorator({
                 get: {
                     'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
+                    'api/projects/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
                     [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {
                         count: CLEARABLE_PROPERTY_DEFINITIONS.length,
                         next: null,
@@ -641,7 +642,12 @@ export const ClearCustomProperties: Story = {
             finishClearPropertyWrite?.()
             finishClearPropertyWrite = undefined
             await waitFor(() => {
-                if (edit.hasAttribute('disabled') || edit.getAttribute('aria-disabled') === 'true') {
+                const currentEdit = cell.querySelector('[data-attr="accounts-custom-property-value-edit"]')
+                if (
+                    !currentEdit ||
+                    currentEdit.hasAttribute('disabled') ||
+                    currentEdit.getAttribute('aria-disabled') === 'true'
+                ) {
                     throw new Error('Property write must finish before the next edit')
                 }
             })
