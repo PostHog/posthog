@@ -80,7 +80,7 @@ function endpointUrl(action, params = {}) {
 // confirmed flakes with no master failure that rank below those rows.
 function flakyTestsUrl(runner) {
     return endpointUrl('flaky_tests', {
-        date_from: '-7d',
+        date_from: `-${REPORT_WINDOW_DAYS}d`,
         limit: 200,
         repo: GITHUB_REPOSITORY,
         runner,
@@ -176,7 +176,7 @@ async function enrich(items, runHogql = hogql) {
             `SELECT f.test_id AS test_id,
                 arraySlice(arraySort(x -> -x.1, groupUniqArray((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
             FROM engineering_analytics_ci_failures f
-            WHERE f.timestamp >= now() - INTERVAL 7 DAY
+            WHERE f.timestamp >= now() - INTERVAL ${REPORT_WINDOW_DAYS} DAY
                 AND lower(f.repo) = lower({repository})
                 AND f.test_id IN {selectors}
                 AND (f.ci_engine = 'github_actions' OR f.ci_engine IS NULL)
@@ -291,11 +291,18 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
             .find(Boolean) || null
 }
 
+// `product:batch-exports` stands for the path prefix `products/batch_exports/`.
+function expandedQuarantineSelector(entryId) {
+    return entryId.startsWith('product:')
+        ? `products/${entryId.slice('product:'.length).replaceAll('-', '_')}/`
+        : entryId
+}
+
 // Mirrors `selector_matches` in tools/hogli-commands/hogli_commands/quarantine/core.py: an entry
 // covers a test, a class, a file, a directory, or a whole product.
 function quarantineEntryCovers(entryId, selector) {
     if (entryId.startsWith('product:')) {
-        return selector.startsWith(`products/${entryId.slice('product:'.length).replaceAll('-', '_')}/`)
+        return selector.startsWith(expandedQuarantineSelector(entryId))
     }
     const id = entryId.replace(/\/+$/, '')
     return selector === id || ['/', '::', '[', ' '].some((boundary) => selector.startsWith(`${id}${boundary}`))
@@ -309,9 +316,10 @@ function quarantineEntryCovers(entryId, selector) {
 function loadQuarantineFile(runner, { read = () => readFileSync(QUARANTINE_FILE, 'utf8'), now = new Date() } = {}) {
     let entries
     try {
-        entries = JSON.parse(read()).entries
-        if (!Array.isArray(entries)) {
-            throw new Error('`entries` is not a list')
+        const parsed = JSON.parse(read())
+        entries = parsed.entries
+        if (parsed.version !== 1 || !Array.isArray(entries)) {
+            throw new Error('not a version 1 quarantine file')
         }
     } catch (err) {
         console.warn(`${QUARANTINE_FILE} is unreadable — reporting without file quarantines: ${err.message}`)
@@ -319,16 +327,19 @@ function loadQuarantineFile(runner, { read = () => readFileSync(QUARANTINE_FILE,
     }
     const today = now.toISOString().slice(0, 10)
     const windowStart = new Date(now.getTime() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const inWindow = entries.filter(
-        (entry) => (entry.runner || 'pytest') === runner && entry.id && entry.expires && entry.expires >= windowStart
-    )
+    // Longest selector first, so the first match is the most specific one, as it is when CI
+    // applies the file.
+    const inWindow = entries
+        .filter(
+            (entry) =>
+                (entry.runner || 'pytest') === runner && entry.id && entry.expires && entry.expires >= windowStart
+        )
+        .sort(
+            (left, right) => expandedQuarantineSelector(right.id).length - expandedQuarantineSelector(left.id).length
+        )
     return (item) => {
-        // The longest matching selector wins, as it does when CI applies the file.
-        const covering = inWindow
-            .filter((entry) =>
-                selectorVariants(item.selector).some((variant) => quarantineEntryCovers(entry.id, variant))
-            )
-            .sort((left, right) => right.id.length - left.id.length)[0]
+        const variants = selectorVariants(item.selector)
+        const covering = inWindow.find((entry) => variants.some((variant) => quarantineEntryCovers(entry.id, variant)))
         return covering ? { expires: covering.expires, active: covering.expires >= today } : null
     }
 }
@@ -338,7 +349,7 @@ function loadQuarantineFile(runner, { read = () => readFileSync(QUARANTINE_FILE,
 //
 // Trunk with masking off is marked but not suppressed: Trunk called the test flaky, CI still goes
 // red on it, so it reads 'flagged' rather than a quarantine date.
-function quarantineStatusFor(trunkFor, fileFor = () => null, masksCi = TRUNK_MASKS_CI) {
+function quarantineStatusFor(trunkFor, fileFor, masksCi = TRUNK_MASKS_CI) {
     return (item) => {
         // A cluster's bare file selector can never match a per-test quarantine, so the members'
         // statuses are counted at collapse time and the row reports how many are suppressed.
@@ -402,6 +413,7 @@ function collapseClusters(items, statusFor) {
     const collapsed = []
     for (const [file, group] of byFile) {
         if (group.length >= CLUSTER_MIN_TESTS) {
+            const largest = (count) => Math.max(...group.map((item) => item[count]))
             collapsed.push({
                 runner: group[0].runner,
                 selector: file,
@@ -413,9 +425,9 @@ function collapseClusters(items, statusFor) {
                 }).length,
                 // Members fail in the same runs and on the same PRs, so the max is the provable floor
                 // rather than a sum.
-                failed_run_count: Math.max(...group.map((item) => item.failed_run_count)),
-                same_commit_recovery_run_count: Math.max(...group.map((item) => item.same_commit_recovery_run_count)),
-                failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),
+                failed_run_count: largest('failed_run_count'),
+                same_commit_recovery_run_count: largest('same_commit_recovery_run_count'),
+                failed_pr_count: largest('failed_pr_count'),
                 quarantined_failed_run_count: 0,
             })
         } else {
@@ -436,15 +448,11 @@ function countCell(item, count) {
 
 // Ranked on the endpoint's own counts, so the order and the numbers a reader sees agree.
 function rankByReportedCounts(items) {
-    return items
-        .map((item, index) => ({ item, index }))
-        .sort(
-            (left, right) =>
-                right.item.failed_run_count - left.item.failed_run_count ||
-                right.item.same_commit_recovery_run_count - left.item.same_commit_recovery_run_count ||
-                left.index - right.index
-        )
-        .map(({ item }) => item)
+    return [...items].sort(
+        (left, right) =>
+            right.failed_run_count - left.failed_run_count ||
+            right.same_commit_recovery_run_count - left.same_commit_recovery_run_count
+    )
 }
 
 // Failures with no recovery prove no flake. A quarantine is the other proof that a test is known
@@ -591,7 +599,7 @@ function buildBlocks(now, rows) {
             type: 'section',
             text: {
                 type: 'mrkdwn',
-                text: `*Weekly flaky tests - ${dateLabel}* _(CI, last 7 days, up to ${TOP_N} per runner)_`,
+                text: `*Weekly flaky tests - ${dateLabel}* _(CI, last ${REPORT_WINDOW_DAYS} days, up to ${TOP_N} per runner)_`,
             },
         },
         flakyTable(rows),

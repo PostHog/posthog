@@ -446,6 +446,7 @@ describe('weekly flaky report', () => {
         const fileFor = loadQuarantineFile('pytest', {
             read: () =>
                 JSON.stringify({
+                    version: 1,
                     entries: [
                         // A file-level entry covers every test in the file.
                         { id: 'file.py', runner: 'pytest', expires: '2026-07-20' },
