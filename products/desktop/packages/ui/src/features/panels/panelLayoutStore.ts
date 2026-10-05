@@ -5,6 +5,7 @@ import {
   addActionTab as coreAddActionTab,
   addTerminalTab as coreAddTerminalTab,
   closeOtherTabs as coreCloseOtherTabs,
+  closePanel as coreClosePanel,
   closeTab as coreCloseTab,
   closeTabsToRight as coreCloseTabsToRight,
   keepTab as coreKeepTab,
@@ -14,6 +15,7 @@ import {
   openTabInSplit as coreOpenTabInSplit,
   reorderTabs as coreReorderTabs,
   setActiveTab as coreSetActiveTab,
+  splitPanelWithCopy as coreSplitPanelWithCopy,
   updateSizes as coreUpdateSizes,
   updateTabLabel as coreUpdateTabLabel,
   updateTabMetadata as coreUpdateTabMetadata,
@@ -24,8 +26,12 @@ import {
   activeArtifactId,
   createFileTabId,
 } from "@posthog/core/panels/panelStoreHelpers";
-import { findTabInTree } from "@posthog/core/panels/panelTree";
-import { ANALYTICS_EVENTS, getFileExtension } from "@posthog/shared";
+import { collectLeafPanels } from "@posthog/core/panels/panelTree";
+import {
+  ANALYTICS_EVENTS,
+  getFileExtension,
+  type PanelActionSource,
+} from "@posthog/shared";
 import {
   createJSONStorage,
   persist,
@@ -109,6 +115,17 @@ interface PanelLayoutStore {
     sourcePanelId: string,
     targetPanelId: string,
     direction: SplitDirection,
+  ) => void;
+  splitPanelWithCopy: (
+    taskId: string,
+    panelId: string,
+    direction: SplitDirection,
+    source: PanelActionSource,
+  ) => void;
+  closePanel: (
+    taskId: string,
+    panelId: string,
+    source: PanelActionSource,
   ) => void;
   updateSizes: (taskId: string, groupId: string, sizes: number[]) => void;
   updateTabMetadata: (
@@ -197,6 +214,25 @@ const panelLayoutStorage: StateStorage = createDebouncedStorage(
   },
   PANEL_PERSIST_DEBOUNCE_MS,
 );
+
+function updateLayoutIfChanged(
+  get: () => PanelLayoutStore,
+  set: (partial: Partial<PanelLayoutStore>) => void,
+  taskId: string,
+  updater: (layout: TaskLayout) => Partial<TaskLayout>,
+): boolean {
+  const state = get();
+  const layout = state.taskLayouts[taskId];
+  if (!layout) return false;
+
+  const updates = updater(layout);
+  // A set call with no updates still notifies subscribers and schedules a
+  // persist write.
+  if (Object.keys(updates).length === 0) return false;
+
+  set(updateTaskLayout(state, taskId, () => updates));
+  return true;
+}
 
 export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
   persist(
@@ -382,10 +418,16 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         const layout = get().taskLayouts[taskId];
         if (!layout) return;
 
-        const tabId = createFileTabId(filePath);
-        const tabLocation = findTabInTree(layout.panelTree, tabId);
-        if (tabLocation) {
-          get().closeTab(taskId, tabLocation.panelId, tabId);
+        // Match on the path, because copied file tabs have their own ids.
+        for (const leaf of collectLeafPanels(layout.panelTree)) {
+          for (const tab of leaf.content.tabs) {
+            if (
+              tab.data.type === "file" &&
+              tab.data.relativePath === filePath
+            ) {
+              get().closeTab(taskId, leaf.id, tab.id);
+            }
+          }
         }
       },
 
@@ -465,6 +507,39 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
               ) as Partial<TaskLayout>,
           ),
         );
+      },
+
+      splitPanelWithCopy: (taskId, panelId, direction, source) => {
+        const changed = updateLayoutIfChanged(
+          get,
+          set,
+          taskId,
+          (layout) =>
+            coreSplitPanelWithCopy(
+              layout,
+              panelId,
+              direction,
+            ) as Partial<TaskLayout>,
+        );
+        if (changed) {
+          track(ANALYTICS_EVENTS.PANEL_SPLIT, {
+            source,
+            direction,
+            task_id: taskId,
+          });
+        }
+      },
+
+      closePanel: (taskId, panelId, source) => {
+        const changed = updateLayoutIfChanged(
+          get,
+          set,
+          taskId,
+          (layout) => coreClosePanel(layout, panelId) as Partial<TaskLayout>,
+        );
+        if (changed) {
+          track(ANALYTICS_EVENTS.PANEL_CLOSED, { source, task_id: taskId });
+        }
       },
 
       updateSizes: (taskId, groupId, sizes) => {

@@ -74,32 +74,14 @@ const PanelLayoutRenderer: React.FC<{
 
   const handleSplitPanel = useCallback(
     (panelId: string, direction: SplitDirection) => {
-      const layout = usePanelLayoutStore.getState().getLayout(taskId);
-      if (!layout) return;
+      layoutState.splitPanelWithCopy(taskId, panelId, direction, "button");
+    },
+    [layoutState, taskId],
+  );
 
-      const findActiveTabId = (panelNode: PanelNode): string | null => {
-        if (panelNode.type === "leaf" && panelNode.id === panelId) {
-          return panelNode.content.activeTabId ?? null;
-        }
-        if (panelNode.type === "group") {
-          for (const child of panelNode.children) {
-            const result = findActiveTabId(child);
-            if (result) return result;
-          }
-        }
-        return null;
-      };
-
-      const activeTabId = findActiveTabId(layout.panelTree);
-      if (activeTabId) {
-        layoutState.splitPanel(
-          taskId,
-          activeTabId,
-          panelId,
-          panelId,
-          direction,
-        );
-      }
+  const handleClosePanel = useCallback(
+    (panelId: string) => {
+      layoutState.closePanel(taskId, panelId, "button");
     },
     [layoutState, taskId],
   );
@@ -129,6 +111,7 @@ const PanelLayoutRenderer: React.FC<{
             onPanelFocus={handlePanelFocus}
             onAddTerminal={handleAddTerminal}
             onSplitPanel={handleSplitPanel}
+            onClosePanel={handleClosePanel}
           />
         );
       }
@@ -157,6 +140,7 @@ const PanelLayoutRenderer: React.FC<{
       handlePanelFocus,
       handleAddTerminal,
       handleSplitPanel,
+      handleClosePanel,
       setGroupRef,
       handleLayout,
     ],
