@@ -77,8 +77,6 @@ jobs:
                   # masked when Trunk is actually masking it. Unset means no Trunk state at all.
                   TRUNK_UPLOAD_ENABLED: ${{ vars.TRUNK_UPLOAD_ENABLED }}
                   TRUNK_QUARANTINE_ENABLED: ${{ vars.TRUNK_QUARANTINE_ENABLED }}
-                  # Optional: override the source-prefixed Trunk quarantine table name.
-                  TRUNK_QUARANTINE_TABLE: ${{ vars.TRUNK_QUARANTINE_TABLE }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
               run: node .github/scripts/weekly-flaky-report.mjs

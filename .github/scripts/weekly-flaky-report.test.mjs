@@ -16,6 +16,7 @@ import {
     quarantineStatusFor,
     REPORT_RUNNERS,
     selectReportCandidates,
+    sharedTrunkLookup,
     tableRows,
 } from './weekly-flaky-report.mjs'
 import { repoPathResolver, trackedTestPaths } from './weekly-report-common.mjs'
@@ -367,41 +368,49 @@ describe('weekly flaky report', () => {
     })
 
     it('distinguishes unavailable Trunk data from an empty result', async () => {
+        const otherRunnerOnly = {
+            available: true,
+            truncated: false,
+            ttl_days: 15,
+            tests: [{ runner: 'jest', nodeid: 'posthog/test/test_example.py::test_report', quarantined_at: null }],
+        }
         const cases = [
             {
                 label: 'uploads off',
                 enabled: false,
                 available: false,
-                runHogql: () => assert.fail('must not query Trunk while uploads are disabled'),
+                fetchQuarantine: () => assert.fail('must not query Trunk while uploads are disabled'),
             },
             {
-                label: 'table missing',
+                label: 'request fails',
                 enabled: true,
                 available: false,
-                runHogql: async () => {
-                    throw new Error('Unknown table trunkio.quarantinedtests')
+                fetchQuarantine: async () => {
+                    throw new Error('trunk_quarantine 503')
                 },
             },
             {
-                label: 'no rows',
+                label: 'no Trunk source synced',
+                enabled: true,
+                available: false,
+                fetchQuarantine: async () => ({ ...otherRunnerOnly, available: false, tests: [] }),
+            },
+            {
+                label: 'list is cut short, so rows may be missing',
+                enabled: true,
+                available: false,
+                fetchQuarantine: async () => ({ ...otherRunnerOnly, truncated: true, limit: 5000 }),
+            },
+            {
+                label: 'only another runner is quarantined',
                 enabled: true,
                 available: true,
-                runHogql: async (query) => {
-                    // Without an explicit limit the query API returns only the first 100 quarantines.
-                    assert.match(query, /LIMIT 50000\s*$/)
-                    return { results: [] }
-                },
-            },
-            {
-                label: 'page is full, so rows may be missing',
-                enabled: true,
-                available: false,
-                runHogql: async () => ({ results: Array.from({ length: 50000 }, () => ['a.py::test', null]) }),
+                fetchQuarantine: async () => otherRunnerOnly,
             },
         ]
 
-        for (const { label, enabled, available, runHogql } of cases) {
-            const trunkFor = await fetchTrunkQuarantined('pytest', runHogql, enabled)
+        for (const { label, enabled, available, fetchQuarantine } of cases) {
+            const trunkFor = await fetchTrunkQuarantined('pytest', fetchQuarantine, enabled)
 
             assert.equal(typeof trunkFor === 'function', available, label)
             assert.equal(trunkFor?.({ selector: 'posthog/test/test_example.py::test_report' }) ?? null, null, label)
@@ -409,28 +418,46 @@ describe('weekly flaky report', () => {
     })
 
     it('matches Trunk rows to a product suite reported product-relative', async () => {
-        const trunkFor = await fetchTrunkQuarantined(
-            'pytest',
-            async () => ({
-                results: [
-                    [
-                        'products/example/backend/tests/test_migration.py::MigrationTest::test_backfill',
-                        '2026-07-29T09:14:22.000Z',
-                    ],
-                    [
-                        'products/example/backend/tests/test_migration.py::MigrationTest::test_backfill',
-                        '2026-07-31T11:00:00.000Z',
-                    ],
+        let requests = 0
+        const getTrunk = sharedTrunkLookup(async () => {
+            requests += 1
+            return {
+                available: true,
+                truncated: false,
+                ttl_days: 15,
+                tests: [
+                    {
+                        runner: 'pytest',
+                        nodeid: 'products/example/backend/tests/test_migration.py::MigrationTest::test_backfill',
+                        quarantined_at: '2026-07-29T09:14:22Z',
+                        overdue: true,
+                    },
+                    {
+                        runner: 'jest',
+                        nodeid: 'src/scenes/example/exampleLogic.test.ts::exampleLogic loads the example',
+                        quarantined_at: '2026-07-31T11:00:00Z',
+                        overdue: false,
+                    },
                 ],
-            }),
-            true
-        )
+            }
+        }, true)
+        const pytestFor = await getTrunk('pytest')
+        const jestFor = await getTrunk('jest')
 
+        // The endpoint is not runner-specific, so a second request would repeat the first.
+        assert.equal(requests, 1)
+        assert.deepEqual(pytestFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_backfill' }), {
+            quarantinedAt: '2026-07-29T09:14:22Z',
+            overdue: true,
+            fixBy: '2026-08-13',
+        })
+        assert.equal(pytestFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
+        assert.equal(pytestFor({ selector: 'frontend/src/scenes/example/exampleLogic.test.ts::exampleLogic loads the example' }), null)
         assert.equal(
-            trunkFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_backfill' }).quarantinedAt,
-            '2026-07-29T09:14:22.000Z'
+            jestFor({ selector: 'frontend/src/scenes/example/exampleLogic.test.ts::exampleLogic loads the example' })
+                .fixBy,
+            '2026-08-15'
         )
-        assert.equal(trunkFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
     })
 
     it('labels how each quarantine system suppresses a test instead of dropping it', () => {
@@ -457,15 +484,18 @@ describe('weekly flaky report', () => {
             now: new Date('2026-07-15T00:00:00Z'),
         })
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
+        const overdue = { runner: 'pytest', selector: 'overdue.py::test_overdue', failed_run_count: 7 }
+        const unlimited = { runner: 'pytest', selector: 'unlimited.py::test_unlimited', failed_run_count: 3 }
         const undated = { runner: 'pytest', selector: 'undated.py::test_undated', failed_run_count: 2 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
-        const items = [quarantineFile, unparked, trunked, undated, plain]
+        const items = [quarantineFile, unparked, trunked, overdue, unlimited, undated, plain]
         const trunkRows = new Map([
-            [trunked.selector, '2026-07-13T17:12:22.000Z'],
-            [undated.selector, null],
+            [trunked.selector, { quarantinedAt: '2026-07-13T17:12:22Z', overdue: false, fixBy: '2026-07-28' }],
+            [overdue.selector, { quarantinedAt: '2026-06-20T08:00:00Z', overdue: true, fixBy: '2026-07-05' }],
+            [unlimited.selector, { quarantinedAt: '2026-07-13T17:12:22Z', overdue: false, fixBy: undefined }],
+            [undated.selector, { quarantinedAt: null, overdue: false, fixBy: undefined }],
         ])
-        const trunkFor = (item) =>
-            trunkRows.has(item.selector) ? { quarantinedAt: trunkRows.get(item.selector) } : null
+        const trunkFor = (item) => trunkRows.get(item.selector) || null
 
         const cells = (masksCi) =>
             tableRows(
@@ -475,9 +505,25 @@ describe('weekly flaky report', () => {
                 quarantineStatusFor(trunkFor, fileFor, masksCi)
             ).map((row) => row[3].text)
 
-        assert.deepEqual(cells(true), ['until 2026-07-20', 'expired 2026-07-14', 'since 2026-07-13', 'yes', '-'])
+        assert.deepEqual(cells(true), [
+            'until 2026-07-20',
+            'expired 2026-07-14',
+            'fix by 2026-07-28',
+            'overdue since 2026-07-05',
+            'since 2026-07-13',
+            'yes',
+            '-',
+        ])
         // Masking off leaves Trunk's failure reddening CI, so the date would overclaim.
-        assert.deepEqual(cells(false), ['until 2026-07-20', 'expired 2026-07-14', 'flagged', 'flagged', '-'])
+        assert.deepEqual(cells(false), [
+            'until 2026-07-20',
+            'expired 2026-07-14',
+            'flagged',
+            'flagged',
+            'flagged',
+            'flagged',
+            '-',
+        ])
     })
 
     it('keeps a Trunk-quarantined test in the report and counts suppressed cluster members', async () => {
@@ -564,22 +610,28 @@ describe('weekly flaky report', () => {
         const trunkFor = await fetchTrunkQuarantined(
             'jest',
             async () => ({
-                results: [
-                    [
-                        'src/lib/components/ActivityLog/activityLogLogic.person.test.tsx::the activity log logic humanizing persons can handle addition of a property',
-                        '2026-07-11T16:45:09.000Z',
-                    ],
+                available: true,
+                truncated: false,
+                // Without a time limit there is no fix-by date to report.
+                ttl_days: null,
+                tests: [
+                    {
+                        runner: 'jest',
+                        nodeid: 'src/lib/components/ActivityLog/activityLogLogic.person.test.tsx::the activity log logic humanizing persons can handle addition of a property',
+                        quarantined_at: '2026-07-11T16:45:09.000Z',
+                        overdue: false,
+                    },
                 ],
             }),
             true
         )
 
-        assert.equal(
+        assert.deepEqual(
             trunkFor({
                 selector:
                     'frontend/src/lib/components/ActivityLog/activityLogLogic.person.test.tsx::the activity log logic humanizing persons can handle addition of a property',
-            }).quarantinedAt,
-            '2026-07-11T16:45:09.000Z'
+            }),
+            { quarantinedAt: '2026-07-11T16:45:09.000Z', overdue: false, fixBy: undefined }
         )
     })
 })

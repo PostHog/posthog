@@ -40,10 +40,8 @@ const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 // The synced runs table name carries the warehouse source prefix, which differs per project.
 const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
 const QUARANTINE_FILE = '.test_quarantine.json'
-const TRUNK_TABLE = process.env.TRUNK_QUARANTINE_TABLE || 'trunkio.quarantinedtests'
 
-// A HogQL query without a LIMIT returns 100 rows, which is fewer than Trunk quarantines. A page
-// that comes back full may be cut short, and a partial list reads as "not quarantined".
+// A HogQL query without a LIMIT returns 100 rows.
 const QUERY_ROW_LIMIT = 50000
 const REPORT_WINDOW_DAYS = 7
 const TOP_N = 10
@@ -228,67 +226,68 @@ async function enrichRunnerCandidates(runner, candidates, runHogql = hogql) {
     return () => empty
 }
 
-// Trunk keys a test by (file, classname, name) rather than by one id, and the two runners split
-// the name differently: pytest hides the class inside `classname` (the file's module plus the
-// class), while jest puts the whole title in `name`. Trimming the module prefix recovers the
-// pytest class; jest needs no reassembly, so file and name concatenate directly.
-//
-// `parent` carries the runner for pytest and the file path for jest, which is what separates the
-// two sets. The table has no repository column, so this cannot be repo-scoped. It does not need
-// to be: a row only annotates a selector the repo-scoped endpoint already returned.
-const TRUNK_QUARANTINED_QUERY = `
-    SELECT concat(file, '::', if(cls = '', '', concat(cls, '::')), name) AS nodeid,
-        quarantined_at
-    FROM (
-        SELECT file, name, quarantined_at,
-            replaceAll(substring(file, 1, length(file) - 3), '/', '.') AS module,
-            if({runner} = 'pytest' AND startsWith(classname, concat(module, '.')),
-               replaceAll(substring(classname, length(module) + 2, length(classname)), '.', '::'),
-               '') AS cls
-        FROM __TRUNK_TABLE__
-        WHERE if({runner} = 'pytest', parent = 'pytest', parent != 'pytest')
+function fetchTrunkQuarantine() {
+    return requestPosthog(
+        endpointUrl('trunk_quarantine', { repo: GITHUB_REPOSITORY }),
+        { headers: AUTH_HEADERS },
+        'trunk_quarantine'
     )
-    LIMIT ${QUERY_ROW_LIMIT}`
+}
 
-// Uploads off, a missing table, or a query error all degrade to a report without Trunk state,
-// never to a failed run.
-async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_UPLOADS_ON) {
+// `ttl_days` is how long a quarantine may stand, counted from the day it began.
+function trunkFixBy(quarantinedAt, ttlDays) {
+    const startedAt = Date.parse(quarantinedAt)
+    if (Number.isNaN(startedAt) || typeof ttlDays !== 'number' || !(ttlDays > 0)) {
+        return undefined
+    }
+    return new Date(startedAt + ttlDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+// Uploads off, no synced Trunk source, a request error, or a cut-off page all degrade to a report
+// without Trunk state, never to a failed run. A partial list would read as "not quarantined".
+async function fetchTrunkQuarantined(runner, fetchQuarantine = fetchTrunkQuarantine, enabled = TRUNK_UPLOADS_ON) {
     if (!enabled) {
         return null
     }
-    let rows = []
+    let debt
     try {
-        const result = await runHogql(TRUNK_QUARANTINED_QUERY.replace('__TRUNK_TABLE__', TRUNK_TABLE), {
-            runner,
-        })
-        rows = result.results || []
+        debt = await fetchQuarantine()
     } catch (err) {
         console.warn(`Trunk quarantine lookup failed — reporting without Trunk state: ${err.message}`)
         return null
     }
-    if (rows.length >= QUERY_ROW_LIMIT) {
-        console.warn(`Trunk quarantine lookup returned a full page — reporting without Trunk state`)
+    if (!debt?.available) {
+        console.warn('Trunk quarantine state is not available — reporting without Trunk state')
         return null
     }
-    // Trunk keeps one row per variant of a test (one per browser, for example), and the oldest row
-    // is when masking began.
-    const oldestByNodeid = new Map()
-    for (const [nodeid, quarantinedAt] of rows) {
-        const known = oldestByNodeid.get(nodeid)
-        if (!oldestByNodeid.has(nodeid) || (quarantinedAt && (!known || quarantinedAt < known))) {
-            oldestByNodeid.set(nodeid, quarantinedAt)
-        }
+    if (debt.truncated) {
+        console.warn(`Trunk quarantine lookup was cut at ${debt.limit} rows — reporting without Trunk state`)
+        return null
     }
     const byVariant = new Map()
-    for (const [nodeid, quarantinedAt] of oldestByNodeid) {
-        for (const variant of selectorVariants(nodeid)) {
-            byVariant.set(variant, { quarantinedAt })
+    for (const test of debt.tests || []) {
+        if (test.runner !== runner) {
+            continue
+        }
+        const entry = {
+            quarantinedAt: test.quarantined_at,
+            overdue: Boolean(test.overdue),
+            fixBy: trunkFixBy(test.quarantined_at, debt.ttl_days),
+        }
+        for (const variant of selectorVariants(test.nodeid)) {
+            byVariant.set(variant, entry)
         }
     }
     return (item) =>
         selectorVariants(item.selector)
             .map((variant) => byVariant.get(variant))
             .find(Boolean) || null
+}
+
+// The endpoint answers for every runner, so the runners share one request.
+function sharedTrunkLookup(fetchQuarantine = fetchTrunkQuarantine, enabled = TRUNK_UPLOADS_ON) {
+    let pending
+    return (runner) => fetchTrunkQuarantined(runner, () => (pending ??= fetchQuarantine()), enabled)
 }
 
 // `product:batch-exports` stands for the path prefix `products/batch_exports/`.
@@ -366,6 +365,9 @@ function quarantineStatusFor(trunkFor, fileFor, masksCi = TRUNK_MASKS_CI) {
         }
         if (!masksCi) {
             return 'flagged'
+        }
+        if (trunk.fixBy) {
+            return `${trunk.overdue ? 'overdue since' : 'fix by'} ${trunk.fixBy}`
         }
         const since = (trunk.quarantinedAt || '').slice(0, 10)
         return since ? `since ${since}` : 'yes'
@@ -468,7 +470,7 @@ function isKnownFlake(item, trunkFor, fileFor) {
 async function buildRunnerReports(
     candidatePools,
     getEnrichment = enrichRunnerCandidates,
-    getTrunk = fetchTrunkQuarantined,
+    getTrunk = sharedTrunkLookup(),
     getQuarantineFile = loadQuarantineFile
 ) {
     return Promise.all(
@@ -571,7 +573,7 @@ const COLUMN_LEGEND = {
             text: [
                 '*Failed runs* counts each CI run where the test failed, including runs that a quarantine kept green.',
                 '*Recovered runs* counts each run where the same commit failed and passed the test.',
-                '*Quarantine* shows when masking started (since), when it ends (until), or when it ended (expired). A quarantine hides the failure, so the test still needs a fix.',
+                '*Quarantine* shows the date the quarantine ends (fix by, until) or the date it ended (overdue since, expired). A quarantine hides the failure for a limited time, so the test needs a fix by that date.',
                 'A count with a + covers several tests in one file and is a minimum.',
             ].join(' '),
         },
@@ -686,5 +688,6 @@ export {
     quarantineStatusFor,
     REPORT_RUNNERS,
     selectReportCandidates,
+    sharedTrunkLookup,
     tableRows,
 }
