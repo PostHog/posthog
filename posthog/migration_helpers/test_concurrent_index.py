@@ -16,7 +16,7 @@ from django.db.migrations.state import ModelState, ProjectState
 
 from posthog.migration_helpers import (
     CreateIndexConcurrently,
-    DropForeignKeyIndexConcurrently,
+    DropFieldIndexesConcurrently,
     DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
@@ -459,7 +459,7 @@ def test_safe_ops_deconstruct_round_trips(op):
     assert rebuilt.deconstruct() == op.deconstruct()
 
 
-# --- DropForeignKeyIndexConcurrently ---
+# --- DropFieldIndexesConcurrently ---
 
 
 @pytest.fixture
@@ -544,7 +544,7 @@ def test_drop_foreign_key_index_drops_only_the_automatic_indexes(
     )
     single_column_meta = {index.name for index in indexes if index.fields == ["owner"]}
     automatic = _indexes_on_only(child, "owner_id") - single_column_meta
-    op = DropForeignKeyIndexConcurrently(model_name="TempFkChild", name="owner")
+    op = DropFieldIndexesConcurrently(model_name="TempFkChild", name="owner")
 
     _apply_forwards(op, state)
     assert _indexes_on_only(child, "owner_id") == single_column_meta
@@ -559,6 +559,29 @@ def test_drop_foreign_key_index_drops_only_the_automatic_indexes(
     _apply_backwards(op, state)
     assert all(_index_is_valid(name) for name in automatic)
     assert _indexes_on_only(child, "owner_id") == automatic | single_column_meta
+
+
+@pytest.mark.django_db(transaction=True)
+def test_drop_field_indexes_drops_only_the_like_companion_of_a_unique_field(key_tables):
+    parent, child = key_tables
+    state = _create_key_tables(parent, child)
+    (like,) = _indexes_on_only(parent, "code")
+    op = DropFieldIndexesConcurrently(model_name="TempFkParent", name="code")
+    before = state.models["posthog", "tempfkparent"].fields["code"].deconstruct()
+
+    _apply_forwards(op, state)
+    assert _indexes_on_only(parent, "code") == set()
+    with connection.cursor() as cursor:
+        constraints = connection.introspection.get_constraints(cursor, parent)
+    assert any(info["unique"] and info["columns"] == ["code"] for info in constraints.values())
+
+    after = state.clone()
+    op.state_forwards("posthog", after)
+    assert after.models["posthog", "tempfkparent"].fields["code"].deconstruct() == before
+
+    _apply_backwards(op, state)
+    assert _indexes_on_only(parent, "code") == {like}
+    assert _index_is_valid(like)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -596,7 +619,7 @@ def test_drop_foreign_key_index_refuses_and_keeps_the_indexes(key_tables, on_del
         with connection.cursor() as cursor:
             cursor.execute(setup_sql.format(child=child, automatic=automatic))
     before = _indexes_on_only(child, "owner_id")
-    op = DropForeignKeyIndexConcurrently(model_name="TempFkChild", name="owner")
+    op = DropFieldIndexesConcurrently(model_name="TempFkChild", name="owner")
 
     with pytest.raises(ValueError, match=error):
         _apply_forwards(op, state)

@@ -53,7 +53,8 @@ can't model):
         )],
     )
 
-`DropForeignKeyIndexConcurrently` drops the indexes Django creates for a `ForeignKey`.
+`DropFieldIndexesConcurrently` drops the indexes Django creates for a field outside
+`Meta.indexes`: the `db_index` index and the `_like` pattern-ops companion.
 
 The Migration class still needs `atomic = False`.
 """
@@ -430,47 +431,55 @@ class _AutomaticIndex:
     columns: str
 
 
-class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
-    """Drop the indexes Django creates for a ForeignKey, and set `db_index=False` on the field.
+class DropFieldIndexesConcurrently(NotInTransactionMixin, FieldOperation):
+    """Drop the indexes Django creates for a field outside `Meta.indexes`, without a typed name.
 
-    Use it in place of the `AlterField` that `makemigrations` writes, which runs a plain
-    `DROP INDEX` under ACCESS EXCLUSIVE on the table. The indexes come from the field's
-    `db_index`, not from `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot resolve them.
-    The op derives the names the same way Django did when it created the indexes, so no
-    hash-suffixed name is typed at the call site. The Migration class still needs
-    `atomic = False`.
+    Django gives a field with `db_index=True` an index of its own, and on Postgres it adds a
+    `_like` pattern-ops companion to a varchar or text field with `db_index=True` or
+    `unique=True`. Neither is in `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot
+    resolve them. The op derives the names the same way Django did when it created the
+    indexes, so no hash-suffixed name is typed at the call site. The Migration class still
+    needs `atomic = False`.
 
         operations = [
-            DropForeignKeyIndexConcurrently(model_name="mymodel", name="team"),
+            DropFieldIndexesConcurrently(model_name="mymodel", name="team"),
         ]
 
-    The op raises instead of guessing when another single-column index on the key exists that
-    no Meta index names. It also raises when a parent delete still reads the column and no
-    other btree index leads with it: the foreign key check at COMMIT and every `on_delete` but
-    `DO_NOTHING` would then scan the whole table.
+    - On a field with `db_index=True` and no unique rule, use it in place of the `AlterField`
+      that `makemigrations` writes, which runs a plain `DROP INDEX` under ACCESS EXCLUSIVE. It
+      drops both indexes and sets `db_index=False` in state.
+    - On a field with `unique=True`, it drops only the `_like` companion. The unique rule keeps
+      its index, and state does not change, so a fresh database still gets the companion.
+
+    The op raises instead of guessing when another single-column index on the column exists
+    that no Meta index names. On a foreign key, it also raises when a parent delete still reads
+    the column and no other btree index leads with it: the foreign key check at COMMIT and
+    every `on_delete` but `DO_NOTHING` would then scan the whole table.
     """
 
     def state_forwards(self, app_label, state) -> None:
         field = state.models[app_label, self.model_name_lower].fields[self.name]
-        if not (field.many_to_one and field.db_index and not field.unique):
+        if not (field.db_index or field.unique):
             raise ValueError(
-                f"{type(self).__name__} needs a ForeignKey with an index of its own, "
+                f"{type(self).__name__} needs a field with an index of its own, "
                 f"and {self.model_name}.{self.name} has none"
             )
-        field = field.clone()
-        field.db_index = False
-        state.alter_field(app_label, self.model_name_lower, self.name, field, preserve_default=True)
+        if field.db_index and not field.unique:
+            field = field.clone()
+            field.db_index = False
+            state.alter_field(app_label, self.model_name_lower, self.name, field, preserve_default=True)
 
     def _automatic_indexes(self, schema_editor, model, field) -> list[_AutomaticIndex]:
         # The names and columns BaseDatabaseSchemaEditor._field_indexes_sql uses when it creates them.
         table = model._meta.db_table
-        indexes = [
-            _AutomaticIndex(
-                name=schema_editor._create_index_name(table, [field.column]),
-                columns=f"({schema_editor.quote_name(field.column)})",
+        indexes = []
+        if field.db_index and not field.unique:
+            indexes.append(
+                _AutomaticIndex(
+                    name=schema_editor._create_index_name(table, [field.column]),
+                    columns=f"({schema_editor.quote_name(field.column)})",
+                )
             )
-        ]
-        # Postgres adds a `_like` pattern-ops companion on a varchar or text column.
         like = schema_editor._create_like_index_sql(model, field)
         if like is not None:
             indexes.append(
@@ -489,6 +498,11 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
         table = model._meta.db_table
         field = model._meta.get_field(self.name)
         automatic = {index.name for index in self._automatic_indexes(schema_editor, model, field)}
+        if not automatic:
+            raise ValueError(
+                f"Django creates no index outside the unique rule for {self.model_name}.{self.name}, "
+                "so there is nothing to drop."
+            )
         # The lookup Django's own AlterField runs to find these indexes when db_index turns off.
         candidates = set(
             schema_editor._constraint_names(
@@ -503,10 +517,10 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
         if unexpected:
             raise ValueError(
                 f"{table} holds {', '.join(unexpected)} on only {field.column}. Django did not create it for "
-                f"the key ({', '.join(sorted(automatic))}), and no Meta index names it. Find out what created it first."
+                f"the field ({', '.join(sorted(automatic))}), and no Meta index names it. Find out what created it first."
             )
         # Also checked when the indexes are already gone, so db_index=False never hides a missing cover.
-        if field.db_constraint or field.remote_field.on_delete is not DO_NOTHING:
+        if field.is_relation and (field.db_constraint or field.remote_field.on_delete is not DO_NOTHING):
             with schema_editor.connection.cursor() as cursor:
                 cursor.execute(_LEADING_INDEXES_SQL, {"table": table, "column": field.column})
                 covering = {name for (name,) in cursor.fetchall()} - automatic
@@ -541,7 +555,7 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
             )
 
     def describe(self) -> str:
-        return f"Concurrently drop the foreign key indexes on {self.model_name}.{self.name}"
+        return f"Concurrently drop the indexes Django creates for {self.model_name}.{self.name}"
 
     @property
     def migration_name_fragment(self) -> str:

@@ -550,10 +550,13 @@ class Migration(migrations.Migration):
 Dropping an index uses the mirror helper, `SafeRemoveIndexConcurrently`
 (`model_name` + index `name`).
 
-The index Django creates for a `ForeignKey` comes from the field's `db_index`, not from a Django `Index`, so `SafeRemoveIndexConcurrently` cannot find it.
-Set `db_index=False` on the field and use `DropForeignKeyIndexConcurrently(model_name="mymodel", name="team")` in place of the `AlterField` that `makemigrations` writes.
-It derives the index names the way Django does, so no hash-suffixed name is typed by hand. On a varchar or text key that includes the `_like` pattern-ops companion.
-It refuses when the table holds another index on only that column that no `Meta` index names, and when no other btree index leads with the column while a parent delete still reads it.
+Django also creates indexes outside `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot find them: the index of a field with `db_index=True`, including every `ForeignKey` by default, and the `_like` pattern-ops companion of a varchar or text field with `db_index=True` or `unique=True`.
+Drop them with `DropFieldIndexesConcurrently(model_name="mymodel", name="team")`, which derives the names the way Django does, so no hash-suffixed name is typed by hand.
+
+- For a field with `db_index=True`, set `db_index=False` on the model and use the op in place of the `AlterField` that `makemigrations` writes. It drops both indexes.
+- For a field with `unique=True`, it drops only the `_like` companion. Model state cannot record that, so a fresh database still creates the companion.
+
+It refuses when the table holds another index on only that column that no `Meta` index names. On a foreign key it also refuses when no other btree index leads with the column while a parent delete still reads it.
 
 ### Raw-SQL variant: `CreateIndexConcurrently` / `DropIndexConcurrently`
 
@@ -619,7 +622,7 @@ helper.
 - **Never use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly** — they are non-idempotent and the CI policy blocks them
 - **Prefer `SafeAddIndexConcurrently` / `SafeRemoveIndexConcurrently` from `posthog.migration_helpers`** — they take a `model_name` + Index, track Django state themselves (no `SeparateDatabaseAndState`), disable both timeouts, and recover from invalid leftover indexes
 - Use the raw-SQL `CreateIndexConcurrently` / `DropIndexConcurrently` (wrapped in `SeparateDatabaseAndState`) only when the index doesn't map to a Django `Index`
-- Drop the index Django creates for a `ForeignKey` with `DropForeignKeyIndexConcurrently`, never with `DropIndexConcurrently` and a hand-typed name, which the CI policy blocks
+- Drop the indexes Django creates for a field, such as a `ForeignKey` index or a `_like` companion, with `DropFieldIndexesConcurrently`, never with `DropIndexConcurrently` and a hand-typed name, which the CI policy blocks
 - Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a last-resort fallback but does not recover from invalid leftovers
 - Set `atomic = False` (required for all `CONCURRENTLY` operations)
 - If a prior deploy already left an invalid index (the helper would catch this on next run, but the fallback won't), clean it up with `REINDEX INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY IF EXISTS` before re-running

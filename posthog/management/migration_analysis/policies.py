@@ -203,7 +203,7 @@ class AtomicFalsePolicy(MigrationPolicy):
         "RemoveIndexConcurrently",
         # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently",
-        "DropForeignKeyIndexConcurrently",
+        "DropFieldIndexesConcurrently",
         "DropIndexConcurrently",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",
@@ -387,7 +387,7 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
     # level, so they are explicitly exempt from the static SQL check.
     POSTHOG_SAFE_HELPER_OPS = {
         "CreateIndexConcurrently",
-        "DropForeignKeyIndexConcurrently",
+        "DropFieldIndexesConcurrently",
         "DropIndexConcurrently",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",
@@ -1089,7 +1089,7 @@ class GeneratedNameDropPolicy(MigrationPolicy):
             "can hold the rule under another name, or hold rules no migration names any more, and IF EXISTS "
             "hides the miss. Find it in the catalog: DropColumnConstraints(table, columns=[...]) for the check "
             "and unique rules on a retiring column, DropForeignKey for a foreign key, "
-            "DropForeignKeyIndexConcurrently for the index Django creates for a foreign key, or Django's own "
+            "DropFieldIndexesConcurrently for the index or `_like` companion Django creates for a field, or Django's own "
             "AlterUniqueTogether and RemoveIndex, which resolve the name from state or by column."
         ]
 

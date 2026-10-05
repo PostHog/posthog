@@ -945,7 +945,7 @@ class _SafeConcurrentIndexAnalyzer(OperationAnalyzer):
 
     All of them (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
     the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently /
-    DropForeignKeyIndexConcurrently)
+    DropFieldIndexesConcurrently)
     encode the guarantees ConcurrentIndexIdempotencyPolicy enforces - timeout
     disabling, invalid-leftover recovery, and skip-if-already-applied - so they
     are safe by construction. Scoring them SAFE (vs the default "unknown
@@ -978,8 +978,8 @@ class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "DropIndexConcurrently"
 
 
-class DropForeignKeyIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
-    operation_type = "DropForeignKeyIndexConcurrently"
+class DropFieldIndexesConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "DropFieldIndexesConcurrently"
 
     def analyze(self, op) -> OperationRisk:
         # The op takes a field, and derives the index names from it only when the migration applies.

@@ -22,8 +22,8 @@ from posthog.migration_helpers import (
     AddConstraintNotValid,
     AddForeignKeyNotValid,
     DropColumnConstraints,
+    DropFieldIndexesConcurrently,
     DropForeignKey,
-    DropForeignKeyIndexConcurrently,
     DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeDropTable,
@@ -2201,7 +2201,7 @@ class TestAtomicFalsePolicy:
     @parameterized.expand(
         [
             "CreateIndexConcurrently",
-            "DropForeignKeyIndexConcurrently",
+            "DropFieldIndexesConcurrently",
             "DropIndexConcurrently",
             "SafeAddIndexConcurrently",
             "SafeRemoveIndexConcurrently",
@@ -2443,7 +2443,7 @@ class TestConcurrentIndexIdempotencyPolicy:
         [
             (SafeAddIndexConcurrently(model_name="dashboard", index=models.Index(fields=["name"], name="idx")),),
             (SafeRemoveIndexConcurrently(model_name="dashboard", name="idx"),),
-            (DropForeignKeyIndexConcurrently(model_name="dashboard", name="team"),),
+            (DropFieldIndexesConcurrently(model_name="dashboard", name="team"),),
         ]
     )
     def test_safe_state_aware_helpers_score_safe(self, op):
