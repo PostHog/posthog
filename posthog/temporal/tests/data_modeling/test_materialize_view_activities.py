@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
+from posthog.clickhouse.query_tagging import QueryTags, get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseError
@@ -1815,6 +1816,34 @@ class TestHogqlTableModifiers:
 
         assert len(batches) == 1
         assert client.arrow_query is not None
+
+    async def test_the_refresh_query_is_tagged_with_the_views_it_reads(self, ateam: Team) -> None:
+        upstream = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="upstream_orders",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "Int64"},
+        )
+        captured_tags: list[QueryTags] = []
+
+        async def fake_astream_query_as_arrow(*args: Any, **kwargs: Any) -> AsyncIterator[pa.RecordBatch]:
+            captured_tags.append(get_query_tags())
+            no_batches: list[pa.RecordBatch] = []
+            for batch in no_batches:
+                yield batch
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+                fake_astream_query_as_arrow,
+            ),
+            contextlib.suppress(EmptyHogQLResponseColumnsError),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT id FROM upstream_orders", ateam, LOGGER.bind())]
+
+        assert [(tags.saved_query_ids, tags.directly_read_ids) for tags in captured_tags] == [
+            ([str(upstream.id)], [str(upstream.id)])
+        ]
 
 
 def _jev_gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:

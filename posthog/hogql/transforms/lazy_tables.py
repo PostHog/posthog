@@ -307,6 +307,10 @@ class LazyTableResolver(TraversingVisitor):
         self.visit(node.expr)
 
     def visit_select_query(self, node: ast.SelectQuery):
+        with self.context.entering_select(node.view_name):
+            self._resolve_lazy_tables_in_select(node)
+
+    def _resolve_lazy_tables_in_select(self, node: ast.SelectQuery):
         select_type = node.type
         if not select_type:
             raise ResolutionError("Select query must have a type")

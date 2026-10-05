@@ -541,6 +541,8 @@ class QueryTags(BaseModel):
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
     saved_query_ids: Optional[list[str]] = None
+    warehouse_table_ids: Optional[list[str]] = None
+    directly_read_ids: Optional[list[str]] = None
 
     trend_volume_type: Optional[str] = None
 

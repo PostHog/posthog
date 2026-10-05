@@ -716,6 +716,7 @@ async def hogql_table(
     )
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
+    tag_queries(**context.read_tags())
 
     printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
