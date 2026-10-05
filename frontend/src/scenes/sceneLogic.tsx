@@ -25,6 +25,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
+import { isStableChunkBuild, reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import {
@@ -84,6 +85,30 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
         ...rest,
         id: tab.id || generateTabId(),
     }
+}
+
+/**
+ * Moves a member of a blocked organization off a path the block closes. Returns true when it navigated.
+ */
+function leaveBlockedOrganizationPath(): boolean {
+    const { currentOrganizationBlockPage, isPathInAnotherOrganization, isPathOpenWhileBlocked } =
+        organizationLogic.values
+    if (!currentOrganizationBlockPage) {
+        return false
+    }
+    const { pathname, search, hash } = router.values.location
+    if (isPathInAnotherOrganization(pathname)) {
+        // The client keeps the blocked organization's project whatever the URL says, so the scene would
+        // read that project's data. A page load lets the server switch the member into the project's
+        // organization, or send them to the block page.
+        window.location.href = pathname + search + hash
+        return true
+    }
+    if (isPathOpenWhileBlocked(pathname)) {
+        return false
+    }
+    router.actions.replace(currentOrganizationBlockPage)
+    return true
 }
 
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
@@ -245,6 +270,7 @@ export interface sceneLogicValues {
     exportedScenes: Record<string, SceneExport<SceneProps>>
     hashParams: Record<string, any>
     homepage: SceneTab | null
+    homepageSaving: boolean
     lastReloadAt: number | null
     lastSetScenePayload: Record<string, any>
     loadingScene: string | null
@@ -264,6 +290,9 @@ export interface sceneLogicActions {
     hideInviteModal: () => {
         value: true
     } // inviteLogic
+    homepageSaved: (tab: SceneTab | null) => {
+        tab: SceneTab | null
+    }
     loadScene: (
         sceneId: string,
         sceneKey: string | undefined,
@@ -303,8 +332,15 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
     }
-    setHomepage: (tab: SceneTab | null) => {
+    setHomepage: (
+        tab: SceneTab | null,
+        homepageSource?: 'dashboards list'
+    ) => {
+        homepageSource: 'dashboards list' | undefined
         tab: SceneTab | null
+    }
+    setHomepageSaving: (saving: boolean) => {
+        saving: boolean
     }
     setScene: (
         sceneId: string,
@@ -385,6 +421,8 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ cache }) => {
         cache.mountedSceneLogic = null as MountedSceneLogic | null
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
+        cache.homepageSave = Promise.resolve()
+        cache.homepageRequest = 0
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -429,7 +467,9 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        setHomepage: (tab: SceneTab | null) => ({ tab }),
+        setHomepage: (tab: SceneTab | null, homepageSource?: 'dashboards list') => ({ tab, homepageSource }),
+        homepageSaved: (tab: SceneTab | null) => ({ tab }),
+        setHomepageSaving: (saving: boolean) => ({ saving }),
         resetUnavailableHomepage: (pathname: string) => ({ pathname }),
     }),
     reducers({
@@ -494,9 +534,16 @@ export const sceneLogic = kea<sceneLogicType>([
         homepage: [
             getBootstrappedHomepage(),
             {
-                setHomepage: (_, { tab }) => (tab ? tabToPersistableSnapshot(tab) : null),
+                setHomepage: (state, { tab, homepageSource }) => {
+                    if (homepageSource) {
+                        return state
+                    }
+                    return tab ? tabToPersistableSnapshot(tab) : null
+                },
+                homepageSaved: (_, { tab }) => (tab ? tabToPersistableSnapshot(tab) : null),
             },
         ],
+        homepageSaving: [false, { setHomepageSaving: (_, { saving }) => saving }],
     })),
     selectors({
         sceneConfig: [
@@ -532,7 +579,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (
                     sceneAccessControlResource &&
                     effectiveResourceAccessControl &&
-                    effectiveResourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
+                    (Array.isArray(sceneAccessControlResource)
+                        ? sceneAccessControlResource
+                        : [sceneAccessControlResource]
+                    ).every((resource) => effectiveResourceAccessControl[resource] === AccessControlLevel.None)
                 ) {
                     return Scene.ErrorAccessDenied
                 }
@@ -701,15 +751,39 @@ export const sceneLogic = kea<sceneLogicType>([
                 )
             }
         },
-        setHomepage: ({ tab }) => {
-            if (isSharedView()) {
+        setHomepage: async ({ tab, homepageSource }) => {
+            if (isSharedView() || (homepageSource && values.homepageSaving)) {
                 return
             }
-            api.update('api/user_home_settings/@me/', {
-                homepage: tab ? tabToPersistableSnapshot(tab) : null,
-            }).catch((error) => {
-                console.error('Failed to persist homepage', error)
-            })
+            if (homepageSource) {
+                actions.setHomepageSaving(true)
+            }
+            const requestId = ++cache.homepageRequest
+            const previousSave = cache.homepageSave
+            cache.homepageSave = (async () => {
+                await previousSave
+                try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use userHomeSettingsPartialUpdate() from 'products/platform_features/frontend/generated/api' instead.
+                    await api.update('api/user_home_settings/@me/', {
+                        homepage: tab ? tabToPersistableSnapshot(tab) : null,
+                    })
+                    if (homepageSource && requestId === cache.homepageRequest) {
+                        actions.homepageSaved(tab)
+                        lemonToast.success('Homepage updated')
+                        posthog.capture('dashboard set as homepage', { source: homepageSource })
+                    }
+                } catch (error) {
+                    console.error('Failed to persist homepage', error)
+                    if (homepageSource && requestId === cache.homepageRequest) {
+                        lemonToast.error('Could not save your homepage. Please try again.')
+                    }
+                } finally {
+                    if (homepageSource) {
+                        actions.setHomepageSaving(false)
+                    }
+                }
+            })()
+            await cache.homepageSave
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             const {
@@ -826,6 +900,24 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
+                if (organizationLogic.values.currentOrganizationBlockPage) {
+                    // Decide the block here. A redirect from a `locationChanged` listener does not hold,
+                    // because this route handler still opens the scene of the original URL after that
+                    // listener runs. The onboarding and project-creation redirects below stay off: they
+                    // only lead to pages that are closed while blocked, so they loop against the block page.
+                    if (!leaveBlockedOrganizationPath()) {
+                        actions.loadScene(sceneId, sceneKey, params, method)
+                    }
+                    return
+                }
+
+                if (sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion) {
+                    // The organization is open again, so let the member back in, as the server does. The server
+                    // only matches the bare block path, and the router writes it with a `/project/<id>` prefix.
+                    router.actions.replace(urls.projectRoot())
+                    return
+                }
+
                 if (sceneId !== Scene.InviteSignup) {
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
@@ -926,6 +1018,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error
                         if (
+                            !isStableChunkBuild() &&
                             values.lastReloadAt &&
                             parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
                         ) {
@@ -972,7 +1065,7 @@ export const sceneLogic = kea<sceneLogicType>([
             actions.setScene(sceneId, sceneKey, params, clickedLink || wasNotLoaded, exportedScene)
         },
         reloadBrowserDueToImportError: () => {
-            window.location.reload()
+            reloadAfterChunkLoadError()
         },
     })),
 
@@ -1073,6 +1166,10 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
+            // This route skips `openScene`, so it applies the organization block itself, as the server does.
+            if (leaveBlockedOrganizationPath()) {
+                return
+            }
             return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)
         }
 

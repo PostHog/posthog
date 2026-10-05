@@ -454,6 +454,10 @@ export function WorkColumn() {
     listAnchorRef,
     onRowClick,
   } = useChannelItemSelection({ listItems, activeKey, open });
+  const selectedTaskIdSet = useMemo(
+    () => new Set(selectedTaskIds),
+    [selectedTaskIds],
+  );
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
   const { renameTask } = useRenameTask();
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -484,8 +488,7 @@ export function WorkColumn() {
     item: ChannelItemModel,
     { showPinBadge }: { showPinBadge: boolean },
   ) => {
-    const inSelection =
-      item.kind === "task" && selectedTaskIds.includes(item.id);
+    const inSelection = item.kind === "task" && selectedTaskIdSet.has(item.id);
     return (
       <ChannelItemRow
         key={item.key}
@@ -572,7 +575,7 @@ export function WorkColumn() {
           <div
             className={cn(
               "px-2 pb-1 font-medium text-[11px] text-muted-foreground",
-              index === 0 ? "pt-1" : "mt-2 border-border/70 border-t pt-2",
+              index === 0 ? "pt-1" : "pt-3",
             )}
           >
             {section.label}

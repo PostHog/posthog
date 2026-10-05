@@ -44,6 +44,13 @@ class Priority(models.TextChoices):
     CRITICAL = "critical", "Critical"
 
 
+class TicketMessageType(models.TextChoices):
+    CUSTOMER_MESSAGE = "customer_message", "Customer message"
+    SENT_REPLY = "sent_reply", "Sent reply"
+    INTERNAL_NOTE = "internal_note", "Internal note"
+    AI_DRAFT = "ai_draft", "AI draft"
+
+
 class OrganizationIdSource(models.TextChoices):
     PERSON = "person", "Requester identity"
     SLACK_CHANNEL_ACCOUNT = "slack_channel_account", "Slack channel account"

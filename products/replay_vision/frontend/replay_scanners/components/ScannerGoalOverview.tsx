@@ -9,6 +9,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner,
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -295,7 +296,6 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // fields do not. It also matches the eligible count above, since both come from one estimate.
     const monthlyObservations = scannerEstimate?.estimated_observations_per_month ?? null
     const monthlyCredits = scannerEstimate?.estimated_credits_per_month ?? null
-    const samplingPct = Math.round(scanner.sampling_rate * 100)
     const creditsPerObservation =
         scannerEstimate?.credits_per_observation ?? OBSERVATION_CREDITS_BY_MODEL[scanner.model] ?? null
     // The budget is credits, so compare the projected credit cost against the cap (which the draft
@@ -382,7 +382,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 scannerId={scannerId}
             >
                 <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-sm">
-                    <StatRow label="Goal">
+                    <StatRow label="Recordings">
                         {monthlyObservations != null ? (
                             <span className="font-medium">
                                 about {monthlyObservations.toLocaleString()} recordings a month
@@ -394,7 +394,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                         )}
                     </StatRow>
                     <StatRow label="Sampling">
-                        <LemonTag type="muted">{samplingPct}%</LemonTag>
+                        {/* Two decimals, because a high-traffic project on a small budget lands near the 0.0001 floor. */}
+                        <LemonTag type="muted">{percentage(scanner.sampling_rate, 2)}</LemonTag>
                     </StatRow>
                     <StatRow label="Activity filter">
                         <LemonTag type="muted">{activityFilterLabel(scanner.sampling_mode)}</LemonTag>

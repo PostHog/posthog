@@ -31,6 +31,7 @@ import type { UserBasicType } from '~/types'
 import {
     accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
+    accountsPresenceList,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
@@ -44,6 +45,8 @@ import {
 } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import type {
+    AccountPresenceApi,
+    AccountPresenceViewerApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
     CustomPropertyValueWriteApi,
@@ -81,6 +84,9 @@ export const SEARCH_DEBOUNCE_MS = 300
 
 // Debounce tag edits because ObjectTags emits each addition and removal separately.
 export const TAGS_SAVE_DEBOUNCE_MS = 300
+export const ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS = 30_000
+
+type AccountPresenceResponse = AccountPresenceApi[]
 
 // Wait for refetched rows before scrolling to an account.
 const SCROLL_TO_ACCOUNT_POLL_MS = 100
@@ -108,7 +114,7 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to'
+export type AccountFilterType = 'tag' | 'assignment_status' | 'my_accounts' | 'assigned_to' | 'or_group'
 
 export type AccountSortableColumn = string
 
@@ -193,6 +199,7 @@ export interface AccountsViewUrlState {
     columnDisplay?: AccountColumnDisplayState
     tileFilter?: TileFilter
     customProperties?: AccountFilter[]
+    filterGroups?: AccountFilter[][]
 }
 
 export type AccountsViewStateSource = 'defaults' | 'draft' | 'saved_view' | 'shared_url'
@@ -256,6 +263,9 @@ function accountsViewStateFromUrl(
             tags: Array.isArray(view.tags) ? view.tags.filter((tag): tag is string => typeof tag === 'string') : [],
             tileFilter: view.tileFilter && typeof view.tileFilter === 'object' ? view.tileFilter : null,
             customProperties: Array.isArray(view.customProperties) ? view.customProperties : [],
+            filterGroups: Array.isArray(view.filterGroups)
+                ? view.filterGroups.filter((group): group is AccountFilter[] => Array.isArray(group))
+                : [],
         },
         tiles,
         columnDisplay: view.columnDisplay && typeof view.columnDisplay === 'object' ? view.columnDisplay : {},
@@ -280,8 +290,10 @@ export interface accountsLogicValues {
     mineOnly: boolean // customerAnalyticsSceneLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    accountFilterGroups: AccountFilter[][]
     accountFilters: AccountFilter[]
     accountIdFilter: string | null
+    accountPresenceByAccountId: Record<string, AccountPresenceViewerApi[]>
     accountsDataTableQuery: DataTableNode
     accountsQuerySource: AccountsTableQuery | null
     accountsTableQueryPlan: AccountsTableQueryPlan
@@ -459,6 +471,9 @@ export interface accountsLogicActions {
         }
         user: UserType | null
     } // userLogic
+    addAccountFilterGroup: () => {
+        value: true
+    }
     addTagToFilter: (tag: string) => {
         tag: string
     }
@@ -486,6 +501,15 @@ export interface accountsLogicActions {
         accountId: string
         definitionId: string
     }
+    loadAccountPresence: (accountIds: string[]) => {
+        accountIds: string[]
+    }
+    loadAccountPresenceFailure: () => {
+        value: true
+    }
+    loadAccountPresenceSuccess: (presence: AccountPresenceResponse) => {
+        presence: AccountPresenceResponse
+    }
     openAccount: (
         accountId: string,
         externalId: string | null,
@@ -501,6 +525,12 @@ export interface accountsLogicActions {
         search: string | undefined
     }
     refresh: () => {
+        value: true
+    }
+    removeAccountFilterGroup: (index: number) => {
+        index: number
+    }
+    removeFirstAccountFilterGroup: () => {
         value: true
     }
     reportFilterChange: (filterType: AccountFilterType) => {
@@ -522,6 +552,9 @@ export interface accountsLogicActions {
     ) => {
         accountId: string
         column: string
+    }
+    setAccountFilterGroups: (groups: AccountFilter[][]) => {
+        groups: AccountFilter[][]
     }
     setAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
@@ -614,6 +647,13 @@ export interface accountsLogicActions {
         definition: CustomPropertyDefinitionApi
         value: boolean | number | string | null
     }
+    updateAccountFilterGroup: (
+        index: number,
+        filters: AccountFilter[]
+    ) => {
+        filters: AccountFilter[]
+        index: number
+    }
     updateAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]
     }
@@ -649,7 +689,8 @@ export interface accountsLogicMeta {
             searchQuery: string,
             tagsFilter: string[],
             assignmentStatus: AssignmentStatus,
-            accountFilters: AccountFilter[]
+            accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][]
         ) => number
         viewState: (
             selectColumns: string[],
@@ -661,6 +702,7 @@ export interface accountsLogicMeta {
             tileFilter: TileFilter | null,
             tiles: AccountsOverviewTile[],
             accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][],
             columnDisplay: AccountColumnDisplayState
         ) => AccountsViewState
         viewUrlState: (
@@ -673,6 +715,7 @@ export interface accountsLogicMeta {
             defaultSelectColumns: string[],
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][],
             columnDisplay: AccountColumnDisplayState
         ) => AccountsViewUrlState
         listDatasetKey: (
@@ -684,6 +727,7 @@ export interface accountsLogicMeta {
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][],
             relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
         ) => string
@@ -713,6 +757,7 @@ export interface accountsLogicMeta {
             accountIdFilter: string | null,
             tileFilter: TileFilter | null,
             accountFilters: AccountFilter[],
+            accountFilterGroups: AccountFilter[][],
             relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             columnDisplay: AccountColumnDisplayState,
@@ -813,6 +858,11 @@ export const accountsLogic = kea<accountsLogicType>([
         syncViewStateToUrl: true,
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAccountFilters: (filters: AccountFilter[]) => ({ filters }),
+        setAccountFilterGroups: (groups: AccountFilter[][]) => ({ groups }),
+        addAccountFilterGroup: true,
+        removeFirstAccountFilterGroup: true,
+        removeAccountFilterGroup: (index: number) => ({ index }),
+        updateAccountFilterGroup: (index: number, filters: AccountFilter[]) => ({ index, filters }),
         updateAccountFilters: (filters: AccountFilter[]) => ({ filters }),
         setAssignmentStatus: (status: AssignmentStatus) => ({ status }),
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
@@ -823,6 +873,9 @@ export const accountsLogic = kea<accountsLogicType>([
             completeness: Exclude<AccountListDataCompleteness, 'unknown'>,
             serverSortOrder: AccountSortOrder
         ) => ({ datasetKey, completeness, serverSortOrder }),
+        loadAccountPresence: (accountIds: string[]) => ({ accountIds }),
+        loadAccountPresenceSuccess: (presence: AccountPresenceResponse) => ({ presence }),
+        loadAccountPresenceFailure: true,
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
         restoreViewStateFromRoute: (method?: 'POP' | 'PUSH' | 'REPLACE') => ({ method }),
@@ -895,6 +948,16 @@ export const accountsLogic = kea<accountsLogicType>([
                 setAccountFilters: (_, { filters }) => filters,
             },
         ],
+        accountFilterGroups: [
+            [] as AccountFilter[][],
+            {
+                setAccountFilterGroups: (_, { groups }) => groups,
+                addAccountFilterGroup: (groups) => [...groups, []],
+                removeAccountFilterGroup: (groups, { index }) => groups.filter((_, groupIndex) => groupIndex !== index),
+                updateAccountFilterGroup: (groups, { index, filters }) =>
+                    groups.map((group, groupIndex) => (groupIndex === index ? filters : group)),
+            },
+        ],
         assignmentStatus: [
             'all' as AssignmentStatus,
             {
@@ -945,6 +1008,15 @@ export const accountsLogic = kea<accountsLogicType>([
                     completeness,
                     serverSortOrder,
                 }),
+            },
+        ],
+
+        accountPresenceByAccountId: [
+            {} as Record<string, AccountPresenceViewerApi[]>,
+            {
+                loadAccountPresenceSuccess: (_, { presence }) =>
+                    Object.fromEntries(presence.map(({ account_id, viewers }) => [account_id, [...viewers]])),
+                loadAccountPresenceFailure: () => ({}),
             },
         ],
         savingCustomProperties: [
@@ -1054,18 +1126,19 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingTags[accountId],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters],
+            (s) => [s.searchQuery, s.tagsFilter, s.assignmentStatus, s.accountFilters, s.accountFilterGroups],
             (
                 searchQuery: string,
                 tagsFilter: string[],
                 assignmentStatus: AssignmentStatus,
-                accountFilters: AccountFilter[]
+                accountFilters: AccountFilter[],
+                accountFilterGroups: AccountFilter[][]
             ): number =>
                 [
                     !!searchQuery.trim(),
                     tagsFilter.length > 0,
                     assignmentStatus !== 'all',
-                    accountFilters.length > 0,
+                    accountFilters.length > 0 || accountFilterGroups.some((group) => group.length > 0),
                 ].filter(Boolean).length,
         ],
         viewState: [
@@ -1079,6 +1152,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tileFilter,
                 s.tiles,
                 s.accountFilters,
+                s.accountFilterGroups,
                 s.columnDisplay,
             ],
             (
@@ -1091,11 +1165,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 tileFilter: TileFilter | null,
                 tiles: import('./accountsOverviewTilesLogic').AccountsOverviewTile[],
                 customProperties: AccountFilter[],
+                filterGroups: AccountFilter[][],
                 columnDisplay: AccountColumnDisplayState
             ): AccountsViewState => ({
                 columns,
                 sortOrder,
-                filters: { search, assignmentStatus, assignedTo, tags, tileFilter, customProperties },
+                filters: { search, assignmentStatus, assignedTo, tags, tileFilter, customProperties, filterGroups },
                 tiles,
                 columnDisplay,
             }),
@@ -1111,6 +1186,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.defaultSelectColumns,
                 s.tileFilter,
                 s.accountFilters,
+                s.accountFilterGroups,
                 s.columnDisplay,
             ],
             (
@@ -1123,6 +1199,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 defaultSelectColumns: string[],
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
+                accountFilterGroups: AccountFilter[][],
                 columnDisplay: AccountColumnDisplayState
             ): AccountsViewUrlState => {
                 const state: AccountsViewUrlState = {}
@@ -1156,6 +1233,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (accountFilters.length > 0) {
                     state.customProperties = accountFilters
                 }
+                if (accountFilterGroups.some((group) => group.length > 0)) {
+                    state.filterGroups = accountFilterGroups.filter((group) => group.length > 0)
+                }
                 // Without an explicit status, a nonempty hash would restore as a legacy assigned-only view.
                 if (assignmentStatus === 'all' && Object.keys(state).length > 0) {
                     state.assignmentStatus = 'all'
@@ -1173,6 +1253,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
+                s.accountFilterGroups,
                 s.relationshipDefinitionsById,
                 s.customPropertyDefinitionsById,
             ],
@@ -1185,6 +1266,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
+                accountFilterGroups: AccountFilter[][],
                 relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
             ): string =>
@@ -1196,6 +1278,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     accountIdFilter,
                     tileFilter,
                     accountFilters,
+                    accountFilterGroups,
                     relationshipDefinitionsById,
                     customPropertyDefinitionsById,
                 })}`,
@@ -1250,6 +1333,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountIdFilter,
                 s.tileFilter,
                 s.accountFilters,
+                s.accountFilterGroups,
                 s.relationshipDefinitionsById,
                 s.customPropertyDefinitionsById,
                 s.columnDisplay,
@@ -1265,6 +1349,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 accountFilters: AccountFilter[],
+                accountFilterGroups: AccountFilter[][],
                 relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>,
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
                 columnDisplay: AccountColumnDisplayState,
@@ -1279,6 +1364,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter,
                 tileFilter,
                 accountFilters,
+                accountFilterGroups,
                 relationshipDefinitionsById,
                 customPropertyDefinitionsById,
                 columnDisplay,
@@ -1374,6 +1460,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     viewState.filters.assignmentStatus === 'assigned' ? viewState.filters.assignedTo : []
                 )
                 actions.setAccountFilters(viewState.filters.customProperties)
+                actions.setAccountFilterGroups(viewState.filters.filterGroups)
                 actions.setSortOrder(viewState.sortOrder)
                 actions.setTiles(viewState.tiles)
                 actions.setTileFilter(viewState.filters.tileFilter)
@@ -1442,6 +1529,23 @@ export const accountsLogic = kea<accountsLogicType>([
             }
         },
         listLoadDataSuccess: ({ response, payload }) => {
+            const accountIds =
+                response && typeof response === 'object' && 'results' in response && Array.isArray(response.results)
+                    ? response.results.filter(isAccountsTableRow).map((account) => account.id)
+                    : []
+            cache.disposables.dispose('accountPresencePoll')
+            if (accountIds.length) {
+                cache.disposables.add(() => {
+                    actions.loadAccountPresence(accountIds)
+                    const intervalId = window.setInterval(
+                        () => actions.loadAccountPresence(accountIds),
+                        ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS
+                    )
+                    return () => window.clearInterval(intervalId)
+                }, 'accountPresencePoll')
+            } else {
+                actions.loadAccountPresence([])
+            }
             const queryId = payload?.queryId
             const requestState = cache.latestListRequestState
             if (
@@ -1464,6 +1568,26 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.clearCustomPropertyOverrides()
             }
         },
+        loadAccountPresence: async ({ accountIds }) => {
+            cache.accountPresenceRequestSequence = (cache.accountPresenceRequestSequence ?? 0) + 1
+            const requestSequence = cache.accountPresenceRequestSequence
+            if (!values.currentTeamId || !accountIds.length) {
+                actions.loadAccountPresenceSuccess([])
+                return
+            }
+            try {
+                const presence = await accountsPresenceList(String(values.currentTeamId), {
+                    account_ids: accountIds.slice(0, 100),
+                })
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceSuccess(presence)
+                }
+            } catch {
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceFailure()
+                }
+            }
+        },
         loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
             cache.customPropertyDefinitionsLoaded = true
             if (!cache.relationshipDefinitionsLoaded) {
@@ -1480,6 +1604,12 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, definitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
         },
         loadRelationshipDefinitionsSuccess: () => {
             cache.relationshipDefinitionsLoaded = true
@@ -1494,10 +1624,60 @@ export const accountsLogic = kea<accountsLogicType>([
             if (!objectsEqual(supportedFilters, values.accountFilters)) {
                 actions.setAccountFilters(supportedFilters)
             }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, values.customPropertyDefinitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
         },
         loadRelationshipDefinitionsFailure: () => {
             cache.relationshipDefinitionsLoaded = true
             actions.setAccountFilters(values.accountFilters)
+            if (!cache.customPropertyDefinitionsLoaded) {
+                return
+            }
+            const supportedGroups = values.accountFilterGroups.map((group) =>
+                supportedAccountFilters(group, values.customPropertyDefinitionsById, values.relationshipDefinitionsById)
+            )
+            if (!objectsEqual(supportedGroups, values.accountFilterGroups)) {
+                actions.setAccountFilterGroups(supportedGroups)
+            }
+        },
+        setAccountFilterGroups: ({ groups }) => {
+            if (cache.customPropertyDefinitionsLoaded && cache.relationshipDefinitionsLoaded) {
+                const supportedGroups = groups.map((group) =>
+                    supportedAccountFilters(
+                        group,
+                        values.customPropertyDefinitionsById,
+                        values.relationshipDefinitionsById
+                    )
+                )
+                if (!objectsEqual(supportedGroups, groups)) {
+                    actions.setAccountFilterGroups(supportedGroups)
+                    return
+                }
+            }
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+        },
+        addAccountFilterGroup: () => {
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.reportFilterChange('or_group')
+        },
+        removeFirstAccountFilterGroup: () => {
+            const [first = [], ...remaining] = values.accountFilterGroups
+            actions.setAccountFilterGroups(remaining)
+            actions.setAccountFilters(first)
+            actions.reportFilterChange('or_group')
+        },
+        removeAccountFilterGroup: () => {
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.reportFilterChange('or_group')
+        },
+        updateAccountFilterGroup: () => {
+            persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
+            actions.setAccountFilterGroups(values.accountFilterGroups)
+            actions.reportFilterChange('or_group')
         },
         setAccountFilters: ({ filters }) => {
             persistViewStateAndUrl(actions, cache.applyingViewState, values.viewStateHydrated)
@@ -1580,6 +1760,12 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.value = values.assignedToFilter
                     properties.role_count = values.assignedToFilter.length
                     properties.is_cleared = values.assignedToFilter.length === 0
+                    break
+                case 'or_group':
+                    properties.group_count = values.accountFilterGroups.length + 1
+                    properties.is_cleared =
+                        values.accountFilters.length === 0 &&
+                        values.accountFilterGroups.every((group) => group.length === 0)
                     break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
@@ -1912,6 +2098,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.accountFilters.length > 0) {
                     actions.setAccountFilters([])
                 }
+                if (values.accountFilterGroups.length > 0) {
+                    actions.setAccountFilterGroups([])
+                }
                 const term = externalId || name
                 if (term) {
                     actions.setSearchQuery(term)
@@ -2003,7 +2192,14 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.restoreViewStateFromRoute(method)
                 openAccountByPath(accountId)
             },
-            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }, __, ___, { method }): void => {
+            // This is a route template, not a navigable URL. `customerAnalyticsAccount` encodes
+            // tab values for real links, so append the literal matcher segment here.
+            [`${urls.customerAnalyticsAccount(':accountId')}/:tab`]: (
+                { accountId, tab },
+                __,
+                ___,
+                { method }
+            ): void => {
                 actions.restoreViewStateFromRoute(method)
                 openAccountByPath(accountId, tab)
             },

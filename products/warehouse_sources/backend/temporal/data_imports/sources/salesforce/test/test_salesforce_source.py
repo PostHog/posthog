@@ -23,17 +23,33 @@ class TestSalesforceSourceNonRetryableErrors:
             f"Expected '{error_message}' to match a non-retryable pattern"
         )
 
+    def test_not_found_is_non_retryable_with_a_curated_message(self):
+        # An org still on the previous Salesforce release answers 404 to every path of the pinned
+        # version, so the raw error stores the instance url and the SOQL query verbatim.
+        error_message = (
+            "404 Client Error: Not Found for url: https://example.my.salesforce.com"
+            "/services/data/v67.0/query?q=SELECT+FIELDS%28ALL%29+FROM+Contact"
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        matched = [pattern for pattern in non_retryable_errors if pattern in error_message]
+        assert matched == ["404 Client Error: Not Found for url"]
+
+        friendly = non_retryable_errors[matched[0]]
+        assert friendly is not None
+        assert "salesforce.com" not in friendly
+        assert "404" not in friendly
+
 
 class TestSalesforceSourceVersions:
     def setup_method(self):
         self.source = SalesforceSource()
 
-    def test_new_sources_default_to_v68(self):
-        # New sources (no pin) must be created on the current API version.
-        assert self.source.default_version == "v68.0"
-        assert self.source.resolve_api_version(None) == "v68.0"
+    def test_new_sources_default_to_v67(self):
+        assert self.source.default_version == "v67.0"
+        assert self.source.resolve_api_version(None) == "v67.0"
 
-    @pytest.mark.parametrize("version", ["v61.0", "v67.0", "v68.0"])
+    @pytest.mark.parametrize("version", ["v61.0", "v67.0"])
     def test_existing_pin_is_honored(self, version):
         # Pinned rows keep their version even after the default bump.
         assert version in self.source.supported_versions
