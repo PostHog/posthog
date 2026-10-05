@@ -601,6 +601,36 @@ describe('createQueryWrapper actors dispatch', () => {
     })
 })
 
+describe('createQueryWrapper calendar-day date_to', () => {
+    const schema = z.object({
+        dateRange: z.object({ date_from: z.string(), date_to: z.string().nullable().optional() }).optional(),
+        interval: z.string().optional(),
+    })
+
+    it.each([
+        ['hour', '2026-09-25', '2026-09-25T23:59:59.999999'],
+        ['minute', '2026-09-25', '2026-09-25T23:59:59.999999'],
+        ['hour', '2026-09-25T12:00:00', '2026-09-25T12:00:00'],
+        ['hour', '-1d', '-1d'],
+        ['day', '2026-09-25', '2026-09-25'],
+        [undefined, '2026-09-25', '2026-09-25'],
+    ])('with interval %s sends date_to %s as %s', async (interval, dateTo, expected) => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'FunnelsQuery' })()
+
+        await tool.handler(context, { dateRange: { date_from: '2026-09-25', date_to: dateTo }, interval })
+
+        expect(runQuery.mock.calls[0]![0].query.dateRange).toEqual({ date_from: '2026-09-25', date_to: expected })
+    })
+})
+
 describe('createQueryWrapper warnings', () => {
     const schema = z.object({ kind: z.string() })
 
