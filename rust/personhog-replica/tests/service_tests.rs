@@ -6,16 +6,17 @@ use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
     DeletePersonsRequest, DeleteTombstonedPersonsRequest, DistinctIdVersionHead,
-    GetDistinctIdVersionHeadsRequest, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonRequest, GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest,
+    EnsurePersonVersionFloorsRequest, GetDistinctIdVersionHeadsRequest,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+    GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier,
-    GroupKey, PersonVersionHead, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
-    UpsertHashKeyOverridesRequest,
+    GroupKey, PersonVersionFloor, PersonVersionFloorResult, PersonVersionHead,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
+    TeamDistinctId, UpsertHashKeyOverridesRequest, VersionFloorOutcome,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1690,13 +1691,48 @@ async fn test_sweep_rpcs_map_results_to_proto() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    let absent_person = Uuid::now_v7();
     let team_id = ctx.team_id;
+
+    let person_floors = ctx
+        .service
+        .ensure_person_version_floors(Request::new(EnsurePersonVersionFloorsRequest {
+            team_id,
+            floors: vec![
+                PersonVersionFloor {
+                    person_uuid: person.uuid.to_string(),
+                    min_version: 2,
+                },
+                PersonVersionFloor {
+                    person_uuid: absent_person.to_string(),
+                    min_version: 5,
+                },
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        person_floors.results,
+        vec![
+            PersonVersionFloorResult {
+                person_uuid: person.uuid.to_string(),
+                outcome: VersionFloorOutcome::Live as i32,
+                version: 0,
+            },
+            PersonVersionFloorResult {
+                person_uuid: absent_person.to_string(),
+                outcome: VersionFloorOutcome::TombstoneInserted as i32,
+                version: 5,
+            },
+        ]
+    );
 
     let person_heads = ctx
         .service
         .get_person_version_heads(Request::new(GetPersonVersionHeadsRequest {
             team_id,
-            person_uuids: vec![person.uuid.to_string()],
+            person_uuids: vec![absent_person.to_string()],
         }))
         .await
         .unwrap()
@@ -1704,9 +1740,9 @@ async fn test_sweep_rpcs_map_results_to_proto() {
     assert_eq!(
         person_heads.heads,
         vec![PersonVersionHead {
-            person_uuid: person.uuid.to_string(),
-            version: 0,
-            is_deleted: false,
+            person_uuid: absent_person.to_string(),
+            version: 5,
+            is_deleted: true,
         }]
     );
 

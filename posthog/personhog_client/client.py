@@ -46,6 +46,8 @@ from posthog.personhog_client.proto import (
     DeletePersonsResponse,
     DeleteTombstonedPersonsRequest,
     DeleteTombstonedPersonsResponse,
+    EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -265,7 +267,7 @@ class PersonHogClient:
     ) -> SetPersonVersionFloorResponse:
         return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
 
-    # -- Version heads --
+    # -- Version heads and floors --
 
     def get_person_version_heads(
         self, request: GetPersonVersionHeadsRequest, timeout: float | None = None
@@ -276,6 +278,11 @@ class PersonHogClient:
         self, request: GetDistinctIdVersionHeadsRequest, timeout: float | None = None
     ) -> GetDistinctIdVersionHeadsResponse:
         return self._stub.GetDistinctIdVersionHeads(request, timeout=timeout or self._timeout)
+
+    def ensure_person_version_floors(
+        self, request: EnsurePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> EnsurePersonVersionFloorsResponse:
+        return self._stub.EnsurePersonVersionFloors(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

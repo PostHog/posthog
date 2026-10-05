@@ -1,20 +1,24 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import grpc
 from parameterized import parameterized
 
 from posthog.models.person.util import (
     PERSONHOG_BATCH_SIZE,
+    VERSION_FLOOR_ATTEMPTS,
+    PersonVersionFloor,
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
     _fetch_person_by_uuid_via_personhog,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    ensure_person_version_floors,
     get_distinct_id_version_heads,
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
@@ -600,9 +604,64 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
         assert "properties" not in mask
 
 
+def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
+    error = grpc.RpcError()
+    error.code = MagicMock(return_value=code)
+    return error
+
+
+def _ensure_persons(uuids: list[UUID]) -> list[UUID]:
+    floors = [PersonVersionFloor(uuid=u, min_version=3) for u in uuids]
+    return [r.uuid for r in ensure_person_version_floors(1, floors)]
+
+
 class TestVersionRpcHelpers(SimpleTestCase):
     @parameterized.expand(
         [
+            ("person_floors", _ensure_persons, "ensure_person_version_floors"),
+        ]
+    )
+    @patch("posthog.models.person.util.time.sleep")
+    def test_a_lost_race_is_retried_until_the_call_commits(self, _name, helper, method, _sleep):
+        uuids = [uuid4(), uuid4()]
+        with fake_personhog_client() as fake:
+            real = getattr(fake, method)
+            lost = [_rpc_error(grpc.StatusCode.FAILED_PRECONDITION)] * (VERSION_FLOOR_ATTEMPTS - 1)
+
+            def flaky(request):
+                if lost:
+                    raise lost.pop()
+                return real(request)
+
+            with patch.object(fake, method, side_effect=flaky) as rpc:
+                assert helper(uuids) == uuids
+            assert rpc.call_count == VERSION_FLOOR_ATTEMPTS
+
+    @parameterized.expand(
+        [
+            (f"{name}_{code.name.lower()}", helper, method, code, attempts)
+            for name, helper, method in (("person_floors", _ensure_persons, "ensure_person_version_floors"),)
+            for code, attempts in (
+                (grpc.StatusCode.FAILED_PRECONDITION, VERSION_FLOOR_ATTEMPTS),
+                (grpc.StatusCode.INTERNAL, 1),
+                (grpc.StatusCode.INVALID_ARGUMENT, 1),
+            )
+        ]
+    )
+    @patch("posthog.models.person.util.time.sleep")
+    def test_gives_up_after_the_attempt_budget_and_never_retries_other_errors(
+        self, _name, helper, method, code, attempts, _sleep
+    ):
+        with fake_personhog_client() as fake:
+            with patch.object(fake, method, side_effect=_rpc_error(code)) as rpc:
+                with self.assertRaises(grpc.RpcError) as raised:
+                    helper([uuid4()])
+            assert raised.exception.code() == code
+            assert rpc.call_count == attempts
+
+    @parameterized.expand(
+        [
+            ("person_floors", _ensure_persons, "ensure_person_version_floors"),
             ("person_heads", lambda uuids: get_person_version_heads(1, uuids), "get_person_version_heads"),
             (
                 "distinct_id_heads",
@@ -611,10 +670,10 @@ class TestVersionRpcHelpers(SimpleTestCase):
             ),
         ]
     )
-    def test_splits_requests_at_the_replica_key_cap(self, _name, helper, method):
+    def test_splits_requests_at_the_replica_key_cap(self, name, helper, method):
         uuids = [uuid4() for _ in range(PERSONHOG_BATCH_SIZE + 1)]
         with fake_personhog_client() as fake:
             results = helper(uuids)
             fake.assert_called(method, times=2)
-        # Heads skip keys with no row.
-        assert results == []
+        # Heads skip keys with no row; every write reports each key in request order.
+        assert results == ([] if name.endswith("heads") else uuids)
