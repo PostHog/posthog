@@ -595,20 +595,30 @@ class TestLLMPromptAPI(APIBaseTest):
         latest = LLMPrompt.objects.get(team=self.team, name="json-edit", version=2, deleted=False)
         assert latest.prompt == {"system": "You are an expert.", "temperature": 0.7}
 
-    def test_update_prompt_by_name_forbidden_for_personal_api_key_auth(self):
+    def test_update_prompt_by_name_personal_api_key_scope_enforcement(self):
         self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
-        api_key = self.create_personal_api_key_with_scopes(["llm_prompt:read"])
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
 
+        read_key = self.create_personal_api_key_with_scopes(["llm_prompt:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {read_key}")
         read_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/")
-        write_response = self.client.patch(
+        read_scope_write_response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+            data={"prompt": "v2", "base_version": 1},
+            format="json",
+        )
+
+        write_key = self.create_personal_api_key_with_scopes(["llm_prompt:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {write_key}")
+        write_scope_write_response = self.client.patch(
             f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
             data={"prompt": "v2", "base_version": 1},
             format="json",
         )
 
         assert read_response.status_code == status.HTTP_200_OK
-        assert write_response.status_code == status.HTTP_403_FORBIDDEN
+        assert read_scope_write_response.status_code == status.HTTP_403_FORBIDDEN
+        assert write_scope_write_response.status_code == status.HTTP_200_OK
+        assert write_scope_write_response.json()["version"] == 2
 
     def test_resolve_prompt_by_name_returns_selected_prompt_and_versions(self):
         historical = self.create_prompt_version(name="versions-prompt", version=1, is_latest=False, prompt="v1")
