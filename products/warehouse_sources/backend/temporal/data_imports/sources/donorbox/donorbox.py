@@ -93,7 +93,7 @@ def donorbox_source(
     if date_from is not None:
         params["date_from"] = date_from
 
-    resource: EndpointResource = {
+    resource_config: EndpointResource = {
         "name": endpoint,
         "endpoint": {"path": path, "params": params, "data_selector_required": True},
         "columns": {
@@ -110,7 +110,7 @@ def donorbox_source(
             "paginator": cast(PaginatorConfig, {"type": "page_number", "base_page": 1}),
             "request_timeout": 30,
         },
-        "resources": [resource],
+        "resources": [resource_config],
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
