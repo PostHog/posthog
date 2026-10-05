@@ -23,9 +23,16 @@ describe('webAnalyticsLoadTimeLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
         collection.unmount()
     })
+
+    const abandonedCalls = (): any[][] =>
+        (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'web_analytics_dashboard_load_abandoned'
+        )
 
     it('captures dashboard_mounted on mount', () => {
         expect(posthog.capture).toHaveBeenCalledWith(
@@ -96,5 +103,49 @@ describe('webAnalyticsLoadTimeLogic', () => {
             ([event]) => event === 'web_analytics_dashboard_loaded'
         )
         expect(loadedCalls).toHaveLength(0)
+    })
+
+    it.each([
+        { name: 'before any query starts', startQuery: false },
+        { name: 'while queries are loading', startQuery: true },
+    ])('captures load_abandoned when navigating away $name', ({ startQuery }) => {
+        if (startQuery) {
+            collection.actions.collectionNodeLoadData('a')
+        }
+        logic.unmount()
+
+        expect(abandonedCalls()).toEqual([
+            [
+                'web_analytics_dashboard_load_abandoned',
+                expect.objectContaining({
+                    duration_ms: expect.any(Number),
+                    reason: 'navigated_away',
+                    queries_started: startQuery,
+                }),
+                undefined,
+            ],
+        ])
+    })
+
+    it('captures load_abandoned once via sendBeacon when the page is hidden mid-load', () => {
+        collection.actions.collectionNodeLoadData('a')
+        window.dispatchEvent(new Event('pagehide'))
+        logic.unmount()
+
+        expect(abandonedCalls()).toEqual([
+            [
+                'web_analytics_dashboard_load_abandoned',
+                expect.objectContaining({ reason: 'left_app', queries_started: true }),
+                { transport: 'sendBeacon' },
+            ],
+        ])
+    })
+
+    it('does not capture load_abandoned after dashboard_loaded', () => {
+        collection.actions.collectionNodeLoadData('a')
+        collection.actions.collectionNodeLoadDataSuccess('a')
+        logic.unmount()
+
+        expect(abandonedCalls()).toHaveLength(0)
     })
 })

@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     listeners,
@@ -85,6 +86,28 @@ export type webAnalyticsLoadTimeLogicType = MakeLogicType<
     webAnalyticsLoadTimeLogicMeta
 >
 
+// Leaving before load never emits dashboard_loaded, so without this the slowest loads drop out of duration_ms
+function captureLoadAbandoned(
+    cache: Record<string, any>,
+    values: webAnalyticsLoadTimeLogicValues,
+    reason: 'navigated_away' | 'left_app'
+): void {
+    if (cache.hasCapturedOutcome) {
+        return
+    }
+    cache.hasCapturedOutcome = true
+    posthog.capture(
+        'web_analytics_dashboard_load_abandoned',
+        {
+            duration_ms: Math.round(performance.now() - cache.mountStart),
+            reason,
+            queries_started: values.hasObservedLoading,
+            tile_skeletons_enabled: values.tileSkeletonsEnabled,
+        },
+        reason === 'left_app' ? { transport: 'sendBeacon' } : undefined
+    )
+}
+
 export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsLoadTimeLogic']),
     connect(() => ({
@@ -122,10 +145,10 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
     }),
     sharedListeners(({ cache, values }) => ({
         maybeCaptureLoaded: () => {
-            if (values.areAnyLoading || !values.hasObservedLoading || cache.hasCapturedLoaded) {
+            if (values.areAnyLoading || !values.hasObservedLoading || cache.hasCapturedOutcome) {
                 return
             }
-            cache.hasCapturedLoaded = true
+            cache.hasCapturedOutcome = true
             posthog.capture('web_analytics_dashboard_loaded', {
                 duration_ms: Math.round(performance.now() - cache.mountStart),
                 tile_skeletons_enabled: values.tileSkeletonsEnabled,
@@ -157,10 +180,22 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
     })),
     afterMount(({ cache, values, actions }) => {
         cache.mountStart = performance.now()
-        cache.hasCapturedLoaded = false
+        cache.hasCapturedOutcome = false
         posthog.capture('web_analytics_dashboard_mounted', {
             tile_skeletons_enabled: values.tileSkeletonsEnabled,
         })
         actions.recordVisit()
+        const onPageHide = (): void => captureLoadAbandoned(cache, values, 'left_app')
+        cache.disposables.add(
+            () => {
+                window.addEventListener('pagehide', onPageHide)
+                return () => window.removeEventListener('pagehide', onPageHide)
+            },
+            'pagehide',
+            { pauseOnPageHidden: false }
+        )
+    }),
+    beforeUnmount(({ cache, values }) => {
+        captureLoadAbandoned(cache, values, 'navigated_away')
     }),
 ])
