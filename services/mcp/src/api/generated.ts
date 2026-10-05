@@ -84648,20 +84648,6 @@ export namespace Schemas {
       app_urls: string[];
     }
 
-    export type ProjectCreateRequestGroupTypesItem = { [key: string]: unknown };
-
-    export type ProjectCreateRequestDefaultModifiers = { [key: string]: unknown };
-
-    export type ProjectCreateRequestProductIntentsItem = {
-      product_type?: string;
-      created_at?: string;
-      /** @nullable */
-      onboarding_completed_at?: string | null;
-      updated_at?: string;
-    };
-
-    export type ProjectCreateRequestManagedViewsets = {[key: string]: boolean};
-
     /**
      * A project and its settings, including the settings that live on its passthrough Team.
      *
@@ -84669,8 +84655,6 @@ export namespace Schemas {
      * onto /api/projects/ never loses a field.
      */
     export interface ProjectCreateRequest {
-      readonly id: number;
-      readonly organization: string;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -84688,22 +84672,11 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       tags?: string[];
-      readonly created_at: string;
-      readonly effective_membership_level: OrganizationMembershipLevelEnum;
-      readonly has_group_types: boolean;
-      readonly group_types: readonly ProjectCreateRequestGroupTypesItem[];
-      /** @nullable */
-      readonly live_events_token: string | null;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly uuid: string;
-      readonly api_token: string;
       /** @items.maxLength 200 */
       app_urls?: (string | null)[];
       /** When true, PostHog drops the IP address from every ingested event. */
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
-      readonly ingested_event: boolean;
       /** Filter groups that identify internal/test traffic to be excluded from insights. */
       test_account_filters?: unknown;
       /**
@@ -85408,12 +85381,10 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       recording_domains?: (string | null)[] | null;
-      readonly person_on_events_querying_enabled: boolean;
       /** @nullable */
       inject_web_apps?: boolean | null;
       extra_settings?: unknown;
       modifiers?: unknown;
-      readonly default_modifiers: ProjectCreateRequestDefaultModifiers;
       has_completed_onboarding_for?: unknown;
       /**
          * Enables displaying surveys via posthog-js on allowed origins.
@@ -85425,21 +85396,11 @@ export namespace Schemas {
          * @nullable
          */
       heatmaps_opt_in?: boolean | null;
-      readonly product_intents: readonly ProjectCreateRequestProductIntentsItem[];
       /**
          * Default value for the `persist` option on newly created feature flags.
          * @nullable
          */
       flags_persistence_default?: boolean | null;
-      /** @nullable */
-      readonly secret_api_token: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup: string | null;
-      /**
-         * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
-         * @nullable
-         */
-      readonly heatmaps_screenshot_secret: string | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -85457,27 +85418,6 @@ export namespace Schemas {
       logs_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
-      readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
-      /**
-         * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
-         * @nullable
-         */
-      readonly is_pending_deletion: boolean | null;
-      /**
-         * When the scheduled project deletion will run.
-         * @nullable
-         */
-      readonly deletion_scheduled_at: string | null;
-      /** ID of the project this environment belongs to. */
-      readonly project_id: number;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      readonly managed_viewsets: ProjectCreateRequestManagedViewsets;
-      /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
-      readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
