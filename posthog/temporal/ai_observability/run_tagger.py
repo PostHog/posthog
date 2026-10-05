@@ -27,8 +27,10 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -49,6 +51,7 @@ LLM_TAGGER_RETRY_POLICY = RetryPolicy(
 
 TAGGER_DISABLED_ERROR_TYPE = "tagger_disabled"
 TAGGER_PARSE_ERROR_TYPE = "tagger_parse_error"
+TAGGER_REQUEST_REJECTED_ERROR_TYPE = "tagger_request_rejected"
 # model_resolution is shared with evaluations, so the tagger types its skip reasons on the way out.
 MODEL_RESOLUTION_SKIP_ERROR_TYPES = {
     "provider_key_required": "tagger_provider_key_required",
@@ -57,7 +60,12 @@ MODEL_RESOLUTION_SKIP_ERROR_TYPES = {
 }
 # RunTaggerWorkflow turns these into a skipped result, so they must stay out of error tracking.
 SKIPPED_RESULT_ERROR_TYPES = frozenset(
-    {TAGGER_DISABLED_ERROR_TYPE, TAGGER_PARSE_ERROR_TYPE, *MODEL_RESOLUTION_SKIP_ERROR_TYPES.values()}
+    {
+        TAGGER_DISABLED_ERROR_TYPE,
+        TAGGER_PARSE_ERROR_TYPE,
+        TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+        *MODEL_RESOLUTION_SKIP_ERROR_TYPES.values(),
+    }
 )
 
 
@@ -313,6 +321,12 @@ Output: {output_data}"""
                 non_retryable=True,
             )
         raise
+    except RetryableRateLimitError as e:
+        raise ApplicationError(
+            str(e),
+            {"error_type": "provider_unavailable", "provider": provider},
+            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+        ) from e
     except RateLimitError:
         if is_byok:
             raise ApplicationError(
@@ -326,6 +340,13 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except ProviderRequestRejectedError as e:
+        raise ApplicationError(
+            str(e),
+            {"error_type": "request_rejected"},
+            type=TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+            non_retryable=True,
+        ) from e
     except (OutputTokenLimitError, StructuredOutputParseError) as e:
         # A reply cut off at the output limit reaches the tagger as unusable output, same as a
         # malformed one, so both take the parse path.
@@ -655,6 +676,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         "key_invalid",
                         "parse_error",
                         "no_default_model",
+                        "request_rejected",
                     ):
                         if error_type in (
                             "provider_key_required",

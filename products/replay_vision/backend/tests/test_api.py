@@ -565,6 +565,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 {"prompt": "p", "experiment_id": 1, "session_variant": "test", "experiment_context": {}},
                 "Unknown scanner configuration keys: experiment_context, session_variant.",
             ),
+            # Learned rules are loaded per scan; a saved value would inject rules nobody's ratings produced.
+            (
+                "learned_rules_in_config",
+                ScannerType.MONITOR,
+                {"prompt": "p", "project_rules": ["Avoid: x"], "scanner_rules": ["Avoid: y"]},
+                "Unknown scanner configuration keys: project_rules, scanner_rules.",
+            ),
         ]
     )
     def test_validation_returns_specific_message_per_invalid_config(
@@ -1010,7 +1017,6 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
             ("bulk", "{scanner_id}/bulk_observe/"),
             ("retry", "{scanner_id}/observations/{observation_id}/retry/"),
             ("backfill", "{scanner_id}/backfills/"),
-            ("evaluate_prompt", "{scanner_id}/prompt_suggestions/00000000-0000-0000-0000-000000000001/evaluate/"),
             ("resume_backfill", "{scanner_id}/backfills/00000000-0000-0000-0000-000000000001/resume/"),
         ]
     )
@@ -5784,8 +5790,8 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         scanner = self._create_scanner()
         ActivityLog.objects.all().delete()
 
-        scanner.feedback_themes = {"themes": []}
-        scanner.save(update_fields=["feedback_themes"])
+        scanner.search_suggestions = ["checkout errors"]
+        scanner.save(update_fields=["search_suggestions"])
 
         self.assertEqual(self._logs(str(scanner.id)), [])
 

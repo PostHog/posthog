@@ -2317,7 +2317,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_checked == 1
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
-    @patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US")
+    @patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US")
     @patch("posthog.slo.context.emit_slo_completed")
     @patch("posthog.slo.context.emit_slo_started")
     @patch("products.logs.backend.temporal.activities.flush_alert_internal_events")

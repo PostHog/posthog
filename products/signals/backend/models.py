@@ -510,13 +510,19 @@ class SignalReport(UUIDModel):
                 self.error = None
                 updated_fields.update(["title", "summary", "error"])
 
+            # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
+            # repository selected) does not erase the content the report is searched and deduplicated by.
             case (S.IN_PROGRESS, S.PENDING_INPUT):
-                if title is None or summary is None or error is None:
-                    raise ValueError("title, summary, and error are required for in_progress -> pending_input")
-                self.title = title
-                self.summary = summary
+                if error is None:
+                    raise ValueError("error is required for in_progress -> pending_input")
+                if title is not None:
+                    self.title = title
+                    updated_fields.add("title")
+                if summary is not None:
+                    self.summary = summary
+                    updated_fields.add("summary")
                 self.error = error
-                updated_fields.update(["title", "summary", "error"])
+                updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
             case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):

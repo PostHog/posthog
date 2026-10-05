@@ -8,11 +8,10 @@ import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configura
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl, politenessKey } from './politeness-key'
 import { ConfigurationFetchReason, ImageFetchProcessingMetrics } from './processing-metrics'
+import { BOT_NAME, REQUEST_IDENTITY_HEADERS } from './request-identity'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 
-const BOT_NAME = 'PostHogImageFetcherBot'
-const USER_AGENT = `${BOT_NAME}/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
 const CONFIG_BODY_LIMIT = 500 * 1024
 const CONFIG_REDIRECT_LIMIT = 5
 const CONFIG_FRESH_MS = 24 * 60 * 60 * 1000
@@ -127,7 +126,7 @@ export class HttpConfigurationFetcher {
                 timeoutMs: Math.max(1, deadlineMs - Date.now()),
                 allowH2: true,
                 headers: {
-                    'user-agent': USER_AGENT,
+                    ...REQUEST_IDENTITY_HEADERS,
                     accept: file === 'robots' ? 'text/plain,*/*;q=0.1' : 'application/json,*/*;q=0.1',
                     'accept-encoding': 'identity',
                     ...this.signer.headersForGet(target.toString()),
@@ -173,7 +172,7 @@ export class HttpConfigurationFetcher {
         }
         if (response.status >= 400 && response.status < 500) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'refused', cache } })
+            return complete({ kind: 'done', result: { outcome: 'refused', cache }, reason: `http_${response.status}` })
         }
         if (response.status !== 200) {
             response.discard()

@@ -1216,13 +1216,18 @@ class TestAnalyticsSnapshotBackfill:
         # The fulfilled snapshot request is reused, never re-created.
         assert api.posts == []
 
-    def test_readiness_probe_reuses_segments_during_snapshot_emission(self) -> None:
+    def test_download_relists_segments_the_readiness_probe_already_saw(self) -> None:
+        # Apple's segment URLs are presigned and expire minutes after being listed. A backlog
+        # large enough that the readiness probe (which walks every date up front) outlives that
+        # window would hand a stale, already-expired URL to the download if the probe's listing
+        # were reused instead of re-fetched — so every probed instance must be listed again right
+        # before its download.
         api = self._ready_api()
 
         _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
 
         for instance_id in ("I1", "I2", "IS1"):
-            assert [url for url, _ in api.calls].count(_segments_url(instance_id)) == 1
+            assert [url for url, _ in api.calls].count(_segments_url(instance_id)) == 2
 
     def test_running_the_backfill_twice_emits_identical_keys(self) -> None:
         first = _collect_analytics(self._ready_api(), _FakeManager())

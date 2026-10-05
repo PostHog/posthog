@@ -62,6 +62,29 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return snapshots
 
 
+def _route(session: mock.MagicMock, routes: dict[tuple[str, int | None], Response]) -> list[tuple[str, Any]]:
+    """Wire a mock session that answers by URL and ``p`` page param; return the requests sent, in order."""
+    session.headers = {}
+    sent: list[tuple[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        prepared = mock.MagicMock()
+        prepared.key = (request.url, (request.params or {}).get("p"))
+        return prepared
+
+    def _send(prepared: Any, **_kwargs: Any) -> Response:
+        sent.append(prepared.key)
+        return routes[prepared.key]
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return sent
+
+
+def _discussion(repo: str, repo_type: str, num: int) -> dict[str, Any]:
+    return {"num": num, "repo": {"name": repo, "type": repo_type}, "createdAt": "2024-01-01T00:00:00.000Z"}
+
+
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -76,10 +99,12 @@ class TestBuildInitialParams:
         assert params["limit"] == 1000
         assert params["full"] == "true"
 
-    @parameterized.expand([("models",), ("datasets",), ("spaces",)])
-    def test_every_endpoint_is_scoped_to_author(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [("models", "author"), ("datasets", "author"), ("spaces", "author"), ("collections", "owner")]
+    )
+    def test_every_endpoint_is_scoped_to_author(self, endpoint: str, param: str) -> None:
         params = _build_initial_params(HUGGING_FACE_ENDPOINTS[endpoint], author="acme")
-        assert params["author"] == "acme"
+        assert params[param] == "acme"
 
 
 class TestPagination:
@@ -166,6 +191,154 @@ class TestPagination:
 
         assert rows == []
         assert session.send.call_count == 1
+
+
+class TestLikes:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_next_link_past_empty_page_and_flattens_repo(self, MockSession) -> None:
+        # The Hub filters likes after paging, so an empty page can still carry a next link.
+        session = MockSession.return_value
+        page2 = "https://huggingface.co/api/users/acme/likes?cursor=2"
+        page3 = "https://huggingface.co/api/users/acme/likes?cursor=3"
+        snapshots = _wire(
+            session,
+            [
+                _response([], next_url=page2),
+                _response(
+                    [{"createdAt": "2024-01-01T00:00:00.000Z", "repo": {"name": "x/y", "type": "model"}}],
+                    next_url=page3,
+                ),
+                _response([{"createdAt": "2024-01-02T00:00:00.000Z", "repo": {"name": "x/y", "type": "dataset"}}]),
+            ],
+        )
+
+        rows = _rows(
+            hugging_face_source(
+                "hf_token", "likes", "acme", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert snapshots[0]["url"] == f"{HUGGING_FACE_BASE_URL}/api/users/acme/likes"
+        assert [(r["repo_type"], r["repo_name"]) for r in rows] == [("model", "x/y"), ("dataset", "x/y")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_organization_namespace_syncs_no_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "This user does not exist"}, status=404)])
+
+        rows = _rows(
+            hugging_face_source(
+                "hf_token", "likes", "acme", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert rows == []
+
+
+class TestTags:
+    @parameterized.expand([("model_tags", "/api/models-tags-by-type"), ("dataset_tags", "/api/datasets-tags-by-type")])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_tags_grouped_by_type(self, endpoint: str, path: str, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "library": [{"id": "pytorch", "label": "PyTorch", "type": "library"}],
+                        "license": [
+                            {"id": "license:mit", "label": "mit", "type": "license"},
+                            {"id": "license:apache-2.0", "label": "apache-2.0", "type": "license"},
+                        ],
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(
+            hugging_face_source(
+                "hf_token", endpoint, "acme", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert snapshots[0]["url"] == f"{HUGGING_FACE_BASE_URL}{path}"
+        assert [(r["type"], r["id"]) for r in rows] == [
+            ("library", "pytorch"),
+            ("license", "license:mit"),
+            ("license", "license:apache-2.0"),
+        ]
+        assert session.send.call_count == 1
+
+
+class TestDiscussions:
+    def _routes(self) -> dict[tuple[str, int | None], Response]:
+        base = HUGGING_FACE_BASE_URL
+        return {
+            (f"{base}/api/models", None): _response([{"id": "acme/m1"}, {"id": "acme/m2"}]),
+            (f"{base}/api/datasets", None): _response([{"id": "acme/d1"}]),
+            (f"{base}/api/spaces", None): _response([]),
+            (f"{base}/api/models/acme/m1/discussions", 0): _response(
+                {
+                    "discussions": [_discussion("acme/m1", "model", 3), _discussion("acme/m1", "model", 2)],
+                    "count": 3,
+                    "start": 0,
+                }
+            ),
+            (f"{base}/api/models/acme/m1/discussions", 1): _response(
+                {"discussions": [_discussion("acme/m1", "model", 1)], "count": 3, "start": 2}
+            ),
+            (f"{base}/api/models/acme/m2/discussions", 0): _response(
+                {"error": "Discussions are disabled for this repo"}, status=403
+            ),
+            (f"{base}/api/datasets/acme/d1/discussions", 0): _response(
+                {"discussions": [_discussion("acme/d1", "dataset", 1)], "count": 1, "start": 0}
+            ),
+        }
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_every_repo_kind(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _route(session, self._routes())
+
+        rows = _rows(
+            hugging_face_source(
+                "hf_token", "discussions", "acme", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert [(r["repo_type"], r["repo_name"], r["num"]) for r in rows] == [
+            ("model", "acme/m1", 3),
+            ("model", "acme/m1", 2),
+            ("model", "acme/m1", 1),
+            ("dataset", "acme/d1", 1),
+        ]
+        # Pagination stops at the reported count, so no repo pays a trailing empty-page request.
+        assert (f"{HUGGING_FACE_BASE_URL}/api/models/acme/m1/discussions", 2) not in sent
+        assert (f"{HUGGING_FACE_BASE_URL}/api/datasets/acme/d1/discussions", 1) not in sent
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_repos_already_synced(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _route(session, self._routes())
+        manager = _make_manager(
+            HuggingFaceResumeConfig(
+                fanout_state={"completed": ["/api/models/acme/m1/discussions"], "current": None, "child_state": None}
+            )
+        )
+
+        rows = _rows(
+            hugging_face_source(
+                "hf_token", "discussions", "acme", team_id=1, job_id="j", resumable_source_manager=manager
+            )
+        )
+
+        assert [(r["repo_name"], r["num"]) for r in rows] == [("acme/d1", 1)]
+        assert not any(url.endswith("/acme/m1/discussions") for url, _ in sent)
+        assert manager.save_state.call_args.args[0].fanout_state["completed"] == [
+            "/api/datasets/acme/d1/discussions",
+            "/api/models/acme/m1/discussions",
+            "/api/models/acme/m2/discussions",
+        ]
 
 
 class TestRetries:

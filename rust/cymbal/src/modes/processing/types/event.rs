@@ -20,6 +20,29 @@ pub struct AnyEvent {
     pub others: HashMap<String, Value>,
 }
 
+impl AnyEvent {
+    pub fn drop_code_variables(&mut self) {
+        let Some(exceptions) = self
+            .properties
+            .get_mut("$exception_list")
+            .and_then(Value::as_array_mut)
+        else {
+            return;
+        };
+        for exception in exceptions {
+            let Some(frames) = exception
+                .pointer_mut("/stacktrace/frames")
+                .and_then(Value::as_array_mut)
+            else {
+                continue;
+            };
+            for frame in frames.iter_mut().filter_map(Value::as_object_mut) {
+                frame.remove("code_variables");
+            }
+        }
+    }
+}
+
 pub trait PropertiesContainer: Send + Clone + 'static {
     fn set_properties(&mut self, new_props: Value) -> Result<(), UnhandledError>;
     fn attach_error(&mut self, error: String) -> Result<(), UnhandledError>;
