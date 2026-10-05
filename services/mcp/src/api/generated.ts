@@ -24750,6 +24750,44 @@ export namespace Schemas {
       Automatic: 'automatic',
     } as const;
 
+    export interface ConversionRecordingsRequest {
+      /** A unique query ID for tracing this request in query logs. */
+      client_query_id?: string;
+      /** The table query whose conversion cell was selected. */
+      source: MarketingAnalyticsTableQuery;
+      /** The selected conversion goal ID. */
+      goal_id: string;
+      /** The displayed row grouping value. */
+      group: string;
+      /** The displayed row source. */
+      source_name?: string;
+      /**
+         * The displayed campaign ID, omitted for comparison rows.
+         * @nullable
+         */
+      campaign_id?: string | null;
+      /**
+         * The last session ID returned by the previous page. Omit for the first page.
+         * @maxLength 200
+         */
+      after?: string;
+      /**
+         * The maximum number of conversion session IDs to return.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+    }
+
+    export interface ConversionRecordingsResponse {
+      /** Sessions in which the attributed conversions occurred. A session might not have a recording. */
+      session_ids: string[];
+      /** Whether another page of conversion sessions is available. */
+      has_more: boolean;
+      /** Whether the conversion data is still being prepared. */
+      preparing: boolean;
+    }
+
     /**
      * * `0` - Disabled
      * * `1` - Stateless
