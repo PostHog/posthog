@@ -24,7 +24,10 @@ export class LiquidRenderer {
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
             .replace(/&quot;/g, '"')
+            .replace(/&#34;/g, '"')
+            .replace(/&#x22;/g, '"')
             .replace(/&#x27;/g, "'")
+            .replace(/&#39;/g, "'")
             .replace(/&amp;/g, '&') // NOTE: This should always be last
     }
 

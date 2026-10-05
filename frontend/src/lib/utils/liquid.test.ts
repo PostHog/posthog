@@ -11,6 +11,16 @@ describe('LiquidRenderer', () => {
         expect(LiquidRenderer.render(template, context)).toBe('Hi Ada')
     })
 
+    // The editor writes a bracketed merge tag for any property name that is not a bare identifier,
+    // and the entity form of the quote depends on which serializer wrote the template.
+    it.each(['&#x27;', '&#39;', '&quot;', '&#34;', '&#x22;'])(
+        'renders a bracketed merge tag quoted with %s',
+        (entity) => {
+            const template = `{{ person.properties[${entity}first name${entity}] }}`
+            expect(LiquidRenderer.render(template, { person: { properties: { 'first name': 'Ada' } } })).toBe('Ada')
+        }
+    )
+
     it.each([
         ['person.properties.first_name', true],
         ['person.properties.company', false],
