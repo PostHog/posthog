@@ -337,6 +337,53 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.dateFrom).toBe('-7d')
             expect(router.values.searchParams.view).toBeUndefined()
         })
+
+        it('keeps the open view when the URL drops back to the bare ticket list', async () => {
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.applyView(makeSavedView('view-a', { status: ['open'] }))
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.view).toBe('view-a')
+
+            // What the nav item links to: the list URL with nothing on it.
+            router.actions.push(urls.supportTickets())
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBe('view-a')
+        })
+
+        it('reopens on the view it was left on when the scene starts from the bare URL', async () => {
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.applyView(makeSavedView('view-a', { status: ['open'] }))
+            }).toFinishAllListeners()
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/views/:short_id/': () => [
+                        200,
+                        makeSavedView('view-a', { status: ['open'] }),
+                    ],
+                },
+            })
+            // A fresh kea context over the same localStorage is what a page reload gives us.
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBe('view-a')
+        })
     })
 
     describe('breadcrumbs', () => {
