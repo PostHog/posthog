@@ -173,6 +173,8 @@ export const urls = {
     todayReport: (reportId: string): string => `/home/reports/${reportId}`,
     library: (objectType?: string): string => (objectType ? `/library/${objectType}` : '/library'),
     views: (): string => '/views',
+    viewsNew: (): string => '/views/new',
+    tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
@@ -204,7 +206,6 @@ export const urls = {
     credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
-    liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
@@ -315,9 +316,6 @@ export const urls = {
     projectFiles: (folder = ''): string => combineUrl('/files', folder ? { folder } : {}).url,
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    links: (params?: string): string =>
-        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    link: (id: string): string => `/link/${id}`,
     tracing: (): string => '/tracing',
     metrics: (): string => '/metrics',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',

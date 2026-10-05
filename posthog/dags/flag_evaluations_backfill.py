@@ -50,8 +50,14 @@ _FINISHED_RUN_STATUSES = (
 # The nine DEFAULT columns are left out so the shard computes them from properties, the same way
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
 # that keeps every copied row inside the deletion sweep's `inserted_at <= request.created_at` bound,
-# and it keeps copied rows out of the consumer-lag query below.
+# and it keeps copied rows out of the consumer-lag query below. _partition and _offset are left out
+# so that both are 0 on a copied row. _COPIED_ROW_FILTER relies on that.
 _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp"
+
+# A row from Kafka also has inserted_at = timestamp when its timestamp has no sub-second part and
+# falls in the second that Kafka received it. Kafka gives offset 0 only to the first message in a
+# partition, so the only Kafka row this filter can match is the first message in partition 0.
+_COPIED_ROW_FILTER = "_partition = 0 AND _offset = 0 AND inserted_at = timestamp"
 
 # A copied row's inserted_at is its timestamp, so the inserted_at != timestamp filter limits this
 # query to rows that arrived through the Kafka path.
@@ -59,11 +65,14 @@ _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, cre
 # consumer's position. The lookback spans several days so that a partition that stops delivering
 # stays in the query and reports its real lag. A partition that has delivered nothing for the whole
 # lookback drops out of this query.
+# Lag comes from _timestamp, the Kafka message time. A consumer that works through a backlog writes
+# rows now, so the time a row is written does not show how far the consumer is behind.
+# The lookback filters on inserted_at because only inserted_at has a skip index.
 _KAFKA_LOOKBACK_DAYS = 7
 _KAFKA_POSITION_QUERY = f"""
 SELECT count(), max(lag_seconds)
 FROM (
-    SELECT _partition, dateDiff('second', max(inserted_at), now64(6)) AS lag_seconds
+    SELECT _partition, dateDiff('second', max(_timestamp), now()) AS lag_seconds
     FROM {FLAG_EVALUATIONS_DATA_TABLE}
     WHERE inserted_at >= now() - INTERVAL {_KAFKA_LOOKBACK_DAYS} DAY AND inserted_at != timestamp
     GROUP BY _partition
@@ -431,7 +440,7 @@ class ShardBackfill:
                 "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
                 f"After that run finishes, delete the rows this job copied for {day} on shard {self.shard_num} "
                 f"(`DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '{day}' "
-                f"AND inserted_at = timestamp{team_filter}`), then run the backfill again for the same teams."
+                f"AND {_COPIED_ROW_FILTER}{team_filter}`), then run the backfill again for the same teams."
             )
 
     def wait_for_disk_headroom(self) -> None:

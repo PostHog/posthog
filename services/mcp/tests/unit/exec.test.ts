@@ -508,13 +508,12 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
-        // Cowork (via the client-profile flag). All three surface structuredContent to
-        // the model, so it must be dropped and the UI data re-homed onto _meta.
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code (via
+        // the client-profile flag). Both surface structuredContent to the model, so it
+        // must be dropped and the UI data re-homed onto _meta.
         it.each([
             ['posthog-code consumer', 'posthog-code', undefined],
             ['claude-code client', undefined, { isInlineExecUiHost: true }],
-            ['cowork client', undefined, { isInlineExecUiHost: true }],
         ])(
             'suppresses structuredContent toward the model but re-homes UI data onto _meta for %s (with a formatted override)',
             async (_label, consumer, options) => {

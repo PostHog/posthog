@@ -700,7 +700,7 @@ export const getPersonsResetPersonDistinctIdCreateUrl = (
 }
 
 /**
- * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
+ * Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.
  */
 export const personsResetPersonDistinctIdCreate = async (
     projectId: string,

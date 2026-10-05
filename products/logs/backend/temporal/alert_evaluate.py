@@ -18,7 +18,7 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.temporal.common.utils import close_db_connections
 
-    from products.alerts.backend.facade.contracts import (
+    from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
         SourceBatchEvaluation,
         SourceEvaluationInputs,

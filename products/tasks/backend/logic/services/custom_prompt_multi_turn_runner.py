@@ -6,8 +6,9 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
+from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
@@ -19,7 +20,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
-    create_task_and_trigger,
+    _create_task_and_trigger as create_task_and_trigger,
     extract_json_from_text,
     poll_for_turn,
 )
@@ -81,6 +82,8 @@ class MultiTurnSession:
         ai_agent_name: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
+        before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
+        origin_key: str | None = None,
         max_poll_seconds: int | None = None,
         fallback_from_text: Callable[[str], _ModelT] | None = None,
         json_retry_prompt: str | None = None,
@@ -89,14 +92,13 @@ class MultiTurnSession:
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
+        analytics_query_context: list[dict[str, object]] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
-        `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
-        BEFORE the agent's first turn runs. Callers that need a row linked to the
-        TaskRun to be queryable during that first turn use this — e.g. the Signals
-        scout creates its `SignalScoutRun` bridge here so first-turn finding emits
-        can resolve the run by id instead of 404ing on a not-yet-created row.
+        `before_task_dispatch` initializes linked rows in the task creation transaction,
+        before the workflow can start. `on_task_run_created` runs after dispatch and
+        must not establish a permission boundary for the agent's first turn.
 
         `max_poll_seconds` caps each turn's poll budget — see the field docstring.
 
@@ -126,12 +128,15 @@ class MultiTurnSession:
             ai_agent_name=ai_agent_name,
             internal=internal,
             on_task_run_created=on_task_run_created,
+            before_task_dispatch=before_task_dispatch,
+            origin_key=origin_key,
             max_poll_seconds=max_poll_seconds,
             workflow_id_prefix=workflow_id_prefix,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             output_schema=output_schema,
+            analytics_query_context=analytics_query_context,
         )
         # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
         salvageable = True
@@ -202,17 +207,20 @@ class MultiTurnSession:
         ai_agent_name: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
+        before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
+        origin_key: str | None = None,
         max_poll_seconds: int | None = None,
         workflow_id_prefix: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
+        analytics_query_context: list[dict[str, object]] | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
-        `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
-        BEFORE the agent's first turn runs — see `start` for the rationale.
+        `before_task_dispatch` runs inside the task creation transaction.
+        `on_task_run_created` runs after dispatch; see `start` for the distinction.
 
         `max_poll_seconds` caps each turn's poll budget — see the field docstring.
 
@@ -238,7 +246,10 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            before_task_dispatch=before_task_dispatch,
+            origin_key=origin_key,
             output_schema=output_schema,
+            analytics_query_context=analytics_query_context,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.
@@ -300,10 +311,13 @@ class MultiTurnSession:
         model: type[_ModelT],
         *,
         label: str = "",
+        validation_context: dict[str, object] | None = None,
     ) -> _ModelT:
         """Send a follow-up message and wait for the agent's next structured response."""
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
+        parsed = self._parse_and_validate(
+            last_message, model, label=label or "followup", validation_context=validation_context
+        )
         return parsed
 
     async def send_followup_raw(
@@ -385,10 +399,12 @@ class MultiTurnSession:
         return self._workflow_handle
 
     @staticmethod
-    def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:
+    def _parse_and_validate(
+        text: str, model: type[_ModelT], label: str, validation_context: dict[str, object] | None = None
+    ) -> _ModelT:
         """Extract JSON from agent text and validate against a Pydantic model."""
         json_data = extract_json_from_text(text=text, label=label, required_keys=_required_model_keys(model))
-        return model.model_validate(json_data)
+        return model.model_validate(json_data, context=validation_context)
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:
         """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.
