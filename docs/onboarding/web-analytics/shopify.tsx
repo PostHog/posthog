@@ -1,26 +1,19 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getShopifyInstallSteps } from '../product-analytics/shopify'
+import { getShopifyEcommerceStep, getShopifyInstallSteps } from '../product-analytics/shopify'
 import { StepDefinition } from '../steps'
 
 export const getShopifySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { Markdown, snippets } = ctx
+    const { snippets } = ctx
     const WebFinalSteps = snippets?.WebFinalSteps
 
     return [
         ...getShopifyInstallSteps(ctx),
+        getShopifyEcommerceStep(ctx),
         {
             title: 'Send events',
             badge: 'recommended' as const,
-            content: (
-                <>
-                    {WebFinalSteps && <WebFinalSteps />}
-                    <Markdown>
-                        See the [Shopify integration docs](https://posthog.com/docs/libraries/shopify) for tracking
-                        checkout events and revenue.
-                    </Markdown>
-                </>
-            ),
+            content: <>{WebFinalSteps && <WebFinalSteps />}</>,
         },
     ]
 }
