@@ -37,9 +37,12 @@ describe('branded starter logo controls', () => {
         })
         expect(screen.getByText('logo.png')).toBeInTheDocument()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Remove logo' }))
+        const remove = screen.getByRole('button', { name: 'Remove logo' })
+        remove.focus()
+        fireEvent.click(remove)
 
         expect(screen.queryByText('logo.png')).not.toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Choose a logo' })).toHaveFocus()
         expect(screen.getByLabelText('Brand name')).toHaveValue('Juniper Studio')
         expect(color).toHaveValue('#ffd400')
     })

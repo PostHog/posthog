@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { LemonButton, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
@@ -15,6 +16,11 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
     const { brand, isBrandSubmitting, isEmailEditorReady } = useValues(logic)
     const { setBrandValue } = useActions(logic)
     const busyReason = isBrandSubmitting ? 'Generating your starter' : undefined
+    const chooseLogoRef = useRef<HTMLButtonElement>(null)
+    const removeLogo = (): void => {
+        setBrandValue('logo', null)
+        chooseLogoRef.current?.focus()
+    }
     return (
         <LemonModal
             title="Start with your brand"
@@ -83,6 +89,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         disabledReason={busyReason}
                         callToAction={
                             <LemonButton
+                                ref={chooseLogoRef}
                                 data-attr="email-branded-starter-logo-choose"
                                 type="secondary"
                                 disabledReason={busyReason}
@@ -98,7 +105,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         type="tertiary"
                         size="small"
                         disabledReason={busyReason}
-                        onClick={() => setBrandValue('logo', null)}
+                        onClick={removeLogo}
                     >
                         Remove logo
                     </LemonButton>
