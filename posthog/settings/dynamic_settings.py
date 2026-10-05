@@ -341,7 +341,8 @@ CONSTANCE_CONFIG = {
         get_from_env("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", False, type_cast=str_to_bool),
         "When on, the feature flag Usage tab reads the events table for every organization on flag_evaluations "
         "mode 1. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 keep reading "
-        "flag_evaluations, because once ingestion stops their events writes, events has none of their flag calls. "
+        "flag_evaluations, because ingestion writes no flag calls to events for their teams in the ingestion "
+        "allowlist. "
         "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
         "organization. Takes up to a minute to apply, and a page reload to show.",
         bool,

@@ -6,14 +6,13 @@ import hashlib
 import dataclasses
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 from time import monotonic
 from typing import Any, Final, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
@@ -56,7 +55,6 @@ from posthog.api.app_metrics2 import (
     AppMetricsTotalsResponseSerializer,
     fetch_app_metric_totals,
     fetch_app_metric_totals_by_source,
-    fetch_app_metric_totals_by_team_and_source,
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
@@ -123,7 +121,13 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
-from products.workflows.backend.facade.api import create_batch_job
+from products.workflows.backend.facade.batch_jobs import (
+    create_batch_job,
+    get_batch_job,
+    hog_flow_ids_with_broadcast_status,
+    list_batch_jobs,
+    set_batch_job_status,
+)
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
     get_account_audience_ids_page,
@@ -134,6 +138,18 @@ from products.workflows.backend.facade.blast_radius import (
     is_account_audience,
     parse_account_audience_filters,
 )
+from products.workflows.backend.facade.contracts import StaffPausedError, WorkflowBatchJobNotFound
+from products.workflows.backend.facade.email_health import (
+    fetch_aws_tenant_reputation,
+    fetch_email_totals_by_source,
+    fetch_isp_metrics,
+    fold_email_totals,
+    get_email_sending_state,
+    pause_requires_staff,
+    resume_email_sending,
+    team_email_sending_allowance,
+)
+from products.workflows.backend.facade.enums import HogFlowBatchJobState
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
     mask_derived_trigger,
@@ -182,7 +198,6 @@ from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
 from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
@@ -204,22 +219,11 @@ from products.workflows.backend.presentation.views.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
-from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.email_sending_attribution import (
-    EMAIL_HEALTH_METRIC_NAMES,
-    fold_email_totals_by_flow,
-)
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
 )
-from products.workflows.backend.services.workflow_email_health import (
-    StaffPausedError,
-    pause_requires_staff,
-    resume_workflow_email_sending,
-)
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -924,6 +928,14 @@ class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
         help_text="Cursor for the next call, or null when this page is the last.",
     )
     has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+
+
+class InternalBatchJobStatusSerializer(serializers.Serializer):
+    """Response contract for the internal batch job status write, read by the Node batch resolver."""
+
+    id = serializers.CharField(help_text="Batch job id.")
+    status = serializers.CharField(help_text="Status of the batch job after the call.")
+    no_op = serializers.BooleanField(help_text="True when the job was already terminal and nothing changed.")
 
 
 class InternalAccountAudienceSerializer(serializers.Serializer):
@@ -2087,122 +2099,6 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
-SENDING_ALLOWANCE_CACHE_SECONDS = 60
-
-
-@frozen
-class EmailSendingAllowance:
-    """A project's sending tier, what it allows, and how much of that it has used."""
-
-    tier: int
-    max_tier: int
-    emails_per_hour: int
-    emails_per_day: int
-    max_batch_audience: int
-    emails_sent_last_hour: int
-    emails_sent_last_day: int
-    enforced: bool
-
-
-def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
-    """
-    Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
-    what the rest of this page reports. Cached briefly because the endpoint reloads on every search
-    keystroke while these two aggregations do not depend on the search.
-    """
-    cache_key = f"workflows_email_sending_allowance_{team_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    resolved = resolve_team_email_sending_tier(team_id)
-    now = timezone.now()
-    allowance = EmailSendingAllowance(
-        tier=resolved.tier,
-        max_tier=max_email_sending_tier(),
-        emails_per_hour=resolved.limits.per_hour,
-        emails_per_day=resolved.limits.per_day,
-        max_batch_audience=resolved.limits.max_batch_audience,
-        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
-        emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
-        enforced=resolved.enforced,
-    )
-    cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
-    return allowance
-
-
-def _team_email_sends_since(team_id: int, after: datetime) -> int:
-    totals = fetch_app_metric_totals_by_team_and_source(
-        app_source="hog_flow", name=["email_sent"], after=after, team_ids=[team_id]
-    )
-    return sum(counts.get("email_sent", 0) for counts in totals.get(team_id, {}).values())
-
-
-AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
-# Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
-# re-dialled on every request, short enough that a just-fixed config recovers within a minute.
-AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS = 60
-
-
-def _aws_tenant_health(sending_status: str, reputation_impact: str | None) -> str:
-    if sending_status == "DISABLED":
-        return "suspended"
-    if reputation_impact == "HIGH":
-        return "critical"
-    if reputation_impact == "LOW":
-        return "warning"
-    return "healthy"
-
-
-def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
-    """
-    AWS-side tenant state for the reputation endpoint, cached briefly: the endpoint reloads on every
-    search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
-    Failures return None (the response field is nullable) so AWS being unreachable never breaks the
-    rates display; failures cache under a shorter TTL so a broken SES isn't re-dialled per request.
-
-    Deliberately no SES_ACCESS_KEY_ID gate: cloud pods authenticate via their IAM role and leave
-    the key env vars unset, so a key check reads as "SES not configured" exactly where SES IS
-    configured. Environments truly without SES fail the call and land in the error path below.
-    """
-    cache_key = f"workflows_ses_tenant_reputation_{team_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached["value"]
-    try:
-        raw = SESProvider().get_tenant_reputation(team_id)
-    except Exception:
-        logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
-        cache.set(cache_key, {"value": None}, AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS)
-        return None
-    value = (
-        {
-            "health": _aws_tenant_health(raw["sending_status"], raw["reputation_impact"]),
-            "sending_status": raw["sending_status"],
-            "findings": raw["findings"],
-        }
-        if raw is not None
-        else None
-    )
-    cache.set(cache_key, {"value": value}, AWS_TENANT_REPUTATION_CACHE_SECONDS)
-    return value
-
-
-# VDM aggregates by whole day and the window ends at the last UTC midnight, so these numbers move
-# at most once a day. A five-minute TTL bought nothing and cost a full fan-out on every expiry.
-# One refresh of five domains is 150 queries across 15 sequential BatchGetMetricData calls, and the
-# endpoint reloads on every search keystroke, so this is what keeps typing a workflow name from
-# costing a fan-out per character.
-ISP_METRICS_CACHE_SECONDS = 30 * 60
-# A failure is cached too, briefly: without it an unreachable SES is retried in full per keystroke.
-ISP_METRICS_ERROR_CACHE_SECONDS = 60
-# Held while one request does the fan-out so a cold key admits one, not all of them. Typing races
-# concurrent misses through the same key, and each miss can hold a worker for the whole query
-# budget. Longer than that budget, so the holder always outlives its own work.
-ISP_METRICS_REFRESH_LOCK_SECONDS = 30
-# Bounds the BatchGetMetricData fan-out: every extra domain costs one query per provider per
-# metric. A project with more sending domains gets a breakdown over its first few.
-ISP_METRICS_MAX_DOMAINS = 5
 # Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
 ISP_SENDING_HEALTH_FLAG = "workflows-isp-sending-health"
 
@@ -2291,55 +2187,6 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
         withheld=tuple(withheld),
         shared=tuple(domain for domain in readable if sharers[domain]),
     )
-
-
-def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> list[dict[str, Any]]:
-    """
-    Per-mailbox-provider sending health for the given sending domains, cached like the tenant
-    reputation above and for the same reason: the endpoint reloads on every search keystroke.
-
-    Returns an empty list rather than raising when SES is unreachable or VDM is not collecting yet,
-    because the breakdown adds to the rates display and must not stop it loading.
-    """
-    if not domains:
-        return []
-    # The domain set depends on what the caller may see, so it belongs in the key: two members of
-    # one project can be entitled to different domains, and one must not be served the other's.
-    domain_key = hashlib.sha256("|".join(domains).encode()).hexdigest()[:12]
-    cache_key = f"workflows_ses_isp_metrics_{team_id}_{window_days}_{domain_key}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached["value"]
-
-    # Losers show no breakdown rather than queueing behind the holder: the rates above are what the
-    # page is for, and a second fan-out would buy a number the next reload gets from cache anyway.
-    if not cache.add(f"{cache_key}_refreshing", True, ISP_METRICS_REFRESH_LOCK_SECONDS):
-        return []
-
-    try:
-        rows = SESProvider().get_identity_isp_metrics(
-            domains, window_days=window_days, max_domains=ISP_METRICS_MAX_DOMAINS
-        )
-    except Exception:
-        logger.exception("Failed to fetch SES per-ISP metrics", team_id=team_id)
-        cache.set(cache_key, {"value": []}, ISP_METRICS_ERROR_CACHE_SECONDS)
-        return []
-
-    value = [
-        {
-            "isp": row.isp,
-            "emails_sent": row.emails_sent,
-            "delivery_rate": row.delivery_rate,
-            "bounce_rate": row.bounce_rate,
-            "transient_bounce_rate": row.transient_bounce_rate,
-            "complaint_rate": row.complaint_rate,
-            "complaint_base": row.complaint_base,
-            "unavailable": list(row.unavailable),
-        }
-        for row in rows
-    ]
-    cache.set(cache_key, {"value": value}, ISP_METRICS_CACHE_SECONDS)
-    return value
 
 
 class EmailSendingRatesSerializer(serializers.Serializer):
@@ -4544,52 +4391,6 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
 BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
 
 
-def filter_by_broadcast_status(queryset: QuerySet, statuses: set[str]) -> QuerySet:
-    # The status a sender sees on a broadcast, derived the way the broadcasts UI derives it: from the
-    # latest run and whether a schedule still has sends to come.
-    latest_run_status = (
-        HogFlowBatchJob.objects.filter(team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"))
-        .order_by("-created_at")
-        .values("status")[:1]
-    )
-    queryset = queryset.annotate(
-        _latest_run_status=Subquery(latest_run_status),
-        _has_pending_schedule=Exists(
-            HogFlowSchedule.objects.filter(
-                team_id=OuterRef("team_id"), hog_flow_id=OuterRef("pk"), status=HogFlowSchedule.Status.ACTIVE
-            )
-        ),
-    )
-    live = Q(status=HogFlow.State.ACTIVE)
-    # Only a wizard launch always leaves a schedule or a run. An opened workflow can wait for an API send.
-    nothing_to_come = Q(_latest_run_status__isnull=True, _has_pending_schedule=False)
-    unfinished_launch = nothing_to_come & Q(origin_product="broadcasts")
-    running = [HogFlowBatchJob.State.WAITING, HogFlowBatchJob.State.QUEUED, HogFlowBatchJob.State.ACTIVE]
-    conditions = {
-        "draft": Q(status=HogFlow.State.DRAFT),
-        "archived": Q(status=HogFlow.State.ARCHIVED),
-        "sending": live & Q(_latest_run_status__in=running),
-        "sent": live & Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED, _has_pending_schedule=False),
-        "scheduled": live
-        & (
-            (
-                Q(_has_pending_schedule=True)
-                & (Q(_latest_run_status__isnull=True) | Q(_latest_run_status=HogFlowBatchJob.State.COMPLETED))
-            )
-            | (nothing_to_come & ~Q(origin_product="broadcasts"))
-        ),
-        "failed": live
-        & (
-            Q(_latest_run_status__in=[HogFlowBatchJob.State.FAILED, HogFlowBatchJob.State.CANCELLED])
-            | unfinished_launch
-        ),
-    }
-    combined = Q()
-    for broadcast_status in statuses:
-        combined |= conditions[broadcast_status]
-    return queryset.filter(combined)
-
-
 class HogFlowFilterSet(FilterSet):
     # A producer's work list, so an agent need not read every workflow to find the few it may look at.
     optimization_enabled = BooleanFilter(
@@ -5018,7 +4819,9 @@ class HogFlowViewSet(
                     raise exceptions.ValidationError(
                         {"broadcast_status": f"Must be one or more of: {', '.join(BROADCAST_STATUSES)}"}
                     )
-                queryset = filter_by_broadcast_status(queryset, requested_statuses)
+                queryset = queryset.filter(
+                    id__in=hog_flow_ids_with_broadcast_status(team_id=self.team_id, statuses=requested_statuses)
+                )
 
             # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
             # this param and ships on its own release cadence, so installed builds keep sending it.
@@ -6988,21 +6791,7 @@ class HogFlowViewSet(
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
 
-        # Cached briefly: the UI reloads per search keystroke, but search filters in Python — the
-        # ClickHouse totals are search-independent. Session-authenticated requests bypass the
-        # default (personal-API-key-only) ClickHouse throttles, so without this a member could
-        # re-run the 30-day aggregation on every request.
-        totals_cache_key = f"workflows_email_reputation_totals_{self.team_id}"
-        totals_by_source = cache.get(totals_cache_key)
-        if totals_by_source is None:
-            after = timezone.now() - timedelta(days=self.REPUTATION_WINDOW_DAYS)
-            totals_by_source = fetch_app_metric_totals_by_source(
-                team_id=self.team_id,
-                app_source="hog_flow",
-                after=after,
-                name=EMAIL_HEALTH_METRIC_NAMES,
-            )
-            cache.set(totals_cache_key, totals_by_source, 60)
+        totals_by_source = fetch_email_totals_by_source(self.team_id, self.REPUTATION_WINDOW_DAYS)
 
         # email_blocked is how SES complaint events are recorded (see the plugin server's SES
         # webhook handler), hence "complained".
@@ -7015,24 +6804,24 @@ class HogFlowViewSet(
             else None
         )
 
-        # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)
-        # still count toward the team aggregate above. Unnamed flows come back as "" to keep
-        # hog_flow_name a plain string in the generated types.
-        team_queryset = self.get_queryset()
-        folded_totals = fold_email_totals_by_flow(
-            team_id=self.team_id, totals_by_source=totals_by_source, flows=team_queryset
-        )
-        counts_by_flow = folded_totals.counts_by_flow
-        names_by_flow_id = folded_totals.names_by_flow_id
-
         # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
         # leak names/volumes of access-controlled workflows the list endpoint hides.
+        team_queryset = self.get_queryset()
         accessible_ids = {
             str(flow_id)
             for flow_id in self.user_access_control.filter_queryset_by_access_level(team_queryset).values_list(
                 "id", flat=True
             )
         }
+
+        # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)
+        # still count toward the team aggregate above. Unnamed flows come back as "" to keep
+        # hog_flow_name a plain string in the generated types.
+        folded_totals = fold_email_totals(
+            team_id=self.team_id, totals_by_source=totals_by_source, flow_ids=accessible_ids
+        )
+        counts_by_flow = folded_totals.counts_by_flow
+        names_by_flow_id = folded_totals.names_by_flow_id
         # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
         # client-side could never find a healthy workflow beyond the cap.
         search = (request.query_params.get("search") or "").strip().lower()
@@ -7070,13 +6859,9 @@ class HogFlowViewSet(
 
         # Shown to every project member regardless of per-object grants: a suspension stops
         # everyone's email, so hiding it would just leave silent send failures unexplained.
-        suspension = (
-            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
-            .values("email_sending_suspended_at", "email_sending_suspension_reason")
-            .first()
-        )
-        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
-        suspension_reason = suspension["email_sending_suspension_reason"] if suspension else ""
+        suspension = get_email_sending_state(self.team_id)
+        suspended_at = suspension.suspended_at if suspension else None
+        suspension_reason = suspension.suspension_reason if suspension else ""
 
         # Same project-wide gate as `reputation`: the breakdown pools every workflow's email for a
         # sending domain, so object-level grants alone don't earn it.
@@ -7091,12 +6876,12 @@ class HogFlowViewSet(
                 {
                     # Same gate as `reputation`: the tenant verdict pools ALL workflows' email,
                     # so members holding only object-level grants don't get it.
-                    "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
+                    "aws": fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
                     "reputation": reputation,
                     "workflows": workflow_rows,
                     # Same project-wide gate as `reputation`: the breakdown pools every workflow's
                     # email for a sending domain, so object-level grants alone don't earn it.
-                    "isps": _fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
+                    "isps": fetch_isp_metrics(self.team_id, self.REPUTATION_WINDOW_DAYS, list(isp_domains.readable)),
                     "isp_shared_domains": list(isp_domains.shared),
                     "isp_withheld_domains": list(isp_domains.withheld),
                     "email_sending_suspended": suspended_at is not None,
@@ -7104,9 +6889,7 @@ class HogFlowViewSet(
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
                     # Same gate again: the allowance is project-wide, so an object-level grant is
                     # not enough to read it.
-                    "sending_allowance": _team_email_sending_allowance(self.team_id)
-                    if can_read_all_workflows
-                    else None,
+                    "sending_allowance": team_email_sending_allowance(self.team_id) if can_read_all_workflows else None,
                 }
             ).data
         )
@@ -7128,19 +6911,15 @@ class HogFlowViewSet(
         with no reputation computation. Every project member sees this — a suspension stops
         everyone's email, so hiding it would leave silent send failures unexplained.
         """
-        suspension = (
-            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
-            .values("email_sending_suspended_at", "email_sending_suspension_reason")
-            .first()
-        )
-        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+        suspension = get_email_sending_state(self.team_id)
+        suspended_at = suspension.suspended_at if suspension else None
         return Response(
             EmailSendingSuspensionStatusSerializer(
                 {
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": (
-                        suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
+                        suspension.suspension_reason if suspension and suspended_at is not None else ""
                     ),
                 }
             ).data
@@ -7163,13 +6942,21 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
         before_update = HogFlow.objects.get(id=hog_flow.id)
         try:
-            resumed = resume_workflow_email_sending(hog_flow)
+            resumed_at = resume_email_sending(team_id=hog_flow.team_id, hog_flow_id=hog_flow.id)
         except StaffPausedError:
             raise exceptions.PermissionDenied(
                 "This pause can only be lifted by PostHog. Contact support to get sending re-enabled."
             )
-        if not resumed:
+        if resumed_at is None:
             raise exceptions.ValidationError({"detail": "Email sending is not paused for this workflow."})
+        hog_flow.refresh_from_db(
+            fields=[
+                "email_sending_paused_at",
+                "email_sending_paused_reason",
+                "email_sending_paused_by",
+                "email_sending_resumed_at",
+            ]
+        )
         log_activity_from_viewset(
             self, hog_flow, activity="email_sending_resumed", name=hog_flow.name, previous=before_update
         )
@@ -7229,7 +7016,7 @@ class HogFlowViewSet(
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
-            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+            batch_jobs = list_batch_jobs(team_id=self.team_id, hog_flow_id=hog_flow.id)
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
 
@@ -7258,16 +7045,18 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # DjangoValidationError fires when the id is not a parseable UUID — surface
-            # as 404 rather than a 500 reported to error tracking.
+            batch_job = get_batch_job(
+                team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=kwargs["batch_job_id"]
+            )
+        except WorkflowBatchJobNotFound:
+            # An id that is not a parseable UUID lands here too, as a 404 rather than a 500
+            # reported to error tracking.
             raise exceptions.NotFound("Batch job not found")
 
         non_terminal = {
-            HogFlowBatchJob.State.WAITING,
-            HogFlowBatchJob.State.QUEUED,
-            HogFlowBatchJob.State.ACTIVE,
+            HogFlowBatchJobState.WAITING,
+            HogFlowBatchJobState.QUEUED,
+            HogFlowBatchJobState.ACTIVE,
         }
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
@@ -7293,13 +7082,15 @@ class HogFlowViewSet(
 
         if data["done"]:
             # Conditional so a completion that landed mid-cancel wins over the flip; the
-            # resolver's own terminal write absorbs the reverse race. `.update()` bypasses
-            # auto_now, so stamp updated_at explicitly.
-            HogFlowBatchJob.objects.filter(id=batch_job.id, status__in=non_terminal).update(
-                status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+            # resolver's own terminal write absorbs the reverse race.
+            set_batch_job_status(
+                team_id=self.team_id,
+                batch_job_id=batch_job.id,
+                status=HogFlowBatchJobState.CANCELLED,
+                from_statuses=non_terminal,
             )
 
-        batch_job.refresh_from_db()
+        batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
         self._report_workflow_action(
             "hog_flow_batch_job_cancel_requested",
             hog_flow,
@@ -7617,7 +7408,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         """
         from django.db import transaction  # noqa: PLC0415
 
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
         from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule  # noqa: PLC0415
         from products.workflows.backend.utils.rrule_utils import compute_next_occurrences  # noqa: PLC0415
 
@@ -7783,8 +7573,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         Accepts: { status: "completed" | "failed" }
         """
-        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
-
         if request.method != "PUT":
             return Response({"error": "Method not allowed"}, status=405)
 
@@ -7794,45 +7582,45 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Team not found"}, status=404)
 
         new_status = request.data.get("status")
-        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+        if new_status not in (HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.FAILED):
             return Response(
                 {"error": "status must be one of: completed, failed"},
                 status=400,
             )
 
         try:
-            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
-        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
-            # `DjangoValidationError` fires when `batch_job_id` is not a parseable
-            # UUID (UUIDField rejects it before the lookup). `ValueError` is a
-            # belt-and-suspenders catch for str→int / str→UUID edge cases on
-            # other backends. Either way, surface as 404, not 500.
+            batch_job = get_batch_job(team_id=team.id, batch_job_id=batch_job_id)
+        except WorkflowBatchJobNotFound:
+            # An unparseable `batch_job_id` lands here too: surface as 404, not 500.
             return Response({"error": "Batch job not found"}, status=404)
 
         terminal_states = {
-            HogFlowBatchJob.State.COMPLETED,
-            HogFlowBatchJob.State.FAILED,
-            HogFlowBatchJob.State.CANCELLED,
+            HogFlowBatchJobState.COMPLETED,
+            HogFlowBatchJobState.FAILED,
+            HogFlowBatchJobState.CANCELLED,
         }
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": True,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": batch_job.status,
+                        "no_op": True,
+                    }
+                ).data
             )
 
         try:
-            batch_job.status = new_status
-            batch_job.save(update_fields=["status", "updated_at"])
+            set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": False,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": new_status,
+                        "no_op": False,
+                    }
+                ).data
             )
         except Exception as e:
             logger.exception(

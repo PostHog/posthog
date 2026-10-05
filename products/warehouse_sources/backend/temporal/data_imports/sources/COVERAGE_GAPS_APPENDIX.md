@@ -4032,11 +4032,13 @@ Today (5): `collections`, `groups`, `project_runs`, `projects`, `users`
 
 Diffed against: <https://learn.hex.tech/docs/api-integrations/api/reference>
 
-- [ ] `ListDataConnections` — lookup table resolving the data connection ids referenced by projects and queried tables (high)
-- [ ] `GetQueriedTables` — per-project list of warehouse tables a project queries — the lineage table Hex users actually want (high)
+- [x] `ListDataConnections` — lookup table resolving the data connection ids referenced by projects and queried tables (high)
+- [x] `GetQueriedTables` — per-project list of warehouse tables a project queries — the lineage table Hex users actually want (high)
 - [ ] `ListTopics` — semantic layer topic lookup, resolves topic references on semantic projects (medium)
-- [ ] `ListCells / GetCell` — the cells that make up each project we already sync, needed to analyze notebook composition (medium)
-- [ ] `ListThreads / GetThreadMessages` — Hex agent threads and their messages — a genuine event stream of analyst questions (medium)
+- [x] `ListCells` — the cells that make up each project we already sync, needed to analyze notebook composition (medium)
+- [ ] `GetCell` — skipped: returns the same cell object as `ListCells`, which the cells table already syncs (low)
+- [x] `ListThreads` — Hex agent threads (title, intent, summary, topics, feedback) — a genuine event stream of analyst questions (medium)
+- [ ] `GetThreadMessages` — skipped: rows are rendered text blocks with no stable id to key on, fetched per thread under a 30 requests per minute limit (low)
 - [ ] `ListDraftGuides` — draft guides alongside the projects and collections we sync (low)
 
 Note: learn.hex.tech renders the reference client-side from Docusaurus; the operation list above was parsed out of the page's rendered headings (operation ids), not from a raw OpenAPI file — Hex does not publish one at a guessable URL. GetProjectRuns, ListProjects, ListUsers, ListGroups and ListCollections are already covered.
@@ -4395,14 +4397,14 @@ Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked
 
 ## Invoiced — gaps
 
-Today (9): `coupons`, `credit_notes`, `customers`, `estimates`, `invoices`, `items`, `payments`, `plans`, `subscriptions`
+Today (13): `coupons`, `credit_balance_adjustments`, `credit_notes`, `customers`, `estimates`, `events`, `invoices`, `items`, `payments`, `plans`, `subscriptions`, `tasks`, `tax_rates`
 
 Diffed against: <https://developer.invoiced.com/api/coupons>
 
-- [ ] `GET /events` — object change/audit event stream — the only way to get invoice and subscription state transitions (high)
-- [ ] `GET /tax_rates` — lookup table resolving the tax rate IDs carried on invoices, items and line items we already sync (high)
-- [ ] `GET /credit_balance_adjustments` — customer credit balance transactions, missing from the AR picture (medium)
-- [ ] `GET /tasks` — AR collection tasks and chasing cadence per customer (medium)
+- [x] `GET /events` — object change/audit event stream — the only way to get invoice and subscription state transitions (high)
+- [x] `GET /tax_rates` — lookup table resolving the tax rate IDs carried on invoices, items and line items we already sync (high)
+- [x] `GET /credit_balance_adjustments` — customer credit balance transactions, missing from the AR picture (medium)
+- [x] `GET /tasks` — AR collection tasks and chasing cadence per customer (medium)
 - [ ] `GET /customers/{id}/contacts` — contact-level lookup for the customers we sync (billing vs technical recipients) (medium)
 - [ ] `GET /customers/{id}/pending_line_items` — metered billing usage accrued but not yet invoiced (medium)
 - [ ] `GET /invoices/{id}/payment_plan` — installment schedule attached to an invoice; explains partial payments (medium)
@@ -4413,15 +4415,15 @@ Note: Docs are HTML only (no sitemap, no llms.txt, no OpenAPI); the resource lis
 
 ## Invoiceninja — gaps
 
-Today (15): `clients`, `credits`, `expense_categories`, `expenses`, `invoices`, `payment_terms`, `payments`, `products`, `projects`, `purchase_orders`, `quotes`, `recurring_invoices`, `tasks`, `tax_rates`, `vendors`
+Today (18): `bank_transactions`, `clients`, `credits`, `expense_categories`, `expenses`, `invoices`, `payment_terms`, `payments`, `products`, `projects`, `purchase_orders`, `quotes`, `recurring_invoices`, `tasks`, `task_statuses`, `tax_rates`, `users`, `vendors`
 
 Diffed against: <https://api-docs.invoicing.co/api-docs.yaml>
 
 - [ ] `GET /api/v1/activities` — the audit/activity log — every entity state transition (invoice sent, viewed, paid, quote approved) (high)
-- [ ] `GET /api/v1/statics` — master lookup payload (currencies, countries, payment types, industries, sizes, timezones, date formats) resolving the \*\_id columns on nearly every synced table (high)
-- [ ] `GET /api/v1/task_statuses` — lookup resolving the status_id on the tasks we already sync (high)
-- [ ] `GET /api/v1/users` — lookup resolving user_id / assigned_user_id on clients, invoices, tasks, expenses (high)
-- [ ] `GET /api/v1/bank_transactions` — bank feed transactions and their match state against payments/expenses (high)
+- [ ] `GET /api/v1/statics` — master lookup payload (currencies, countries, payment types, industries, sizes, timezones, date formats) resolving the \*\_id columns on nearly every synced table (high). Skipped: the endpoint returns one unpaginated object whose keys each hold a different lookup list (currencies, countries, industries, and so on) with separate id spaces, so it is not one table. The lists are reference data shipped with Invoice Ninja, not account records, and self-hosted instances also put the instance `license_key` in the payload.
+- [x] `GET /api/v1/task_statuses` — lookup resolving the status_id on the tasks we already sync (high). Added as `task_statuses`.
+- [x] `GET /api/v1/users` — lookup resolving user_id / assigned_user_id on clients, invoices, tasks, expenses (high). Added as `users`.
+- [x] `GET /api/v1/bank_transactions` — bank feed transactions and their match state against payments/expenses (high). Added as `bank_transactions`.
 - [ ] `GET /api/v1/company_ledger` — per-client ledger entries — the running AR balance behind invoices and payments (medium)
 - [ ] `GET /api/v1/subscriptions` — recurring billing plans customers are subscribed to (medium)
 - [ ] `GET /api/v1/recurring_expenses` — recurring cost side; we sync recurring_invoices but not recurring_expenses (medium)
