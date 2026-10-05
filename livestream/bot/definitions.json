@@ -1908,6 +1908,12 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "PathIntactResearch",
+    "name": "PathIntact Research",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "QlyzeBot",
     "name": "Qlyze",
     "category": "seo_crawler",
