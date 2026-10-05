@@ -101,16 +101,39 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 date_to=now,
             )
 
-    def test_rejects_interval_exceeding_row_budget(self):
+    @parameterized.expand(
+        [
+            ("too_fine_is_coarsened", dt.timedelta(days=2), "second", None, "minute"),
+            ("fitting_interval_is_kept", dt.timedelta(hours=2), "second", None, "second"),
+            ("min_interval_raises_auto_pick", dt.timedelta(hours=1), None, "minute_15", "minute_15"),
+            ("min_interval_raises_explicit_interval", dt.timedelta(hours=1), "minute", "hour", "hour"),
+            ("min_interval_below_interval_is_ignored", dt.timedelta(days=2), "hour_6", "minute", "hour_6"),
+            ("min_interval_still_coarsened", dt.timedelta(days=30), "second", "minute", "minute_5"),
+        ]
+    )
+    def test_resolves_interval(self, _name, span, interval, min_interval, expected):
+        now = timezone.now()
+        runner = self.runner_class(
+            team=self.team,
+            metric_name="x",
+            aggregation="sum",
+            date_from=now - span,
+            date_to=now,
+            interval=interval,
+            min_interval=min_interval,
+        )
+        self.assertEqual(runner.interval, expected)
+
+    def test_unknown_min_interval_raises(self):
         now = timezone.now()
         with self.assertRaises(ValueError):
             self.runner_class(
                 team=self.team,
                 metric_name="x",
                 aggregation="sum",
-                date_from=now - dt.timedelta(days=2),
+                date_from=now - dt.timedelta(hours=1),
                 date_to=now,
-                interval="second",
+                min_interval="fortnight",
             )
 
     def test_rejects_invalid_regex_filter(self):
