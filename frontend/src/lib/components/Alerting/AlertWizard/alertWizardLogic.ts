@@ -790,7 +790,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
 
                 await api.hogFunctions.create(configuration)
                 posthog.capture('error_tracking_alert_created', {
-                    source: 'wizard',
+                    ui_source: 'wizard',
                     trigger_event: subTemplate.filters?.events?.[0]?.id ?? null,
                     subtemplate_id: triggerKey,
                     destination_key: destination.key,

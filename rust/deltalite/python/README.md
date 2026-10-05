@@ -101,6 +101,7 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 | `DeltaLiteTable.open(uri, storage_options=None)` | Open an existing Delta table. `storage_options` is the usual object-store dict (S3/GCS/Azure/local). |
 | `DeltaLiteTable.is_deltatable(uri, storage_options=None)` | `True` if a Delta table exists at `uri`. |
 | `.upsert(data, primary_keys, partition_key=None, **opts)` | Insert-or-replace `data` by key. Returns `UpsertStats`. See knobs below. |
+| `.compact(**opts)` | Small-file compaction, the replacement for `DeltaTable.optimize.compact`. Returns a stats dict. See "Compaction" below. |
 | `.version()` | Current table version (`int`). |
 | `.reload()` | Bring the table state up to date with the log (incremental; falls back to a full re-open). |
 | `.table_id()` | The table id from the metadata action (`str`). |
@@ -132,6 +133,39 @@ upserts counts it once), `open_ms` (snapshot refreshes around the upsert),
 (committing to the Delta log), `maintenance_ms` (checkpoint/log cleanup,
 non-zero only on checkpoint-boundary commits). `columns_relaxed` counts
 non-nullable columns flipped to nullable before the write.
+
+### Compaction
+
+`compact` plans bins exactly as delta-rs's `optimize.compact` does, from the
+loaded log with no storage reads, and commits them the same way (ZSTD level 4,
+one `OPTIMIZE` commit, `dataChange=false`). Each bin is streamed one file and
+one byte-bounded batch at a time through the upsert's fetch and decode budgets,
+so memory follows the knobs, not the bin. Output files and row groups are also
+capped by decoded size, so a bin that decodes past a cap writes more than one
+file where delta-rs writes one.
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `target_file_size` | table's `delta.targetFileSize` | Bin size and output file size (compressed bytes). |
+| `max_parallel_bins` | 2 | Bins rewritten at once. |
+| `slot_budget_bytes` | none | Memory for the whole call: caps the decode and fetch budgets at a quarter each and lowers `max_parallel_bins` so the output files fit the rest. |
+| `max_decoded_file_bytes` | 1 GiB | An output file closes when its decoded bytes reach this (keeps files under the 2 GiB Arrow offset limit). |
+| `max_row_group_decoded_bytes` | 128 MiB | An output row group closes at this many decoded bytes. |
+| `partitions` | all | Only these partition values. |
+| `min_partition_removable_files` | 1 | Rewrite a partition only when its bins remove at least this many more files than they write. `1` is delta-rs's behavior. |
+| `max_bins_per_commit` | one commit | Commit every N bins instead. |
+| `max_replan_rounds` | 1 | Times the partitions of bins dropped on a conflict are planned and rewritten again. |
+| `commit_max_retries` | 15 | Commit attempts after another writer committed first. |
+| `dry_run` | `False` | Plan only; report what would be rewritten. |
+
+Conflicts: when another writer commits first, compaction keeps each bin whose
+input files are all still live and drops the others (deleting their output), so
+it never resurrects rows a merge replaced. A concurrent schema, partitioning or
+protocol change raises `DeltaLiteCommitConflictError`. Tables the upsert refuses
+are refused here too (`DeltaLiteUnsupportedTableError`). The result dict carries
+deltalite's counters plus delta-rs's `numFilesAdded`, `numFilesRemoved`,
+`partitionsOptimized`, `numBatches`, `totalConsideredFiles` and
+`totalFilesSkipped`.
 
 ### Exceptions
 
