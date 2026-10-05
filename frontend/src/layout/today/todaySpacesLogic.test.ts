@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -18,6 +20,16 @@ describe('todaySpacesLogic', () => {
         })
     })
 
+    // The plugin that owns the reload reads `document.hidden`, so a test drives that rather than a clock.
+    const setPageHidden = (hidden: boolean): void => {
+        Object.defineProperty(document, 'hidden', { value: hidden, configurable: true })
+        document.dispatchEvent(new Event('visibilitychange'))
+    }
+
+    afterEach(() => {
+        Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+    })
+
     it.each<[string, object, Partial<TodayRecentFilters>, boolean]>([
         ['an untouched menu stays clear', { createdBy: 'anyone', sources: [] }, {}, false],
         [
@@ -34,6 +46,29 @@ describe('todaySpacesLogic', () => {
 
         expect(logic.values.recentFilters).toEqual({ ...DEFAULT_RECENT_FILTERS, ...expected })
         expect(logic.values.recentFiltersActive).toBe(active)
+    })
+
+    // A session another client started reaches the rail only on a return to the tab, so the reload has to be
+    // registered as a disposable. A plain afterMount load passes every other test in this file.
+    it.each<[string, number, boolean]>([
+        ['reloads Recent once the cooldown has passed', 20_000, true],
+        ['keeps the list it has inside the cooldown', 5_000, false],
+    ])('a return to the tab %s', async (_, sinceLastLoad, reloads) => {
+        initKeaTests()
+        const logic = todaySpacesLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentTasksSuccess']).toFinishAllListeners()
+        // Age the last load instead of running a clock, so the cooldown is the only variable.
+        logic.cache.recentTasksLoadedAt = Date.now() - sinceLastLoad
+
+        const expectation = expectLogic(logic, () => {
+            setPageHidden(true)
+            setPageHidden(false)
+        }).toFinishAllListeners()
+
+        await (reloads
+            ? expectation.toDispatchActions(['loadRecentTasks'])
+            : expectation.toNotHaveDispatchedActions(['loadRecentTasks']))
     })
 
     it.each<[string, number | undefined, boolean]>([
