@@ -1,5 +1,6 @@
 import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import {
+    jevCardContext,
     jevCardSentence,
     observationKeyMomentMs,
     watchCardHeadline,
@@ -188,6 +189,36 @@ describe('WatchFeedCard helpers', () => {
                 scanner_result: { model_output: {} },
             } as unknown as ReplayObservationApi
             expect(jevCardSentence(bare, { kind: 'unviewed_recent' } as WatchFeedReasonApi)).toBe('Confused checkout')
+        })
+    })
+
+    describe('jevCardContext', () => {
+        it('gives the whole derived narration when the notability sentence leads', () => {
+            const context = jevCardContext(
+                observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
+                {
+                    kind: 'jev_watchable',
+                    jev_probability: 0.9,
+                    notability_reason: 'The card form rejected a valid card three times.',
+                } as WatchFeedReasonApi
+            )
+            expect(context).toBe('Retried the form twice. The submit then failed.')
+        })
+
+        it('never repeats the lead sentence when the derived headline leads', () => {
+            const context = jevCardContext(
+                observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
+                { kind: 'jev_watchable', jev_probability: 0.9 } as WatchFeedReasonApi
+            )
+            expect(context).toBe('The submit then failed.')
+        })
+
+        it('gives a filler row no context, so it stays small', () => {
+            const context = jevCardContext(
+                observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
+                { kind: 'unviewed_recent' } as WatchFeedReasonApi
+            )
+            expect(context).toBeNull()
         })
     })
 
