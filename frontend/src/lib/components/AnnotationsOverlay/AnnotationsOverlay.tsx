@@ -21,8 +21,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
-import { AnnotationModal } from 'products/annotations/frontend/components/AnnotationModal'
-import { annotationModalLogic, annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
+import { annotationModalHostLogic } from 'products/annotations/frontend/logics/annotationModalHostLogic'
+import { annotationScopeToName } from 'products/annotations/frontend/logics/annotationScopes'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
 import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
@@ -116,19 +116,8 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations } = useValues(logic)
-    const { closePopover } = useActions(logic)
-    const { closeModal } = useActions(annotationModalLogic)
-
-    useEffect(() => {
-        return () => {
-            closePopover()
-            closeModal()
-        }
-    }, [closePopover, closeModal])
 
     const overlayRef = useRef<HTMLDivElement | null>(null)
-    const modalContentRef = useRef<HTMLDivElement | null>(null)
-    const modalOverlayRef = useRef<HTMLDivElement | null>(null)
     const badgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
     const chartAreaLeft = geometry.plotLeft
 
@@ -224,15 +213,11 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 ))}
                 {activeBadgeElement && (
                     <AnnotationsPopover
-                        overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]}
+                        overlayRefs={[overlayRef]}
                         badgeElement={activeBadgeElement}
                         cluster={activeCluster}
                     />
                 )}
-                <AnnotationModal
-                    contentRef={(el) => (modalContentRef.current = el)}
-                    overlayRef={(el) => (modalOverlayRef.current = el)}
-                />
             </div>
         </BindLogic>
     )
@@ -351,7 +336,7 @@ function AnnotationsPopover({
     const { activeDate, groupingUnit, isDateLocked, insightId, isPopoverShown, annotationsOverlayProps } =
         useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
-    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+    const { openModalToCreateAnnotation } = useActions(annotationModalHostLogic)
 
     const popoverAnnotations = cluster?.annotations ?? []
 
@@ -428,7 +413,7 @@ function AnnotationsPopover({
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
     const { insightId, timezone, annotationsOverlayProps } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
-    const { openModalToEditAnnotation } = useActions(annotationModalLogic)
+    const { openModalToEditAnnotation } = useActions(annotationModalHostLogic)
 
     const isSystemAnnotation = annotation.id === -1 || annotation.id === -2
 

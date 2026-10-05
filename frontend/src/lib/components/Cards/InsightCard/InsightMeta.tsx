@@ -66,6 +66,7 @@ import {
     isTrendsQuery,
 } from '~/queries/utils'
 import {
+    ChartDisplayType,
     AccessControlLevel,
     AccessControlResourceType,
     DashboardPlacement,
@@ -84,6 +85,8 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { annotationModalHostLogic } from 'products/annotations/frontend/logics/annotationModalHostLogic'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -200,7 +203,10 @@ export function InsightMeta({
             deferInitialAlertsLoad: true,
         })
     )
-    const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
+    const { samplingFactor, hasDataWarehouseSeries, isTrends, isNonTimeSeriesDisplay, display } = useValues(
+        insightVizDataLogic(insightLogicProps)
+    )
+    const { isTrendsFunnel } = useValues(funnelDataLogic(insightLogicProps))
     const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
@@ -210,6 +216,7 @@ export function InsightMeta({
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const { copyImage } = useActions(captureImageLogic)
+    const { openModalToCreateAnnotation } = useActions(annotationModalHostLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
@@ -276,6 +283,19 @@ export function InsightMeta({
         ) : null
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
+    const canDisplayAnnotations =
+        ((isTrends &&
+            !isNonTimeSeriesDisplay &&
+            display !== ChartDisplayType.Metric &&
+            display !== ChartDisplayType.SlopeGraph) ||
+            isTrendsFunnel) &&
+        display !== ChartDisplayType.BoxPlot
+    const canAddAnnotation =
+        canViewInsight &&
+        !!insight.id &&
+        canDisplayAnnotations &&
+        placement !== DashboardPlacement.Public &&
+        placement !== DashboardPlacement.Export
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
@@ -565,6 +585,15 @@ export function InsightMeta({
                         >
                             Duplicate
                         </LemonButton>
+                        {canAddAnnotation ? (
+                            <LemonButton
+                                onClick={() => openModalToCreateAnnotation(undefined, insight.id, dashboardId)}
+                                fullWidth
+                                data-attr="dashboard-insight-add-annotation"
+                            >
+                                Add annotation
+                            </LemonButton>
+                        ) : null}
                         {showDashboardAlertsMenuItem && insight.id ? (
                             <LemonButton
                                 onClick={() => {
