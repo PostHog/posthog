@@ -2373,10 +2373,14 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
-                    if is_reserved_system_name(saved_query.name) or (
-                        is_reserved_models_name(saved_query.name)
-                        and saved_query.origin
-                        in {DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET}
+                    if (
+                        saved_query.name == "models"
+                        or is_reserved_system_name(saved_query.name)
+                        or (
+                            is_reserved_models_name(saved_query.name)
+                            and saved_query.origin
+                            in {DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET}
+                        )
                     ):
                         continue
                     if (

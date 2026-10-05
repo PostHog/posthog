@@ -8,7 +8,7 @@ This is an internal guide to setting up and working with the data warehouse for 
 
 ## Model namespace reservation
 
-The HogQL schema reserves `models` and `models.*` for authored data models. Warehouse tables, endpoint saved queries, and managed viewsets with these names are excluded from the schema. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
+The `models.*` namespace is reserved for authored data models. Warehouse tables, endpoint saved queries, and managed viewsets cannot use it. Model validation enforces the reservation during saves and `full_clean()`, and the HogQL schema excludes legacy rows with reserved names. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model.
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 

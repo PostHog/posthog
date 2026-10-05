@@ -8,6 +8,9 @@ export const validateSavedQueryName = (name: string | undefined | null): string 
     if (!name) {
         return 'You must enter a name'
     }
+    if (name === 'models') {
+        return 'The models namespace needs a model name, for example models.revenue.'
+    }
     if (!SAVED_QUERY_NAME_REGEX.test(name)) {
         return "View names must start with a letter, '_', or '$' and can only contain letters, numbers, '_', '.', or '$'"
     }

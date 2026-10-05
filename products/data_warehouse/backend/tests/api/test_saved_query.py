@@ -99,11 +99,12 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(other_team_response.json()["detail"].endswith("- object does not exist."))
         self.assertTrue(missing_folder_response.json()["detail"].endswith("- object does not exist."))
 
-    def test_create(self):
+    @parameterized.expand([("bare", "event_view"), ("namespaced", "models.event_view")])
+    def test_create(self, _case: str, name: str):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
-                "name": "event_view",
+                "name": name,
                 "query": {
                     "kind": "HogQLQuery",
                     "query": "select event as event from events LIMIT 100",
@@ -112,7 +113,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query = response.json()
-        self.assertEqual(saved_query["name"], "event_view")
+        self.assertEqual(saved_query["name"], name)
         self.assertEqual(
             saved_query["columns"],
             [
@@ -405,11 +406,21 @@ class TestSavedQuery(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(id=view_id)
         assert saved_query.column_order == select_order
 
-    def test_create_rejects_reserved_system_namespace(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "system",
+                "system.accounts",
+                "The system namespace is reserved for built-in tables. Choose a different view name.",
+            ),
+            ("models_root", "models", "The models namespace needs a model name, for example models.revenue."),
+        ]
+    )
+    def test_create_rejects_reserved_system_namespace(self, _case: str, name: str, message: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
-                "name": "system.accounts",
+                "name": name,
                 "query": {
                     "kind": "HogQLQuery",
                     "query": "select event as event from events LIMIT 100",
@@ -420,7 +431,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(
             response.json()["detail"],
-            "The system namespace is reserved for built-in tables. Choose a different view name.",
+            message,
         )
 
     def test_create_name_overlap_error(self):
@@ -2569,6 +2580,19 @@ class TestSavedQuery(APIBaseTest):
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("authored", "models.revenue", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("legacy", "models.revenue", None),
+            ("managed_bare", "revenue", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+            ("managed_prefix", "models_v2", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+        ]
+    )
+    def test_models_namespace_allows_valid_names(self, _case: str, name: str, origin: str | None) -> None:
+        instance = DataWarehouseSavedQuery(name=name, origin=origin)
+        instance.clean()
+        DataWarehouseSavedQuery._meta.get_field("name").run_validators(name)
+
     @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
     def test_managed_models_namespace_reservation(self, _case: str, name: str) -> None:
         instance = DataWarehouseSavedQuery(name=name, origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)

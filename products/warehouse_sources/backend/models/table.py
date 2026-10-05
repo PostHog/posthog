@@ -19,6 +19,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import is_reserved_models_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -467,6 +468,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         ]
 
     def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
+        self._validate_models_namespace()
         if not internally_computed_url_pattern:
             self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
         super().save(*args, **kwargs)
@@ -479,7 +481,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # error. save()'s check stays the enforcement of record for every other caller (DRF, a
         # management command, a future endpoint), since nothing but ModelForm calls full_clean().
         super().clean()
+        self._validate_models_namespace()
         self._reject_client_supplied_url_pattern_change(update_fields=None)
+
+    def _validate_models_namespace(self) -> None:
+        if is_reserved_models_name(self.name):
+            raise ValidationError(
+                {"name": "The models namespace is reserved for data models. Choose a different table name."}
+            )
 
     def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
         """Block a url_pattern change on a table with no credential, unless the caller declares the

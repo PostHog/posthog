@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database, is_reserved_system_name
+from posthog.hogql.database.database import Database, is_reserved_models_name, is_reserved_system_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -51,6 +51,10 @@ TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
 
 def validate_saved_query_name(value: str) -> None:
+    if value == "models":
+        raise ValidationError(
+            "The models namespace needs a model name, for example models.revenue.", params={"value": value}
+        )
     if is_reserved_system_name(value):
         raise ValidationError(
             "The system namespace is reserved for built-in tables. Choose a different view name.",
@@ -192,7 +196,20 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         "last_full_refresh_at, last_run_mode. System-written, not user-editable.",
     )
 
+    def _validate_models_namespace(self) -> None:
+        if self.name == "models":
+            raise ValidationError({"name": "The models namespace needs a model name, for example models.revenue."})
+        if is_reserved_models_name(self.name) and self.origin in {self.Origin.ENDPOINT, self.Origin.MANAGED_VIEWSET}:
+            raise ValidationError(
+                {"name": "The models namespace is reserved for data models. Choose a different name."}
+            )
+
+    def clean(self) -> None:
+        super().clean()
+        self._validate_models_namespace()
+
     def save(self, *args, **kwargs):
+        self._validate_models_namespace()
         if self.is_test and not self.expires_at:
             from django.utils import timezone
 

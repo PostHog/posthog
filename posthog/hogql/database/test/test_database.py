@@ -4585,6 +4585,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("managed_root", "models", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, False),
+            ("authored_root", "models", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, False),
             ("managed_nested", "models.revenue", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, False),
             ("endpoint_nested", "models.revenue", DataWarehouseSavedQuery.Origin.ENDPOINT, False),
             ("authored_nested", "models.revenue", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, True),
@@ -4595,11 +4596,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_models_namespace_saved_query_reservation(
         self, _case: str, name: str, origin: str | None, expected_visible: bool
     ) -> None:
-        DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name=name,
-            origin=origin,
-            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+        DataWarehouseSavedQuery.objects.bulk_create(
+            [
+                DataWarehouseSavedQuery(
+                    team=self.team,
+                    name=name,
+                    origin=origin,
+                    query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+                )
+            ]
         )
 
         database = Database.create_for(team=self.team)
@@ -4612,7 +4617,20 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     )
     def test_models_namespace_warehouse_table_reservation(self, _case: str, name: str, expected_visible: bool) -> None:
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
-        self._create_warehouse_table(name=name, url_pattern="s3://example/*", credential=credential)
+        DataWarehouseTable.objects.bulk_create(
+            [
+                DataWarehouseTable(
+                    name=name,
+                    format="Parquet",
+                    team=self.team,
+                    credential=credential,
+                    url_pattern="s3://example/*",
+                    columns={
+                        "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                    },
+                )
+            ]
+        )
 
         database = Database.create_for(team=self.team)
 
