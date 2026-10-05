@@ -89,6 +89,9 @@ class EventsListTable:
     looks_up_person_display_names: bool
     # Fields that join another table. The outer presorted query leaves out filters on them.
     joined_fields: frozenset[str]
+    # The list starts no earlier than the UTC start of the day this many days back.
+    retention_days: int | None
+    cache_key_variant: str
 
     def join_expr(self) -> ast.JoinExpr:
         return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
@@ -100,6 +103,8 @@ EVENTS_LIST_TABLE = EventsListTable(
     person_id="person.id",
     looks_up_person_display_names=False,
     joined_fields=frozenset(),
+    retention_days=None,
+    cache_key_variant="",
 )
 FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     chain=("posthog", "flag_evaluations"),
@@ -115,6 +120,10 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # the query sorts by Person and joins persons anyway.
     looks_up_person_display_names=True,
     joined_fields=EVENTS_LIST_JOINED_FIELDS,
+    # flag_evaluations drops a monthly part only after its newest row passes the TTL. Rows older than the TTL can
+    # therefore remain for up to a month. This bound ends the list at the first day that the Usage tab charts show.
+    retention_days=FLAG_EVALUATIONS_TTL_DAYS,
+    cache_key_variant="_flag_evaluations",
 )
 
 
@@ -182,10 +191,8 @@ def _exact_flag_keys(prop: QueryPropertyFilter) -> list[str] | None:
     return [str(value) for value in values]
 
 
-def _flag_evaluations_retention_expr() -> ast.Expr:
-    # flag_evaluations drops a monthly part only after its newest row passes the TTL. Rows older than the TTL can
-    # therefore remain for up to a month. This bound ends the list at the first day that the Usage tab charts show.
-    retention_start = start_of_day(now()) - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)
+def _retention_start_expr(retention_days: int) -> ast.Expr:
+    retention_start = start_of_day(now()) - timedelta(days=retention_days)
     return parse_expr("timestamp >= {retention_start}", {"retention_start": ast.Constant(value=retention_start)})
 
 
@@ -417,6 +424,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     def _event_names(self) -> list[str]:
         return [e for e in [self.query.event, *(self.query.events or [])] if e]
 
+    @cached_property
     def _list_table(self) -> EventsListTable:
         if self.query.source is not None or self.query.actionId or self.query.actionSteps:
             return EVENTS_LIST_TABLE
@@ -427,10 +435,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return FLAG_EVALUATIONS_LIST_TABLE
 
     def get_cache_key_variant(self) -> str:
-        variant = super().get_cache_key_variant()
-        if self._list_table() is FLAG_EVALUATIONS_LIST_TABLE:
-            return f"{variant}_flag_evaluations"
-        return variant
+        return super().get_cache_key_variant() + self._list_table.cache_key_variant
 
     def _property_where_expr(self, prop: QueryPropertyFilter, table: EventsListTable) -> ast.Expr:
         flag_keys = _exact_flag_keys(prop) if table is FLAG_EVALUATIONS_LIST_TABLE else None
@@ -555,8 +560,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             after = self.query.after or "-24h"
             if after != "all":
                 exprs.append(self._timestamp_boundary_expr(after, AFTER_BOUNDARY))
-            if table is FLAG_EVALUATIONS_LIST_TABLE:
-                exprs.append(_flag_evaluations_retention_expr())
+            if table.retention_days is not None:
+                exprs.append(_retention_start_expr(table.retention_days))
             return exprs
 
     def _timestamp_boundary_expr(self, cursor: str, boundary: TimestampBoundary) -> ast.Expr:
@@ -718,7 +723,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         tag_contains_user_hogql()
         # Only this path reads flag_evaluations. Callers that run to_query() in their own context keep reading
         # events. Their select or database may need columns that flag_evaluations lacks.
-        table = self._list_table()
+        table = self._list_table
         modifiers = self._query_modifiers(table)
         query_result = self.paginator.execute_hogql_query(
             query=self._build_query(table),

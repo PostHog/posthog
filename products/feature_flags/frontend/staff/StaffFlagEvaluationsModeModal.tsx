@@ -17,10 +17,13 @@ import { pluralize } from 'lib/utils/strings'
 import { FlagEvaluationsModeEnumApi, StaffOrganizationModeChangeApi } from '../generated/api.schemas'
 import { FLAG_EVALUATIONS_MODE_LABELS, featureFlagsStaffToolsLogic } from './featureFlagsStaffToolsLogic'
 
+const FLAG_CALL_READERS =
+    "The Usage tab, the per-project counts on a flag's Projects tab, and any events list filtered to $feature_flag_called"
+
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
-    0: "The Usage tab, the per-project counts on a flag's Projects tab, and any events list filtered to $feature_flag_called read the events table.",
-    1: "The Usage tab, the per-project counts on a flag's Projects tab, and any events list filtered to $feature_flag_called read the flag_evaluations table, and the table is available in SQL. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, they read the events table instead.",
-    2: "The Usage tab, the per-project counts on a flag's Projects tab, and any events list filtered to $feature_flag_called read the flag_evaluations table, and the table is available in SQL. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.",
+    0: `${FLAG_CALL_READERS} read the events table.`,
+    1: `${FLAG_CALL_READERS} read the flag_evaluations table, and the table is available in SQL. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, they read the events table instead.`,
+    2: `${FLAG_CALL_READERS} read the flag_evaluations table, and the table is available in SQL. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.`,
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {
