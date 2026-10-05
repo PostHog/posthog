@@ -8,6 +8,7 @@ import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
+    normalizeQueryBreakdowns,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -895,5 +896,38 @@ describe('compareTopLevelSections()', () => {
             compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
         ).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
+    })
+})
+
+describe('normalizeQueryBreakdowns()', () => {
+    const vizWithBreakdowns = (breakdowns: any[]): InsightVizNode =>
+        ({
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], breakdownFilter: { breakdowns } },
+        }) as InsightVizNode
+
+    it.each([
+        [
+            'unwraps a nested breakdown object',
+            [{ property: { property: 'plan', type: 'event' }, type: 'event' }],
+            [{ property: 'plan', type: 'event' }],
+        ],
+        ['drops a breakdown with no property', [{ property: null, type: 'event' }, { type: 'person' }], []],
+        [
+            'keeps valid string and cohort id properties',
+            [
+                { property: '$browser', type: 'event' },
+                { property: 3, type: 'cohort' },
+            ],
+            [
+                { property: '$browser', type: 'event' },
+                { property: 3, type: 'cohort' },
+            ],
+        ],
+    ])('%s', (_, breakdowns, expected) => {
+        const result = normalizeQueryBreakdowns(vizWithBreakdowns(breakdowns)) as InsightVizNode
+        expect(
+            (result.source as InsightQueryNode & { breakdownFilter?: BreakdownFilter }).breakdownFilter?.breakdowns
+        ).toEqual(expected)
     })
 })
