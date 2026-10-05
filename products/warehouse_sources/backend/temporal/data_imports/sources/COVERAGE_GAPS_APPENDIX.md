@@ -3972,7 +3972,7 @@ Note: Helicone's API is POST-query shaped rather than REST-collection shaped, so
 
 ## Hellobaton — gaps
 
-Today (15): `activity`, `companies`, `custom_field_values`, `custom_fields`, `milestones`, `phases`, `project_attachments`, `project_phases`, `project_users`, `projects`, `task_attachments`, `tasks`, `templates`, `time_entries`, `users`
+Today (19): `activity`, `comments`, `companies`, `custom_field_options`, `custom_field_values`, `custom_fields`, `departments`, `milestones`, `phases`, `project_attachments`, `project_phases`, `project_users`, `projects`, `task_attachments`, `task_deliverables`, `tasks`, `templates`, `time_entries`, `users`
 
 Diffed against: <https://app.hellobaton.com/api/swagger.json>
 
@@ -3980,10 +3980,10 @@ Diffed against: <https://app.hellobaton.com/api/swagger.json>
 - [x] `custom_field_values` — the actual custom field data on projects (the endpoint returns project values only); without it custom fields are invisible (high)
 - [x] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
 - [x] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
-- [ ] `comments` — collaboration events on projects and tasks, the main activity signal alongside activity (high)
-- [ ] `custom_field_options` — lookup resolving picklist option ids stored in custom_field_values (medium)
-- [ ] `departments` — lookup table resolving the department ids on users and projects (medium)
-- [ ] `task_deliverables` — deliverable line items hanging off the tasks we already sync (medium)
+- [x] `comments` — collaboration events on projects and tasks, the main activity signal alongside activity (high)
+- [x] `custom_field_options` — lookup resolving picklist option ids stored in custom_field_values (medium)
+- [x] `departments` — lookup table resolving the department ids on users and projects (medium)
+- [x] `task_deliverables` — deliverable line items hanging off the tasks we already sync (medium)
 - [ ] `milestone_feedback` — customer feedback tied to the milestones we already sync (medium)
 - [ ] `external_tasks` — tasks mirrored from integrated systems, needed for a complete task picture (medium)
 - [ ] `time_entry_aggregates` — pre-rolled time totals for utilization reporting without re-aggregating time_entries (low)
