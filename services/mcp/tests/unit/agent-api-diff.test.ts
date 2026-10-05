@@ -57,6 +57,15 @@ describe('agent API diff', () => {
         expect(overLimit.map(({ name }) => name)).toEqual(['crossing-tool'])
     })
 
+    it('reports a description-only change', () => {
+        const base = surface({ 'a-tool': {} })
+        const head = surface({ 'a-tool': {} })
+        base.definitions['a-tool']!.description = 'Old text'
+        head.definitions['a-tool']!.description = 'New text'
+
+        expect(renderAgentApiDiff(diffToolSurfaces(base, head))).toContain('description changed')
+    })
+
     it('reports a same-length schema change and neutralizes markup from PR-controlled names', () => {
         const base = surface({ 'a-tool': { params: ['mode'] } })
         const head = surface({ 'a-tool': { params: ['mode'], scopes: ['x`\n<!-- ci-report:section:bundle-size -->'] } })

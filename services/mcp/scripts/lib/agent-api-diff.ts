@@ -14,6 +14,7 @@ const SCHEMA_DIR = 'services/mcp/schema'
 
 export interface ToolDefinition {
     title?: string
+    description?: string
     required_scopes?: string[]
     annotations?: Record<string, unknown>
 }
@@ -32,6 +33,7 @@ export interface ToolChange {
     scopesRemoved: string[]
     annotationChanges: string[]
     titleChanged: boolean
+    descriptionChanged: boolean
     // The schema differs although no listed field above shows it, for example a property type.
     schemaChanged: boolean
     sizeBefore: number | null
@@ -163,6 +165,7 @@ export function diffToolSurfaces(base: ToolSurface, head: ToolSurface): AgentApi
                 head.definitions[name]?.annotations
             ),
             titleChanged: base.definitions[name]?.title !== head.definitions[name]?.title,
+            descriptionChanged: base.definitions[name]?.description !== head.definitions[name]?.description,
             // Snapshot files are key-sorted, so equal schemas serialize to equal text.
             schemaChanged: schemaText(base, name) !== schemaText(head, name),
             sizeBefore,
@@ -175,6 +178,7 @@ export function diffToolSurfaces(base: ToolSurface, head: ToolSurface): AgentApi
             change.scopesRemoved.length > 0 ||
             change.annotationChanges.length > 0 ||
             change.titleChanged ||
+            change.descriptionChanged ||
             change.schemaChanged
         if (hasChange) {
             diff.changed.push(change)
@@ -246,7 +250,12 @@ export function renderAgentApiDiff(diff: AgentApiDiff): string {
     if (diff.changed.length > 0) {
         const rows = diff.changed.slice(0, MAX_ROWS).map((change) => {
             const annotations = change.annotationChanges.join('; ')
-            const title = change.titleChanged ? 'title changed' : ''
+            const title = [
+                change.titleChanged ? 'title changed' : '',
+                change.descriptionChanged ? 'description changed' : '',
+            ]
+                .filter(Boolean)
+                .join('; ')
             return `| \`${safe(change.name)}\` | ${paramsCell(change)} | ${scopesCell(change)} | ${[annotations, title].filter(Boolean).join('; ')} | ${sizeCell(change)} |`
         })
         lines.push(
