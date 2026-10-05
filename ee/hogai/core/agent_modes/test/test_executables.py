@@ -1257,7 +1257,7 @@ class TestAgentNodeModelRouting(BaseTest):
         self.assertEqual(root_model.anthropic_api_url, "https://ai-gateway.test")
         self.assertIsNone(root_model.default_headers)
         assert isinstance(root_model.ai_gateway_fallback, MaxChatAnthropic)
-        self.assertEqual(root_model.ai_gateway_fallback.model, "claude-sonnet-4-6")
+        self.assertEqual(root_model.ai_gateway_fallback.model, "claude-sonnet-5-5")
         self.assertTrue(root_model.billable)
         mock_variant.assert_not_called()
 
