@@ -182,6 +182,21 @@ def _is_pooler_query_wait_timeout_error(error: BaseException) -> bool:
     return _POOLER_QUERY_WAIT_TIMEOUT_MARKER in str(error).lower()
 
 
+# pgbouncer's server_login_retry cooldown: a backend connect attempt failed, so pgbouncer
+# caches the failure and hands it to every client asking for a connection until the cooldown
+# elapses and it retries the backend itself. Self-heals without our retry doing anything
+# special, so it's transient by construction, not a symptom of the underlying cause. Same
+# ProtocolViolation (SQLSTATE 08P01) shape as the query_wait_timeout marker above, so matched
+# the same way. Mirrors posthog/temporal/common/db_errors.py's identical marker for the app DB.
+_POOLER_LOGIN_RETRY_CACHED_ERROR_MARKER = "server login has been failing, cached error"
+
+
+def _is_pooler_login_retry_cached_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.errors.ProtocolViolation):
+        return False
+    return _POOLER_LOGIN_RETRY_CACHED_ERROR_MARKER in str(error).lower()
+
+
 def _is_transient_queue_db_error(error: BaseException) -> bool:
     """Whether `error` is the queue DB being briefly unavailable rather than a bug.
 
@@ -195,6 +210,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
         or _is_admin_shutdown_error(error)
         or _is_connection_dropped_error(error)
         or _is_pooler_query_wait_timeout_error(error)
+        or _is_pooler_login_retry_cached_error(error)
     )
 
 
