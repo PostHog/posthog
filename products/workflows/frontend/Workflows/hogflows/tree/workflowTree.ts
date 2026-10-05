@@ -1,6 +1,12 @@
+import { getAiDecisionEdgeLabel } from '../steps/aiDecisionBranches'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
 
-export const BRANCHING_ACTION_TYPES = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition'] as const
+export const BRANCHING_ACTION_TYPES = [
+    'conditional_branch',
+    'random_cohort_branch',
+    'wait_until_condition',
+    'ai_decision',
+] as const
 
 export interface WorkflowTreeSequence {
     nodes: WorkflowTreeNode[]
@@ -79,6 +85,9 @@ export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: 
             (filters?.events?.length ?? 0) > 0 ||
             (filters?.actions?.length ?? 0) > 0
         return hasConditionFilters ? 'Condition or event matched' : 'Event received'
+    }
+    if (action?.type === 'ai_decision') {
+        return getAiDecisionEdgeLabel(action.config, edge)
     }
     if (edge.type === 'continue') {
         // A random cohort split scales its weights to their total and always picks a cohort, so this

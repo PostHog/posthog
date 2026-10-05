@@ -44,6 +44,17 @@ describe('HogFlow step previews', () => {
         [action('function_sms', { inputs: { phoneNumber: { value: '+15555550123' } } }), ['To +15555550123']],
         [action('function_push', { inputs: { title: { value: 'Welcome back' } } }), ['Welcome back']],
         [action('exit', {}), ['End workflow']],
+        [action('ai_decision', { answer_type: 'yes_no', yes_threshold: 50 }), ['Yes or no · yes at 50%']],
+        [action('ai_decision', { answer_type: 'yes_no', yes_threshold: 80 }), ['Yes or no · yes at 80%']],
+        [
+            action('ai_decision', {
+                answer_type: 'pick_one',
+                options: [{ name: 'a' }, { name: 'b' }, { name: 'c' }, { name: 'd' }],
+                unsure_enabled: true,
+            }),
+            ['Pick 1 of 4 · Unsure path'],
+        ],
+        [action('ai_decision', { answer_type: 'pick_one', options: [{ name: 'a' }, { name: 'b' }] }), ['Pick 1 of 2']],
     ])('derives preview labels from the action config', (workflowAction, expected) => {
         expect(previewLabels(workflowAction)).toEqual(expected)
     })

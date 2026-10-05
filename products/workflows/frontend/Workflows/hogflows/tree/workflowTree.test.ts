@@ -324,6 +324,33 @@ describe('buildWorkflowTree', () => {
         expect(getWorkflowBranchLabel(cohortAction, edge('split', 'next', edgeType, 0))).toBe(label)
     })
 
+    it.each([
+        ['yes_no', 'branch', 0, 'Yes'],
+        ['yes_no', 'branch', 1, 'No'],
+        ['yes_no', 'branch', 2, 'Unsure'],
+        ['yes_no', 'continue', undefined, 'If the decision fails'],
+        ['pick_one', 'branch', 0, 'Self-serve'],
+        ['pick_one', 'branch', 1, 'Option 2'],
+        ['pick_one', 'branch', 2, 'Developer'],
+        ['pick_one', 'branch', 3, 'Unsure'],
+        ['pick_one', 'continue', undefined, 'If the decision fails'],
+    ] as const)('labels an ai decision %s outcome on the %s edge %s', (answerType, edgeType, index, label) => {
+        const decisionAction: HogFlowAction = {
+            id: 'decide',
+            type: 'ai_decision',
+            name: 'Pick a track',
+            description: '',
+            config: {
+                question: 'Which onboarding track fits this person?',
+                answer_type: answerType,
+                options: [{ name: 'Self-serve' }, { name: '' }, { name: 'Developer' }],
+                unsure_enabled: true,
+                inputs: {},
+            },
+        }
+        expect(getWorkflowBranchLabel(decisionAction, edge('decide', 'next', edgeType, index))).toBe(label)
+    })
+
     it('moves a branching action with all of its paths', () => {
         const workflowWithJoin = workflow(
             [

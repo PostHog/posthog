@@ -581,6 +581,38 @@ describe('hogFlowEditorLogic', () => {
             expect(branchEdge0?.data?.label).toBe('If cohort #1 matches')
             expect(branchEdge1?.data?.label).toBe('If cohort #2 matches')
         })
+
+        it('labels ai decision edges with their answers, Unsure, and the failure path', () => {
+            const mockFlow = createMockHogFlow()
+            mockFlow.actions[1] = {
+                id: 'branch',
+                name: 'Pick a track',
+                description: '',
+                type: 'ai_decision',
+                config: {
+                    question: 'Which onboarding track fits this person?',
+                    answer_type: 'pick_one',
+                    options: [{ name: 'Self-serve' }, { name: 'Sales' }],
+                    unsure_enabled: true,
+                    inputs: {},
+                },
+            }
+            mockFlow.edges.splice(3, 0, { from: 'branch', to: 'exit', type: 'branch', index: 2 })
+            logic.actions.resetFlowFromHogFlow(mockFlow)
+
+            const labelsByHandle = Object.fromEntries(
+                logic.values.edges
+                    .filter((e) => e.source === 'branch')
+                    .map((e) => [e.sourceHandle, e.data?.label] as const)
+            )
+
+            expect(labelsByHandle).toEqual({
+                branch_branch_0: 'Self-serve',
+                branch_branch_1: 'Sales',
+                branch_branch_2: 'Unsure',
+                continue_branch: 'If the decision fails',
+            })
+        })
     })
 
     describe('graph identity across rebuilds', () => {

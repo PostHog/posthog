@@ -36,12 +36,21 @@ export function getBranchRemovalDisabledReason(
     edgesByActionId: Record<string, HogFlowEdge[]>
 ): string | undefined {
     const branchEdge = branchEdges.find((e) => e.index === conditionIndex)
-    if (!branchEdge) {
-        return undefined
-    }
-    const targetEdges = edgesByActionId[branchEdge.to] ?? []
-    const hasOtherIncomingEdges = targetEdges.some((e) => e.to === branchEdge.to && e !== branchEdge)
-    return hasOtherIncomingEdges ? undefined : 'Clean up branching steps first'
+    return branchEdge ? getBranchesRemovalDisabledReason([branchEdge], edgesByActionId) : undefined
+}
+
+/** The same check for edges removed together, so two of them leading to one step can't vouch for each other. */
+export function getBranchesRemovalDisabledReason(
+    removedEdges: HogFlowEdge[],
+    edgesByActionId: Record<string, HogFlowEdge[]>
+): string | undefined {
+    const orphansATarget = removedEdges.some(
+        (removedEdge) =>
+            !(edgesByActionId[removedEdge.to] ?? []).some(
+                (e) => e.to === removedEdge.to && !removedEdges.includes(e)
+            )
+    )
+    return orphansATarget ? 'Clean up branching steps first' : undefined
 }
 
 /** Filter out a branch edge by its index property and reindex the remaining edges. */

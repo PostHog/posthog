@@ -15,6 +15,7 @@ import {
     IconNotification,
     IconPeople,
     IconPercentage,
+    IconSparkles,
     IconTarget,
     IconWebhooks,
 } from '@posthog/icons'
@@ -27,6 +28,8 @@ import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
+import { AiDecisionConfig, getAiDecisionOptions } from './aiDecisionBranches'
+import { StepAiDecisionConfiguration } from './StepAiDecision'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
 import { getDelayDescription } from './stepDelayLogic'
@@ -119,9 +122,24 @@ function getFunctionPreviews(
     return [{ label: destination ? `${templateName} · ${destination}` : templateName }]
 }
 
+function getAiDecisionPreview(config: AiDecisionConfig): HogFlowStepPreview {
+    if (config.answer_type === 'yes_no') {
+        return { label: `Yes or no · yes at ${config.yes_threshold ?? 50}%` }
+    }
+    const pickLabel = `Pick 1 of ${getAiDecisionOptions(config).length}`
+    return { label: config.unsure_enabled ? `${pickLabel} · Unsure path` : pickLabel }
+}
+
 const HogFlowStepConfigs: Partial<{
     [K in HogFlowAction['type']]: HogFlowStepBuilder<K>
 }> = {
+    ai_decision: {
+        type: 'ai_decision',
+        icon: () => <IconSparkles />,
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#A28BFF' : '#5B3FD9'),
+        getPreviews: (action) => [getAiDecisionPreview(action.config)],
+        renderConfiguration: (node) => <StepAiDecisionConfiguration key={node.id} node={node} />,
+    },
     conditional_branch: {
         type: 'conditional_branch',
         icon: () => <IconDecisionTree />,

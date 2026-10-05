@@ -32,9 +32,10 @@ import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
+import { getAiDecisionEdgeLabel } from './steps/aiDecisionBranches'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
-import { isWorkflowTreeComplete } from './tree/workflowTree'
+import { isBranchingAction, isWorkflowTreeComplete } from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
 
@@ -76,6 +77,12 @@ export function computeInsertEdges(
  * Helper to get branch label with custom name fallback
  */
 const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'][0]): string => {
+    if (action?.type === 'ai_decision') {
+        return getAiDecisionEdgeLabel(action.config, edge)
+    }
+    if (edge.type === 'continue') {
+        return 'No match'
+    }
     if (!action) {
         return `If condition #${(edge.index || 0) + 1} matches`
     }
@@ -2394,8 +2401,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return false
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
-                return !branchingTypes.includes(selectedNode?.data.type ?? '')
+                return !selectedNode || !isBranchingAction(selectedNode.data)
             },
         ],
     }),
@@ -2494,11 +2500,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             },
                             data: {
                                 edge,
-                                label: isOnlyEdgeForNode
-                                    ? undefined
-                                    : edge.type === 'continue'
-                                      ? `No match`
-                                      : getBranchLabel(edgeSourceAction, edge),
+                                label: isOnlyEdgeForNode ? undefined : getBranchLabel(edgeSourceAction, edge),
                             },
                             labelShowBg: false,
                             targetHandle: `target_${edge.to}`,
