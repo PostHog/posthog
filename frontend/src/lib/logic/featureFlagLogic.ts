@@ -142,5 +142,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     afterMount(({ actions }) => {
         posthog.onFeatureFlags(actions.setFeatureFlags)
+        if (posthog.config?.advanced_disable_flags) {
+            // posthog-js never calls back when flags are off, and the app holds its first render
+            // until this arrives. A page with no project key has no flags to wait for.
+            actions.setFeatureFlags([], {})
+        }
     }),
 ])

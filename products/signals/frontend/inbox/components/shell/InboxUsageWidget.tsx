@@ -139,8 +139,10 @@ function EditLimitModal(): JSX.Element {
 
 /**
  * Compact PR-usage meter for the inbox agents rail: a status-coloured usage bar with USD spent so far
- * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right. On a paid plan
- * the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
+ * alongside it, then `X / Y PRs used across your organization` on the left and `Resets <date>` on
+ * the right. That count is org-wide, uncapped, and net of refunds, on the same basis as the quota
+ * check. When refunds exist, a line under it names the gross count the billing page shows. On a paid
+ * plan the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
  * free plan it shows an in-place upgrade instead. Renders nothing until billing has loaded and the
  * inbox product is present. Deliberately billing-only: the team's daily report cap lives with the
  * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
@@ -152,7 +154,9 @@ export function InboxUsageWidget(): JSX.Element | null {
         isLoading,
         isSubscribed,
         canAccessBilling,
-        usedPrsDisplay,
+        createdPrs,
+        usedPrs,
+        refundedPrs,
         limitPrs,
         freePrs,
         status,
@@ -206,18 +210,25 @@ export function InboxUsageWidget(): JSX.Element | null {
                         </span>
                     )}
                 </div>
-                <div className="flex items-center justify-between gap-2 text-xs">
-                    <Tooltip title="PRs opened by agents across your whole organization this billing period">
-                        {/* tabIndex so keyboard users can focus the count and get the org-wide scope */}
+                {/* Wraps rather than clips: the scope wording makes this row too wide for a narrow rail. */}
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs">
+                    <Tooltip title="PRs agents opened across your organization this billing period, minus refunded PRs. This is the count that goes toward your limit. It can run past the limit before agents pause.">
+                        {/* tabIndex so keyboard users can reach the tooltip */}
                         <span className="text-secondary tabular-nums" tabIndex={0}>
-                            <span className="font-medium text-default">{usedPrsDisplay}</span>
-                            {limitPrs != null ? ` / ${limitPrs}` : ''} PRs created
+                            <span className="font-medium text-default">{usedPrs}</span>
+                            {limitPrs != null ? ` / ${limitPrs}` : ''} PRs used across your organization
                         </span>
                     </Tooltip>
                     {resetDate && (
                         <span className="text-tertiary tabular-nums">Resets {resetDate.format('MMM D')}</span>
                     )}
                 </div>
+                {/* Your billing page counts every created PR, so this line explains why it shows more. */}
+                {refundedPrs > 0 && (
+                    <span className="text-xs text-tertiary tabular-nums">
+                        {createdPrs} created, {refundedPrs} refunded. Refunded PRs don't count toward your limit.
+                    </span>
+                )}
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
                         Agents are paused. They won't write new reports or open pull requests until the limit is raised

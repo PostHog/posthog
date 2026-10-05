@@ -130,6 +130,7 @@ const engineeringAnalyticsRunFailureLogs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/run_failure_logs/`,
             query: {
+                ci_engine: params.ci_engine,
                 repo: params.repo,
                 run_id: params.run_id,
                 source_id: params.source_id,
@@ -203,6 +204,7 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_jobs/`,
             query: {
+                ci_engine: params.ci_engine,
                 repo: params.repo,
                 run_attempt: params.run_attempt,
                 run_id: params.run_id,
@@ -274,7 +276,7 @@ const PullRequestsSchema = () => {
     const EngineeringAnalyticsPullRequestsQueryParams = orvalSchemas.EngineeringAnalyticsPullRequestsQueryParams()
     return EngineeringAnalyticsPullRequestsQueryParams.extend({
         date_from: EngineeringAnalyticsPullRequestsQueryParams.shape['date_from'].describe(
-            "Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d."
+            "Recency floor for merged/closed PRs: relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d."
         ),
     })
 }
@@ -290,8 +292,12 @@ const pullRequests = (): ToolBase<ReturnType<typeof PullRequestsSchema>, WithPos
             query: {
                 author: params.author,
                 date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
                 repo: params.repo,
                 source_id: params.source_id,
+                state: params.state,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')
@@ -302,10 +308,10 @@ const WorkflowHealthSchema = () => {
     const EngineeringAnalyticsWorkflowHealthQueryParams = orvalSchemas.EngineeringAnalyticsWorkflowHealthQueryParams()
     return EngineeringAnalyticsWorkflowHealthQueryParams.extend({
         date_from: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_from'].describe(
-            "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
+            "Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
         ),
         date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
-            'Window end — relative or ISO8601. Defaults to now.'
+            'Window end: relative or ISO8601. Defaults to now.'
         ),
     })
 }

@@ -12,6 +12,7 @@ import tempfile
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -41,6 +42,9 @@ class PRData:
     # The repo's default branch, so stacked-ness isn't tied to "master" (the hosted
     # runtime reviews repos whose trunk is "main").
     default_branch: str = "master"
+    # Set by the hosted server from GitHub's compare API. Its shallow checkout holds no history, so
+    # git cannot compute the merge base there (see diff_range).
+    merge_base_sha: str = ""
 
     @property
     def stacked(self) -> bool:
@@ -85,6 +89,43 @@ TRUSTED_REACTOR_BOTS = {
     "hex-security-app[bot]",
     "veria-ai[bot]",
 }
+
+# A reviewer bot's 👀 outlives the review it announced when the bot fails
+# mid-run: reactions never expire, and no one can remove another app's
+# reaction. Past this age the 👀 is treated as abandoned instead of in flight,
+# so a wedged bot cannot block a PR forever. A reaction with no timestamp
+# counts as fresh, which fails toward waiting.
+BOT_EYES_MAX_AGE_SECONDS = 45 * 60
+
+
+def _reaction_age_seconds(created_at: str | None) -> float:
+    if not created_at:
+        return 0.0
+    try:
+        created = datetime.fromisoformat(created_at)
+    except ValueError:
+        return 0.0
+    return (datetime.now(UTC) - created).total_seconds()
+
+
+def _is_bot_eyes(reaction: dict) -> bool:
+    return reaction.get("emoji") == "👀" and (reaction.get("user") or "").lower() in TRUSTED_REACTOR_BOTS
+
+
+def is_in_flight_bot_eyes(reaction: dict) -> bool:
+    """True for a 👀 from an allowlisted reviewer bot that has not aged out."""
+    return _is_bot_eyes(reaction) and _reaction_age_seconds(reaction.get("created_at")) <= BOT_EYES_MAX_AGE_SECONDS
+
+
+def drop_abandoned_bot_eyes(reactions: list[dict] | None) -> list[dict]:
+    """Drop reviewer-bot 👀 that aged past the in-flight cutoff.
+
+    The wait gate stops waiting on these, so every reader of a reaction list
+    must hide them too. A stale 👀 left in the reviewer prompt makes the LLM
+    refuse over a review that finished days ago, and the author cannot clear
+    the reaction because it belongs to the bot.
+    """
+    return [r for r in reactions or [] if not _is_bot_eyes(r) or is_in_flight_bot_eyes(r)]
 
 
 def is_bot_author(user: dict) -> bool:
@@ -415,16 +456,28 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
     return comments, pr_reactions
 
 
-def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
+def diff_range(base_sha: str, head_sha: str, merge_base_sha: str = "") -> str:
+    """The git revision range of the PR's own changes.
+
+    ``base...head`` diffs from the merge base, which git computes by walking history. A known merge
+    base gives the same diff as ``merge_base..head`` and needs only the two commits, which is all a
+    shallow checkout holds.
+    """
+    if merge_base_sha:
+        return f"{merge_base_sha}..{head_sha}"
+    return f"{base_sha}...{head_sha}"
+
+
+def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> list[dict]:
     """Get changed files with line counts and status from the local checkout."""
-    diff_range = f"{base_sha}...{head_sha}"
+    revisions = diff_range(base_sha, head_sha, merge_base_sha)
     run_opts = {"capture_output": True, "text": True, "timeout": 30, "cwd": repo_root}
 
-    numstat = subprocess.run(["git", "diff", "--numstat", diff_range], **run_opts)
+    numstat = subprocess.run(["git", "diff", "--numstat", revisions], **run_opts)
     if numstat.returncode != 0:
         raise RuntimeError(f"git diff --numstat failed: {numstat.stderr.strip()}")
 
-    name_status = subprocess.run(["git", "diff", "--name-status", diff_range], **run_opts)
+    name_status = subprocess.run(["git", "diff", "--name-status", revisions], **run_opts)
     status_map: dict[str, str] = {}
     for line in name_status.stdout.strip().splitlines():
         parts = line.split("\t", 1)
@@ -465,8 +518,8 @@ def new_diff_file(directory: Path) -> Path:
     return Path(path)
 
 
-def write_pr_diff(base_sha: str, head_sha: str, repo_root: Path) -> Path:
-    """Write the base...head PR diff to a fresh file in the checkout and return its path.
+def write_pr_diff(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> Path:
+    """Write the PR diff (see diff_range) to a fresh file in the checkout and return its path.
 
     Shared by the reviewer (feeds the LLM the diff to read) and the familiarity
     signal (parses the same diff for base-side modified line ranges), so the
@@ -474,7 +527,7 @@ def write_pr_diff(base_sha: str, head_sha: str, repo_root: Path) -> Path:
     """
     dest = new_diff_file(repo_root)
     result = subprocess.run(
-        ["git", "diff", f"{base_sha}...{head_sha}"],
+        ["git", "diff", diff_range(base_sha, head_sha, merge_base_sha)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -548,14 +601,15 @@ _GENERATED_BY_RE = re.compile(r"^generated-by:[ \t]*(.+?)[ \t]*$", re.IGNORECASE
 _TASK_ID_RE = re.compile(r"^task-id:[ \t]*(.+?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
 
 
-def parse_provenance_trailers(log_output: str) -> CommitProvenance:
-    """Parse `Generated-By:` / `Task-Id:` trailers out of `git log --format=%B%x1e` output.
+def provenance_from_messages(raw_messages: list[str]) -> CommitProvenance:
+    """Parse `Generated-By:` / `Task-Id:` trailers out of the PR's commit messages.
 
     Agent tooling stamps these trailers on every commit it authors, so any
     commit carrying one marks the PR as agent-authored. Values are collected
-    de-duplicated in first-seen order.
+    de-duplicated in first-seen order. The messages come from `git log` on a
+    local run and from GitHub's PR commits API on a hosted one.
     """
-    messages = [m for m in (raw.strip() for raw in log_output.split(_COMMIT_RECORD_SEPARATOR)) if m]
+    messages = [m for m in (raw.strip() for raw in raw_messages) if m]
     agent_commits = 0
     generated_by: list[str] = []
     task_ids: list[str] = []
@@ -572,6 +626,11 @@ def parse_provenance_trailers(log_output: str) -> CommitProvenance:
         generated_by=tuple(generated_by),
         task_ids=tuple(task_ids),
     )
+
+
+def parse_provenance_trailers(log_output: str) -> CommitProvenance:
+    """Parse `Generated-By:` / `Task-Id:` trailers out of `git log --format=%B%x1e` output."""
+    return provenance_from_messages(log_output.split(_COMMIT_RECORD_SEPARATOR))
 
 
 def pr_provenance(base_sha: str, head_sha: str, repo_root: Path) -> CommitProvenance | None:

@@ -100,6 +100,7 @@ class MoxieSource(SimpleSource[MoxieSourceConfig]):
 
 Go to **Workspace settings > Connected Apps > Integrations** in Moxie and click **Enable Custom Integration** to see your workspace's base URL and API key.""",
             iconPath="/static/services/moxie.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/moxie",
             fields=cast(
                 list[FieldType],
                 [

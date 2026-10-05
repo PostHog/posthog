@@ -85,7 +85,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     // all three cross-product entry points compare in one breakdown.
     const openRecordings = useCallback(
         (source: 'header' | 'menubar'): void => {
-            posthog.capture('viewed recordings from error tracking', { issue_id: issueId, source })
+            posthog.capture('viewed recordings from error tracking', { issue_id: issueId, ui_source: source })
             newInternalTab(
                 urls.replay(ReplayTabs.Home, {
                     ...getIssueReplayDateRange(

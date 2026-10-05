@@ -1,5 +1,16 @@
 # Accounts table
 
+## Default pinned account properties
+
+Project admins choose an ordered set of default pinned properties under Customer analytics > Accounts settings.
+The defaults can include account custom properties and relationships.
+They appear in account detail sidebars and expanded Accounts rows until a user saves a personal selection.
+
+The user configuration inherits when it has no personal selection, including historical empty lists without an override marker or legacy pinned IDs.
+Reads resolve the current project defaults without copying them into the user row, so later project changes reach every user who still inherits.
+A personal save stores the complete ordered list and an override marker.
+A saved empty list means the user chose no pinned properties and no longer inherits project changes.
+
 ## Query scheduling
 
 Account row and overview requests use a dedicated frontend queue with two concurrent slots.
@@ -10,7 +21,16 @@ Other query types keep their existing global or scene-specific concurrency limit
 
 The Accounts list keeps unsaved filters when a user opens an account and returns to the list.
 The draft includes search, tags, assignment filters, account property and relationship filters, and the selected overview tile filter.
+Account property, relationship, and custom-property filters can be placed in OR groups.
+Filters within each group use AND, while search, tags, assignment status, and selected overview tile filters apply to every group.
+Saved views and shared links keep the groups; older views without groups retain their AND behavior.
+A group that filters on churned or ignored accounts includes them only in that group; other groups still exclude them by default.
+When a saved condition refers to a deleted property, the list keeps the valid conditions in that group.
 It also keeps sorting, selected columns, column display settings, and overview tile settings.
+
+The toolbar keeps a Filters button with a spaced, theme-aware accent count. The button highlights while the compact groups are open in a bordered area below it.
+Restored filters start collapsed. Relationship pills show member names using the same member list as the value picker. Adding the first condition opens the groups, and removing the last group restores the Filter button.
+Empty OR groups do not affect results. Search, tags, and assignment controls remain outside the editor.
 
 The browser stores one draft per project and user in `sessionStorage`.
 Draft restoration waits for the loaded project and user IDs before deciding whether to apply a saved view.
@@ -39,9 +59,22 @@ If browser storage is unavailable or invalid, the list uses URL state and saved 
 `applyViewState` restores it without intermediate URL writes.
 The parent scene preserves the view hash when changing date or test-account filters.
 
+## Sorting
+
+The Accounts list uses server sorting until it knows that the full matching set fits on one page.
+This makes the first page globally correct when more pages are available, including when a sort comes from a saved view or shared URL.
+
+The list tracks result completeness per filter set as unknown, complete, or paginated.
+An unknown set includes the selected sort in its first request.
+If the response is complete, the list keeps that request's query identity and applies later sort changes to the loaded rows in the browser.
+If the response has more rows, later sort changes stay on the server and apply across every page.
+Loading the final page does not switch a paginated set to browser sorting or reset the accumulated rows.
+Changing filters starts the completeness decision again, and stale responses cannot update the current filter set.
+An explicit refresh uses the known mode for its request, then lets the response update completeness in either direction.
+
 ## Column widths
 
-The Customer analytics Accounts list sizes new columns to their rendered header and loaded values.
+The Customer analytics Accounts list sizes new columns to their rendered header and a bounded sample of loaded values.
 Automatic widths have an 80px minimum and a 200px maximum.
 Short values use less space, while long values stop the column from growing beyond 200px.
 
@@ -54,11 +87,18 @@ Saved widths and existing column defaults take precedence over automatic sizing:
 | Relationships                              | 220px                           |
 | Custom properties and other account fields | Fit content, from 80px to 200px |
 
-`useAccountColumnAutoSizing.ts` measures a hidden copy of the rendered table without width constraints.
-It excludes expanded rows from the measurement and removes the copy before the browser paints.
-Automatic widths update when loaded data changes and are not saved to browser storage.
+`useAccountColumnAutoSizing.ts` builds a hidden measurement table from each automatic column's header and at most six body cells, rather than cloning the rendered table.
+It ranks a fixed candidate window from the first and last loaded values, then favors the longest text and the most structurally complex renderers.
+The measurement table preserves each column's rendered position, so boundary padding stays accurate.
+This covers appended pages and common cells such as links, dates, numeric values, avatars, buttons, and multiline content while keeping measurement work bounded.
+A value outside the sample can be wider than the selected candidates, so the 200px cap and manual resize control remain the fallback for unusual renderers.
+Expanded rows are excluded.
+Measurements run after render, reuse widths while the sampled markup is unchanged, update when changed or newly loaded content enters the sample, and remove the temporary table immediately.
+Automatic widths stay local to the mounted table and are not saved to browser storage.
 
 Users can still drag column header boundaries to resize columns, including beyond 200px.
+The tag editor fits the current tag column width, even after a resize.
+Long tags truncate inside the editor instead of spilling into the next cell.
 `accountsViewsLogic` stores manual widths per team and column in browser local storage, independently of saved views.
 Hiding a column does not discard its saved width.
 Automatic sizing uses the existing resized-table layout and does not change scroll controls.

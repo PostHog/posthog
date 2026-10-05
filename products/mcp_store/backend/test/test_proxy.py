@@ -734,8 +734,9 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert body["error"]["code"] == -32002
         mock_client_cls.assert_not_called()
 
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=[])
     @patch("products.mcp_store.backend.proxy.pinned_client")
-    def test_unknown_tool_returns_method_not_found(self, mock_client_cls):
+    def test_unknown_tool_returns_method_not_found(self, mock_client_cls, mock_fetch):
         installation = self._installation()
 
         response = self.client.post(
@@ -746,12 +747,44 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         body = response.json()
         assert body["error"]["code"] == -32601
+        assert mock_fetch.call_count == 1
         mock_client_cls.assert_not_called()
 
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     @patch("products.mcp_store.backend.proxy.pinned_client")
-    def test_removed_tool_is_not_callable(self, mock_client_cls):
+    def test_call_for_an_unlisted_tool_relists_before_refusing(self, mock_client_cls, mock_fetch):
+        # An installation whose connect-time listing never landed has no rows, and
+        # without a re-listing it refuses every call for the life of the connection.
         installation = self._installation()
-        self._tool(installation, "legacy", "approved", removed_at=timezone.now())
+        mock_fetch.return_value = [{"name": "search", "description": "Search"}]
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "search"}},
+            format="json",
+        )
+
+        # Freshly listed tools are opt-in, so policy answers the call now.
+        assert response.json()["error"]["code"] == -32001
+        assert installation.tools.filter(tool_name="search").exists()
+        mock_client_cls.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A tool the upstream server brought back under the same name must stop
+            # being refused; the row alone cannot tell the two cases apart.
+            ("still_gone", [], -32601),
+            ("restored_upstream", [{"name": "legacy"}], -32001),
+        ]
+    )
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_removed_tool_is_relisted_before_it_is_refused(
+        self, _name, upstream_tools, expected_code, mock_client_cls, mock_fetch
+    ):
+        installation = self._installation()
+        self._tool(installation, "legacy", "needs_approval", removed_at=timezone.now())
+        mock_fetch.return_value = upstream_tools
 
         response = self.client.post(
             self._proxy_url(installation.id),
@@ -759,8 +792,8 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             format="json",
         )
 
-        body = response.json()
-        assert body["error"]["code"] == -32601
+        assert response.json()["error"]["code"] == expected_code
+        assert mock_fetch.call_count == 1
         mock_client_cls.assert_not_called()
 
     @patch("products.mcp_store.backend.proxy.pinned_client")

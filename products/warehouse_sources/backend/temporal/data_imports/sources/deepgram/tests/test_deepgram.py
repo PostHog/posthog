@@ -13,8 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram i
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.deepgram import (
     DEEPGRAM_BASE_URL,
     DeepgramResumeConfig,
+    _format_start_date,
     _format_start_value,
-    _make_child_map,
+    _normalize_row,
     _redact_url_userinfo,
     deepgram_source,
     validate_credentials,
@@ -93,9 +94,9 @@ class TestFormatStartValue:
         assert _format_start_value(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15T12:00:00+00:00"
 
 
-class TestChildMap:
+class TestNormalizeRow:
     def test_injects_project_id(self) -> None:
-        row = _make_child_map(DEEPGRAM_ENDPOINTS["members"])({PARENT_KEY: "proj-1", "member_id": "m1"})
+        row = _normalize_row(DEEPGRAM_ENDPOINTS["members"], {PARENT_KEY: "proj-1", "member_id": "m1"})
         assert row["project_id"] == "proj-1"
         assert row["member_id"] == "m1"
         assert PARENT_KEY not in row
@@ -103,8 +104,9 @@ class TestChildMap:
     def test_flattens_nested_key_to_root(self) -> None:
         # /keys nests the key under "api_key"; api_key_id must land at the row root or the composite
         # primary key can't be built and the delta merge multi-matches duplicate rows.
-        row = _make_child_map(DEEPGRAM_ENDPOINTS["keys"])(
-            {PARENT_KEY: "proj-1", "api_key": {"api_key_id": "k1", "comment": "ci"}, "member": {"email": "a@b.co"}}
+        row = _normalize_row(
+            DEEPGRAM_ENDPOINTS["keys"],
+            {PARENT_KEY: "proj-1", "api_key": {"api_key_id": "k1", "comment": "ci"}, "member": {"email": "a@b.co"}},
         )
         assert row["api_key_id"] == "k1"
         assert row["comment"] == "ci"
@@ -121,15 +123,15 @@ class TestChildMap:
     )
     def test_redacts_callback_userinfo(self, _name: str, callback: str, expected: str) -> None:
         # A callback URL can embed Basic Auth creds; they must not reach the warehouse.
-        row = _make_child_map(DEEPGRAM_ENDPOINTS["requests"])(
-            {PARENT_KEY: "proj-1", "request_id": "r1", "callback": callback}
+        row = _normalize_row(
+            DEEPGRAM_ENDPOINTS["requests"], {PARENT_KEY: "proj-1", "request_id": "r1", "callback": callback}
         )
         assert row["callback"] == expected
 
     def test_missing_primary_key_raises(self) -> None:
         # A row missing request_id would let the merge overwrite unrelated rows; fail instead of emit.
         with pytest.raises(ValueError, match="request_id"):
-            _make_child_map(DEEPGRAM_ENDPOINTS["requests"])({PARENT_KEY: "proj-1", "created": "2026-01-01"})
+            _normalize_row(DEEPGRAM_ENDPOINTS["requests"], {PARENT_KEY: "proj-1", "created": "2026-01-01"})
 
 
 class TestRedactUrlUserinfo:
@@ -393,3 +395,193 @@ class TestValidateCredentials:
         with mock.patch(DEEPGRAM_SESSION_PATCH) as mock_session:
             mock_session.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("token") is False
+
+
+class TestFormatStartDate:
+    @parameterized.expand(
+        [
+            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04"),
+            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04"),
+            ("date_value", date(2026, 3, 4), "2026-03-04"),
+            ("iso_string", "2026-03-04T02:58:14+00:00", "2026-03-04"),
+        ]
+    )
+    def test_truncates_to_whole_days(self, _name: str, value: Any, expected: str) -> None:
+        # The usage and billing endpoints reject anything but YYYY-MM-DD with a 400.
+        assert _format_start_date(value) == expected
+
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_future_date_clamped_to_today(self) -> None:
+        assert _format_start_date(datetime(2027, 1, 1, tzinfo=UTC)) == "2026-06-15"
+
+
+class TestModelsEndpoint:
+    @parameterized.expand(
+        [
+            (
+                "both_catalogues",
+                {"stt": [{"uuid": "u1", "name": "nova-3"}], "tts": [{"uuid": "u2", "name": "zeus"}]},
+                [("u1", "stt"), ("u2", "tts")],
+            ),
+            # A project with no text-to-speech access omits the key entirely rather than sending [].
+            ("missing_catalogue", {"stt": [{"uuid": "u1"}]}, [("u1", "stt")]),
+            ("empty_catalogues", {"stt": [], "tts": []}, []),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_splits_parallel_catalogues_into_rows(
+        self, _name: str, body: dict[str, Any], expected: list[tuple[str, str]], MockSession
+    ) -> None:
+        session = MockSession.return_value
+        # The body is two parallel arrays, not one list of rows, and only the array a model came from
+        # records whether it is speech-to-text or text-to-speech.
+        _wire(session, [_response({"projects": [{"project_id": "p1"}]}), _response(body)])
+
+        rows = _rows(_source("models", _make_manager()))
+
+        assert [(r["uuid"], r["model_type"]) for r in rows] == expected
+        assert all(r["project_id"] == "p1" for r in rows)
+
+
+class TestBreakdownEndpoints:
+    @parameterized.expand(
+        [
+            (
+                "usage",
+                "usage_breakdown",
+                "/usage/breakdown",
+                {"hours": 1619.7, "requests": 373381},
+                {"start": "2025-01-16", "end": "2025-01-16", "endpoint": "listen", "models": ["nova-3"]},
+                "|listen||nova-3|||",
+            ),
+            (
+                "billing",
+                "billing_breakdown",
+                "/billing/breakdown",
+                {"dollars": "0.25"},
+                {"start": "2025-01-16", "end": "2025-01-16", "line_item": "streaming::nova-3"},
+                "||streaming::nova-3|",
+            ),
+            # Every dimension is null when the response is grouped by period only. The derived key
+            # stays non-null so the merge predicate is still exact.
+            (
+                "ungrouped",
+                "billing_breakdown",
+                "/billing/breakdown",
+                {"dollars": "1.00"},
+                {"start": "2025-01-16", "end": "2025-01-16"},
+                "|||",
+            ),
+        ]
+    )
+    def test_flattens_grouping_and_derives_grouping_key(
+        self,
+        _name: str,
+        endpoint: str,
+        path: str,
+        measures: dict[str, Any],
+        grouping: dict[str, Any],
+        expected_key: str,
+    ) -> None:
+        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            snapshots = _wire(
+                session,
+                [
+                    _response({"projects": [{"project_id": "p1"}]}),
+                    _response({"results": [{**measures, "grouping": grouping}]}),
+                ],
+            )
+
+            rows = _rows(_source(endpoint, _make_manager()))
+
+        assert snapshots[-1][0] == f"{DEEPGRAM_BASE_URL}/projects/p1{path}"
+        assert len(rows) == 1
+        # The period bounds live under "grouping"; they have to reach the row root or the primary key
+        # can't be built.
+        assert rows[0]["start"] == "2025-01-16"
+        assert rows[0]["project_id"] == "p1"
+        assert rows[0]["grouping_key"] == expected_key
+        assert "grouping" not in rows[0]
+        for measure, value in measures.items():
+            assert rows[0][measure] == value
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_start_is_a_whole_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [_response({"projects": [{"project_id": "p1"}]}), _response({"results": []})],
+        )
+
+        _rows(
+            _source(
+                "usage_breakdown",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            )
+        )
+
+        # A timestamp here is rejected with a 400 because these endpoints filter on whole days only.
+        assert snapshots[-1][1]["start"] == "2026-03-04"
+
+
+class TestFieldsEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_usage_fields_emits_one_row_per_value(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"projects": [{"project_id": "p1"}]}),
+                _response(
+                    {
+                        "tags": ["tag=dev"],
+                        "models": [{"name": "2-medical-nova", "language": "en-MY", "version": "1", "model_id": "m1"}],
+                        "processing_methods": ["sync"],
+                        "features": ["punctuate"],
+                    }
+                ),
+            ],
+        )
+
+        rows = _rows(_source("usage_fields", _make_manager()))
+
+        assert [(r["field"], r["value"]) for r in rows] == [
+            ("models", "m1"),
+            ("tags", "tag=dev"),
+            ("processing_methods", "sync"),
+            ("features", "punctuate"),
+        ]
+        assert rows[0]["name"] == "2-medical-nova"
+        assert rows[0]["language"] == "en-MY"
+        assert all(r["project_id"] == "p1" for r in rows)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_billing_fields_unpacks_the_line_item_map(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"projects": [{"project_id": "p1"}]}),
+                _response(
+                    {
+                        "accessors": ["a1"],
+                        "deployments": ["hosted"],
+                        "tags": [],
+                        "line_items": {"streaming::nova-3": "Streaming Nova 3"},
+                    }
+                ),
+            ],
+        )
+
+        rows = _rows(_source("billing_fields", _make_manager()))
+
+        assert [(r["field"], r["value"]) for r in rows] == [
+            ("accessors", "a1"),
+            ("deployments", "hosted"),
+            ("line_items", "streaming::nova-3"),
+        ]
+        # Line items arrive as a name -> description map, so the description has to survive the unpack.
+        assert rows[-1]["description"] == "Streaming Nova 3"

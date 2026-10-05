@@ -23,7 +23,6 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import mixins, renderers, serializers, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -32,6 +31,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
@@ -1064,7 +1064,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if not _is_https(auth_endpoint):
             raise OAuthAuthorizeURLError("Authorization endpoint must use HTTPS")
 
-        return f"{auth_endpoint}?{urlencode(query_params)}"
+        # Some authorization servers (e.g. Railway) advertise authorization_endpoint
+        # with an existing query string. Appending another "?" would bury params like
+        # client_id inside the prior value, so merge instead.
+        parts = urlsplit(auth_endpoint)
+        existing = parse_qsl(parts.query, keep_blank_values=True)
+        merged = [(key, value) for key, value in existing if key not in query_params]
+        merged.extend(query_params.items())
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(merged), parts.fragment))
 
     @validated_request(
         MCPServerInstallationUpdateSerializer,

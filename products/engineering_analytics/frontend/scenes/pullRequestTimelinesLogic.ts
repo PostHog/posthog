@@ -6,14 +6,7 @@ import { ApiConfig } from 'lib/api'
 import { engineeringAnalyticsPullRequestTimelines } from '../generated/api'
 import type { PullRequestTimelinesApi } from '../generated/api.schemas'
 import { DeliveryScope, deliveryScopeKey, deliveryScopeParams } from '../lib/deliveryScope'
-import {
-    DayViewAlignment,
-    DayViewGroup,
-    RedTimeByCause,
-    axisDays,
-    groupTimelines,
-    redTimeByCause,
-} from '../lib/pullRequestDayView'
+import { DayViewAlignment, DayViewGroup, RedTimeByCause, axisDays, groupTimelines } from '../lib/pullRequestDayView'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
 export interface PullRequestTimelinesLogicProps {
@@ -124,7 +117,16 @@ export const pullRequestTimelinesLogic = kea<pullRequestTimelinesLogicType>([
         ],
         redTime: [
             (s) => [s.timelines],
-            (timelines: PullRequestTimelinesApi | null): RedTimeByCause => redTimeByCause(timelines?.items ?? []),
+            (timelines: PullRequestTimelinesApi | null): RedTimeByCause => {
+                const secondsPerMergedPr = (timelines?.red_seconds_per_merged_pr ?? []).map(
+                    ({ kind, seconds_per_merged_pr }) => ({ kind, seconds: seconds_per_merged_pr })
+                )
+                return {
+                    mergedCount: timelines?.merged_pr_count ?? 0,
+                    secondsPerMergedPr,
+                    totalSecondsPerMergedPr: secondsPerMergedPr.reduce((sum, entry) => sum + entry.seconds, 0),
+                }
+            },
         ],
         repoSlugs: [
             (s) => [s.timelines],
