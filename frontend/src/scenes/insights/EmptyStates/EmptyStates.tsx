@@ -846,15 +846,16 @@ export function InsightErrorState({
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const [, setTick] = useState(0)
-    const capacityRetryAt = titleStatus === 503 ? retryAfterTimestamp : null
+    const errorKind = getInsightErrorKind(titleStatus)
+    const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
+    // InsightCard passes the later of its own and its embedded query's deadlines, so a non-503 card error can carry one.
+    const capacityRetryAt = canRetry ? retryAfterTimestamp : null
     const retrySecondsLeft = capacityRetryAt ? Math.max(0, Math.ceil((capacityRetryAt - Date.now()) / 1000)) : 0
     useInterval(() => setTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
     const retryDisabledReason =
         retrySecondsLeft > 0
             ? `PostHog is busy. You can retry in ${retrySecondsLeft} ${retrySecondsLeft === 1 ? 'second' : 'seconds'}.`
             : undefined
-    const errorKind = getInsightErrorKind(titleStatus)
-    const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
