@@ -4043,7 +4043,7 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (7): `candidates`, `employee_employment`, `employee_lifecycle`, `employee_salaries`, `employees`, `tasks`, `time_off_calendars`
+Today (10): `applications`, `candidates`, `employee_employment`, `employee_lifecycle`, `employee_salaries`, `employees`, `named_lists`, `tasks`, `time_off_calendars`, `time_off_request_changes`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
@@ -4051,11 +4051,11 @@ Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 - [x] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
 - [x] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
 - [x] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
-- [ ] `GET /timeoff/requests/changes` — time off request event stream plus GET /timeoff/employees/{id}/balance for balances (high)
-- [ ] `POST /attendance/entries/search` — clock in/out entries; also /attendance/daily-breakdown/search and /attendance/summaries/search for rollups (high)
-- [ ] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high)
+- [x] `GET /timeoff/requests/changes` — time off request event stream plus GET /timeoff/employees/{id}/balance for balances (high). Added as `time_off_request_changes`, a full refresh of the last 180 days because the API rejects a `since` older than six months and rows carry no per-change timestamp. The balance endpoint is skipped: it is a point lookup per employee, policy type, and date, not a collection.
+- [ ] `POST /attendance/entries/search` — clock in/out entries; also /attendance/daily-breakdown/search and /attendance/summaries/search for rollups (high). Skipped: the Public API only exposes entries in running (unsubmitted) timesheet cycles, so no stable history can be synced. Each search also needs an employee filter and a date range of at most 33 days, and the module is a paid add-on.
+- [x] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high). Added as `named_lists`, one row per list item (nested children flattened with `parentId`), archived items included.
 - [x] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
-- [ ] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high)
+- [x] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high). Added as `applications`.
 - [ ] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high)
 - [ ] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium)
 - [ ] `POST /goals/goals/search` — goals and key results with progress, including /goals/goals/key-results/search (medium)
