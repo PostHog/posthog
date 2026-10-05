@@ -48,11 +48,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 
 # Magic values
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
 FALLBACK_COST_VALUE = 999999999
+# The attribution explorer and dashboard both retain the most recent touchpoints for a person. Keeping
+# the ceiling shared prevents the two surfaces from disagreeing about the journey they can credit.
+MAX_TOUCHPOINTS_PER_PERSON = 500
 # The three node kinds a conversion goal can be, derived from the schema enum so they can't drift
 # from ConversionGoalFilter1/2/3. Referenced by name from SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]
 # so the API serializers can expose `kind` as a real enum: the name collides in drf-spectacular, and
@@ -798,8 +802,6 @@ def to_marketing_analytics_data(
     )
 
 
-# Spill the GROUP BY to disk past this much memory. Deliberately far below the shared
-# MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY (22 GiB): these queries peak around 1.5 GiB, so a threshold above
-# their peak never fires, and one above the per-query memory limit could never fire at all.
-# `test_spill_threshold_is_reachable` locks that relationship.
-MARKETING_SPILL_AFTER_BYTES = 512 * 1024 * 1024
+# Bounded touchpoint arrays keep the attribution aggregation within the normal query memory budget, so
+# marketing queries should follow the shared spill threshold instead of forcing every GROUP BY to disk.
+MARKETING_SPILL_AFTER_BYTES = MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY

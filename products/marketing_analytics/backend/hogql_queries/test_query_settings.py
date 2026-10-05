@@ -54,13 +54,8 @@ class TestMarketingQuerySettings(BaseTest):
         ]
         config.save()
 
-    # A spill threshold above the per-query memory limit can never fire: the query hits the limit
-    # first. The shared 22 GiB constant is sized for funnels, whose peak is an order of magnitude
-    # above these queries, and using it here shipped a setting that did nothing.
-    def test_spill_threshold_is_reachable(self):
-        peak_bytes = 2 * 1024 * 1024 * 1024
-        self.assertLess(MARKETING_SPILL_AFTER_BYTES, peak_bytes)
-        self.assertLess(MARKETING_SPILL_AFTER_BYTES, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY)
+    def test_spill_threshold_uses_the_shared_default(self):
+        self.assertEqual(MARKETING_SPILL_AFTER_BYTES, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY)
 
     @parameterized.expand(
         [

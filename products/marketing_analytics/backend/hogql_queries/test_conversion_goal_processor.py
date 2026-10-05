@@ -4,6 +4,7 @@ import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
 from unittest import skipIf
+from unittest.mock import patch
 
 from django.conf import settings
 
@@ -2124,6 +2125,48 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    def test_first_touch_keeps_the_most_recent_touchpoints_when_capped(self):
+        for day, campaign in enumerate(["oldest", "retained_first", "retained_last"], start=1):
+            with time_machine.travel(f"2023-01-0{day}", tick=False):
+                if day == 1:
+                    _create_person(distinct_ids=["capped_touchpoints_user"], team=self.team)
+                _create_event(
+                    distinct_id="capped_touchpoints_user",
+                    event="$pageview",
+                    team=self.team,
+                    properties={"utm_campaign": campaign, "utm_source": "google"},
+                )
+        with time_machine.travel("2023-01-04", tick=False):
+            _create_event(distinct_id="capped_touchpoints_user", event="purchase", team=self.team, properties={})
+        flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="capped_first_touch",
+            conversion_goal_name="Capped first touch",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        config = MarketingAnalyticsConfig()
+        config.attribution_mode = AttributionMode.FIRST_TOUCH
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=config)
+        date_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-04")]),
+            ),
+        ]
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.MAX_TOUCHPOINTS_PER_PERSON",
+            2,
+        ):
+            response = execute_hogql_query(query=processor.generate_cte_query(date_conditions), team=self.team)
+
+        assert response.results[0][1] == "retained_first"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_temporal_attribution_touchpoints_before_and_after_conversion(self):

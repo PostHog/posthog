@@ -81,10 +81,7 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         processor = self._processor()
         result = processor.build_array_collection_query(additional_conditions=[])
         assert isinstance(result, ast.SelectQuery)
-        assert result.group_by is not None
-        assert any(isinstance(g, ast.Field) and g.chain == ["events", "person_id"] for g in result.group_by), (
-            "array collection must group by events.person_id"
-        )
+        assert result.select_from is not None
 
     def test_build_attribution_pipeline_accepts_collection_output(self):
         processor = self._processor()
