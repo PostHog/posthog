@@ -190,6 +190,30 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
+    @patch(
+        "products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action",
+        side_effect=Exception("capture failed"),
+    )
+    def test_create_and_update_succeed_when_analytics_fails(self, _mock_report_user_action) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/",
+            {"name": "event_view_renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(DataWarehouseSavedQuery.objects.get(id=saved_query["id"]).name, "event_view_renamed")
+
     def test_create_and_update_resolve_allowed_materialization_system_tables(self) -> None:
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",

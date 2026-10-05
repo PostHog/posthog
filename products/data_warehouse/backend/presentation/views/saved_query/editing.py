@@ -55,14 +55,28 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-def _saved_query_analytics_properties(view: DataWarehouseSavedQuery) -> dict[str, Any]:
-    # Never include the query text or the view name: both are customer-authored content.
-    return {
-        "saved_query_id": str(view.id),
-        "origin": view.origin,
-        "is_materialized": bool(view.is_materialized),
-        "has_warehouse_tables": bool(view.external_tables),
-    }
+def _report_saved_query_action(
+    request: Any, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
+) -> None:
+    # Best effort: the write has already committed, so an analytics failure must not fail the request.
+    try:
+        report_user_action(
+            request.user,
+            event,
+            {
+                # Never include the query text or the view name: both are customer-authored content.
+                "saved_query_id": str(view.id),
+                "origin": view.origin,
+                "is_materialized": bool(view.is_materialized),
+                "has_warehouse_tables": bool(view.external_tables),
+                **properties,
+            },
+            team=team,
+            request=request,
+        )
+    except Exception as e:
+        capture_exception(e)
+        logger.exception("Failed to report saved query action", analytics_event=event)
 
 
 def _as_uuid(value: object) -> uuid.UUID | None:
@@ -420,16 +434,12 @@ class DataWarehouseSavedQuerySerializer(
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
 
-        report_user_action(
-            self.context["request"].user,
+        _report_saved_query_action(
+            self.context["request"],
             "saved query created",
-            {
-                **_saved_query_analytics_properties(view),
-                "has_description": has_description,
-                "sync_frequency": sync_frequency,
-            },
-            team=team,
-            request=self.context["request"],
+            view,
+            {"has_description": has_description, "sync_frequency": sync_frequency},
+            team,
         )
         return view
 
@@ -620,19 +630,18 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
 
-        report_user_action(
-            self.context["request"].user,
+        _report_saved_query_action(
+            self.context["request"],
             "saved query updated",
+            view,
             {
-                **_saved_query_analytics_properties(view),
                 "query_changed": query_changed,
                 "name_changed": before_update.name != view.name,
                 "description_changed": has_description,
                 "sync_frequency": sync_frequency if frequency_changed else None,
                 "soft_update": soft_update,
             },
-            team=team,
-            request=self.context["request"],
+            team,
         )
         return view
 
