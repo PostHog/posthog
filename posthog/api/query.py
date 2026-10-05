@@ -436,7 +436,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             # The caller's query used up the query API time cap. The 400 is their signal, not error noise.
             scan_extra = _scan_extra(e)
             if scan_extra:
-                e.extra = scan_extra  # type: ignore[attr-defined]
+                e.extra = {**(getattr(e, "extra", None) or {}), **scan_extra}  # type: ignore[attr-defined]
             raise
         except Exception as e:
             if not captured_elsewhere(e):
