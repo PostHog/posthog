@@ -742,6 +742,12 @@ fn track_db_error(error_type: &str, timeout_subtype: Option<&str>, operation: &s
     common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
 }
 
+pub(crate) fn track_unretried_db_error(error: &FlagError, operation: &str) {
+    if let Some((error_type, timeout_subtype)) = classify_db_error(error) {
+        track_db_error(error_type, timeout_subtype, operation, false);
+    }
+}
+
 /// Records `flags_hash_key_retries_total` and the `retried` label on `flags_database_error_total`
 /// for one hash key override call.
 ///
