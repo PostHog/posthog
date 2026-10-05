@@ -259,4 +259,6 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     # Plain-text fallback carried on every message so the alert still lands (and renders in
     # notifications) even if the rich blocks are rejected.
     fallback_text = f"❌ Dagster job `{job_name}` failed (run {run_id}): {run_url}"
+    if runbook_url := JOB_ALERT_RUNBOOK_URLS.get(job_name):
+        fallback_text += f"\nRunbook: {runbook_url}"
     send_slack_alert(context, slack.get_client(), channel, blocks, fallback_text)
