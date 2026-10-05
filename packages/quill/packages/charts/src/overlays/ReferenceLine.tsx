@@ -76,10 +76,15 @@ const LABEL_PADDING = 4
  *  hovering anywhere on a goal line surfaces its number, even when the line has no visible label. */
 const HOVER_HIT_THICKNESS = 12
 
-function resolveStyle(variant: ReferenceLineVariant, style: ReferenceLineStyle | undefined): ResolvedStyle {
+function resolveStyle(
+    variant: ReferenceLineVariant,
+    style: ReferenceLineStyle | undefined,
+    goalLineColor: string | undefined
+): ResolvedStyle {
     const defaults = VARIANT_DEFAULTS[variant]
+    const themeColor = variant === 'goal' ? goalLineColor : undefined
     return {
-        color: style?.color ?? defaults.color,
+        color: style?.color ?? themeColor ?? defaults.color,
         stroke: style?.stroke ?? defaults.stroke,
         width: style?.width ?? defaults.width,
     }
@@ -100,12 +105,12 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  type narrowing, scale lookup, and bounds check, then hands pre-computed styles to
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
-    const { axis } = useChartLayout()
+    const { axis, theme } = useChartLayout()
     const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = axis.orientation } = props
     const resolved = useMemo(
-        () => resolveStyle(variant, style),
+        () => resolveStyle(variant, style, theme.goalLineColor),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [variant, style?.color, style?.stroke, style?.width]
+        [variant, style?.color, style?.stroke, style?.width, theme.goalLineColor]
     )
 
     const common: ResolvedProps = {
