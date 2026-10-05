@@ -344,7 +344,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const nodeCard = (
         <div
             className={clsx(
-                'relative pointer-events-auto rounded-lg border bg-bg-light min-w-[180px]',
+                'group/lineage-node relative pointer-events-auto rounded-lg border bg-bg-light min-w-[180px]',
                 data.draggable && 'cursor-grab active:cursor-grabbing',
                 !data.draggable && callbacks.onClick && 'cursor-pointer',
                 state.isRunning && 'animate-pulse',
@@ -417,7 +417,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         )}
                         {data.openUrl && (
                             <LemonButton
-                                className="nodrag nopan relative z-10"
+                                className="nodrag nopan relative z-10 opacity-0 transition-opacity group-hover/lineage-node:opacity-100 group-focus-within/lineage-node:opacity-100"
                                 size="xxsmall"
                                 type="secondary"
                                 to={data.openUrl}

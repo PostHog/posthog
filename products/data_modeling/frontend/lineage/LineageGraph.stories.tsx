@@ -303,6 +303,22 @@ export const DraggableNodes: Story = {
         if (selectionButton.tabIndex < 0) {
             throw new Error('Lineage selection must be keyboard accessible')
         }
+        if (getComputedStyle(openButton).opacity !== '0') {
+            throw new Error('The open link must stay hidden until the node has hover or focus')
+        }
+
+        selectionButton.focus()
+        await waitFor(() => {
+            if (getComputedStyle(openButton).opacity !== '1') {
+                throw new Error('Keyboard focus must reveal the open link')
+            }
+        })
+        selectionButton.blur()
+        await waitFor(() => {
+            if (getComputedStyle(openButton).opacity !== '0') {
+                throw new Error('The open link must hide after the node loses focus')
+            }
+        })
     },
 }
 
