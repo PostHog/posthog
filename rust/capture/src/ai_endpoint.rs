@@ -288,7 +288,7 @@ async fn ai_handler_inner(
             .is_quota_limited_v1(token, &QuotaResource::Events)
             .await
         {
-            return Err(CaptureError::BillingLimit.into());
+            return Err(CaptureError::BillingLimit(QuotaResource::Events).into());
         }
         event_metadata
     } else {
@@ -302,7 +302,7 @@ async fn ai_handler_inner(
         filtered
             .into_iter()
             .next()
-            .ok_or(CaptureError::BillingLimit)?
+            .ok_or(CaptureError::BillingLimit(QuotaResource::Events))?
     };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)

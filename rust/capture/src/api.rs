@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use limiters::redis::QuotaResource;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -81,8 +82,11 @@ pub enum CaptureError {
     #[error("invalid event could not be processed")]
     NonRetryableSinkError,
 
-    #[error("billing limit reached")]
-    BillingLimit,
+    /// The resource travels with the error because the response names the
+    /// paused bucket, and a batch can be stopped by a scoped limiter
+    /// (exceptions, surveys, AI events) as well as by the global one.
+    #[error("billing limit reached: {}", .0.as_str())]
+    BillingLimit(QuotaResource),
 
     #[error("rate limited")]
     RateLimited,
@@ -135,7 +139,7 @@ impl CaptureError {
             CaptureError::EventTooBig(_) => "oversize_event",
             CaptureError::AiEventTooBig(_) => "ai_event_too_big",
             CaptureError::NonRetryableSinkError => "non_retry_sink",
-            CaptureError::BillingLimit => "billing_limit",
+            CaptureError::BillingLimit(_) => "billing_limit",
             CaptureError::RateLimited => "rate_limited",
             CaptureError::GlobalRateLimitExceeded() => "global_rate_limit",
             CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
@@ -179,7 +183,7 @@ impl IntoResponse for CaptureError {
                 (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
             }
 
-            CaptureError::BillingLimit | CaptureError::RateLimited => {
+            CaptureError::BillingLimit(_) | CaptureError::RateLimited => {
                 (StatusCode::TOO_MANY_REQUESTS, self.to_string())
             }
 
