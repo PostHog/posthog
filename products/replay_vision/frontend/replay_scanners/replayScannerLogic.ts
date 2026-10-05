@@ -652,9 +652,6 @@ export interface replayScannerLogicActions {
     setExperimentVariant: (variantKey: string | null) => {
         variantKey: string | null
     }
-    setScannerExperiment: (experimentId: number | null) => {
-        experimentId: number | null
-    }
     setGoalBudgetInput: (budget: number | null) => {
         budget: number | null
     }
@@ -704,6 +701,9 @@ export interface replayScannerLogicActions {
     }
     setScannerDraftSavedAt: (savedAt: number | null) => {
         savedAt: number | null
+    }
+    setScannerExperiment: (experimentId: number | null) => {
+        experimentId: number | null
     }
     setScannerManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
