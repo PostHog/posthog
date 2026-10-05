@@ -1600,7 +1600,6 @@ class MaterializeFeaturesResponseSerializer(serializers.Serializer):
         )
     )
     rows_read = serializers.IntegerField(help_text="Rows ClickHouse read to materialize the matrix.")
-    bytes_read = serializers.IntegerField(help_text="Bytes ClickHouse read to materialize the matrix.")
     hints = serializers.ListField(
         child=serializers.CharField(),
         help_text=(

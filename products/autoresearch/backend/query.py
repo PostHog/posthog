@@ -39,11 +39,10 @@ BATCH_QUERY = QueryContext(limit_context=LimitContext.QUERY_ASYNC, workload=Work
 
 @frozen
 class QueryCost:
-    """What the ClickHouse queries of one call cost: wall-clock seconds, and the rows and bytes they read."""
+    """What the ClickHouse queries of one call cost: wall-clock seconds and the rows they read."""
 
     elapsed_s: float
     rows_read: int
-    bytes_read: int
 
 
 def measure_queries(call: Callable[[], T]) -> tuple[T, QueryCost]:
@@ -54,10 +53,10 @@ def measure_queries(call: Callable[[], T]) -> tuple[T, QueryCost]:
     """
     start = perf_counter()
     with query_stats_scope() as stats:
-        rows_before, bytes_before = stats.rows_read, stats.bytes_read
+        rows_before = stats.rows_read
         result = call()
-        rows_read, bytes_read = stats.rows_read - rows_before, stats.bytes_read - bytes_before
-    return result, QueryCost(elapsed_s=round(perf_counter() - start, 3), rows_read=rows_read, bytes_read=bytes_read)
+        rows_read = stats.rows_read - rows_before
+    return result, QueryCost(elapsed_s=round(perf_counter() - start, 3), rows_read=rows_read)
 
 
 @frozen

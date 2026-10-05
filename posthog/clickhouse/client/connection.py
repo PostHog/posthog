@@ -264,7 +264,6 @@ class QuerySummary:
 
     rows: int = 0
     elapsed_ns: int = 0
-    bytes: int = 0
 
 
 class ClickHouseClient(SyncClient):
@@ -319,7 +318,6 @@ class ProxyClient:
         self.last_query_summary = QuerySummary(
             rows=int(result.summary.get("read_rows", 0)),
             elapsed_ns=int(result.summary.get("elapsed_ns", 0)),
-            bytes=int(result.summary.get("read_bytes", 0)),
         )
 
         # we must play with result summary here

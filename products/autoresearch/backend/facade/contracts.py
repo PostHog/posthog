@@ -433,5 +433,4 @@ class MaterializedFeatures:
     feature_cols: list[str]
     elapsed_s: float
     rows_read: int
-    bytes_read: int
     hints: list[str]

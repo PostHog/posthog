@@ -450,7 +450,6 @@ def _scorability_metrics(cost: QueryCost) -> dict[str, Any]:
     return {
         "scorability_elapsed_s": cost.elapsed_s,
         "scorability_rows_read": cost.rows_read,
-        "scorability_bytes_read": cost.bytes_read,
     }
 
 

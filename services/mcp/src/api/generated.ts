@@ -62711,8 +62711,6 @@ export namespace Schemas {
       elapsed_s: number;
       /** Rows ClickHouse read to materialize the matrix. */
       rows_read: number;
-      /** Bytes ClickHouse read to materialize the matrix. */
-      bytes_read: number;
       /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
       hints: string[];
     }

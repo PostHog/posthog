@@ -1299,7 +1299,6 @@ def materialize_features(
         feature_cols=list(data.feature_cols),
         elapsed_s=cost.elapsed_s,
         rows_read=cost.rows_read,
-        bytes_read=cost.bytes_read,
         hints=feature_sql_hints(features_sql),
     )
 

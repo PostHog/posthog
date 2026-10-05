@@ -437,7 +437,7 @@ def build_agent_description(
           `LEFT JOIN (SELECT id, argMax(created_at, version) AS created_at FROM raw_persons
           WHERE id IN (SELECT person_id FROM {{anchors}}) GROUP BY id) p ON p.id = a.person_id`.
           The materialize response returns a hint when a query reads a person table without that filter.
-        - The materialize response also returns `elapsed_s`, `rows_read` and `bytes_read`. After
+        - The materialize response also returns `elapsed_s` and `rows_read`. After
           promotion the backend runs your `features.sql` against today's inference population under
           the scoring limits. If it fails, or takes more than half of the scoring time limit, the model
           is not promoted and the previous champion keeps serving.

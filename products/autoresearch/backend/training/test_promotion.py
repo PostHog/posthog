@@ -393,7 +393,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         self._iteration(run, number=0, holdout=0.8)
 
         bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
-        cost = QueryCost(elapsed_s=12.5, rows_read=1000, bytes_read=64000)
+        cost = QueryCost(elapsed_s=12.5, rows_read=1000)
         with (
             patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle),
             patch("products.autoresearch.backend.training.promotion.fit_champion_model") as fit,
@@ -408,8 +408,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert (
             metrics["scorability_elapsed_s"],
             metrics["scorability_rows_read"],
-            metrics["scorability_bytes_read"],
-        ) == (12.5, 1000, 64000)
+        ) == (12.5, 1000)
 
     @parameterized.expand(
         [
@@ -419,7 +418,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             (
                 "check_over_budget",
                 None,
-                QueryCost(elapsed_s=SCORABILITY_TIME_BUDGET_S + 1, rows_read=1, bytes_read=1),
+                QueryCost(elapsed_s=SCORABILITY_TIME_BUDGET_S + 1, rows_read=1),
                 "budget",
             ),
         ]
