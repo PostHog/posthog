@@ -382,6 +382,16 @@
         color: #ff4800;
         text-decoration: none;
     }
+
+    [theme='dark'] & {
+        background: #ff48002e;
+
+        .TodayReportLink,
+        .TodayReportLink:hover,
+        .TodayReportLink[data-active='true'] {
+            color: #ff9e7a;
+        }
+    }
 }
 
 .TodayHome__progress {

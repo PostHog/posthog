@@ -23,6 +23,7 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, InvalidArtifactContent, PartialBundle
 from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
+from products.autoresearch.backend.training.shadow_set import shadow_set
 from products.autoresearch.backend.training.stub import run_stub_training
 from products.notebooks.backend.facade import api as notebooks_facade
 
@@ -374,9 +375,9 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert result["promoted"] is False
         assert result["role"] == AutoresearchModel.Role.CHALLENGER
         assert self._champion().holdout_score == 0.8
-        # Inference reads the champion only, so fitting the rejected bundle would spend a
-        # sandbox run on an artifact nothing loads.
-        fit.assert_not_called()
+        # The bundle-backed challenger enters the shadow set, so it needs a model.pkl to score.
+        assert fit.call_args.kwargs["model_id"] == result["model_id"]
+        assert result["model_id"] in {str(m.pk) for m in shadow_set(self.pipeline)}
         second.refresh_from_db()
         # The next run reads this summary as the champion it has to beat.
         assert second.summary["champion_model_class"] == "xgboost.XGBClassifier"

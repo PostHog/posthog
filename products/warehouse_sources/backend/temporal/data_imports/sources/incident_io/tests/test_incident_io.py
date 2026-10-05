@@ -2,6 +2,7 @@ import json
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest import mock
@@ -50,7 +51,7 @@ def _make_manager(resume_state: IncidentIoResumeConfig | None = None) -> mock.Ma
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+def _wire(session: mock.MagicMock, responses: list[Response], urls: list[str] | None = None) -> list[dict[str, Any]]:
     """Wire a mock session and capture each request's params AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
@@ -61,6 +62,8 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        if urls is not None:
+            urls.append(request.url)
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
@@ -189,14 +192,73 @@ class TestValidateCredentials:
         url = mock_session.return_value.get.call_args.args[0]
         assert url == "https://api.incident.io/v2/incidents?page_size=1"
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_url",
+        [
+            ("severities", "https://api.incident.io/v1/severities"),
+        ],
+    )
     @mock.patch(INCIDENT_IO_SESSION_PATCH)
-    def test_probes_non_paginated_endpoint_without_page_size(self, mock_session):
+    def test_probe_url_per_schema(self, mock_session, schema_name, expected_url):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        validate_credentials("key", schema_name="severities")
+        validate_credentials("key", schema_name=schema_name)
 
         url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://api.incident.io/v1/severities"
+        assert url == expected_url
+
+    @pytest.mark.parametrize(
+        "schema_name, parent_key, parent_rows, child_status, expected_urls, expected_valid",
+        [
+            (
+                "catalog_entries",
+                "catalog_types",
+                [{"id": "T1"}],
+                403,
+                [
+                    "https://api.incident.io/v3/catalog_types",
+                    "https://api.incident.io/v3/catalog_types",
+                    "https://api.incident.io/v3/catalog_entries?catalog_type_id=T1&page_size=1",
+                ],
+                False,
+            ),
+            (
+                "custom_field_options",
+                "custom_fields",
+                [{"id": "F1"}],
+                200,
+                [
+                    "https://api.incident.io/v2/custom_fields",
+                    "https://api.incident.io/v2/custom_fields",
+                    "https://api.incident.io/v1/custom_field_options?custom_field_id=F1&page_size=1",
+                ],
+                True,
+            ),
+            # No parent row to bind, so the child scope can't be probed and the parent probe decides.
+            (
+                "catalog_entries",
+                "catalog_types",
+                [],
+                403,
+                ["https://api.incident.io/v3/catalog_types", "https://api.incident.io/v3/catalog_types"],
+                True,
+            ),
+        ],
+    )
+    @mock.patch(INCIDENT_IO_SESSION_PATCH)
+    def test_fanout_schema_probes_parent_then_child(
+        self, mock_session, schema_name, parent_key, parent_rows, child_status, expected_urls, expected_valid
+    ):
+        parent = mock.MagicMock(status_code=200)
+        parent.json.return_value = {parent_key: parent_rows}
+        mock_session.return_value.get.side_effect = [parent, parent, mock.MagicMock(status_code=child_status)]
+
+        is_valid, error = validate_credentials("key", schema_name=schema_name)
+
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list] == expected_urls
+        assert is_valid is expected_valid
+        if not expected_valid:
+            assert error is not None and schema_name in error
 
     @mock.patch(INCIDENT_IO_SESSION_PATCH)
     def test_sends_bearer_auth_header(self, mock_session):
@@ -371,6 +433,43 @@ class TestGetRows:
             [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
+class TestFanout:
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, child_path, parent_id_param",
+        [
+            ("catalog_entries", "catalog_types", "/v3/catalog_entries", "catalog_type_id"),
+            ("custom_field_options", "custom_fields", "/v1/custom_field_options", "custom_field_id"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetches_child_pages_per_parent(self, MockSession, endpoint, parent_key, child_path, parent_id_param):
+        session = MockSession.return_value
+        manager = _make_manager()
+        urls: list[str] = []
+        params = _wire(
+            session,
+            [
+                _response({parent_key: [{"id": "P1"}, {"id": "P2"}]}),
+                _response(_page_body(endpoint, [{"id": "C1", parent_id_param: "P1"}], "C1")),
+                _response(_page_body(endpoint, [{"id": "C2", parent_id_param: "P1"}], None)),
+                _response(_page_body(endpoint, [{"id": "C3", parent_id_param: "P2"}], None)),
+            ],
+            urls,
+        )
+
+        response = incident_io_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
+
+        assert [(r["id"], r[parent_id_param]) for r in rows] == [("C1", "P1"), ("C2", "P1"), ("C3", "P2")]
+        # The unpaginated parent list takes no params; each child request is bound to its parent.
+        assert params[0] == {}
+        assert [urlsplit(url).path for url in urls[1:]] == [child_path] * 3
+        assert [parse_qs(urlsplit(url).query)[parent_id_param] for url in urls[1:]] == [["P1"], ["P1"], ["P2"]]
+        assert [p.get("page_size") for p in params[1:]] == [250, 250, 250]
+        assert [p.get("after") for p in params[1:]] == [None, "C1", None]
+        assert manager.save_state.call_args.args[0].fanout_state is not None
+
+
 class TestIncidentIoSourceResponse:
     @mock.patch(CLIENT_SESSION_PATCH)
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
@@ -379,7 +478,7 @@ class TestIncidentIoSourceResponse:
         response = incident_io_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
 
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
         if config.partition_key:
             assert response.partition_mode == "datetime"
@@ -395,4 +494,4 @@ class TestIncidentIoSourceResponse:
 
     @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
     def test_endpoint_paths_are_versioned(self, config):
-        assert config.path.startswith(("/v1/", "/v2/"))
+        assert config.path.startswith(("/v1/", "/v2/", "/v3/"))
