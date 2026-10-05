@@ -31,7 +31,12 @@ from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
 from .clickup import ClickUpIntegration
 from .common import ERROR_TOKEN_REFRESH_FAILED, META_GRAPH_API_VERSION, IntegrationError, dot_get
 from .databricks import DatabricksIntegration, DatabricksIntegrationError
-from .email import EmailIntegration, cleanup_ses_identity_on_integration_delete
+from .email import (
+    SANDBOX_EMAIL_INTEGRATION_ID,
+    SANDBOX_EMAIL_PROVIDER,
+    EmailIntegration,
+    cleanup_ses_identity_on_integration_delete,
+)
 from .external_issues import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     external_issue_url,
@@ -204,6 +209,8 @@ __all__ = [
     "ClickUpIntegration",
     "EmailIntegration",
     "cleanup_ses_identity_on_integration_delete",
+    "SANDBOX_EMAIL_INTEGRATION_ID",
+    "SANDBOX_EMAIL_PROVIDER",
     "LinearIntegration",
     "SUPPORTED_EXTERNAL_ISSUE_PROVIDERS",
     "external_issue_url",

@@ -129,6 +129,7 @@ export type CyclotronJobInputsProps = {
     // (the workflow builder's auto-save). Only the email input types read these.
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
+    emailSandboxSenderAllowed?: boolean
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     // Classes for the column the inputs are laid out in, so a host with height to spare can let
@@ -148,6 +149,7 @@ export function CyclotronJobInputs({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    emailSandboxSenderAllowed,
     showSource,
     sampleGlobalsWithInputs,
     className,
@@ -192,6 +194,7 @@ export function CyclotronJobInputs({
                                         emailFieldErrors={emailFieldErrors}
                                         emailLiveChanges={emailLiveChanges}
                                         emailSaveIndicator={emailSaveIndicator}
+                                        emailSandboxSenderAllowed={emailSandboxSenderAllowed}
                                     />
                                 )
                             })}
@@ -295,6 +298,7 @@ function EmailTemplateField({
     fieldErrors,
     liveChanges,
     saveIndicator,
+    sandboxSenderAllowed,
 }: {
     schema: CyclotronJobInputSchemaType
     value: any
@@ -303,6 +307,7 @@ function EmailTemplateField({
     fieldErrors?: EmailFieldErrors
     liveChanges?: boolean
     saveIndicator?: ReactNode
+    sandboxSenderAllowed?: boolean
 }): JSX.Element {
     return (
         <EmailTemplater
@@ -315,6 +320,7 @@ function EmailTemplateField({
             fieldErrors={fieldErrors}
             liveChanges={liveChanges}
             saveIndicator={saveIndicator}
+            sandboxSenderAllowed={sandboxSenderAllowed}
         />
     )
 }
@@ -587,6 +593,7 @@ type CyclotronJobInputProps = {
     emailFieldErrors?: EmailFieldErrors
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
+    emailSandboxSenderAllowed?: boolean
 }
 
 function NonFailureStatusCodesField({
@@ -641,6 +648,7 @@ function CyclotronJobInputRenderer({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    emailSandboxSenderAllowed,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -756,6 +764,7 @@ function CyclotronJobInputRenderer({
                     fieldErrors={emailFieldErrors}
                     liveChanges={emailLiveChanges}
                     saveIndicator={emailSaveIndicator}
+                    sandboxSenderAllowed={emailSandboxSenderAllowed}
                 />
             )
         case 'non_failure_status_codes':
@@ -944,6 +953,7 @@ function CyclotronJobInputWithSchema({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    emailSandboxSenderAllowed,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -1106,6 +1116,7 @@ function CyclotronJobInputWithSchema({
                                 emailFieldErrors={emailFieldErrors}
                                 emailLiveChanges={emailLiveChanges}
                                 emailSaveIndicator={emailSaveIndicator}
+                                emailSandboxSenderAllowed={emailSandboxSenderAllowed}
                             />
                         )}
                         {warning && !value?.secret ? (
