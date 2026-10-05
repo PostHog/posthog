@@ -94,6 +94,22 @@ tools:
     integrations-email-partial-update:
         operation: integrations_email_partial_update
         enabled: false
+    integrations-email-status-retrieve:
+        operation: integrations_email_status_retrieve
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        feature_flag: workflows-email-domain-agent-setup
+        title: Get email sending domain status
+        description: >
+            Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the
+            three setup steps, and every DNS record to publish with its current status (pending, found, verified).
+            Poll it after adding DNS records until verified is true, waiting at least 10 seconds between calls.
+            Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES.
     integrations-email-verify-create:
         operation: integrations_email_verify_create
         enabled: false
