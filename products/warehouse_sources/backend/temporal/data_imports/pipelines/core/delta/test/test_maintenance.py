@@ -4,6 +4,7 @@ import time
 import datetime as dt
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,9 +14,16 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
+import deltalite
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    DeltaLiteHandleCache,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (
     _COMPACT_RATIO_SAMPLE_FILES,
     COMPACT_OFFSET_OVERFLOW_RETRIES,
@@ -553,6 +561,184 @@ class TestCompactionMemoryBounds:
         first, second = (call.kwargs for call in mock_delta.optimize.compact.call_args_list)
         assert first["max_concurrent_tasks"] == 6
         assert second == {"target_size": first["target_size"] // 2, "max_concurrent_tasks": 1}
+
+
+class TestDeltaliteCompaction:
+    _URI = "s3://bucket/table"
+    _SLOT_MB = 1356.8
+
+    def _setup(self, compact: MagicMock | None, *, table_id: object = "table-id") -> tuple[DeltaMaintenance, Any, Any]:
+        # 300 small files in one partition trip the per-partition count trigger.
+        delta_table = _mock_table({f"f{i}.parquet": _MB for i in range(300)})
+        delta_table.metadata.return_value.id = table_id
+        table_ref = MagicMock()
+        table_ref.logger = make_logger()
+        table_ref.get_delta_table = AsyncMock(return_value=delta_table)
+        table_ref.get_table_uri = AsyncMock(return_value=self._URI)
+        table_ref.get_storage_options = MagicMock(return_value={"AWS_REGION": "us-east-1"})
+        table_ref.latest_known_version = MagicMock(return_value=150)
+        table_ref.note_deltalite_commit = MagicMock()
+        table_ref.job.id = "job-1"
+
+        handle = MagicMock()
+        handle.version.return_value = 151
+        attributes: dict[str, Any] = {"open": staticmethod(MagicMock(return_value=handle))}
+        if compact is not None:
+            handle.compact = compact
+            attributes["compact"] = compact
+        fake_class = type("FakeDeltaLiteTable", (), attributes)
+        return DeltaMaintenance(table_ref, clock=lambda: _NOW), table_ref, fake_class
+
+    async def _run(
+        self, maintenance: DeltaMaintenance, fake_class: Any, *, enabled: bool = True
+    ) -> tuple[bool, AsyncMock, AsyncMock, MagicMock]:
+        cache = DeltaLiteHandleCache(maxsize=2, opener=fake_class.open)
+        with (
+            override_settings(DATA_WAREHOUSE_DELTALITE_COMPACTION=enabled),
+            patch.object(deltalite, "DeltaLiteTable", fake_class),
+            patch(f"{_MAINTENANCE_MODULE}.get_handle_cache", return_value=cache),
+            patch(f"{_MAINTENANCE_MODULE}.get_governor") as governor,
+            patch(f"{_MAINTENANCE_MODULE}.os.cpu_count", return_value=7),
+            patch(f"{_MAINTENANCE_MODULE}.capture_exception") as capture,
+            patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)) as plan,
+            patch.object(maintenance, "_compact", AsyncMock(return_value=True)) as delta_rs_compact,
+        ):
+            governor.return_value.slot_budget_mb.return_value = self._SLOT_MB
+            governor.return_value.pod.current_mb.return_value = 4096.0
+            ran = await maintenance.compact_if_fragmented(partition_count=1)
+        return ran, delta_rs_compact, plan, capture
+
+    @staticmethod
+    def _info_calls(table_ref: Any, message: str) -> list[dict[str, Any]]:
+        return [call.kwargs for call in table_ref.logger.ainfo.call_args_list if call.args[:1] == (message,)]
+
+    @parameterized.expand(
+        [
+            ("committed", 1, 152, [152]),
+            ("nothing_to_rewrite", 0, 150, []),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compacts_through_a_leased_deltalite_handle(
+        self, _name: str, commits: int, version: int, expected_noted: list[int]
+    ) -> None:
+        compact = MagicMock(
+            return_value={"commits": commits, "version": version, "numFilesAdded": 3, "numFilesRemoved": 300}
+        )
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        with patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")):
+            ran, delta_rs_compact, plan, capture = await self._run(maintenance, fake_class)
+
+        assert ran is True
+        delta_rs_compact.assert_not_awaited()
+        plan.assert_not_awaited()
+        capture.assert_not_called()
+        fake_class.open.assert_called_once_with(self._URI, {"AWS_REGION": "us-east-1"})
+        compact.assert_called_once_with(
+            target_file_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+            max_parallel_bins=7,
+            slot_budget_bytes=int(self._SLOT_MB * _MB),
+            commit_metadata={"compact_engine": "deltalite", "job_id": "job-1"},
+            min_partition_removable_files=1,
+        )
+        assert [call.args[0] for call in table_ref.note_deltalite_commit.call_args_list] == expected_noted
+        [done] = self._info_calls(table_ref, "compact: done")
+        assert done["compact_engine"] == "deltalite"
+        assert (done["compact_files_added"], done["compact_files_removed"]) == (3, 300)
+
+    @pytest.mark.asyncio
+    async def test_opens_a_fresh_handle_when_the_table_identity_is_unknown(self) -> None:
+        compact = MagicMock(return_value={"commits": 1, "version": 151})
+        maintenance, _, fake_class = self._setup(compact, table_id=None)
+
+        with patch.object(DeltaLiteHandleCache, "lease") as lease:
+            ran, _, _, _ = await self._run(maintenance, fake_class)
+
+        assert ran is True
+        lease.assert_not_called()
+        compact.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("setting_off", False, True, None, None, False),
+            ("wheel_without_compact", True, False, None, "deltalite_compact_unavailable", False),
+            (
+                "unsupported_table",
+                True,
+                True,
+                deltalite.DeltaLiteUnsupportedTableError("deletion vectors are not supported"),
+                "unsupported_table",
+                False,
+            ),
+            (
+                "unexpected_deltalite_error",
+                True,
+                True,
+                deltalite.DeltaLiteError("parquet decode failed"),
+                "deltalite_error",
+                True,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_falls_back_to_delta_rs(
+        self,
+        _name: str,
+        enabled: bool,
+        has_compact: bool,
+        error: Exception | None,
+        expected_reason: str | None,
+        expect_capture: bool,
+    ) -> None:
+        compact = MagicMock(side_effect=error) if has_compact else None
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class, enabled=enabled)
+
+        assert ran is True
+        delta_rs_compact.assert_awaited_once_with(table_ref.get_delta_table.return_value, _DEFAULT_PLAN)
+        fallbacks = self._info_calls(table_ref, "compact: falling back to delta-rs")
+        assert [call["compact_fallback_reason"] for call in fallbacks] == ([expected_reason] if expected_reason else [])
+        assert capture.called is expect_capture
+        if not enabled and compact is not None:
+            compact.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_commit_conflict_skips_the_pass_without_reporting(self) -> None:
+        compact = MagicMock(side_effect=deltalite.DeltaLiteCommitConflictError("schema changed"))
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class)
+
+        assert ran is False
+        delta_rs_compact.assert_not_awaited()
+        capture.assert_not_called()
+        table_ref.note_deltalite_commit.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "permission_denied",
+                "Generic S3 error: Access Denied for _delta_log/00001.json",
+                ObjectStorePermissionDeniedError,
+            ),
+            ("transient", "Generic S3 error: Please reduce your request rate", TransientObjectStoreError),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_object_store_errors_use_the_existing_classifiers(
+        self, _name: str, message: str, expected: type[Exception]
+    ) -> None:
+        compact = MagicMock(side_effect=deltalite.DeltaLiteError(message))
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        with pytest.raises(expected) as raised:
+            await self._run(maintenance, fake_class)
+
+        assert "_delta_log" not in str(raised.value)
+        assert "_delta_log" not in str(table_ref.logger.method_calls)
+        assert isinstance(raised.value.__cause__, deltalite.DeltaLiteError)
 
 
 class TestVacuum:
