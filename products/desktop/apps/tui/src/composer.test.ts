@@ -279,6 +279,63 @@ describe("Composer", () => {
     }
   });
 
+  describe("pointer", () => {
+    const text =
+      "the quick brown fox jumps over the lazy dog and keeps on running";
+    // The composer with text wrapped over rows, and where a word sits in its drawn rows.
+    const drawn = () => {
+      const sent: string[] = [];
+      const composer = new Composer(
+        () => {},
+        (message) => sent.push(message),
+      );
+      composer.setText(text);
+      const rows = composer
+        .render(24, true)
+        .editor.map((row) => stripTerminalSequences(row));
+      const cellOf = (word: string) => {
+        const row = rows.findIndex((line) => line.includes(word));
+        return { row, column: rows[row].indexOf(word) };
+      };
+      return { composer, rows, cellOf, sent };
+    };
+
+    it("places the cursor at a clicked cell on a wrapped row", () => {
+      const { composer, rows, cellOf, sent } = drawn();
+      const lazy = cellOf("lazy");
+      composer.placeCursor(lazy);
+      composer.handleInput("X");
+      composer.handleInput("\r");
+
+      expect(lazy.row).toBeGreaterThan(1);
+      expect(rows.length).toBeGreaterThan(3);
+      expect(sent).toEqual([text.replace("lazy", "Xlazy")]);
+    });
+
+    it("copies a selection across wrapped rows as the text it covers", () => {
+      const { composer, cellOf } = drawn();
+      const brown = cellOf("brown");
+      const lazy = cellOf("lazy");
+      composer.select(lazy, brown);
+      const highlighted = composer
+        .render(24, true)
+        .editor.flatMap((row) =>
+          [
+            ...row.matchAll(
+              new RegExp(`${"\u001b"}\\[7m(.*?)${"\u001b"}\\[27m`, "g"),
+            ),
+          ].map((match) => match[1]),
+        );
+
+      expect(composer.selectedText()).toBe("brown fox jumps over the l");
+      expect(highlighted.join(" ").replace(/\s+/g, " ")).toBe(
+        "brown fox jumps over the l",
+      );
+      composer.handleInput("a");
+      expect(composer.selectedText()).toBe("");
+    });
+  });
+
   it("keeps numbering images across messages", () => {
     const sent: [string, number][] = [];
     const composer = new Composer(

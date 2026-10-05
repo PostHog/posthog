@@ -247,6 +247,7 @@ export function App({
     setLayout,
     chatIn,
     chats: allChats,
+    composerFor,
     scrollPane,
     repaint,
     flashNotice,
@@ -307,6 +308,7 @@ export function App({
       }
       onPrChip={(element, url) => boxes.setPrChip(node.id, element, url)}
       onChatBox={(element) => boxes.setChat(node.id, element)}
+      onComposerBox={(element) => boxes.setComposer(node.id, element)}
       focused={!sidebarFocused && node.id === workspace.focusedPaneId}
     />
   );

@@ -8,6 +8,7 @@ import {
 import type { ChatView } from "../chatView";
 import { copyToClipboard } from "../clipboard";
 import { HEADER_GAP } from "../components/Sidebar";
+import type { Composer } from "../composer";
 import { focusPane, focusSidebar, type LayoutState } from "../layout";
 import {
   type Click,
@@ -29,6 +30,7 @@ export interface ScreenBoxes {
   sidebar: RefObject<DOMElement | null>;
   setPane: (paneId: string, element: DOMElement | null) => void;
   setChat: (paneId: string, element: DOMElement | null) => void;
+  setComposer: (paneId: string, element: DOMElement | null) => void;
   setPrChip: (
     paneId: string,
     element: DOMElement | null,
@@ -58,6 +60,7 @@ export function usePointer({
   setLayout,
   chatIn,
   chats,
+  composerFor,
   scrollPane,
   repaint,
   flashNotice,
@@ -68,6 +71,7 @@ export function usePointer({
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   chatIn: (paneId: string) => ChatView;
   chats: () => Iterable<ChatView>;
+  composerFor: (paneId: string) => Composer;
   scrollPane: (paneId: string, lines: number) => void;
   repaint: () => void;
   flashNotice: (text: string) => void;
@@ -76,6 +80,7 @@ export function usePointer({
   const lastMove = useRef<{ at: Click; time: number } | null>(null);
   const paneBoxes = useRef(new Map<string, DOMElement>());
   const chatBoxes = useRef(new Map<string, DOMElement>());
+  const composerBoxes = useRef(new Map<string, DOMElement>());
   const prChips = useRef(
     new Map<string, { element: DOMElement; url: string }>(),
   );
@@ -123,6 +128,15 @@ export function usePointer({
       const chatBox = chatBoxes.current.get(paneId);
       const box = chatBox && boxOf(chatBox);
       const chat = chatIn(paneId);
+      const composerBox = composerBoxes.current.get(paneId);
+      const composerAt = composerBox && boxOf(composerBox);
+      if (composerAt && hitTest(click, [["composer", composerAt]])) {
+        composerFor(paneId).placeCursor({
+          row: click.row - composerAt.top,
+          column: click.column - composerAt.left,
+        });
+        return;
+      }
       if (!box || !hitTest(click, [["chat", box]])) return;
       const link = chat.linkAt(click.row - box.top, click.column - box.left);
       if (link) openUrl(link);
@@ -132,15 +146,19 @@ export function usePointer({
 
   // A press starts a click or, once the pointer moves, a selection in the chat it landed on.
   const gesture = useRef(new Gesture());
-  const selecting = useRef<{ chat: ChatView; box: ScreenBox } | null>(null);
+  // A drag selects in the chat or the composer it started in; either one copies its text on release.
+  const selecting = useRef<{
+    target: ChatView | Composer;
+    box: ScreenBox;
+  } | null>(null);
   const selectIn = (from: Click, to: Click): void => {
-    const target = selecting.current;
-    if (!target) return;
+    const current = selecting.current;
+    if (!current) return;
     const local = (at: Click): Click => ({
-      row: at.row - target.box.top,
-      column: at.column - target.box.left,
+      row: at.row - current.box.top,
+      column: at.column - current.box.left,
     });
-    target.chat.select(local(from), local(to));
+    current.target.select(local(from), local(to));
     repaint();
   };
 
@@ -148,11 +166,18 @@ export function usePointer({
     onPress: (at) => {
       gesture.current.press(at);
       for (const chat of chats()) chat.clearSelection();
+      for (const paneId of composerBoxes.current.keys())
+        composerFor(paneId).clearSelection();
       selecting.current = null;
       for (const [paneId, element] of chatBoxes.current) {
         const box = boxOf(element);
         if (hitTest(at, [["chat", box]]))
-          selecting.current = { chat: chatIn(paneId), box };
+          selecting.current = { target: chatIn(paneId), box };
+      }
+      for (const [paneId, element] of composerBoxes.current) {
+        const box = boxOf(element);
+        if (hitTest(at, [["composer", box]]))
+          selecting.current = { target: composerFor(paneId), box };
       }
       repaint();
     },
@@ -165,7 +190,7 @@ export function usePointer({
       if (end?.kind === "click") onClick(end.at);
       if (end?.kind !== "select" || !selecting.current) return;
       selectIn(end.from, end.to);
-      const text = selecting.current.chat.selectedText();
+      const text = selecting.current.target.selectedText();
       if (!text.trim()) return;
       copyToClipboard(text);
       flashNotice("Copied to clipboard");
@@ -199,6 +224,10 @@ export function usePointer({
       setChat: (paneId, element) => {
         if (element) chatBoxes.current.set(paneId, element);
         else chatBoxes.current.delete(paneId);
+      },
+      setComposer: (paneId, element) => {
+        if (element) composerBoxes.current.set(paneId, element);
+        else composerBoxes.current.delete(paneId);
       },
       setPrChip: (paneId, element, url) => {
         if (element && url) prChips.current.set(paneId, { element, url });
