@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -90,8 +91,7 @@ def test_response_requests(
             ],
         )
         response = PromptWatchSource().source_for_pipeline(config, manager, inputs)
-        items = response.items()
-        assert isinstance(items, Iterable)
+        items = cast(Iterable[list[dict[str, str]]], response.items())
         assert list(items) == [[{"id": "first"}], [{"id": "last"}]]
         assert response.sort_mode == "asc"
         assert len(mock.request_history) == 2
