@@ -29,7 +29,6 @@ tools:
             Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs
             events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count
             may differ from the dashboard's attribution-windowed number.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-create-conversion-goal:
         operation: marketing_analytics_conversion_goals_create_create
         enabled: true
@@ -51,7 +50,6 @@ tools:
             goals are left untouched. Set counts_as_customer when converting means the person became a customer, and
             counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see
             what already exists — goal names must be unique.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-data-sources:
         operation: marketing_analytics_data_sources_retrieve
         enabled: true
@@ -66,7 +64,6 @@ tools:
             List the platform-side health of every native marketing integration: connected/not, last sync time and
             status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side
             only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-delete-conversion-goal:
         operation: marketing_analytics_conversion_goals_delete_destroy
         enabled: true
@@ -81,7 +78,6 @@ tools:
             Remove one conversion goal from the project, identified by its conversion_goal_id — call
             marketing-analytics-conversion-goals first to get it. The other goals stay in place. Dashboards and reports
             built on this goal will stop showing it, so confirm with the user first.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-diagnose:
         operation: marketing_analytics_diagnose_retrieve
         enabled: true
@@ -99,7 +95,6 @@ tools:
             likely-yours-but-unmatched), conversion goals with last-30d performance and misconfig flags, and recommended
             next actions each pointing to the right follow-up tool. USE THIS TOOL FIRST whenever the user asks why
             marketing analytics looks wrong, missing, or broken. Do NOT speculate about causes before calling this tool.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-explain-conversion-goal:
         operation: marketing_analytics_explain_conversion_goal_retrieve
         enabled: true
@@ -119,7 +114,6 @@ tools:
             come from?". Only EventsNode and ActionsNode goals are explained at the event level; DataWarehouseNode goals
             short-circuit with a note. Requires conversion_goal_id — call marketing-analytics-conversion-goals first and
             pass the conversion_goal_id of the goal you want.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-setup-plan-retrieve:
         operation: marketing_analytics_setup_plan_retrieve
         enabled: false
@@ -140,7 +134,6 @@ tools:
             Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag
             coverage, and uniqueness of users. Excludes autocapture / system events and events that are already
             configured as goals.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-suggest-utm-mappings:
         operation: marketing_analytics_suggest_utm_mappings_retrieve
         enabled: true
@@ -164,7 +157,6 @@ tools:
             current_mappings (every alias already in effect — canonical + team_custom — so duplicates aren't suggested).
             campaign_suggestions deliberately omits near-ties, so an orphan missing from it may still be mappable — it
             just needs a human to choose. Read-only — applying mappings is a separate write tool.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-test-mapping-create:
         operation: marketing_analytics_test_mapping_create
         enabled: false
@@ -183,7 +175,6 @@ tools:
             marketing-analytics-conversion-goals first to get it. The patch goes inside a single `goal` object; only the
             fields you send are changed and the goal keeps its position in the list. Use this to retarget a goal, rename
             it, or set counts_as_customer / counts_as_revenue on a goal that already exists.
-        feature_flag: marketing-analytics-mcp
     marketing-analytics-utm-audit:
         operation: marketing_analytics_utm_audit_retrieve
         enabled: true
@@ -198,4 +189,3 @@ tools:
             Audit the UTM tagging quality of recent events: campaigns with issues, mismatched utm_source vs configured
             integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events
             appear in 'non-integrated', or why UTMs are not matching the ad platform data.
-        feature_flag: marketing-analytics-mcp

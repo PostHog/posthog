@@ -8900,8 +8900,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-create-conversion-goal": {
         "description": "Add one conversion goal to the project. Everything goes inside a single `goal` object — fields sent at the top level are rejected. Required inside it: conversion_goal_name, schema_map naming the fields that hold utm_campaign, utm_source, the timestamp and the distinct id, and conversion_goal_id (assigned by the server, so send an empty string). Also send kind (EventsNode for a PostHog event, ActionsNode for an action, DataWarehouseNode for an external table) and its target: `event` for EventsNode, `id` for ActionsNode, and `id` + table_name + id_field + timestamp_field + distinct_id_field for DataWarehouseNode. Omitting math counts conversions; set it to sum with math_property to total a value. Unknown fields are rejected. Existing goals are left untouched. Set counts_as_customer when converting means the person became a customer, and counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see what already exists — goal names must be unique.",
@@ -8915,8 +8914,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-data-sources": {
         "description": "List the platform-side health of every native marketing integration: connected/not, last sync time and status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.",
@@ -8930,8 +8928,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-delete-conversion-goal": {
         "description": "Remove one conversion goal from the project, identified by its conversion_goal_id — call marketing-analytics-conversion-goals first to get it. The other goals stay in place. Dashboards and reports built on this goal will stop showing it, so confirm with the user first.",
@@ -8945,8 +8942,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-diagnose": {
         "description": "READ-ONLY end-to-end diagnostic of Marketing analytics for the current project. Returns per-integration overall_status (healthy / sync_broken / events_broken / events_unmatched / events_only / schema_misconfigured / not_connected), sync state, attribution state (UTM-tagged events arriving, matched vs likely-yours-but-unmatched), conversion goals with last-30d performance and misconfig flags, and recommended next actions each pointing to the right follow-up tool. USE THIS TOOL FIRST whenever the user asks why marketing analytics looks wrong, missing, or broken. Do NOT speculate about causes before calling this tool.",
@@ -8960,8 +8956,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-explain-conversion-goal": {
         "description": "Break down the events that COUNT toward a conversion goal by their own utm_source, utm_campaign, and matched integration. Returns recent sample events for inspection. This is a flat per-event breakdown of the conversion events themselves — NOT an analysis of the user's prior journey, and NOT the dashboard's attribution calculation (first-touch / last-touch / multi-touch weighting is applied by the dashboard, not here). Use when the user asks \"what utm_sources are behind my N conversions?\" or \"where do these conversions come from?\". Only EventsNode and ActionsNode goals are explained at the event level; DataWarehouseNode goals short-circuit with a note. Requires conversion_goal_id — call marketing-analytics-conversion-goals first and pass the conversion_goal_id of the goal you want.",
@@ -8975,8 +8970,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-suggest-conversion-goals": {
         "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
@@ -8990,8 +8984,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-suggest-utm-mappings": {
         "description": "USE THIS TOOL — DO NOT FALL BACK TO SQL — whenever the user asks about utm_source OR utm_campaign mappings, custom_source_mappings, campaign_name_mappings, unmatched / non-integrated UTM values, typo'd campaign names, or the question \"what utm_sources do I have and which ad platform do they belong to?\". Returns full_utm_source_catalogue (every utm_source value seen on events in the window, matched + unmatched, with event count and the integration it resolves to), source_suggestions (mapping recommendations where a value's token matches a known alias, e.g. raw facebook_paid → MetaAds), campaign_suggestions (campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real campaign, e.g. sprng_sale_2024 → spring_sale_2024, each folding every raw value that should point at one clean name), raw_unmatched_samples (every unmatched value, including likely-not-an-ad values like organic/newsletter/partner), and current_mappings (every alias already in effect — canonical + team_custom — so duplicates aren't suggested). campaign_suggestions deliberately omits near-ties, so an orphan missing from it may still be mappable — it just needs a human to choose. Read-only — applying mappings is a separate write tool.",
@@ -9005,8 +8998,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-update-conversion-goal": {
         "description": "Change one conversion goal in place, identified by its conversion_goal_id — call marketing-analytics-conversion-goals first to get it. The patch goes inside a single `goal` object; only the fields you send are changed and the goal keeps its position in the list. Use this to retarget a goal, rename it, or set counts_as_customer / counts_as_revenue on a goal that already exists.",
@@ -9020,8 +9012,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "marketing-analytics-utm-audit": {
         "description": "Audit the UTM tagging quality of recent events: campaigns with issues, mismatched utm_source vs configured integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events appear in 'non-integrated', or why UTMs are not matching the ad platform data.",
@@ -9035,8 +9026,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "marketing-analytics-mcp"
+        }
     },
     "mcp-analytics-intent-clusters-recompute": {
         "description": "Trigger an asynchronous recompute of the intent-cluster snapshot: sample recent sessions, attribute each tool call to its own agent intent, embed and cluster the intents, and derive the tool pivot (capture rates, discovery rates, description fit, overlaps). Returns immediately with status 'computing'; poll mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').",

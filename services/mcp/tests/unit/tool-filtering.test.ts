@@ -1049,7 +1049,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'tasks',
                 'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
-                'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
                 'mcp-analytics-intent-routing',
@@ -1076,7 +1075,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'today-rail-nav',
             ])
         )
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(37)
     })
 
     it('every loops tool is gated on the loops flag', () => {
