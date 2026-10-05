@@ -365,6 +365,7 @@ export interface heatmapToolbarMenuLogicValues {
     clickCount: number
     clickmapsEnabled: boolean
     countedElements: CountedHTMLElement[]
+    editingAreaSelector: boolean
     elementCount: number
     elementMetrics: Map<
         HTMLElement,
@@ -373,7 +374,6 @@ export interface heatmapToolbarMenuLogicValues {
         }
     >
     elementStats: PaginatedResponse<ElementsEventType> | null
-    editingAreaSelector: boolean
     elementStatsLoading: boolean
     elementsLoading: boolean
     heatmapAreaFilter: {
@@ -475,9 +475,6 @@ export interface heatmapToolbarMenuLogicActions {
     editHeatmapAreaSelector: (selector: string) => {
         selector: string
     }
-    setEditingAreaSelector: (editing: boolean) => {
-        editing: boolean
-    }
     enableHeatmap: () => {
         value: true
     }
@@ -559,6 +556,9 @@ export interface heatmapToolbarMenuLogicActions {
     }
     setAreaHoverCandidate: (candidate: HTMLElement) => {
         candidate: HTMLElement
+    }
+    setEditingAreaSelector: (editing: boolean) => {
+        editing: boolean
     }
     setElementsLoading: (loading: boolean) => {
         loading: boolean
