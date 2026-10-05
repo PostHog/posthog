@@ -67,6 +67,14 @@ class ProviderTimeoutError(ProviderConnectionError):
         )
 
 
+class ProviderHostUnresolvedError(ProviderConnectionError):
+    """A configured endpoint whose hostname did not resolve. A DNS lookup can fail for a moment
+    while the endpoint is healthy, so this is retryable and must not disable the provider key."""
+
+    def __init__(self) -> None:
+        super().__init__("Could not resolve the base URL host. Check the base URL, then try again.")
+
+
 RESPONSE_LIMIT_MESSAGE = (
     "The endpoint returned a compressed or oversized response. "
     "Configure it to return uncompressed responses no larger than 1 MiB."

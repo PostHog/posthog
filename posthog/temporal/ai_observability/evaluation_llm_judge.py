@@ -54,6 +54,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderConfigurationError,
     ProviderConnectionError,
     ProviderRequestRejectedError,
     QuotaExceededError,
@@ -725,7 +726,7 @@ def call_llm_judge(
                     response_format=response_format,
                 )
             )
-    except SystemOneEndpointBlockedError as e:
+    except (SystemOneEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("endpoint_blocked", is_byok=is_byok),
