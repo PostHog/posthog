@@ -2,6 +2,10 @@ class BlockFetchError(Exception):
     pass
 
 
+class BlockNotFoundError(BlockFetchError):
+    """The block does not exist, so a retry cannot fetch it."""
+
+
 class RecordingApiConfigurationError(RuntimeError):
     """The caller cannot reach recording-api because a setting is missing. Retries cannot fix it, so
     callers that tolerate a failed call must still let this one through."""
