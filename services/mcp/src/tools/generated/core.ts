@@ -159,7 +159,6 @@ const ProjectCreateSchema = () => {
         access_control: true,
         week_start_day: true,
         primary_dashboard: true,
-        home_tab_dashboard: true,
         live_events_columns: true,
         recording_domains: true,
         inject_web_apps: true,

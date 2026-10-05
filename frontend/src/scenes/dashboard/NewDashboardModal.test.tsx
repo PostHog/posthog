@@ -227,7 +227,7 @@ describe('NewDashboardModal', () => {
     it('keeps the user on the current page when creating a Home dashboard from a template', () => {
         render(<NewDashboardModal redirectAfterCreation={false} />)
 
-        fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+        fireEvent.click(screen.getByText('Create'))
 
         expect(createDashboardFromTemplate).toHaveBeenCalledWith(newDashboardValues.activeDashboardTemplate, [], false)
     })

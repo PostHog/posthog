@@ -1,4 +1,4 @@
-import { RETENTION_FIRST_EVER_OCCURRENCE } from 'lib/constants'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +19,8 @@ import {
     FilterLogicalOperator,
     IntervalType,
     PropertyMathType,
+    PropertyFilterType,
+    PropertyOperator,
     RetentionDashboardDisplayType,
     RetentionPeriod,
     TrendResult,
@@ -288,9 +290,29 @@ export function getHomeTabChartOptions(dateRange: DateRange, compare: boolean): 
                         period: RetentionPeriod.Week,
                         totalIntervals: getHomeTabRetentionIntervals(dateRange),
                         dashboardDisplay: RetentionDashboardDisplayType.TableOnly,
-                        retentionType: RETENTION_FIRST_EVER_OCCURRENCE,
-                        targetEntity: { id: '$pageview', type: 'events' },
-                        returningEntity: { id: '$pageview', type: 'events' },
+                        retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                        targetEntity: {
+                            type: 'events',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.EventMetadata,
+                                    key: 'event',
+                                    operator: PropertyOperator.In,
+                                    value: ['$pageview', '$screen'],
+                                },
+                            ],
+                        },
+                        returningEntity: {
+                            type: 'events',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.EventMetadata,
+                                    key: 'event',
+                                    operator: PropertyOperator.In,
+                                    value: ['$pageview', '$screen'],
+                                },
+                            ],
+                        },
                     },
                 },
             },

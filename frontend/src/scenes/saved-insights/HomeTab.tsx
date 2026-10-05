@@ -15,9 +15,6 @@ import { HomeTabDefault } from './HomeTabDefault'
 export function HomeTab({ dashboardActions }: { dashboardActions?: ReactNode }): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { isLoading: dashboardCreationLoading } = useValues(newDashboardLogic)
-    const homeDashboardLoadingLabel = dashboardCreationLoading
-        ? 'Creating your Home dashboard'
-        : 'Updating your Home dashboard'
 
     useOnMountEffect(() => {
         posthog.capture('product analytics home viewed')
@@ -33,14 +30,14 @@ export function HomeTab({ dashboardActions }: { dashboardActions?: ReactNode }):
 
     return (
         <div className="@container/home-tab pb-4 @min-[48rem]/saved-insights:py-3">
-            {dashboardCreationLoading || currentTeamLoading ? (
+            {dashboardCreationLoading ? (
                 <div
                     className="flex min-h-80 flex-col gap-3 py-3"
                     role="status"
                     aria-live="polite"
-                    aria-label={homeDashboardLoadingLabel}
+                    aria-label="Creating your Home dashboard"
                 >
-                    <div className="font-semibold">{homeDashboardLoadingLabel}…</div>
+                    <div className="font-semibold">Creating your Home dashboard…</div>
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             ) : currentTeam?.home_tab_dashboard ? (

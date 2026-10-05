@@ -1,7 +1,17 @@
 import { combineUrl } from 'kea-router'
 
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+
 import { DateRange, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyMathType, RetentionDashboardDisplayType, TrendResult } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
+    RetentionDashboardDisplayType,
+    TrendResult,
+} from '~/types'
 
 import {
     getHomeTabBreakdownOptions,
@@ -96,10 +106,29 @@ describe('homeTabDefaultTiles', () => {
             }
         }
 
-        expect(charts.find(({ key }) => key === 'retention')?.query.source).toMatchObject({
+        const retentionQuery = charts.find(({ key }) => key === 'retention')?.query.source
+        expect(retentionQuery).toMatchObject({
             kind: NodeKind.RetentionQuery,
-            retentionFilter: { totalIntervals: 3, dashboardDisplay: RetentionDashboardDisplayType.TableOnly },
+            retentionFilter: {
+                totalIntervals: 3,
+                dashboardDisplay: RetentionDashboardDisplayType.TableOnly,
+                retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+            },
         })
+        const activityEntity = {
+            type: 'events',
+            properties: [
+                {
+                    type: PropertyFilterType.EventMetadata,
+                    key: 'event',
+                    operator: PropertyOperator.In,
+                    value: ['$pageview', '$screen'],
+                },
+            ],
+        }
+        const retentionFilter = retentionQuery?.kind === NodeKind.RetentionQuery ? retentionQuery.retentionFilter : null
+        expect(retentionFilter?.targetEntity).toEqual(activityEntity)
+        expect(retentionFilter?.returningEntity).toEqual(activityEntity)
         expect(
             getHomeTabChartOptions({ date_from: '-30d', date_to: null }, true).find(({ key }) => key === 'retention')
                 ?.query.source

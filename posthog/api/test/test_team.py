@@ -51,6 +51,7 @@ from posthog.utils import get_context_for_template, get_instance_realm
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -922,6 +923,12 @@ def team_api_test_factory():
             )
 
         def test_update_home_tab_dashboard(self):
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+
             d = Dashboard.objects.create(name="Test", team=self.team)
 
             response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
@@ -929,10 +936,32 @@ def team_api_test_factory():
 
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             self.assertEqual(response_data["home_tab_dashboard"], d.id)
+            self.assertEqual(Team.objects.get(pk=self.team.pk).home_tab_dashboard.id, d.id)
+
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual(
+                changes,
+                [{"type": "Team", "action": "created", "field": "home_tab_dashboard", "before": None, "after": d.id}],
+            )
 
             response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": None})
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertIsNone(Team.objects.get(pk=self.team.pk).home_tab_dashboard)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "deleted"])
+            self.assertEqual(changes[-1]["before"], d.id)
+            self.assertIsNone(changes[-1]["after"])
 
         def test_cant_set_home_tab_dashboard_to_another_teams_dashboard(self):
             team_2 = Team.objects.create(organization=self.organization, name="Default project")

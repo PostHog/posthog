@@ -4,10 +4,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DashboardTemplateType, DashboardType } from '~/types'
+import { DashboardTemplateType, DashboardType, SidePanelTab } from '~/types'
 
 import { applyTemplate, newDashboardLogic } from './newDashboardLogic'
 
@@ -162,6 +163,7 @@ describe('Home dashboard creation', () => {
         })
         initKeaTests()
         teamLogic.mount()
+        sidePanelStateLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
     })
 
@@ -170,13 +172,16 @@ describe('Home dashboard creation', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.setAsHomeTabDashboardAfterCreation(true)
+            logic.actions.setAsHomeTabDashboardAfterCreation(true, true)
             logic.actions.addDashboard({ name: 'My product analytics dashboard', show: false })
         })
             .toDispatchActions(logic, ['submitNewDashboardSuccessWithResult'])
             .toDispatchActions(teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess'])
 
         expect(teamLogic.values.currentTeam?.home_tab_dashboard).toBe(123)
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toContain('dashboard ID 123')
+        expect(sidePanelStateLogic.values.selectedTabOptions).toContain('Ask me what I want to track')
     })
 
     it('sets a dashboard created from a template as Home', async () => {
@@ -195,6 +200,7 @@ describe('Home dashboard creation', () => {
             .toDispatchActions(teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess'])
 
         expect(teamLogic.values.currentTeam?.home_tab_dashboard).toBe(456)
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
     it('creates a template dashboard once when Create is clicked repeatedly', async () => {
@@ -222,6 +228,18 @@ describe('Home dashboard creation', () => {
         logic.actions.hideNewDashboardModal()
 
         expect(logic.values.setAsHomeTabDashboardAfterCreation).toBe(false)
+        expect(logic.values.openAIAfterCreation).toBe(false)
+    })
+
+    it('clears the AI handoff when dashboard creation is canceled', () => {
+        const logic = newDashboardLogic()
+        logic.mount()
+
+        logic.actions.setAsHomeTabDashboardAfterCreation(true, true)
+        logic.actions.hideNewDashboardModal()
+
+        expect(logic.values.setAsHomeTabDashboardAfterCreation).toBe(false)
+        expect(logic.values.openAIAfterCreation).toBe(false)
     })
 
     it('leaves Home unchanged after ordinary dashboard creation', async () => {
@@ -234,5 +252,6 @@ describe('Home dashboard creation', () => {
         }).toFinishAllListeners()
 
         expect(teamLogic.values.currentTeam?.home_tab_dashboard).toBeNull()
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 })
