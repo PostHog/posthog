@@ -1,11 +1,4 @@
 .PropertyGroupFilters {
-    .property-group {
-        padding: 0.5rem;
-        background-color: var(--color-bg-primary);
-        border-width: 1px;
-        border-radius: var(--radius);
-    }
-
     // Overrides PropertyFilters.scss, which anchors the operator left for the feature-flag
     // and workflow-trigger usages
     .property-group--framed .logical-row-divider {
