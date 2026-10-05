@@ -51,10 +51,13 @@ import { ICONS, getIntegrationNameFromKind, isSandboxEmailSender } from './utils
 type SandboxEmailSenderProvisionResult = 'provisioned' | 'unavailable' | 'failed'
 
 const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
+const SANDBOX_ENSURE_TIMEOUT_MS = 15_000
 
 async function requestSandboxEmailSender(projectId: string): Promise<SandboxEmailSenderProvisionResult> {
     try {
-        await integrationsEmailSandboxSenderCreate(projectId)
+        await integrationsEmailSandboxSenderCreate(projectId, {
+            signal: AbortSignal.timeout(SANDBOX_ENSURE_TIMEOUT_MS),
+        })
         return 'provisioned'
     } catch (error) {
         return error instanceof ApiError && error.status === 404 ? 'unavailable' : 'failed'
@@ -1218,6 +1221,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
             actions.provisionSandboxEmailSender()
         },
         setFeatureFlags: () => {
+            if (cache.sandboxEmailSenderWanted && values.integrations) {
+                actions.provisionMissingSandboxEmailSender()
+            }
+        },
+        provisionSandboxEmailSenderSuccess: () => {
             if (cache.sandboxEmailSenderWanted && values.integrations) {
                 actions.provisionMissingSandboxEmailSender()
             }

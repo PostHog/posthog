@@ -399,6 +399,7 @@ export interface emailTemplaterLogicMeta {
         senderIntegrationsLoading: (
             integrationsLoading: boolean,
             sandboxEmailSenderProvisionResultLoading: boolean,
+            ownEmailIntegrations: IntegrationType[],
             arg: boolean
         ) => boolean
         senderIntegrations: (
@@ -595,13 +596,17 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             (s) => [
                 s.integrationsLoading,
                 s.sandboxEmailSenderProvisionResultLoading,
+                s.ownEmailIntegrations,
                 (_, props: EmailTemplaterLogicProps) => !!props.sandboxSenderAllowed,
             ],
             (
                 integrationsLoading: boolean,
                 sandboxEmailSenderProvisionResultLoading: boolean,
+                ownEmailIntegrations: IntegrationType[],
                 sandboxSenderAllowed: boolean
-            ): boolean => integrationsLoading || (sandboxSenderAllowed && sandboxEmailSenderProvisionResultLoading),
+            ): boolean =>
+                integrationsLoading ||
+                (sandboxSenderAllowed && sandboxEmailSenderProvisionResultLoading && ownEmailIntegrations.length === 0),
         ],
         senderIntegrations: [
             (s) => [

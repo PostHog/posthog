@@ -24,6 +24,7 @@ export function MessageChannels(): JSX.Element {
     const {
         setupModalOpen,
         integrations,
+        integrationsLoading,
         setupModalType,
         selectedIntegration,
         sandboxEmailSender,
@@ -43,8 +44,9 @@ export function MessageChannels(): JSX.Element {
                 MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType) && !isSandboxEmailSender(integration)
         ) ?? []
 
-    const integrationsResolved = integrations !== null && !sandboxEmailSenderProvisionResultLoading
-    const showProductIntroduction = integrationsResolved && !ownWorkflowIntegrations.length
+    const integrationsResolved = integrations !== null || !integrationsLoading
+    const sandboxSenderPending = sandboxEmailSenderProvisionResultLoading && !ownWorkflowIntegrations.length
+    const showProductIntroduction = integrationsResolved && !sandboxSenderPending && !ownWorkflowIntegrations.length
 
     return (
         <>
@@ -60,7 +62,7 @@ export function MessageChannels(): JSX.Element {
             />
 
             <div className="flex flex-col gap-4" data-attr="message-channels">
-                {!integrationsResolved && (
+                {(!integrationsResolved || sandboxSenderPending) && (
                     <>
                         <LemonSkeleton className="h-20" />
                         <LemonSkeleton className="h-20" />

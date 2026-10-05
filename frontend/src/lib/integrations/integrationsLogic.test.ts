@@ -224,7 +224,7 @@ describe('integrationsLogic', () => {
             expect(ensureCalls).toBe(1)
         })
 
-        it('forgets the request and an in-flight result when the project switches', async () => {
+        it('forgets an in-flight result when the project switches, and still provisions the new project when asked', async () => {
             enableFlag()
             let releaseEnsure: () => void = () => {}
             const ensureGate = new Promise<void>((resolve) => (releaseEnsure = resolve))
@@ -244,11 +244,18 @@ describe('integrationsLogic', () => {
             await expectLogic(logic, () => {
                 teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999, project_id: 999 })
             }).toDispatchActions(['clearIntegrations', 'loadIntegrationsSuccess'])
-            releaseEnsure()
-            await expectLogic(logic).toDispatchActions(['provisionSandboxEmailSenderSuccess'])
-
+            logic.actions.ensureSandboxEmailSender()
             expect(ensureCalls).toBe(1)
-            expect(logic.values.sandboxEmailSenderProvisionResult).toBeNull()
+
+            releaseEnsure()
+            await expectLogic(logic).toDispatchActions([
+                'provisionSandboxEmailSenderSuccess',
+                'provisionSandboxEmailSender',
+                'provisionSandboxEmailSenderSuccess',
+            ])
+
+            expect(ensureCalls).toBe(2)
+            expect(logic.values.sandboxEmailSenderProvisionResult).toBe('unavailable')
         })
 
         it.each([

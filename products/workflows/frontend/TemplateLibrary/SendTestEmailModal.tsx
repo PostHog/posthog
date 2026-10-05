@@ -94,6 +94,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                         onChange={(values) => setRecipientEmail(values[0] ?? '')}
                         options={recipientSuggestions.map((email) => ({ key: email, label: email }))}
                         placeholder="you@example.com"
+                        emptyStateComponent="Type an email address and press Enter"
                         data-attr="send-test-email-recipient"
                     />
                     {recipientOutsideOrganization && (

@@ -10,7 +10,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import { NativeEmailIntegrationChoice } from './EmailTemplater'
 import { EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
-import { EmailTemplateFrom } from './types'
+import { EmailTemplate, EmailTemplateFrom } from './types'
 
 const SANDBOX_SENDER = {
     id: 7,
@@ -37,7 +37,10 @@ const OWN_SENDER = {
 type StoryArgs = {
     from: EmailTemplateFrom
     sandboxSenderAllowed: boolean
+    narrow?: boolean
 }
+
+const EMPTY_EMAIL: EmailTemplate = { design: null, html: '', subject: '', text: '', from: {}, to: '' }
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-App/HogFunctions/Email sender picker',
@@ -45,7 +48,7 @@ const meta: Meta<StoryArgs> = {
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ from, sandboxSenderAllowed }) => {
+const Template: StoryFn<StoryArgs> = ({ from, sandboxSenderAllowed, narrow }) => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/integrations/': { results: [SANDBOX_SENDER, OWN_SENDER] },
@@ -54,20 +57,21 @@ const Template: StoryFn<StoryArgs> = ({ from, sandboxSenderAllowed }) => {
         },
         post: { '/api/projects/:team_id/integrations/email_sandbox_sender/': SANDBOX_SENDER },
     })
-    const [value, setValue] = useState<EmailTemplateFrom>(from)
+    const [template, setTemplate] = useState<EmailTemplate>({ ...EMPTY_EMAIL, from })
     const logicProps: EmailTemplaterLogicProps = {
-        value: null,
-        onChange: (template) => setValue(template.from as EmailTemplateFrom),
+        value: template,
+        onChange: setTemplate,
         type: 'native_email',
+        liveChanges: true,
         sandboxSenderAllowed,
     }
     return (
         <BindLogic logic={emailTemplaterLogic} props={logicProps}>
-            <div className="max-w-2xl border rounded">
+            <div className={narrow ? 'w-[520px] border rounded' : 'max-w-2xl border rounded'}>
                 <NativeEmailIntegrationChoice
                     label={<LemonLabel className="min-w-30 shrink-0 pl-2">From</LemonLabel>}
-                    value={value}
-                    onChange={setValue}
+                    value={template.from as EmailTemplateFrom}
+                    onChange={(from) => setTemplate({ ...template, from })}
                 />
             </div>
         </BindLogic>
@@ -93,6 +97,14 @@ SandboxSenderSelectedInRotation.args = {
     sandboxSenderAllowed: true,
 }
 SandboxSenderSelectedInRotation.parameters = { featureFlags: sandboxFlag(true) }
+
+export const SandboxSenderSelectedInRotationNarrow: StoryFn<StoryArgs> = Template.bind({})
+SandboxSenderSelectedInRotationNarrow.args = {
+    from: { integrationId: SANDBOX_SENDER.id },
+    sandboxSenderAllowed: true,
+    narrow: true,
+}
+SandboxSenderSelectedInRotationNarrow.parameters = { featureFlags: sandboxFlag(true) }
 
 export const SandboxSenderHiddenOnBroadcast: StoryFn<StoryArgs> = Template.bind({})
 SandboxSenderHiddenOnBroadcast.args = {

@@ -122,33 +122,52 @@ describe('emailTemplaterLogic', () => {
         })
 
         it.each([
-            { surface: 'a workflow email step', sandboxSenderAllowed: true, expectedLoading: true },
-            { surface: 'a broadcast or destination', sandboxSenderAllowed: false, expectedLoading: false },
-        ])('waits for sandbox provisioning only on $surface', async ({ sandboxSenderAllowed, expectedLoading }) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
-                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
-            })
-            let releaseEnsure: () => void = () => {}
-            const ensureGate = new Promise<void>((resolve) => (releaseEnsure = resolve))
-            useMocks({
-                get: { '/api/projects/:team_id/integrations/': { results: [OWN_SENDER] } },
-                post: {
-                    '/api/projects/:team_id/integrations/email_sandbox_sender/': async () => {
-                        await ensureGate
-                        return [200, SANDBOX_SENDER]
+            {
+                surface: 'a workflow email step with no own sender yet',
+                sandboxSenderAllowed: true,
+                ownSenders: [],
+                expectedLoading: true,
+            },
+            {
+                surface: 'a workflow email step that already lists an own sender',
+                sandboxSenderAllowed: true,
+                ownSenders: [OWN_SENDER],
+                expectedLoading: false,
+            },
+            {
+                surface: 'a broadcast or destination',
+                sandboxSenderAllowed: false,
+                ownSenders: [],
+                expectedLoading: false,
+            },
+        ])(
+            'waits for sandbox provisioning only on $surface',
+            async ({ sandboxSenderAllowed, ownSenders, expectedLoading }) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                    [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+                })
+                let releaseEnsure: () => void = () => {}
+                const ensureGate = new Promise<void>((resolve) => (releaseEnsure = resolve))
+                useMocks({
+                    get: { '/api/projects/:team_id/integrations/': { results: ownSenders } },
+                    post: {
+                        '/api/projects/:team_id/integrations/email_sandbox_sender/': async () => {
+                            await ensureGate
+                            return [200, SANDBOX_SENDER]
+                        },
                     },
-                },
-            })
-            logic = emailTemplaterLogic(makeProps({ sandboxSenderAllowed }))
-            logic.mount()
-            await expectLogic(integrationsLogic, () => {
-                integrationsLogic.actions.ensureSandboxEmailSender()
-            }).toDispatchActions(['loadIntegrationsSuccess', 'provisionSandboxEmailSender'])
+                })
+                logic = emailTemplaterLogic(makeProps({ sandboxSenderAllowed }))
+                logic.mount()
+                await expectLogic(integrationsLogic, () => {
+                    integrationsLogic.actions.ensureSandboxEmailSender()
+                }).toDispatchActions(['loadIntegrationsSuccess', 'provisionSandboxEmailSender'])
 
-            expect(logic.values.senderIntegrationsLoading).toBe(expectedLoading)
-            releaseEnsure()
-            await expectLogic(integrationsLogic).toDispatchActions(['provisionSandboxEmailSenderSuccess'])
-        })
+                expect(logic.values.senderIntegrationsLoading).toBe(expectedLoading)
+                releaseEnsure()
+                await expectLogic(integrationsLogic).toDispatchActions(['provisionSandboxEmailSenderSuccess'])
+            }
+        )
 
         it('hands the parent the sandbox sender and a cleared Reply-To in one change', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {

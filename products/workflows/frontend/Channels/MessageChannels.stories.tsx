@@ -28,7 +28,7 @@ const OWN_SENDER = {
     created_at: '2026-08-18T00:00:00Z',
 }
 
-type StoryArgs = { integrations: Record<string, unknown>[] }
+type StoryArgs = { integrations: Record<string, unknown>[]; narrow?: boolean }
 
 const meta: Meta<StoryArgs> = {
     title: 'Products/Workflows/Channels',
@@ -41,12 +41,16 @@ const meta: Meta<StoryArgs> = {
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ integrations }) => {
+const Template: StoryFn<StoryArgs> = ({ integrations, narrow }) => {
     useStorybookMocks({
         get: { '/api/projects/:team_id/integrations/': { results: integrations } },
         post: { '/api/projects/:team_id/integrations/email_sandbox_sender/': SANDBOX_SENDER },
     })
-    return <MessageChannels />
+    return (
+        <div className={narrow ? 'w-[520px]' : undefined}>
+            <MessageChannels />
+        </div>
+    )
 }
 
 export const SandboxSenderOnly: StoryFn<StoryArgs> = Template.bind({})
@@ -54,3 +58,6 @@ SandboxSenderOnly.args = { integrations: [SANDBOX_SENDER] }
 
 export const SandboxAndOwnSender: StoryFn<StoryArgs> = Template.bind({})
 SandboxAndOwnSender.args = { integrations: [SANDBOX_SENDER, OWN_SENDER] }
+
+export const SandboxAndOwnSenderNarrow: StoryFn<StoryArgs> = Template.bind({})
+SandboxAndOwnSenderNarrow.args = { integrations: [SANDBOX_SENDER, OWN_SENDER], narrow: true }
