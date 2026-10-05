@@ -135,7 +135,7 @@ def test_other_http_errors_are_not_reported_as_invalid_credentials(http: respons
 def test_transient_errors_use_framework_retries(http: responses.RequestsMock, status: int) -> None:
     http.get(f"{BASE_URL}/holidays", status=status, json={"meta": {"code": status}, "response": []})
     http.get(f"{BASE_URL}/holidays", json={"meta": {"code": 200}, "response": {"holidays": []}})
-    with patch.object(cast(Any, RESTClient._send_request).retry, "sleep", return_value=None):
+    with patch.object(RESTClient._send_request.retry, "sleep", return_value=None):  # type: ignore[attr-defined]
         assert client().validate_credentials(1, None) == (True, None)
     assert len(http.calls) == 2
 
