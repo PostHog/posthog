@@ -15,6 +15,8 @@ import {
 import { IconMinus, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import DOMPurify from 'dompurify'
+
 import { shouldUseMarkdownPaste } from './documentModel'
 import { getInlineLinkPasteResult, getSelectionRange } from './domSelection'
 import { RestoreSelectionRequest, TableCellPosition, TextSelectionPointerStartEvent } from './editorTypes'
@@ -712,7 +714,7 @@ export function EditableTableCellContent({
 
         event.preventDefault()
         const container = document.createElement('div')
-        container.innerHTML = html
+        container.innerHTML = DOMPurify.sanitize(html)
         document.execCommand('insertHTML', false, inlineNodesToHtml(htmlElementToInlineNodes(container)))
         updateChildren(htmlElementToInlineNodes(event.currentTarget))
     }
