@@ -90,7 +90,7 @@ def donorbox_source(
         # A saved page belongs to its original date window, even if the pipeline watermark moved.
         date_from = resume.date_from
 
-    params: dict[str, str | int] = {"per_page": PAGE_SIZE, "order": "desc"}
+    params: dict[str, Any] = {"per_page": PAGE_SIZE, "order": "desc"}
     if date_from is not None:
         params["date_from"] = date_from
 
