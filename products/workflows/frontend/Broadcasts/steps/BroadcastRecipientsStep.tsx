@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconWarning } from '@posthog/icons'
+import { IconUpload, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,6 +18,8 @@ import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
+import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
+import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function AudienceSizePreview(): JSX.Element | null {
@@ -143,6 +145,8 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 export function BroadcastRecipientsStep(): JSX.Element {
     const { audienceProperties } = useValues(broadcastWizardLogic)
     const { setAudienceProperties } = useActions(broadcastWizardLogic)
+    const { props } = useMountedLogic(broadcastWizardLogic)
+    const { openListModal } = useActions(broadcastAudienceListLogic(props))
     const [audienceListOpen, setAudienceListOpen] = useState(false)
 
     return (
@@ -150,7 +154,8 @@ export function BroadcastRecipientsStep(): JSX.Element {
             <div>
                 <h2 className="m-0 text-xl font-semibold">Who should receive this email?</h2>
                 <p className="m-0 text-secondary">
-                    Filter by person properties or cohorts. Without filters, the broadcast goes to everyone.
+                    Filter by person properties or cohorts, or upload a list. Without filters, the broadcast goes to
+                    everyone.
                 </p>
             </div>
             <div className="flex items-start justify-between gap-2">
@@ -191,7 +196,19 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 hasRowOperator={false}
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
+            <div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconUpload />}
+                    onClick={openListModal}
+                    data-attr="broadcast-audience-add-list"
+                >
+                    Upload a list
+                </LemonButton>
+            </div>
             <BroadcastAudienceCohorts />
+            <BroadcastAudienceListModal />
             <MessageCategoryPicker />
         </div>
     )
