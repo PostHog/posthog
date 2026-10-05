@@ -252,6 +252,7 @@ interface TestableServer {
   detectedPrUrl: string | null;
   slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
   slackChartDelivery: boolean;
+  slackProgressChecklist: boolean;
   slackReplyContext: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
@@ -6140,6 +6141,9 @@ describe("AgentServer HTTP Mode", () => {
       expect(
         (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
       ).toContain("Cloud Task Execution");
+      expect(
+        (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
+      ).toContain("# Repository Conventions");
     });
 
     it("injects benjamin into codex instructions when POSTHOG_BENJAMIN is set", () => {
@@ -7607,6 +7611,25 @@ describe("AgentServer HTTP Mode", () => {
           expect(prompt).toContain(
             "Answer simple questions in a single sentence",
           );
+          delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+        },
+      );
+
+      it.each([
+        { checklist: true, expected: true },
+        { checklist: false, expected: false },
+      ])(
+        "asks for a plain-language task list only when the Slack reply streams it (checklist: $checklist)",
+        ({ checklist, expected }) => {
+          // The checklist is the Slack progress UI. Without it the task list is invisible,
+          // and asking for one only costs the agent turns.
+          process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
+          const s = createServer() as unknown as TestableServer;
+          s.slackProgressChecklist = checklist;
+
+          const prompt = s.buildCloudSystemPrompt();
+
+          expect(prompt.includes("# Progress checklist")).toBe(expected);
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         },
       );

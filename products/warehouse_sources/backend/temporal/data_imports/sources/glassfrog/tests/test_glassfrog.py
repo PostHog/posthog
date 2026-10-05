@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest import mock
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.glassfrog import (
     GLASSFROG_BASE_URL,
+    GLASSFROG_PAGE_SIZE,
     glassfrog_source,
     validate_credentials,
 )
@@ -65,7 +67,7 @@ class TestGetRows:
         RESTClient._send_request.retry.wait = self._original_wait  # type: ignore[attr-defined]
 
     @mock.patch(SESSION_PATCH)
-    def test_single_request_yields_rows_unwrapped_from_resource_key(self, MockSession) -> None:
+    def test_short_first_page_yields_rows_unwrapped_from_resource_key(self, MockSession) -> None:
         session = MockSession.return_value
         rows_body = [{"id": 1, "name": "General Company Circle"}, {"id": 2, "name": "Ops"}]
         prepared = _wire(session, [_response(200, {"circles": rows_body})])
@@ -73,9 +75,34 @@ class TestGetRows:
         rows = _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
 
         assert rows == rows_body
-        # No pagination params exist — the whole collection comes back in one request.
         assert session.send.call_count == 1
-        assert prepared[0].url == f"{GLASSFROG_BASE_URL}/circles"
+        assert prepared[0].url == f"{GLASSFROG_BASE_URL}/circles?per_page={GLASSFROG_PAGE_SIZE}&page=1"
+
+    @mock.patch(SESSION_PATCH)
+    def test_walks_pages_until_a_short_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        first_page = [{"id": i} for i in range(GLASSFROG_PAGE_SIZE)]
+        prepared = _wire(
+            session,
+            [_response(200, {"tensions": first_page}), _response(200, {"tensions": [{"id": GLASSFROG_PAGE_SIZE}]})],
+        )
+
+        rows = _rows(glassfrog_source("gf_key", "tensions", team_id=1, job_id="j"))
+
+        assert rows == [*first_page, {"id": GLASSFROG_PAGE_SIZE}]
+        assert session.send.call_count == 2
+        assert [parse_qs(urlsplit(p.url or "").query)["page"] for p in prepared] == [["1"], ["2"]]
+
+    @mock.patch(SESSION_PATCH)
+    def test_repeated_page_raises_instead_of_looping(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(GLASSFROG_PAGE_SIZE)]
+        _wire(session, [_response(200, {"tensions": full_page})] * 3)
+
+        with pytest.raises(ValueError, match="same rows"):
+            _rows(glassfrog_source("gf_key", "tensions", team_id=1, job_id="j"))
+
+        assert session.send.call_count == 2
 
     @mock.patch(SESSION_PATCH)
     def test_empty_collection_yields_no_rows(self, MockSession) -> None:
@@ -94,10 +121,22 @@ class TestGetRows:
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
 
-    @parameterized.expand([(name, config.path, config.data_selector) for name, config in GLASSFROG_ENDPOINTS.items()])
+    @parameterized.expand(
+        [
+            (
+                name,
+                config.path,
+                config.data_selector,
+                f"?per_page={GLASSFROG_PAGE_SIZE}"
+                + ("&exclude_completed=false" if name == "actions" else "")
+                + "&page=1",
+            )
+            for name, config in GLASSFROG_ENDPOINTS.items()
+        ]
+    )
     @mock.patch(SESSION_PATCH)
     def test_each_endpoint_requests_its_path_and_unwraps_its_key(
-        self, endpoint: str, path: str, data_selector: str, MockSession
+        self, endpoint: str, path: str, data_selector: str, query: str, MockSession
     ) -> None:
         session = MockSession.return_value
         prepared = _wire(session, [_response(200, {data_selector: [{"id": 42}]})])
@@ -105,7 +144,7 @@ class TestGetRows:
         rows = _rows(glassfrog_source("gf_key", endpoint, team_id=1, job_id="j"))
 
         assert rows == [{"id": 42}]
-        assert prepared[0].url == f"{GLASSFROG_BASE_URL}{path}"
+        assert prepared[0].url == f"{GLASSFROG_BASE_URL}{path}{query}"
 
     @mock.patch(SESSION_PATCH)
     def test_api_key_sent_via_header_auth(self, MockSession) -> None:
@@ -224,8 +263,8 @@ class TestGlassfrogSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        if endpoint == "projects":
-            # Partition on the stable creation timestamp — the only GlassFrog resource with one.
+        if endpoint in ("actions", "projects", "tensions"):
+            # Partition on the stable creation timestamp — only these GlassFrog resources have one.
             assert response.partition_keys == ["created_at"]
             assert response.partition_mode == "datetime"
         else:

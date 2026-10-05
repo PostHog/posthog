@@ -39,7 +39,11 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import type { FlagEvaluationsModeEnumApi, OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
+import type {
+    FlagEvaluationsModeEnumApi,
+    OrganizationMemberNoticeApi,
+    OrganizationNotificationLockApi,
+} from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -344,6 +348,7 @@ export enum AccessControlResourceType {
     WarehouseView = 'warehouse_view',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
+    BusinessKnowledge = 'business_knowledge',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
     ReplayScanner = 'replay_scanner',
@@ -487,6 +492,7 @@ export interface NotificationSettings {
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
+    task_comments_slack_dm?: boolean
 }
 
 export interface WebAnalyticsDigestMetricChange {
@@ -619,6 +625,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
     read_only_mcp_access?: boolean
+    member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -1127,8 +1134,6 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
-    Comments = 'comments',
-    Templates = 'templates',
     Settings = 'settings',
 }
 
@@ -1506,6 +1511,7 @@ export type SessionRecordingSnapshotParams = {
 export interface SessionRecordingSnapshotResponse {
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
+    replay_proxy_token?: string | null
 }
 
 export interface SessionPlayerSnapshotData {
@@ -2080,6 +2086,8 @@ export interface SessionRecordingPlaylistType {
     /** Whether this playlist is a synthetic (virtual) playlist that's computed on-demand */
     is_synthetic?: boolean
     _create_in_folder?: string | null
+    /** Write-only. */
+    creation_method?: 'new' | 'pin' | 'duplicate'
 }
 
 export interface SavedSessionRecordingPlaylistsFilters {
@@ -2491,6 +2499,7 @@ export interface BillingType {
         email?: string
         name?: string
     }
+    billing_managed_by_partner?: { partner_name: string } | null
 }
 
 export interface ClaimedCouponInfo {
@@ -4752,6 +4761,8 @@ export interface PreflightStatus {
     buffer_conversion_seconds?: number
     /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
     ai_gateway_url?: string | null
+    /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
+    webmcp_available?: boolean
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -4814,6 +4825,7 @@ export type HotKey =
     | 'x'
     | 'y'
     | 'z'
+    | '0'
     | '1'
     | '2'
     | '3'
@@ -4832,6 +4844,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
+    | 'minus'
     | 'delete'
     | 'atsign'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
@@ -4987,15 +5000,6 @@ export interface Group {
     group_type_index: GroupTypeIndex
     group_properties: Record<string, any>
     notebook: string | null
-}
-
-export interface UserInterviewType {
-    id: string
-    created_by: UserBasicType
-    created_at: string
-    transcript: string
-    summary: string
-    interviewee_emails: string[]
 }
 
 export enum ExperimentConclusion {
@@ -5219,6 +5223,7 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
+    run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
@@ -5638,6 +5643,7 @@ export const INTEGRATION_KINDS = [
     's3-compatible',
     'snowflake',
     'youtube-analytics',
+    'twitter-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6098,7 +6104,6 @@ export enum ActivityScope {
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     DATA_QUALITY_CHECK = 'DataQualityCheck',
-    USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
     EVALUATION = 'Evaluation',
@@ -7167,6 +7172,10 @@ export enum SidePanelTab {
     /** Access detail for one member or role. Opened programmatically from access control settings. */
     AccessDetail = 'access-detail',
     Info = 'info',
+    // A canvas scene replaces the general tabs with its own panel tabs.
+    CanvasChat = 'canvas-chat',
+    CanvasBlocks = 'canvas-blocks',
+    CanvasTimeline = 'canvas-timeline',
 }
 
 export interface ProductPricingTierSubrows {
@@ -7882,19 +7891,6 @@ export interface EmailSenderDomainStatus {
               priority?: number
           }
     )[]
-}
-
-// Representation of a `Link` model in our backend
-export type LinkType = {
-    id: string
-    redirect_url: string
-    short_link_domain: string
-    short_code: string
-    description?: string
-    created_by: UserBasicType
-    created_at: string
-    updated_at: string
-    _create_in_folder?: string | null
 }
 
 export interface DataWarehouseSourceRowCount {

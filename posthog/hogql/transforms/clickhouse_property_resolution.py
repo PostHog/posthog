@@ -28,7 +28,13 @@ from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import (
+    EXCEPTION_STRING_ARRAY_PROPERTIES,
+    FEATURE_FLAG_PROPERTY_PREFIX,
+    FEATURE_FLAG_VARIANT_SENTINELS,
+    INACTIVE_FEATURE_FLAG_VALUES,
+    is_virtual_feature_flag_key,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.errors import QueryError
@@ -38,6 +44,7 @@ from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS
 from posthog.hogql.restricted_properties import (
     mirrored_property_for_column,
     native_property_path_overlaps_restriction,
+    restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
 from posthog.hogql.type_system import (
@@ -568,29 +575,28 @@ def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) 
     return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
 
 
-def _false_variant_read(value: ast.Expr) -> ast.Expr:
-    """`value` with the `$false` sentinel read back as the variant name "false".
+def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
+    """`value` with each cleaner sentinel read back as the variant name it stands for.
 
-    The cleaner stores a variant named "false" as `$false` so it stays apart from a flag that was evaluated and switched
-    off, which the typed map holds as 'false'.
+    The cleaner stores a variant named "false" or "true" as `$false` or `$true`, so it stays apart from a boolean flag,
+    which the typed map holds as 'false' or 'true'.
     """
-    return _call(
-        "if",
-        [
-            _call("equals", [clone_expr(value), _const(FEATURE_FLAG_FALSE_VARIANT_SENTINEL)]),
-            _sentinel("false"),
-            value,
-        ],
-    )
+    branches: list[ast.Expr] = []
+    for sentinel, variant in FEATURE_FLAG_VARIANT_SENTINELS.items():
+        branches.append(_call("equals", [clone_expr(value), _const(sentinel)]))
+        branches.append(_sentinel(variant))
+    return _call("multiIf", [*branches, value])
 
 
 def _feature_flag_value_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
-    """`has(map, key) ? map[key] : null`, with the `$false` sentinel mapped back to "false"."""
+    """`has(map, key) ? map[key] : null`, with the cleaner sentinels mapped back to their variant names."""
     return ast.Call(
         name="if",
         args=[
             ast.Call(name="has", args=[clone_expr(feature_flags), ast.Constant(value=key)]),
-            _false_variant_read(ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))),
+            feature_flag_variant_read(
+                ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))
+            ),
             ast.Constant(value=None),
         ],
     )
@@ -615,8 +621,6 @@ def _is_moved_events_property(field_type: ast.FieldType, key: str, context: HogQ
         and _is_events_properties(field_type, context)
     )
 
-
-FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
 
 # JSON functions that take a key path and that nothing earlier rewrites to read one property. The printer passes them
 # the serialized `properties` document, which never holds a key the native cleaner moves to `temporary_properties`.
@@ -691,11 +695,6 @@ def _json_path_first_member(path: str) -> str | None:
     return next(member for member in match.groups() if member is not None)
 
 
-def _is_virtual_feature_flag_key(key: str) -> bool:
-    """Whether a native events property is rebuilt from the `$feature_flags` map instead of read under its own name."""
-    return key in ("$active_feature_flags", "$feature_flags") or key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
-
-
 def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.Expr | None:
     source = resolve_json_subcolumn_source(
         field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", "$feature_flags", context
@@ -708,12 +707,7 @@ def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.
 
 
 def _restricted_feature_flag_keys(field_type: ast.FieldType, context: HogQLContext) -> list[str]:
-    keys = (
-        key
-        for key in restricted_property_keys_for_table_type(field_type.table_type, context)
-        if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
-    )
-    return sorted(key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys)
+    return restricted_feature_flag_names(restricted_property_keys_for_table_type(field_type.table_type, context))
 
 
 def _not_in_lambda_values(name: str, values: list[str], *, is_sensitive: bool = False) -> ast.Call:
@@ -742,7 +736,7 @@ def _filter_feature_flags(feature_flags: ast.Expr, restricted_keys: list[str]) -
 def _compact_feature_flags_map(
     feature_flags: ast.Expr, restricted_keys: list[str], *, map_values: bool = True
 ) -> ast.Expr:
-    """The visible flags map, with `$false` read back as "false".
+    """The visible flags map, with the cleaner sentinels read back as their variant names.
 
     Presence checks pass `map_values=False`: the mapping cannot change the key set, so they skip the per-row `mapApply`.
     """
@@ -754,7 +748,9 @@ def _compact_feature_flags_map(
         args=[
             ast.Lambda(
                 args=["key", "value"],
-                expr=ast.Tuple(exprs=[_lambda_string_arg("key"), _false_variant_read(_lambda_string_arg("value"))]),
+                expr=ast.Tuple(
+                    exprs=[_lambda_string_arg("key"), feature_flag_variant_read(_lambda_string_arg("value"))]
+                ),
             ),
             filtered,
         ],
@@ -775,9 +771,9 @@ def _nonempty_container_json(value: ast.Expr, empty_json: str) -> ast.Expr:
 def _active_flag_lambda(restricted_keys: list[str] | None, key_predicate: ast.Expr | None = None) -> ast.Lambda:
     """`(key, value) -> value is active, key is not restricted, and `key_predicate` holds.
 
-    A variant named "false" is stored as `$false`, so it counts as active here.
+    The cleaner stores variants named "false" and "true" as `$false` and `$true`, so both count as active here.
     """
-    predicates: list[ast.Expr] = [_not_in_lambda_values("value", ["", "false"])]
+    predicates: list[ast.Expr] = [_not_in_lambda_values("value", list(INACTIVE_FEATURE_FLAG_VALUES))]
     if restricted_keys:
         predicates.append(_not_in_lambda_values("key", restricted_keys, is_sensitive=True))
     if key_predicate is not None:
@@ -830,7 +826,7 @@ def _feature_flag_compatibility_read(
     deeper_keys = list(node.keys[1:])
     if (
         not context.uses_new_events_schema()
-        or not _is_virtual_feature_flag_key(first_key)
+        or not is_virtual_feature_flag_key(first_key)
         or not _is_events_properties(field_type, context)
     ):
         return None
@@ -1227,7 +1223,7 @@ class ClickHousePropertyResolver(CloningVisitor):
     def _is_virtual_feature_flag_property(self, field_type: ast.FieldType, property_name: str) -> bool:
         return (
             self.context.uses_new_events_schema()
-            and _is_virtual_feature_flag_key(property_name)
+            and is_virtual_feature_flag_key(property_name)
             and _is_events_properties(field_type, self.context)
         )
 
@@ -1513,7 +1509,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
-        if not _is_virtual_feature_flag_key(first_key):
+        if not is_virtual_feature_flag_key(first_key):
             return None
 
         restricted_properties = restricted_property_keys_for_table_type(field_type.table_type, self.context)

@@ -46,10 +46,12 @@ from products.replay_vision.backend.temporal.activities import (
     mark_observation_ineligible_activity,
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
+    resolve_experiment_variant_activity,
     upload_video_to_gemini_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
+    CREATE_OBSERVATION_TIMEOUT,
     STATE_ACTIVITY_RETRY,
     STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
 )
@@ -91,6 +93,8 @@ from products.replay_vision.backend.temporal.types import (
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
     ObservationProgress,
+    ResolveExperimentVariantInputs,
+    ResolveExperimentVariantOutput,
     ScannerCallOutput,
     ScannerResult,
     UploadedVideo,
@@ -295,8 +299,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 triggered_by_user_id=inputs.triggered_by_user_id,
                 workflow_id=workflow_id,
                 backfill_id=inputs.backfill_id,
+                variant_sampling_rates=inputs.variant_sampling_rates,
             ),
-            start_to_close_timeout=dt.timedelta(seconds=30),
+            start_to_close_timeout=CREATE_OBSERVATION_TIMEOUT,
             schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_CREATE_OBSERVATION_RETRY,
         )
@@ -317,7 +322,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 retry_policy=STATE_ACTIVITY_RETRY,
             )
             self._advance_phase("fetching")
-            asset_result = await self._fetch_and_ensure_asset(inputs, observation_id)
+            asset_result, experiment_resolution = await self._fetch_and_ensure_asset(
+                inputs, observation_id, scanner_type
+            )
             self._advance_phase("rendering", rasterizer_workflow_id=_rasterizer_workflow_id(inputs))
             await self._run_rasterize_child(inputs, asset_result.asset_id)
             self._advance_phase("uploading")
@@ -339,9 +346,15 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     exported_asset_id=asset_result.asset_id,
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
+                    experiment_variant=(
+                        experiment_resolution.experiment_variant if experiment_resolution is not None else None
+                    ),
+                    experiment_context=(
+                        experiment_resolution.experiment_context if experiment_resolution is not None else None
+                    ),
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single
-                # call, and must cover both mission passes plus the one verify-positives draw: a pass that
+                # call, and must cover both mission passes: a pass that
                 # overruns would surface as a Temporal timeout labeled provider_transient when the real problem is
                 # the scanner's prompt.
                 start_to_close_timeout=dt.timedelta(minutes=20),
@@ -410,7 +423,12 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         signals_count=signals_count,
                         signal_problem_types=signal_problem_types,
                         signal_summaries=signal_summaries,
-                        verification=call_output.verification,
+                        experiment_variant=(
+                            experiment_resolution.experiment_variant if experiment_resolution is not None else None
+                        ),
+                        session_duration_s=(
+                            experiment_resolution.session_duration_s if experiment_resolution is not None else None
+                        ),
                     ),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
@@ -455,8 +473,29 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     pass
 
     async def _fetch_and_ensure_asset(
-        self, inputs: ApplyScannerInputs, observation_id: UUID
-    ) -> EnsureSessionAssetOutput:
+        self, inputs: ApplyScannerInputs, observation_id: UUID, scanner_type: ScannerType
+    ) -> tuple[EnsureSessionAssetOutput, ResolveExperimentVariantOutput | None]:
+        # Gating on scanner_type is deterministic: it comes from the create activity's recorded
+        # output. `patched` keeps histories from before attribution shipped replaying without the
+        # extra command.
+        resolve_task = None
+        if scanner_type == ScannerType.EXPERIMENT and wf.patched("replay-vision-experiment-variant-2026-09"):
+            # Rides alongside the fetch, so attribution costs no wall-clock. An unexposed session
+            # raises IneligibleSessionError here, before any model call and at no credit cost.
+            resolve_task = wf.execute_activity(
+                resolve_experiment_variant_activity,
+                ResolveExperimentVariantInputs(
+                    observation_id=observation_id,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                ),
+                # The linkage resolution can run a lazy exposure precomputation on its first touch
+                # of a large experiment, so it gets the fetch's budget rather than a state
+                # activity's 30 seconds.
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=_FETCH_RETRY,
+            )
         fetch_task = wf.execute_activity(
             fetch_session_events_activity,
             FetchSessionEventsInputs(
@@ -489,10 +528,19 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=_FETCH_RETRY,
             )
-            _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, _optional(network_task))
+            if resolve_task is not None:
+                _, asset_result, _, experiment_resolution = await asyncio.gather(
+                    fetch_task, asset_task, _optional(network_task), resolve_task
+                )
+            else:
+                _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, _optional(network_task))
+                experiment_resolution = None
+        elif resolve_task is not None:
+            _, asset_result, experiment_resolution = await asyncio.gather(fetch_task, asset_task, resolve_task)
         else:
             _, asset_result = await asyncio.gather(fetch_task, asset_task)
-        return asset_result
+            experiment_resolution = None
+        return asset_result, experiment_resolution
 
     async def _run_rasterize_child(self, inputs: ApplyScannerInputs, asset_id: int) -> None:
         try:

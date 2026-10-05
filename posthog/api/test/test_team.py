@@ -25,6 +25,8 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
+    handle_conversations_token_on_update,
+    merge_conversations_settings,
 )
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -1631,9 +1633,14 @@ def team_api_test_factory():
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
+            source_org_url = f"/api/organizations/{self.organization.id}/"
+            # Populates the source organization's cached project list before the move.
+            assert [team["id"] for team in self.client.get(source_org_url).json()["teams"]] == [self.team.id]
+
+            with self.captureOnCommitCallbacks(execute=True):
+                res = self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                )
 
             assert res.status_code == status.HTTP_200_OK, res.json()
             assert res.json()["id"] == self.team.id
@@ -1642,6 +1649,9 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             assert self.project.organization == other_org
             assert self.team.organization == other_org
+            source_org = self.client.get(source_org_url).json()
+            assert source_org["teams"] == []
+            assert source_org["projects"] == []
 
         def test_change_organization_reconciles_current_project_of_affected_users(self):
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
@@ -1901,6 +1911,19 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
+        @parameterized.expand([(["legacy", "list"],), ("legacy string",), (1,)])
+        def test_conversations_settings_merges_with_legacy_non_object_existing(self, legacy_value):
+            # Rows written before validation required an object/null can hold a stray
+            # array or scalar. A later object update must not 500 trying to merge it.
+            self.team.conversations_settings = legacy_value
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_color": "#ff0000"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_color"] == "#ff0000"
+
         def test_conversations_settings_change_reports_event_per_setting(self):
             with patch("posthog.api.team.report_user_action") as mock_report:
                 response = self.client.patch(
@@ -2063,9 +2086,10 @@ def team_api_test_factory():
             )
             assert bad.status_code == status.HTTP_400_BAD_REQUEST
 
-        def test_enabling_conversations_auto_generates_token(self):
+        @parameterized.expand([(None,), ("legacy string",), (["legacy", "list"],)])
+        def test_enabling_conversations_auto_generates_token(self, stored_settings):
             self.team.conversations_enabled = False
-            self.team.conversations_settings = None
+            self.team.conversations_settings = stored_settings
             self.team.save()
 
             response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
@@ -2084,16 +2108,23 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["widget_public_token"] == "existing_token_123"
 
-        def test_disabling_conversations_clears_token(self):
+        @parameterized.expand(
+            [
+                (
+                    {"widget_public_token": "some_token", "widget_color": "#123456"},
+                    {"widget_public_token": None, "widget_color": "#123456"},
+                ),
+                (1, {"widget_public_token": None}),
+            ]
+        )
+        def test_disabling_conversations_clears_token(self, stored_settings, expected_settings):
             self.team.conversations_enabled = True
-            self.team.conversations_settings = {"widget_public_token": "some_token", "widget_color": "#123456"}
+            self.team.conversations_settings = stored_settings
             self.team.save()
 
             response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
             assert response.status_code == status.HTTP_200_OK
-            settings = response.json()["conversations_settings"]
-            assert settings["widget_public_token"] is None
-            assert settings["widget_color"] == "#123456"
+            assert response.json()["conversations_settings"] == expected_settings
 
         def test_generate_conversations_public_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -4048,6 +4079,63 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand([(None,), ({},), ({"widget_color": "#123456"},)])
+    def test_conversations_settings_clear_without_managed_values(self, existing: dict[str, str] | None) -> None:
+        self.assertIsNone(merge_conversations_settings(None, existing))
+
+    @parameterized.expand([(enabling, has_token) for enabling in (False, True) for has_token in (False, True)])
+    def test_conversations_clear_retains_integration_state_on_toggle(self, enabling: bool, has_token: bool) -> None:
+        current: dict[str, object] = {
+            "widget_color": "#123456",
+            "slack_enabled": False,
+            "teams_tenant_id": None,
+        }
+        if has_token:
+            current["widget_public_token"] = "test-existing-token"
+        updates = {
+            "conversations_enabled": enabling,
+            "conversations_settings": merge_conversations_settings(None, current),
+        }
+
+        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+            result = handle_conversations_token_on_update(updates, not enabling, current)
+
+        token = ("test-existing-token" if has_token else "test-generated-token") if enabling else None
+        self.assertEqual(
+            result["conversations_settings"],
+            {"slack_enabled": False, "teams_tenant_id": None, "widget_public_token": token},
+        )
+
+    @parameterized.expand(
+        [(enabling, settings_input) for enabling in (False, True) for settings_input in ("omitted", "null", "empty")]
+    )
+    def test_conversations_token_update_respects_cleared_settings(self, enabling: bool, settings_input: str) -> None:
+        current_settings = {"widget_color": "#123456"}
+        updates: dict[str, object] = {"conversations_enabled": enabling}
+        if settings_input != "omitted":
+            updates["conversations_settings"] = None if settings_input == "null" else {}
+
+        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+            result = handle_conversations_token_on_update(updates, not enabling, current_settings)
+
+        expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
+        expected["widget_public_token"] = "test-generated-token" if enabling else None
+        self.assertEqual(result["conversations_settings"], expected)
+
+    @parameterized.expand(
+        [
+            (serializer, value)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for value in (list[object](), "text", 1, True)
+        ]
+    )
+    def test_conversations_settings_requires_an_object(
+        self, serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer], value: object
+    ) -> None:
+        serializer = serializer_class(data={"conversations_settings": value}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("conversations_settings", serializer.errors)
+
     @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
     def test_invalid_logs_json_attribute_key(self, key):
         self._assert_field_error(

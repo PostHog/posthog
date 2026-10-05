@@ -55,6 +55,9 @@ class FindBackfillCandidatesOutput(BaseModel, frozen=True):
     # False only when the walk genuinely reached the window start: a batch the caps truncated still
     # has work below the cursor. The tick completes the backfill exactly when this is False.
     more_work_below_cursor: bool
+    # The balanced per-variant rates this tick's candidates were sampled at (experiment scanners
+    # with balancing on; None otherwise and on pre-deploy histories).
+    variant_sampling_rates: dict[str, float] | None = None
 
 
 class AdvanceBackfillCursorInputs(BaseModel, frozen=True):

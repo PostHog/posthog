@@ -42,9 +42,8 @@ logger = logging.getLogger(__name__)
 
 REVIEW_STAGES = ["fetching", "chunking", "selecting", "reviewing", "deduplicating", "validating", "finalizing"]
 
-# An ACTIVE report only counts as running while its run is visibly moving (artefacts stream in
-# throughout a run); past this quiet window a review run stops rendering as live, and a resolution
-# run with no closing note starts rendering as died partway.
+# Artefacts and activity heartbeats keep active reviews fresh; stopped runs must age out so the UI
+# does not show a live spinner forever. A resolution run with no closing note then reads as stopped.
 IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 
 RESOLUTION_RESOLVING = "resolving"

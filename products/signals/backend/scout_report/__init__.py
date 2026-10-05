@@ -25,6 +25,7 @@ from products.signals.backend.scout_report.persistence import (
     emit_appended_report_evidence,
     find_scout_report_by_idempotency_key,
     get_content_revision_count,
+    get_scout_report_capture_snapshot,
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
@@ -35,6 +36,8 @@ from products.signals.backend.scout_report.persistence import (
     record_report_edit,
     record_scout_run_task_artefact,
     scout_report_exists,
+    scout_report_provenance,
+    scout_task_run_content,
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
@@ -44,6 +47,8 @@ from products.signals.backend.scout_report.persistence import (
     set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
+    validate_scout_report,
+    validate_scout_report_text,
 )
 
 __all__ = [
@@ -68,6 +73,7 @@ __all__ = [
     "get_content_revision_count",
     "get_scout_report_status",
     "get_scout_report_title",
+    "get_scout_report_capture_snapshot",
     "missing_link_targets",
     "prepare_scout_supersession",
     "record_content_revision",
@@ -75,6 +81,8 @@ __all__ = [
     "record_report_edit",
     "record_scout_run_task_artefact",
     "scout_report_exists",
+    "scout_report_provenance",
+    "scout_task_run_content",
     "set_report_charts",
     "set_report_metrics",
     "set_report_suggested_prompts",
@@ -84,4 +92,6 @@ __all__ = [
     "set_scout_report_reviewers",
     "soft_delete_scout_signal",
     "update_scout_report",
+    "validate_scout_report",
+    "validate_scout_report_text",
 ]

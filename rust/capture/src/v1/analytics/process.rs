@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
@@ -12,12 +13,11 @@ use super::constants::{
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_AI_EVENT_TOO_BIG,
-    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_MISROUTED_EVENT,
-    DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
-    ILLEGAL_DISTINCT_IDS,
+    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_MISROUTED_EVENT, DETAIL_NON_HISTORICAL_DROP,
+    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
-use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
+use super::types::{Batch, Event, EventResult, OptionKeys, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
@@ -410,8 +410,16 @@ fn emit_drop_warnings(state: &router::State, context: &Context, events: &[Wrappe
         return;
     }
 
-    // (count, identifiers-of-the-single-event-if-unique) per warning type.
-    type DropGroup<'a> = (u64, Option<(&'a str, Uuid)>);
+    struct DroppedEvent<'a> {
+        distinct_id: &'a str,
+        uuid: Uuid,
+    }
+    struct DropGroup<'a> {
+        count: u64,
+        /// The dropped event, kept only while the group has one event.
+        single_event: Option<DroppedEvent<'a>>,
+        failed_options: OptionKeys,
+    }
     let mut grouped: HashMap<WarningType, DropGroup> = HashMap::new();
     for ev in events {
         if ev.result != EventResult::Drop {
@@ -420,19 +428,39 @@ fn emit_drop_warnings(state: &router::State, context: &Context, events: &[Wrappe
         let Some(warning) = ev.details.and_then(WarningType::from_tag) else {
             continue;
         };
-        let entry = grouped
-            .entry(warning)
-            .or_insert((0, Some((ev.event.distinct_id.as_str(), ev.uuid))));
-        entry.0 += 1;
-        if entry.0 > 1 {
-            entry.1 = None;
+        let group = grouped.entry(warning).or_insert(DropGroup {
+            count: 0,
+            single_event: Some(DroppedEvent {
+                distinct_id: ev.event.distinct_id.as_str(),
+                uuid: ev.uuid,
+            }),
+            failed_options: OptionKeys::default(),
+        });
+        group.count += 1;
+        if group.count > 1 {
+            group.single_event = None;
         }
+        group.failed_options = group.failed_options.union(ev.failed_option_keys());
     }
 
     let request = context.warning_context();
-    for (warning, (count, single_event)) in grouped {
+    for (
+        warning,
+        DropGroup {
+            count,
+            single_event,
+            failed_options,
+        },
+    ) in grouped
+    {
         let mut details = serde_json::Map::new();
-        if let Some((distinct_id, uuid)) = single_event {
+        if !failed_options.is_empty() {
+            details.insert(
+                "invalidOptions".to_string(),
+                serde_json::json!(failed_options.names().collect::<Vec<_>>()),
+            );
+        }
+        if let Some(DroppedEvent { distinct_id, uuid }) = single_event {
             // A public request can submit a `distinct_id` far larger than
             // CAPTURE_V1_DISTINCT_ID_MAX_SIZE (that oversized value is exactly
             // what triggers `distinct_id_too_large`), so bound what enters the
@@ -525,21 +553,17 @@ fn validate_events(
 
         match validate_event(&event) {
             Ok(raw_ts) => {
-                // Options validation: coerce known fields or drop the event.
-                // The malformed-event metric (CAPTURE_V1_PARSED_EVENTS{malformed})
-                // is emitted uniformly by observe_malformed_events, matching the
-                // other validate-stage drops. Per-field detail is deferred to the
-                // sampled verbose-logging mode rather than logged per-event here.
+                // `observe_malformed_events` counts and logs this drop.
                 let options = match event.options.validate() {
                     Ok(opts) => opts,
-                    Err(_) => {
+                    Err(err) => {
                         events.push(WrappedEvent {
                             event,
                             uuid,
                             options: Options::default(),
                             adjusted_timestamp: None,
                             result: EventResult::Drop,
-                            details: Some(DETAIL_INVALID_OPTIONS),
+                            details: Some(err.detail()),
                             destination,
                             force_disable_person_processing: false,
                             spread_partitions: false,
@@ -627,13 +651,72 @@ fn observe_malformed_events(context: &RequestContext, events: &[WrappedEvent]) {
             .increment(*count);
     }
 
+    if !MALFORMED_EVENTS_LOG_GATE.try_pass(process_uptime_ms()) {
+        return;
+    }
+
     let summary: String = malformed
         .iter()
         .map(|(tag, count)| format!("{tag}={count}"))
         .collect::<Vec<_>>()
         .join(", ");
+    let failed_options = events
+        .iter()
+        .fold(OptionKeys::default(), |keys, event| {
+            keys.union(event.failed_option_keys())
+        })
+        .names()
+        .collect::<Vec<_>>()
+        .join(",");
 
-    crate::ctx_log!(Level::WARN, context, "malformed events: {summary}");
+    crate::ctx_log!(
+        Level::WARN,
+        context,
+        batch_size = events.len(),
+        capture_internal = context.capture_internal,
+        historical_migration = context.historical_migration,
+        failed_options = %failed_options,
+        "malformed events: {summary}"
+    );
+}
+
+/// Admits at most one caller per interval, process-wide.
+struct LogGate {
+    interval_ms: u64,
+    next_allowed_ms: AtomicU64,
+}
+
+impl LogGate {
+    const fn new(interval_ms: u64) -> Self {
+        Self {
+            interval_ms,
+            next_allowed_ms: AtomicU64::new(0),
+        }
+    }
+
+    fn try_pass(&self, now_ms: u64) -> bool {
+        let next_allowed = self.next_allowed_ms.load(AtomicOrdering::Relaxed);
+        now_ms >= next_allowed
+            && self
+                .next_allowed_ms
+                .compare_exchange(
+                    next_allowed,
+                    now_ms + self.interval_ms,
+                    AtomicOrdering::Relaxed,
+                    AtomicOrdering::Relaxed,
+                )
+                .is_ok()
+    }
+}
+
+/// Caps the malformed-events WARN at one line per second per pod to stop log floods.
+/// The metric still counts every drop.
+static MALFORMED_EVENTS_LOG_GATE: LogGate = LogGate::new(1_000);
+
+static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+fn process_uptime_ms() -> u64 {
+    PROCESS_START.elapsed().as_millis() as u64
 }
 
 /// Expects a pre-trimmed distinct_id (`Event.distinct_id` is trimmed at
@@ -1179,7 +1262,7 @@ mod tests {
     use crate::event_restrictions::{
         Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
-    use crate::v1::analytics::constants::CAPTURE_V1_PATH;
+    use crate::v1::analytics::constants::{CAPTURE_V1_PATH, DETAIL_INVALID_OPTIONS};
     use crate::v1::analytics::types::{Batch, Event};
     use crate::v1::sinks::{Destination, DEFAULT_SCATTER_GATHER_MIN_BATCH};
     use crate::v1::test_utils::{
@@ -1209,10 +1292,8 @@ mod tests {
         serde_json::from_str(&json.to_string()).unwrap()
     }
 
-    /// Runs `f` under a local metrics recorder and returns the recorded
-    /// `capture_v1_events_dropped` counter for the given `reason`+`stage` labels,
-    /// so whole-batch-abort tests can assert the exact per-event drop count.
-    fn dropped_count(reason: &str, stage: &str, f: impl FnOnce()) -> Option<u64> {
+    /// Runs `f` and returns counter `name` whose labels include all of `labels`.
+    fn counter_value(name: &str, labels: &[(&str, &str)], f: impl FnOnce()) -> Option<u64> {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
         let recorder = DebuggingRecorder::new();
@@ -1225,12 +1306,15 @@ mod tests {
             .into_vec()
             .into_iter()
             .find_map(|(key, _, _, value)| {
-                if key.key().name() != CAPTURE_V1_EVENTS_DROPPED {
+                if key.key().name() != name {
                     return None;
                 }
-                let labels: std::collections::HashMap<&str, &str> =
+                let recorded: std::collections::HashMap<&str, &str> =
                     key.key().labels().map(|l| (l.key(), l.value())).collect();
-                if labels.get("reason") != Some(&reason) || labels.get("stage") != Some(&stage) {
+                if labels
+                    .iter()
+                    .any(|(label, value)| recorded.get(label) != Some(value))
+                {
                     return None;
                 }
                 match value {
@@ -1238,6 +1322,15 @@ mod tests {
                     _ => None,
                 }
             })
+    }
+
+    /// The `capture_v1_events_dropped` count for `reason` and `stage` while `f` runs.
+    fn dropped_count(reason: &str, stage: &str, f: impl FnOnce()) -> Option<u64> {
+        counter_value(
+            CAPTURE_V1_EVENTS_DROPPED,
+            &[("reason", reason), ("stage", stage)],
+            f,
+        )
     }
 
     // --- validate_batch ---
@@ -1759,32 +1852,62 @@ mod tests {
         assert_eq!(event.details, Some("malformed_event_properties"));
     }
 
-    #[test]
-    fn validate_events_invalid_options_drops_single_event() {
-        use crate::v1::analytics::types::RawOptions;
+    /// Build an Event through serde, so distinct_id trimming applies.
+    fn event_with_options(uuid: &str, distinct_id: &str, options: serde_json::Value) -> Event {
+        serde_json::from_value(serde_json::json!({
+            "event": "$pageview",
+            "uuid": uuid,
+            "distinct_id": distinct_id,
+            "timestamp": "2026-03-19T14:29:58.123Z",
+            "options": options,
+        }))
+        .unwrap()
+    }
 
+    #[rstest::rstest]
+    #[case::bad_value("user-1", serde_json::json!({"cookieless_mode": [1, 2, 3]}), Some("invalid_options"))]
+    #[case::placeholder_without_option("$posthog_cookieless", serde_json::json!(null), None)]
+    #[case::placeholder_null_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": null}), None)]
+    #[case::placeholder_false("$posthog_cookieless", serde_json::json!({"cookieless_mode": false}), None)]
+    #[case::placeholder_with_option("$posthog_cookieless", serde_json::json!({"cookieless_mode": true}), None)]
+    fn validate_events_option_rules_drop_only_the_offending_event(
+        #[case] distinct_id: &str,
+        #[case] options: serde_json::Value,
+        #[case] expected_drop: Option<&'static str>,
+    ) {
         let ctx = test_utils::test_context();
-        let mut good = valid_event();
-        good.uuid = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d".to_string();
+        let batch = valid_batch(vec![
+            event_with_options(
+                "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "user-ok",
+                serde_json::json!(null),
+            ),
+            event_with_options("b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5e", distinct_id, options),
+        ]);
 
-        let mut bad = valid_event();
-        bad.uuid = "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5e".to_string();
-        bad.options = RawOptions(serde_json::json!({"cookieless_mode": [1, 2, 3]}));
-
-        let batch = Batch {
-            created_at: "2026-03-19T14:30:00.000Z".to_string(),
-            historical_migration: false,
-            capture_internal: None,
-            batch: vec![good, bad],
-        };
-        let events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap();
-        assert_eq!(events.len(), 2);
+        let mut events = Vec::new();
+        let malformed = counter_value(
+            CAPTURE_V1_PARSED_EVENTS,
+            &[
+                ("result", "malformed"),
+                ("error", expected_drop.unwrap_or("none")),
+            ],
+            || events = validate_events(&ctx, AiLanePredicate::Allowlist, batch).unwrap(),
+        );
 
         assert_eq!(events[0].result, EventResult::Ok);
-        assert_eq!(events[0].details, None);
-
-        assert_eq!(events[1].result, EventResult::Drop);
-        assert_eq!(events[1].details, Some("invalid_options"));
+        match expected_drop {
+            Some(tag) => {
+                assert_eq!(events[1].result, EventResult::Drop);
+                assert_eq!(events[1].details, Some(tag));
+                assert_eq!(malformed, Some(1));
+            }
+            None => {
+                assert_eq!(events[1].result, EventResult::Ok);
+                assert_eq!(events[1].details, None);
+                assert_eq!(malformed, None);
+            }
+        }
     }
 
     #[test]
@@ -4356,8 +4479,15 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
+    #[case::null_flag(serde_json::json!(null))]
+    #[case::real_false(serde_json::json!(false))]
+    #[case::lenient_no(serde_json::json!("no"))]
+    #[case::unreadable(serde_json::json!("maybe"))]
     #[tokio::test]
-    async fn import_mode_drops_non_historical_batch_and_publishes_nothing() {
+    async fn import_mode_drops_non_historical_batch_and_publishes_nothing(
+        #[case] flag: serde_json::Value,
+    ) {
         // Import mode exists to ingest backfills only: a batch without
         // historical_migration must be fully dropped (200, per-event Drop) and
         // never published — otherwise live traffic could sneak in via the
@@ -4366,7 +4496,7 @@ mod tests {
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
         let mut ctx = test_utils::test_analytics_context();
-        let batch = valid_batch(vec![valid_event(), valid_event()]);
+        let batch = batch_with_historical_flag(flag, vec![valid_event(), valid_event()]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
@@ -4380,15 +4510,32 @@ mod tests {
             .with_records(|records| assert!(records.is_empty(), "nothing may be published"));
     }
 
+    fn batch_with_historical_flag(flag: serde_json::Value, events: Vec<Event>) -> Batch {
+        let parsed: Batch = serde_json::from_value(serde_json::json!({
+            "created_at": "2026-03-19T14:30:00.000Z",
+            "historical_migration": flag,
+            "batch": [],
+        }))
+        .unwrap();
+        Batch {
+            batch: events,
+            ..parsed
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::real_bool(serde_json::json!(true))]
+    #[case::lenient_word(serde_json::json!("yes"))]
+    #[case::lenient_number(serde_json::json!(1))]
     #[tokio::test]
-    async fn import_mode_publishes_historical_batch() {
+    async fn import_mode_publishes_historical_batch(#[case] flag: serde_json::Value) {
         // The happy path: a properly flagged historical batch flows through
         // Import mode exactly like Events mode and reaches the sink.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
         let mut ctx = test_utils::test_analytics_context();
-        let batch = historical_batch(vec![valid_event(), valid_event()]);
+        let batch = batch_with_historical_flag(flag, vec![valid_event(), valid_event()]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
@@ -4781,6 +4928,123 @@ mod tests {
             emitted[0].extra_details.get("eventUuid"),
             Some(&serde_json::json!(oversized_uuid))
         );
+    }
+
+    /// Option drops are per event, share one `invalid_options` warning, and lenient forms pass.
+    #[rstest::rstest]
+    #[case::analytics_deployment(CaptureMode::Events, "$pageview")]
+    #[case::ai_deployment(CaptureMode::Ai, "$ai_generation")]
+    #[tokio::test]
+    async fn option_drops_report_their_reason_and_share_one_warning(
+        #[case] capture_mode: CaptureMode,
+        #[case] event_name: &str,
+    ) {
+        use crate::v1::analytics::types::RawOptions;
+
+        let collector = Arc::new(CollectingEmitter::new());
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(capture_mode)
+            .with_ingestion_warning_emitter(collector.clone())
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let event = |distinct_id: &str, options: serde_json::Value| Event {
+            distinct_id: distinct_id.to_string(),
+            options: RawOptions(options),
+            ..named_event(event_name)
+        };
+        let bad_cookieless = event("user-3", serde_json::json!({"cookieless_mode": "maybe"}));
+        let bad_cookieless_again = event("user-4", serde_json::json!({"cookieless_mode": [1]}));
+        let bad_tour = event("user-1", serde_json::json!({"product_tour_id": true}));
+        let cookieless_ok = event(
+            "$posthog_cookieless",
+            serde_json::json!({"cookieless_mode": true}),
+        );
+        let lenient_ok = event(
+            "user-2",
+            serde_json::json!({
+                "cookieless_mode": "YES",
+                "disable_skew_correction": "off",
+                "process_person_profile": 0.0,
+                "product_tour_id": 5
+            }),
+        );
+        let lenient_placeholder_ok = event(
+            "$posthog_cookieless",
+            serde_json::json!({
+                "cookieless_mode": " t ",
+                "disable_skew_correction": 1,
+                "process_person_profile": "n"
+            }),
+        );
+        let expected: HashMap<Uuid, (EventResult, Option<&str>)> = HashMap::from([
+            (
+                bad_cookieless.uuid.parse().unwrap(),
+                (EventResult::Drop, Some("invalid_options")),
+            ),
+            (
+                bad_cookieless_again.uuid.parse().unwrap(),
+                (EventResult::Drop, Some("invalid_options")),
+            ),
+            (
+                bad_tour.uuid.parse().unwrap(),
+                (EventResult::Drop, Some("invalid_options")),
+            ),
+            (cookieless_ok.uuid.parse().unwrap(), (EventResult::Ok, None)),
+            (lenient_ok.uuid.parse().unwrap(), (EventResult::Ok, None)),
+            (
+                lenient_placeholder_ok.uuid.parse().unwrap(),
+                (EventResult::Ok, None),
+            ),
+        ]);
+        let batch = valid_batch(vec![
+            bad_cookieless,
+            bad_cookieless_again,
+            bad_tour,
+            cookieless_ok,
+            lenient_ok,
+            lenient_placeholder_ok,
+        ]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let results: HashMap<Uuid, (EventResult, Option<&str>)> = resp
+            .entries()
+            .iter()
+            .map(|(uuid, entry)| (*uuid, (entry.result, entry.details)))
+            .collect();
+        assert_eq!(results, expected);
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1, "every option drop shares one warning");
+        assert_eq!(emitted[0].warning, WarningType::InvalidOptions);
+        assert_eq!(emitted[0].count, 3);
+        assert_eq!(
+            emitted[0].extra_details.get("invalidOptions"),
+            Some(&serde_json::json!(["cookieless_mode", "product_tour_id"]))
+        );
+    }
+
+    #[test]
+    fn failed_option_keys_ignore_drops_for_other_reasons() {
+        let mut dropped = malformed_wrapped_event();
+        dropped.event.options = crate::v1::analytics::types::RawOptions(serde_json::json!({
+            "cookieless_mode": "maybe"
+        }));
+        assert!(dropped.failed_option_keys().is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case::first_call_passes(&[0], &[true])]
+    #[case::second_call_in_the_interval_is_blocked(&[0, 999], &[true, false])]
+    #[case::call_after_the_interval_passes(&[0, 999, 1_000], &[true, false, true])]
+    #[case::interval_restarts_from_the_last_pass(&[5_000, 5_500, 6_000, 6_999], &[true, false, true, false])]
+    fn log_gate_lets_one_call_through_per_interval(
+        #[case] times_ms: &[u64],
+        #[case] expected: &[bool],
+    ) {
+        let gate = LogGate::new(1_000);
+        let passed: Vec<bool> = times_ms.iter().map(|now| gate.try_pass(*now)).collect();
+        assert_eq!(passed, expected);
     }
 
     /// Drops from different stages of one batch each surface once. Validation

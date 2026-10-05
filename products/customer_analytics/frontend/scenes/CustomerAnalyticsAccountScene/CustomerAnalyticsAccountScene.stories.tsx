@@ -10,7 +10,8 @@ import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '.
 import { createAccountViewContent } from './accountViewDocument'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
-const EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
+const EXTERNAL_ACCOUNT_ID = '0190f3a2-6b7c-7d8e-9f01-23456789abcd'
+const URL_UNSAFE_EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_BY_EXTERNAL_ID_ENDPOINT = 'api/projects/:team_id/accounts/by_external_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
@@ -116,8 +117,8 @@ const meta: Meta = {
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: account,
                 [ACCOUNT_BY_EXTERNAL_ID_ENDPOINT]: ({ request }) =>
-                    new URL(request.url).searchParams.get('external_id') === EXTERNAL_ACCOUNT_ID
-                        ? account
+                    new URL(request.url).searchParams.get('external_id') === URL_UNSAFE_EXTERNAL_ACCOUNT_ID
+                        ? { ...account, external_id: URL_UNSAFE_EXTERNAL_ACCOUNT_ID }
                         : [400, null],
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: notebooks,
                 [ACCOUNT_ICON_ENDPOINT]: () =>
@@ -197,7 +198,7 @@ export const Default: Story = {
 export const ExternalId: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.customerAnalyticsAccountByExternalId(EXTERNAL_ACCOUNT_ID, 'usage'),
+        pageUrl: urls.customerAnalyticsAccountByExternalId(URL_UNSAFE_EXTERNAL_ACCOUNT_ID, 'usage'),
         testOptions: {
             waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
             viewport: { width: 1280, height: 900 },
