@@ -105,7 +105,7 @@ def _is_shareable_hogql_error(cls: object) -> TypeIs[type[ExposedHogQLError]]:
 
 def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
     """The leader's exception again, marked as served by the flight. None when this code version
-    cannot rebuild it, in which case the follower fails with QueryRanConcurrently."""
+    cannot rebuild it, in which case the follower runs the query itself."""
     error: Exception
     if failure.code is not None:
         error = wrap_clickhouse_query_error(ServerException(failure.message, code=failure.code))

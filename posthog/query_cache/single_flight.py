@@ -123,8 +123,9 @@ class QuerySingleFlight:
     """Collapses concurrent blocking executions of one cache key onto one leader.
 
     Followers wait while the leader holds the lock, then serve the entry it published or fail the
-    way it published. A follower runs the query only when the flight itself is unavailable: storage
-    errors and unreadable publications fail open to independent execution, never to a query failure.
+    way it published. A follower runs the query when the leader failed in a way it could not share,
+    or when the flight itself is unavailable: storage errors and unreadable publications fail open
+    to independent execution, never to a query failure.
     """
 
     def __init__(self, cache_key: str, budget: Budget, variant: str = "") -> None:
