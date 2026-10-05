@@ -44,25 +44,26 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
         self.source = "events_json" if native else "events"
         self.storage = "sharded_events_json" if native else "sharded_events"
 
-    def _insert_events(self, rows: list[tuple]) -> None:
-        insert = f"INSERT INTO {self.storage} (team_id, event, uuid, timestamp, distinct_id, person_id, properties, inserted_at)"
+    def _insert_events(self, rows: list[tuple], *, person_mode: str = "full") -> None:
+        insert = f"INSERT INTO {self.storage} (team_id, event, uuid, timestamp, distinct_id, person_id, properties, inserted_at, person_mode)"
         if self.native:
             for start in range(0, len(rows), 10):
                 batch = rows[start : start + 10]
                 values = ", ".join(f"%(row_{index})s" for index in range(len(batch)))
                 sync_execute(
                     f"{insert} SELECT c1, c2, c3, toDateTime64(c4, 6, 'UTC'), c5, c6, c7, "
-                    f"toDateTime64(c8, 6, 'UTC') FROM values({values})",
+                    f"toDateTime64(c8, 6, 'UTC'), %(person_mode)s FROM values({values})",
                     {
                         f"row_{index}": tuple(
                             value.strftime("%Y-%m-%d %H:%M:%S.%f") if isinstance(value, datetime) else value
                             for value in row
                         )
                         for index, row in enumerate(batch)
-                    },
+                    }
+                    | {"person_mode": person_mode},
                 )
         else:
-            sync_execute(f"{insert} VALUES", rows)
+            sync_execute(f"{insert} VALUES", [(*row, person_mode) for row in rows])
 
     def _insert_membership(self, rows: list[tuple]) -> None:
         sync_execute(
@@ -116,6 +117,21 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
                     )
                 )
         self._insert_events(events)
+        self._insert_events(
+            [
+                (
+                    self.team.pk,
+                    "keep",
+                    uuid4(),
+                    self.start + timedelta(days=20),
+                    keys[0][1],
+                    uuid4(),
+                    json.dumps({"$group_0": keys[0][0]}),
+                    self.start,
+                )
+            ],
+            person_mode="propertyless",
+        )
         self._insert_membership(
             [
                 (self.team.pk, 0 if i < 3 else 4, key, did, self.start, self.start + timedelta(days=12))
