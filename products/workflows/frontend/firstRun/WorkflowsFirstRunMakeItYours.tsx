@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconArrowLeft } from '@posthog/icons'
@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { urls } from 'scenes/urls'
 
+import { firstRunEmailAgentLogic } from './firstRunEmailAgentLogic'
 import { firstRunGalleryLogic } from './firstRunGalleryLogic'
 import { firstRunMakeItYoursLogic } from './firstRunMakeItYoursLogic'
 import { MakeItYoursActions } from './MakeItYoursActions'
@@ -15,6 +16,7 @@ import { TemplateStartsOnLine } from './TemplateStartsOnLine'
 
 export function WorkflowsFirstRunMakeItYours({ templateId }: { templateId: string }): JSX.Element {
     const logic = firstRunMakeItYoursLogic({ templateId })
+    useMountedLogic(firstRunEmailAgentLogic({ templateId }))
     const { galleryTemplates, galleryLoadFailed, pickedTemplate, templateEmails, openEmail, openEmailPosition } =
         useValues(logic)
     const { editEmail } = useActions(logic)

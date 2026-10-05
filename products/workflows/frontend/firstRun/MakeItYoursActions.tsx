@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { firstRunEmailAgentLogic } from './firstRunEmailAgentLogic'
 import { TestSendOutcome, firstRunMakeItYoursLogic } from './firstRunMakeItYoursLogic'
 
 export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.Element {
@@ -21,6 +23,9 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
         createError,
     } = useValues(logic)
     const { sendTest, createWorkflow, setEnableWorkflow } = useActions(logic)
+    const emailAgentLogic = firstRunEmailAgentLogic({ templateId })
+    const { aiDisabledReason } = useValues(emailAgentLogic)
+    const { openEmailAgent } = useActions(emailAgentLogic)
 
     return (
         <div className="flex flex-col gap-3" data-attr="first-run-actions">
@@ -31,6 +36,17 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
                 </LemonBanner>
             )}
             {testSendOutcome && <TestSendOutcomeBanner outcome={testSendOutcome} />}
+            <LemonButton
+                type="secondary"
+                center
+                fullWidth
+                icon={<IconSparkles />}
+                onClick={() => openEmailAgent()}
+                disabledReason={aiDisabledReason}
+                data-attr="first-run-change-with-ai"
+            >
+                Change with PostHog AI
+            </LemonButton>
             <LemonButton
                 type="secondary"
                 center
