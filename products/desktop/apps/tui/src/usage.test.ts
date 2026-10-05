@@ -63,4 +63,10 @@ describe("usageStatus", () => {
   ])("draws %o and %o as %s", (fill, cost, expected) => {
     expect(stripTerminalSequences(usageStatus(fill, cost))).toBe(expected);
   });
+
+  it("draws the cost faint, leaving only the donut in colour", () => {
+    expect(usageStatus({ tokens: 50, window: 100 }, 3.12)).toMatch(
+      new RegExp(`${"\u001b"}\\[2m • \\$3\\.12${"\u001b"}\\[22m$`),
+    );
+  });
 });
