@@ -48,7 +48,16 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
-from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals, fetch_app_metric_totals_by_source
+from posthog.api.app_metrics2 import (
+    AppMetricResponseSerializer,
+    AppMetricsMixin,
+    AppMetricsRequestSerializer,
+    AppMetricsTotalsResponseSerializer,
+    fetch_app_metric_totals,
+    fetch_app_metric_totals_by_source,
+    fetch_app_metric_totals_by_team_and_source,
+    fetch_app_metrics_trends,
+)
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
     HogInvocationCancelRequestSerializer,
