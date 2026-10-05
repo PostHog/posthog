@@ -1818,10 +1818,7 @@ class TestSalesReports:
 
     @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_sales_report_vendor_number_400_fails_fast(self) -> None:
-        # SALES reports mostly 404 a quiet day, but Apple has also been observed 400ing one with the
-        # same misleading "invalid vendor number" wording subscription-family reports always use.
-        # There's no independent report type left to cross-check a SALES failure against, so this
-        # reads as an unknown vendor number and fails fast rather than retrying the same date forever.
+        # A SALES request cannot be independently cross-checked, so fail fast rather than exhausting retries.
         api = _FakeReportApi({}, sales_status_code=400)
 
         with pytest.raises(AppStoreConnectReportError, match="does not recognize the vendor number"):
