@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
 import {
@@ -14,10 +11,10 @@ import {
     enrichRunnerCandidates,
     fetchCandidatePools,
     fetchTrunkQuarantined,
-    loadQuarantineFile,
     flakyTestsUrl,
     quarantineStatusFor,
     REPORT_RUNNERS,
+    resolveFacts,
     selectReportCandidates,
     sharedTrunkLookup,
     tableRows,
@@ -286,8 +283,7 @@ describe('weekly flaky report', () => {
         const runnerReports = await buildRunnerReports(
             candidatePools,
             async () => () => ({ evidence: [] }),
-            async () => null,
-            () => () => null
+            async () => null
         )
 
         for (const { runner, candidates } of runnerReports) {
@@ -463,47 +459,13 @@ describe('weekly flaky report', () => {
         )
     })
 
-    it('labels how each quarantine system suppresses a test instead of dropping it', () => {
-        const quarantineFile = { runner: 'pytest', selector: 'file.py::test_file', classification: 'quarantined' }
-        // Quarantined earlier in the window, un-quarantined since, and failing on its own now.
-        const unparked = {
-            runner: 'pytest',
-            selector: 'expired.py::test_expired',
-            classification: 'quarantined',
-            quarantined_failed_run_count: 3,
-            failed_run_count: 4,
-        }
+    it('labels how Trunk suppresses a test instead of dropping it', () => {
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
         const overdue = { runner: 'pytest', selector: 'overdue.py::test_overdue', failed_run_count: 7 }
         const unlimited = { runner: 'pytest', selector: 'unlimited.py::test_unlimited', failed_run_count: 3 }
         const undated = { runner: 'pytest', selector: 'undated.py::test_undated', failed_run_count: 2 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
-        const items = [quarantineFile, unparked, trunked, overdue, unlimited, undated, plain]
-        const directory = mkdtempSync(join(tmpdir(), 'quarantine-'))
-        const file = join(directory, 'quarantine.json')
-        const now = new Date('2026-07-15T00:00:00Z')
-        const entry = (id, runner, expires) => ({ id, runner, added: '2026-07-01', expires })
-        let fileFor
-        try {
-            writeFileSync(
-                file,
-                JSON.stringify({
-                    version: 1,
-                    entries: [
-                        // A file-level entry covers every test in the file.
-                        entry('file.py', 'pytest', '2026-07-20'),
-                        entry(unparked.selector, 'pytest', '2026-07-14'),
-                        entry(plain.selector, 'jest', '2026-07-20'),
-                    ],
-                })
-            )
-            fileFor = loadQuarantineFile('pytest', items, { file, now })
-            // A file that breaks the contract is unknown, which is not the same as no entry.
-            writeFileSync(file, JSON.stringify({ version: 2, entries: [] }))
-            assert.equal(loadQuarantineFile('pytest', items, { file, now }), null)
-        } finally {
-            rmSync(directory, { recursive: true })
-        }
+        const items = [trunked, overdue, unlimited, undated, plain]
         const trunkRows = new Map([
             [trunked.selector, { quarantinedAt: '2026-07-13T17:12:22Z', overdue: false, fixBy: '2026-07-28' }],
             [overdue.selector, { quarantinedAt: '2026-06-20T08:00:00Z', overdue: true, fixBy: '2026-07-05' }],
@@ -514,15 +476,13 @@ describe('weekly flaky report', () => {
 
         const cells = (masksCi) =>
             tableRows(
-                items,
+                resolveFacts(items, trunkFor),
                 () => ({ owner: 'team-devex', repoPath: null }),
                 () => ({ evidence: [] }),
-                quarantineStatusFor(trunkFor, fileFor, masksCi)
+                (item) => quarantineStatusFor(item, masksCi)
             ).map((row) => row[3].text)
 
         assert.deepEqual(cells(true), [
-            'until 2026-07-20',
-            'expired 2026-07-14',
             'fix by 2026-07-28',
             'overdue since 2026-07-05',
             'since 2026-07-13',
@@ -530,28 +490,18 @@ describe('weekly flaky report', () => {
             '-',
         ])
         // Masking off leaves Trunk's failure reddening CI, so the date would overclaim.
-        assert.deepEqual(cells(false), [
-            'until 2026-07-20',
-            'expired 2026-07-14',
-            'flagged',
-            'flagged',
-            'flagged',
-            'flagged',
-            '-',
-        ])
+        assert.deepEqual(cells(false), ['flagged', 'flagged', 'flagged', 'flagged', '-'])
     })
 
     it('keeps a Trunk-quarantined test in the report and counts suppressed cluster members', async () => {
         const clustered = Array.from({ length: CLUSTER_MIN_TESTS }, (_, index) => ({
             runner: 'pytest',
-            // Two members parked via the quarantine file: suppressed whichever way TRUNK_* masking
-            // resolves, so the count holds without pinning the env. A Trunk-marked member with
-            // masking off is only 'flagged' and must not count as suppressed.
-            classification: index < 2 ? 'quarantined' : 'confirmed_flake',
+            classification: 'confirmed_flake',
             selector: `shared.py::test_${index}`,
-            failed_run_count: index < 2 ? 0 : 2,
-            quarantined_failed_run_count: index < 2 ? 3 : 0,
-            same_commit_recovery_run_count: index < 2 ? 0 : 1,
+            // The first two members are listed in Trunk.
+            failed_run_count: index < 2 ? 3 : 2,
+            quarantined_failed_run_count: 0,
+            same_commit_recovery_run_count: 1,
             master_failed_run_count: 0,
             failed_pr_count: 1,
         }))
@@ -565,16 +515,19 @@ describe('weekly flaky report', () => {
             same_commit_recovery_run_count: 0,
             quarantined_failed_run_count: 0,
         }
-        const [{ candidates, statusFor }] = await buildRunnerReports(
-            [{ runner: 'pytest', candidates: [...clustered, trunked] }],
-            async () => () => ({ evidence: [] }),
-            async () => (item) =>
-                item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null,
-            () => (item) => (item.classification === 'quarantined' ? { expires: '2026-08-01' } : null)
-        )
+        const listed = new Set([trunked.selector, clustered[0].selector, clustered[1].selector])
+        const report = async (masksCi) => {
+            const [{ candidates }] = await buildRunnerReports(
+                [{ runner: 'pytest', candidates: [...clustered, trunked] }],
+                async () => () => ({ evidence: [] }),
+                async () => (item) => (listed.has(item.selector) ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null),
+                masksCi
+            )
+            return candidates
+        }
+        const candidates = await report(true)
 
-        // A file-quarantined member failed 3 runs as xfail. Members share runs, so the cluster
-        // reports the largest member count and not the sum.
+        // Members share runs, so the cluster reports the largest member count and not the sum.
         assert.deepEqual(
             candidates.map((candidate) => [candidate.selector, candidate.failed_run_count]),
             [
@@ -582,14 +535,19 @@ describe('weekly flaky report', () => {
                 ['shared.py', 3],
             ]
         )
-        assert.equal(statusFor(candidates[1]), `2/${CLUSTER_MIN_TESTS}`)
-        // Truthy either way TRUNK_* masking resolves, so this holds without pinning the env.
-        assert.ok(statusFor(trunked))
+        assert.deepEqual(
+            candidates.map((candidate) => quarantineStatusFor(candidate, true)),
+            ['since 2026-07-13', `2/${CLUSTER_MIN_TESTS}`]
+        )
+        // A Trunk-marked member with masking off is only 'flagged' and must not count as suppressed.
+        assert.deepEqual(
+            (await report(false)).map((candidate) => quarantineStatusFor(candidate, false)),
+            ['flagged', null]
+        )
         const [clusterRow] = tableRows(
             [candidates[1]],
             () => ({ owner: 'team-devex', repoPath: null }),
-            () => ({ evidence: [] }),
-            statusFor
+            () => ({ evidence: [] })
         )
         // The cluster counts are floors over overlapping member sets, never exact counts.
         assert.deepEqual(clusterRow[4], { type: 'raw_text', text: '1+' })
