@@ -14,9 +14,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { VariableSpecificFields } from '~/queries/nodes/DataVisualization/Components/Variables/VariableForm'
+import { formatVariableReference } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
-import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
+import { VARIABLE_TYPE_OPTIONS, getCodeName } from './constants'
 import { VARIABLE_INSIGHT_COLUMNS } from './insightColumns'
 import {
     SqlVariableEditSceneLogicProps,

@@ -836,6 +836,16 @@ const HOGQL_IDENTIFIER_ESCAPE_MAP: Record<string, string> = {
     '\\': '\\\\',
 }
 
+const HOGQL_IDENTIFIER_UNESCAPE_MAP: Record<string, string> = Object.fromEntries(
+    Object.entries(HOGQL_IDENTIFIER_ESCAPE_MAP).map(([raw, escaped]) => [escaped[1], raw])
+)
+
+/** Reverse escapeRawPropertyAsHogQLIdentifier: undouble the delimiter, then undo the escape map. */
+export function unescapeHogQLIdentifier(body: string, delimiter: '`' | '"'): string {
+    const undoubled = body.replaceAll(delimiter + delimiter, delimiter)
+    return undoubled.replace(/\\(.)/g, (match, char: string) => HOGQL_IDENTIFIER_UNESCAPE_MAP[char] ?? match)
+}
+
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
 export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {

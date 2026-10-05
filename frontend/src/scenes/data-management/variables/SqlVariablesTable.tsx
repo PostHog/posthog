@@ -9,9 +9,10 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { formatVariableReference } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 
-import { VARIABLE_TYPE_LABELS, formatVariableReference } from './constants'
+import { VARIABLE_TYPE_LABELS } from './constants'
 import { sqlVariablesLogic } from './sqlVariablesLogic'
 
 export function SqlVariablesTable(): JSX.Element {
