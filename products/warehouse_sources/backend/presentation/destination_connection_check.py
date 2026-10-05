@@ -81,6 +81,8 @@ def _query_deadline(connection: psycopg.Connection, timeout_seconds: float) -> I
         yield
     finally:
         timer.cancel()
+        # Wait for a callback that already started before the connection owner can close and reuse its descriptor.
+        timer.join()
 
 
 def check_postgres_destination(integration: Integration, config: dict[str, str] | None) -> None:

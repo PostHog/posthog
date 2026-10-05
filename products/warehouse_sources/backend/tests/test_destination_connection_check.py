@@ -58,6 +58,7 @@ def test_query_deadline_interrupts_the_connection_socket() -> None:
     timer_constructor.assert_called_once_with(5, timer_constructor.call_args.args[1])
     timer.start.assert_called_once_with()
     timer.cancel.assert_called_once_with()
+    timer.join.assert_called_once_with()
     socket_constructor.assert_called_once_with(fileno=42)
     socket_constructor.return_value.shutdown.assert_called_once_with(socket.SHUT_RDWR)
     socket_constructor.return_value.detach.assert_called_once_with()
