@@ -16,6 +16,8 @@ interface TodayNavItemProps {
     state?: BriefingItemStateEnumApi
     onClick?: () => void
     onHoverChange?: (hovered: boolean) => void
+    /** A control on the row's right edge, outside the row's own link. */
+    action?: JSX.Element | null
     dataAttr?: string
 }
 
@@ -31,14 +33,16 @@ export function TodayNavItem({
     state = 'open',
     onClick,
     onHoverChange,
+    action,
     dataAttr,
 }: TodayNavItemProps): JSX.Element {
-    return (
+    const link = (
         <Link
             to={to}
             target={target}
             subtle
             className="TodayNavItem"
+            data-has-action={!!action}
             data-active={active || current}
             aria-current={current ? 'page' : undefined}
             data-state={state}
@@ -60,5 +64,14 @@ export function TodayNavItem({
                 <span className="TodayNavItem__meta">{meta}</span>
             </span>
         </Link>
+    )
+    if (!action) {
+        return link
+    }
+    return (
+        <div className="TodayNavItem__row">
+            {link}
+            <span className="TodayNavItem__action">{action}</span>
+        </div>
     )
 }

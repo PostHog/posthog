@@ -74,7 +74,7 @@ export type TodayAskSource = 'ask_box' | 'walk_through' | 'report_page'
 export type TodayReportVerdict = 'resolve' | 'dismiss'
 
 /** Where the person gave the verdict, sent with the `today report state changed` event. */
-export type TodayReportVerdictSurface = TodayReportPreview['surface'] | 'report_page'
+export type TodayReportVerdictSurface = TodayReportPreview['surface'] | 'report_page' | 'sidebar_row'
 
 /** The report a verdict acts on. */
 export interface TodayReportVerdictTarget {

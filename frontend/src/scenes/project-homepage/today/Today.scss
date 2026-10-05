@@ -152,6 +152,30 @@
             background: var(--today-soft);
         }
     }
+
+    // Room for the action, so the title truncates before it.
+    &[data-has-action='true'] {
+        padding-right: 40px;
+    }
+}
+
+.TodayNavItem__row {
+    position: relative;
+
+    // The row keeps its hover look while the pointer is on the action.
+    @media (hover: hover) and (pointer: fine) {
+        &:hover .TodayNavItem {
+            background: var(--today-soft);
+        }
+    }
+}
+
+.TodayNavItem__action {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    display: flex;
+    transform: translateY(-50%);
 }
 
 .TodayNavItem__marker {
