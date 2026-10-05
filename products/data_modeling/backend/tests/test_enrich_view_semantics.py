@@ -8,7 +8,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, UnparseableCompletionError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -214,7 +214,13 @@ class TestEnrichViewSemanticsSync:
         assert mock_llm.call_count > 1
         assert _annotations(team, sq)[""].description == "v"
 
-    def test_a_failure_mid_batch_keeps_the_earlier_work_and_withholds_the_hash(self):
+    @parameterized.expand(
+        [
+            ("provider_down", RuntimeError("provider down"), True),
+            ("unparseable_reply", UnparseableCompletionError("model response was not valid JSON"), False),
+        ]
+    )
+    def test_a_failure_mid_batch_keeps_the_earlier_work_and_withholds_the_hash(self, _name, error, reported):
         """Annotations are per-column upserts, so a later batch failing must not discard an earlier
         batch's descriptions, and the hash must stay unstored so the next trigger finishes the job."""
         team = _team()
@@ -229,11 +235,13 @@ class TestEnrichViewSemanticsSync:
             patch.object(
                 enrich,
                 "generate_json_completion",
-                side_effect=[(generated, _USAGE), RuntimeError("provider down")],
+                side_effect=[(generated, _USAGE), error],
             ),
+            patch.object(enrich, "capture_exception") as mock_capture,
         ):
             result = enrich_view_semantics_sync(team.pk, str(sq.id))
 
+        assert mock_capture.called is reported
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert result["ai_annotations"] > 0, "the first batch's columns are already persisted"

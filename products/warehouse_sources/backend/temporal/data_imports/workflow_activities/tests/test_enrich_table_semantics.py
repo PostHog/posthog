@@ -9,7 +9,7 @@ from django.test import override_settings
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError, UnparseableCompletionError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -737,16 +737,22 @@ class TestEnrichTableSemanticsSync:
         assert annotations["amount"].description == "charge amount in cents"
         assert annotations["currency"].description == "ISO currency code"
 
-    def test_partial_status_when_llm_fails(self):
+    @pytest.mark.parametrize(
+        "error, reported",
+        [(RuntimeError("boom"), True), (UnparseableCompletionError("model response was not valid JSON"), False)],
+    )
+    def test_partial_status_when_llm_fails(self, error, reported):
         team = _team()
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with (
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
-            patch.object(enrich, "_generate_descriptions", side_effect=RuntimeError("boom")),
+            patch.object(enrich, "_generate_descriptions", side_effect=error),
+            patch.object(enrich, "capture_exception") as mock_capture,
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
+        assert mock_capture.called is reported
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert _annotations(team, table) == {}

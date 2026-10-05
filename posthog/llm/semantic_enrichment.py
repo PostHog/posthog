@@ -64,6 +64,12 @@ MAX_BUSINESS_CONTEXT_CHARS = 20_000
 # enrichment is idempotent, so a later pass fills in whatever this one skips.
 MAX_PROMPT_CHARS = 400_000
 
+# Models that accept an assistant prefill. The Messages leg has no JSON response format, so it opens the
+# reply with `{` to hold the model to a bare object. Claude 4.6 and later reject a prefill with a 400,
+# so a model joins this set only after it is confirmed to accept one.
+_JSON_PREFILL_MODELS = frozenset({"claude-haiku-4-5"})
+_JSON_PREFILL = "{"
+
 _WHITESPACE_RE = re.compile(r"\s+")
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
@@ -130,6 +136,15 @@ def get_team_business_context(team: Team) -> str:
     return (core_memory.text or "").strip() if core_memory else ""
 
 
+class UnparseableCompletionError(ValueError):
+    """The model answered in full, but no JSON object could be read from the reply.
+
+    A `ValueError` so the callers' existing handlers keep reporting "partial", but a distinct type
+    so a caller whose work retries on the next trigger can keep this expected model miss out of
+    error tracking.
+    """
+
+
 class TruncatedCompletionError(ValueError):
     """The model hit its output ceiling, so the reply is cut off rather than malformed.
 
@@ -158,18 +173,27 @@ class _MessagesClient:
     def complete(
         self, *, model: str, prompt: str, temperature: float, team_id: int, max_output_tokens: int = MAX_OUTPUT_TOKENS
     ) -> _Completion:
+        prefill = _JSON_PREFILL if model in _JSON_PREFILL_MODELS else ""
+        messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
+        if prefill:
+            messages.append({"role": "assistant", "content": prefill})
         response = self._client.messages.create(
             model=model,
             max_tokens=max_output_tokens,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=temperature,
             metadata={"user_id": team_distinct_id(team_id)},
         )
         usage_obj = getattr(response, "usage", None)
         prompt_tokens = getattr(usage_obj, "input_tokens", None)
         completion_tokens = getattr(usage_obj, "output_tokens", None)
+        text = _messages_text(response)
+        # The reply continues after the prefill. A continuation of `{` cannot itself open with `{`,
+        # so a reply that does has restated the prefill and is kept as is.
+        if prefill and not text.lstrip().startswith(prefill):
+            text = prefill + text
         return _Completion(
-            text=_messages_text(response),
+            text=text,
             usage=_usage(model, prompt_tokens, completion_tokens),
             truncated=getattr(response, "stop_reason", None) == "max_tokens",
             max_output_tokens=max_output_tokens,
@@ -256,7 +280,8 @@ def generate_json_completion(
 
     `client` lets a caller inject an already-resolved enrichment client (the warehouse path does this
     so its existing test seam keeps working); when omitted we resolve one for `product`/`team_id`.
-    Raises `TruncatedCompletionError` when the reply was cut off by the output ceiling.
+    Raises `TruncatedCompletionError` when the reply was cut off by the output ceiling, and
+    `UnparseableCompletionError` when a complete reply holds no JSON object.
     """
     if client is None:
         client = build_enrichment_client(product, team_id)
@@ -272,7 +297,7 @@ def generate_json_completion(
     if parsed is None:
         # Surface as an LLM failure (caught by the caller → "partial") rather than silently
         # persisting nothing, so the error stays visible in analytics.
-        raise ValueError("model response was not valid JSON")
+        raise UnparseableCompletionError("model response was not valid JSON")
     return parsed, completion.usage
 
 
