@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { IncrementalSource } from 'posthog-js/rrweb-types'
 
-import { hasAnyWireframes, keyForSource, processAllSnapshots } from '@posthog/replay-shared'
+import {
+    createSegments,
+    hasAnyWireframes,
+    keyForSource,
+    mapSnapshotsToWindowId,
+    processAllSnapshots,
+} from '@posthog/replay-shared'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
@@ -1124,6 +1130,116 @@ describe('process all snapshots', () => {
             result.forEach((event) => {
                 expect(event.windowId).toBe(1)
             })
+        })
+    })
+
+    describe('screenshot-only full snapshots', () => {
+        const screenshotFullSnapshot = (
+            timestamp: number,
+            id: number,
+            base64: string,
+            width = 400
+        ): Record<string, any> => ({
+            type: 2,
+            timestamp,
+            data: {
+                wireframes: [{ id, type: 'screenshot', base64, width, height: 800, x: 0, y: 0 }],
+                initialOffset: { top: 0, left: 0 },
+            },
+        })
+
+        const textMutation = (timestamp: number): Record<string, any> => ({
+            type: 3,
+            timestamp,
+            data: {
+                source: 0,
+                adds: [{ parentId: 5, wireframe: { id: 99, type: 'text', text: 'hi', width: 10, height: 10 } }],
+            },
+        })
+
+        const process = async (data: Record<string, any>[]): Promise<RecordingSnapshot[]> => {
+            const sessionId = 'test-screenshot-frames'
+            const parsed = await parseEncodedSnapshots([JSON.stringify({ window_id: '1', data })], sessionId)
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            return processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                { snapshots: {} },
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+        }
+
+        it('swaps the image src for back-to-back frames of the same size instead of rebuilding the page', async () => {
+            const results = await process([
+                screenshotFullSnapshot(1000, 10, 'data:image/webp;base64,first'),
+                screenshotFullSnapshot(4000, 11, 'data:image/webp;base64,second'),
+                screenshotFullSnapshot(7000, 12, 'data:image/webp;base64,third'),
+            ])
+
+            expect(results.filter((r) => r.type === 2).map((r) => r.timestamp)).toEqual([1000])
+            expect(
+                results.filter((r) => r.type === 3).map((r) => [r.timestamp, (r.data as any).attributes[0]])
+            ).toEqual([
+                [
+                    4000,
+                    { id: 10, attributes: { src: 'data:image/webp;base64,second', 'data-posthog-screenshot': 'true' } },
+                ],
+                [
+                    7000,
+                    { id: 10, attributes: { src: 'data:image/webp;base64,third', 'data-posthog-screenshot': 'true' } },
+                ],
+            ])
+
+            const snapshotsByWindowId = mapSnapshotsToWindowId(results)
+            const segments = createSegments(results, 1000, 7000, null, snapshotsByWindowId)
+            expect(segments.every((segment) => segment.isActive)).toBe(true)
+        })
+
+        it.each([
+            [
+                'the frame size changes',
+                [
+                    screenshotFullSnapshot(1000, 10, 'data:image/webp;base64,first'),
+                    screenshotFullSnapshot(2000, 11, 'data:image/webp;base64,second', 300),
+                ],
+            ],
+            [
+                'another mutation changed the page between frames',
+                [
+                    screenshotFullSnapshot(1000, 10, 'data:image/webp;base64,first'),
+                    textMutation(1500),
+                    screenshotFullSnapshot(2000, 11, 'data:image/webp;base64,second'),
+                ],
+            ],
+            [
+                'a stylesheet rule changed the page between frames',
+                [
+                    screenshotFullSnapshot(1000, 10, 'data:image/webp;base64,first'),
+                    { type: 3, timestamp: 1500, data: { source: 8, id: 1, adds: [{ rule: 'img { opacity: 0.5 }' }] } },
+                    screenshotFullSnapshot(2000, 11, 'data:image/webp;base64,second'),
+                ],
+            ],
+            [
+                'the frames hold another image beside the screenshot',
+                [1000, 2000].map((timestamp) => {
+                    const frame = screenshotFullSnapshot(timestamp, 10, `data:image/webp;base64,${timestamp}`)
+                    frame.data.wireframes.push({
+                        id: 20,
+                        type: 'image',
+                        base64: `data:image/png;base64,icon${timestamp}`,
+                        width: 32,
+                        height: 32,
+                        x: 0,
+                        y: 0,
+                    })
+                    return frame
+                }),
+            ],
+        ])('keeps the full snapshot when %s', async (_, data) => {
+            const results = await process(data)
+
+            expect(results.filter((r) => r.type === 2).map((r) => r.timestamp)).toEqual([1000, 2000])
         })
     })
 

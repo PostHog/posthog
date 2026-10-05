@@ -1,5 +1,6 @@
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
+import { isScreenshotFrameMutation } from './snapshot-processing/process-all-snapshots'
 import { RecordingSegment, RecordingSnapshot } from './types'
 
 // nodejs/src/session-recording/segmentation.ts has a cut-down version of this
@@ -23,6 +24,7 @@ const isActiveEvent = (event: eventWithTime): boolean => {
     return (
         event.type === EventType.FullSnapshot ||
         event.type === EventType.Meta ||
+        isScreenshotFrameMutation(event) ||
         (event.type === EventType.IncrementalSnapshot && activeSources.includes(event.data?.source))
     )
 }
