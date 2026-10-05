@@ -27,6 +27,7 @@ type StoryArgs = {
     pendingOAuthConnection: boolean
     arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
+    noSignInMethod: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -56,6 +57,7 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
+        noSignInMethod: { control: 'boolean', name: 'Account has no sign-in method' },
     },
     args: {
         cloud: true,
@@ -69,6 +71,7 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: false,
         arrivedFromWebsite: false,
         hasLoggedInBefore: true,
+        noSignInMethod: false,
     },
 }
 export default meta
@@ -85,6 +88,7 @@ const Template: StoryFn<StoryArgs> = ({
     pendingOAuthConnection,
     arrivedFromWebsite,
     hasLoggedInBefore,
+    noSignInMethod,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
@@ -110,7 +114,14 @@ const Template: StoryFn<StoryArgs> = ({
             },
         },
         post: {
-            '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
+            '/api/login/precheck': noSignInMethod
+                ? {
+                      sso_enforcement: null,
+                      saml_available: false,
+                      password_login_available: false,
+                      social_providers: [],
+                  }
+                : { sso_enforcement: enforcement, saml_available: samlAvailable },
         },
     })
 
@@ -119,11 +130,11 @@ const Template: StoryFn<StoryArgs> = ({
     }, [arrivedFromWebsite])
 
     useEffect(() => {
-        if (enforcement) {
+        if (enforcement || noSignInMethod) {
             loginLogic.actions.setLoginValue('email', 'test@posthog.com')
             loginLogic.actions.precheck({ email: 'test@posthog.com' })
         }
-    }, [enforcement])
+    }, [enforcement, noSignInMethod])
 
     useEffect(() => {
         if (generalError !== 'none') {
@@ -171,3 +182,7 @@ ArrivedFromWebsite.args = { arrivedFromWebsite: true }
 export const FirstLoginOnThisBrowser: StoryFn<StoryArgs> = Template.bind({})
 FirstLoginOnThisBrowser.storyName = 'First login on this browser'
 FirstLoginOnThisBrowser.args = { hasLoggedInBefore: false }
+
+export const NoSignInMethod: StoryFn<StoryArgs> = Template.bind({})
+NoSignInMethod.storyName = 'No sign-in method'
+NoSignInMethod.args = { noSignInMethod: true }

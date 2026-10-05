@@ -32,6 +32,7 @@ type StoryArgs = {
     gitlab: boolean
     panel: PanelOption
     pendingOAuthConnection: boolean
+    accountExists: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -64,6 +65,7 @@ const meta: Meta<StoryArgs> = {
             options: ['1: Email', '2: Password', '3: Profile'] satisfies PanelOption[],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
+        accountExists: { control: 'boolean', name: 'Account already exists' },
     },
     args: {
         cloud: true,
@@ -73,6 +75,7 @@ const meta: Meta<StoryArgs> = {
         gitlab: true,
         panel: '1: Email',
         pendingOAuthConnection: false,
+        accountExists: false,
     },
 }
 export default meta
@@ -85,6 +88,7 @@ const Template: StoryFn<StoryArgs> = ({
     gitlab,
     panel: panelOption,
     pendingOAuthConnection,
+    accountExists,
 }) => {
     const panel = PANEL_INDEX[panelOption]
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
@@ -117,6 +121,16 @@ const Template: StoryFn<StoryArgs> = ({
         }
     }, [panel])
 
+    useEffect(() => {
+        if (accountExists) {
+            signupLogic.actions.setSignupPanelEmailValue('email', 'test@posthog.com')
+            signupLogic.actions.setSignupPanelEmailManualErrors({
+                email: 'There is already an account with this email address.',
+            })
+            signupLogic.actions.setEmailAccountExists(true)
+        }
+    }, [accountExists])
+
     return <Signup />
 }
 
@@ -134,3 +148,6 @@ ProfileStep.args = { panel: '3: Profile' }
 export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
 PendingOAuthConnection.storyName = 'Pending OAuth connection'
 PendingOAuthConnection.args = { pendingOAuthConnection: true }
+
+export const AccountExists: StoryFn<StoryArgs> = Template.bind({})
+AccountExists.args = { accountExists: true }

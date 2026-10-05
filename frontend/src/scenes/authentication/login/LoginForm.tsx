@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { encodeParams } from 'kea-router'
 import { useEffect } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
@@ -376,19 +377,25 @@ export function LoginForm(): JSX.Element {
                             </LemonField>
                         )}
                         {hasNoConfiguredLoginMethod && (
-                            <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
-                                <span>No sign-in method is set up for this account. Use</span>{' '}
-                                <Link
-                                    to={[urls.passwordReset(), { email: login.email }]}
+                            <>
+                                <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
+                                    <span>
+                                        No sign-in method is set up for this account. Set a password by email to log in.
+                                    </span>
+                                </div>
+                                <LemonButton
+                                    type="primary"
+                                    size="large"
+                                    center
+                                    fullWidth
+                                    to={urls.passwordReset() + encodeParams({ email: login.email }, '?')}
                                     // Autocapture reports the click. Each reset entry point has its
                                     // own `data-attr`, so one funnel can tell them apart.
                                     data-attr="login-no-method-reset-password"
-                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
-                                    Forgot password?
-                                </Link>{' '}
-                                <span>to set a password by email.</span>
-                            </div>
+                                    Set a password
+                                </LemonButton>
+                            </>
                         )}
                         {autoRedirectingToProvider && (
                             <p className="text-sm text-secondary text-center mb-0">
