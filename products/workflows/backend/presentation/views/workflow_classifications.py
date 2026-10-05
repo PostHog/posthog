@@ -13,7 +13,7 @@ from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import Team
 
-from products.workflows.backend.service_jwt import WORKFLOW_CLASSIFY_PURPOSE
+from products.workflows.backend.facade.service_jwt import WORKFLOW_CLASSIFY_PURPOSE
 
 logger = structlog.get_logger(__name__)
 
