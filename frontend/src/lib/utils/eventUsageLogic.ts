@@ -72,6 +72,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -1264,6 +1266,19 @@ export interface eventUsageLogicActions {
     reportExperimentsListAiBadgeClicked: () => {
         value: true
     }
+    reportExperimentsListViewed: (listView: {
+        archived: boolean
+        experimentsShown: number
+        hasSearch: boolean
+        page: number
+        statusFilter: string
+    }) => {
+        archived: boolean
+        experimentsShown: number
+        hasSearch: boolean
+        page: number
+        statusFilter: string
+    }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
         projectCount: number,
@@ -1917,6 +1932,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentWizardStarted: true,
         reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
         reportExperimentsListAiBadgeClicked: true,
+        reportExperimentsListViewed: (listView: {
+            experimentsShown: number
+            statusFilter: string
+            page: number
+            hasSearch: boolean
+            archived: boolean
+        }) => listView,
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2558,9 +2580,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentsListAiBadgeClicked: () => {
             posthog.capture('experiments list ai badge clicked')
         },
+        reportExperimentsListViewed: ({ experimentsShown, statusFilter, page, hasSearch, archived }) => {
+            posthog.capture('experiments list viewed', {
+                experiments_shown: experimentsShown,
+                status_filter: statusFilter,
+                page,
+                has_search: hasSearch,
+                archived,
+            })
+        },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
+                experiment_id: experiment.id,
+                experiment_status: getExperimentStatus(experiment),
                 duration,
             })
         },

@@ -18,7 +18,7 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
-from typing import cast
+from typing import Final, cast
 from uuid import UUID
 
 import structlog
@@ -26,10 +26,10 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts.backend.facade.contracts import (
-    AlertDeliveryPreview,
+from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     AlertEventKind,
-    GroupTransition,
     MuteReason,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -37,8 +37,7 @@ from products.alerts.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts.backend.facade.destinations import list_active_alert_destinations
-from products.alerts.backend.facade.lifecycle import (
+from products.alerts_platform.backend.facade.lifecycle import (
     PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertSnapshot,
@@ -51,8 +50,7 @@ from products.alerts.backend.facade.lifecycle import (
     decide_firing_episode,
     evaluate_alert_check,
 )
-from products.alerts.backend.facade.platform_alerts import due_checks, slot_of
-from products.alerts.backend.facade.platform_metrics import (
+from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
     increment_deliveries_deferred,
@@ -62,7 +60,7 @@ from products.alerts.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -84,7 +82,7 @@ logger = structlog.get_logger(__name__)
 # A fleet-wide burst would otherwise return one activity payload over Temporal's ~2 MiB limit,
 # which fails the whole batch rather than truncating it. The bound drops an outcome along with
 # the preview it belongs to, so a breach this batch cannot announce keeps its due time.
-MAX_PREVIEWS_PER_CYCLE = 500
+MAX_DELIVERIES_PER_CYCLE = 500
 
 # Cohorts run one after another, and the production runner measures about four seconds each. A
 # higher bound spends the query budget below and returns fewer cohorts, not more; a cohort left
@@ -169,7 +167,7 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
     )
 
 
-Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
+Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
 
 
 @frozen
@@ -298,24 +296,25 @@ def _delivery(
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
-    spec = EVENT_KIND_CONFIG[cast(EventKind, recorded.kind.value)]
-    destinations = list_active_alert_destinations(
-        team_id=check.team_id,
-        alert_id=str(check.legacy_configuration_id or check.id),
-        allowed_event_ids=[spec.event_id],
-    )
-    return recorded, AlertDeliveryPreview(
+    return recorded, AlertDeliveryRequest(
         source=SourceKind.LOGS,
+        team_id=check.team_id,
         configuration_id=str(check.id),
-        alert_name=check.name,
         # The recorded key unchanged, so a delivery can address the row the check wrote. The
         # workflow id that has to be unique across alerts joins this to the configuration itself.
         evaluation_key=recorded.evaluation_key,
-        destination_names=tuple(destination.name for destination in destinations),
-        # One transition with an empty grouping key. Logs does not group yet, and delivery
-        # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", kind=recorded.kind, value=recorded.value),),
+        destination_alert_id=str(check.legacy_configuration_id or check.id),
+        event_ids_by_kind=_EVENT_IDS_BY_KIND,
     )
+
+
+# Which event id each announced kind's destinations filter on. Resolved here because the
+# platform imports no source and cannot read `EVENT_KIND_CONFIG`.
+_EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
+    kind.value: EVENT_KIND_CONFIG[cast(EventKind, kind.value)].event_id
+    for kind in AlertEventKind
+    if kind.value in EVENT_KIND_CONFIG
+}
 
 
 def _evaluate_one(
@@ -480,27 +479,27 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
 def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
     """Applies the payload bound and reports the batch."""
     outcomes: list[PlatformAlertOutcome] = []
-    previews: list[AlertDeliveryPreview] = []
+    deliveries: list[AlertDeliveryRequest] = []
     omitted = 0
-    for outcome, preview in decided:
-        if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
+    for outcome, delivery in decided:
+        if delivery is not None and len(deliveries) >= MAX_DELIVERIES_PER_CYCLE:
             omitted += 1
             continue
         outcomes.append(outcome)
-        if preview is not None:
-            previews.append(preview)
+        if delivery is not None:
+            deliveries.append(delivery)
 
     if omitted:
         logger.warning(
             "Deferred logs alert deliveries over the batch payload bound",
             team_id=team_id,
             slot=slot,
-            delivered=len(previews),
+            delivered=len(deliveries),
             deferred=omitted,
         )
         safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
     safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted)
 
 
 def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -516,11 +515,11 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     started_at = time.monotonic()
     checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
     if not checks:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     team = Team.objects.filter(id=team_id).first()
     if team is None:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     triage = _triage(checks, now=cutoff, tz_name=team.timezone)
     if not triage.evaluable:

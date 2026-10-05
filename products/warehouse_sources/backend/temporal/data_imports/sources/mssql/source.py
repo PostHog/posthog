@@ -103,7 +103,10 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # connection attempt. On a managed instance this is a persistent connectivity issue
             # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
             # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
-            "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
+            "Adaptive Server is unavailable or does not exist": (
+                "PostHog couldn't reach your SQL Server. Check that it's running and that PostHog's IP addresses "
+                "are allowed through your firewall, then re-enable the sync."
+            ),
             # SQL Server error 18456 — the login was rejected (wrong username/password, or the login
             # is disabled). Deterministic until the customer fixes the credentials, so retrying just
             # replays the same rejection; surface the same actionable wording as the validation path

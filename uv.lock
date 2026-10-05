@@ -5851,6 +5851,7 @@ dependencies = [
     { name = "hogql-parser-rs" },
     { name = "humanize" },
     { name = "infi-clickhouse-orm" },
+    { name = "ipython" },
     { name = "jsonpatch" },
     { name = "jsonref" },
     { name = "kafka-python" },
@@ -5985,7 +5986,6 @@ dev = [
     { name = "hogli" },
     { name = "hypothesis" },
     { name = "import-linter" },
-    { name = "ipython" },
     { name = "libcst" },
     { name = "mypy" },
     { name = "mypy-extensions" },
@@ -6141,6 +6141,7 @@ requires-dist = [
     { name = "hogql-parser-rs", specifier = "==1.3.109" },
     { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
+    { name = "ipython", specifier = "~=9.3.0" },
     { name = "jsonpatch", specifier = "~=1.33" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.3.0" },
@@ -6191,7 +6192,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.62.0" },
+    { name = "posthoganalytics", specifier = "==7.62.1" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6275,7 +6276,6 @@ dev = [
     { name = "hogli", editable = "tools/hogli" },
     { name = "hypothesis", specifier = "~=6.151.9" },
     { name = "import-linter", specifier = "~=2.11" },
-    { name = "ipython", specifier = "~=9.3.0" },
     { name = "libcst", specifier = ">=1.8.6,<2.0.0" },
     { name = "mypy", specifier = "~=2.1.0" },
     { name = "mypy-extensions", specifier = "~=1.1.0" },
@@ -6353,7 +6353,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.62.0"
+version = "7.62.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6361,9 +6361,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/15/520f36a6b9583f60b7de930b011fccd68390601bec77222c8fac528eeffd/posthoganalytics-7.62.0.tar.gz", hash = "sha256:801813b677d65bbb331f9d85cf10d502ffa286747e612df7fa96ae703e6c158c", size = 701962, upload-time = "2026-10-01T16:02:28.431Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0e/b7/07f3dd3023cb4b2f8b22b17e4573b8d4663af1b4b3a650574a2f2a58fc8c/posthoganalytics-7.62.1.tar.gz", hash = "sha256:182743b29455508977baf9ed31bca681f8a0b11c124a9a86d0f8b10094c3af90", size = 702104, upload-time = "2026-10-02T19:00:37.214Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b4/dd/89485d69fe77e782a0e0c37b01965d59ef92f7191ae47a72696031b5b9f5/posthoganalytics-7.62.0-py3-none-any.whl", hash = "sha256:5a0b30d9fd7a6db3843c07f6acfd34cc3ef52dcfd26b90a02f69cb2286aff864", size = 823858, upload-time = "2026-10-01T16:02:25.837Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/e7/e91fed785f09c235d987575709458a51a6802a28ecb27b348e0ae629065a/posthoganalytics-7.62.1-py3-none-any.whl", hash = "sha256:f653443c8f795fbfd3e5bcddf602b2da73fcb9756993a25e67ff75e6d4419a95", size = 824210, upload-time = "2026-10-02T19:00:34.688Z" },
 ]
 
 [[package]]

@@ -2957,6 +2957,13 @@ class TestQueueDbRetry:
             (psycopg.errors.ConnectionTimeout("connection timeout expired"), True, True),
             (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), True, True),
             (psycopg.errors.ProtocolViolation("query_wait_timeout"), True, True),
+            (
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
+                ),
+                True,
+                True,
+            ),
             (psycopg.errors.DeadlockDetected("deadlock detected"), False, True),
             (psycopg.errors.ProtocolViolation("invalid message length"), False, False),
             (psycopg.OperationalError("relation permission denied"), False, False),
@@ -3907,7 +3914,6 @@ class TestCoalesceGroup:
             "first_sync_flag_splits",
         ],
     )
-    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
     def test_consecutive_runs(self, second_run: dict[str, Any], expected: list[list[int]]):
         first_sync_type = second_run.get("sync_type", "incremental")
         batches = _run_batches(2, run_uuid="run-1", sync_type=first_sync_type) + _run_batches(
@@ -3915,12 +3921,6 @@ class TestCoalesceGroup:
         )
         assert self._sets(batches) == expected
 
-    def test_cross_run_sets_can_be_switched_off(self):
-        batches = _run_batches(2, run_uuid="run-1") + _run_batches(2, run_uuid="run-2", is_resume=True)
-        with override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=False):
-            assert self._sets(batches) == [[0, 1], [0, 1]]
-
-    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
     def test_members_keep_the_claim_order_and_a_run_never_reappears_in_a_set(self):
         # The claim query orders a group by (created_at, batch_index) and the loader takes that order
         # one batch at a time; a set that reordered members, or folded a run back in after another
@@ -4055,7 +4055,6 @@ class TestProcessGroupCoalescing:
         ids=["declined", "failed"],
     )
     @pytest.mark.asyncio
-    @override_settings(DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS=True)
     async def test_a_set_that_cannot_load_falls_back_to_its_members(
         self, error: Exception, expected_latest_attempt: int, expected_status_attempt: int
     ):
