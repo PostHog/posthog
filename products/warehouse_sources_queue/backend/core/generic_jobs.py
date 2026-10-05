@@ -15,7 +15,7 @@ run orchestrator so it can ship with tests and no production traffic.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import psycopg
@@ -32,11 +32,16 @@ JOB_LEASE_TABLE = "queuejoblease"
 # their payload inline rather than in S3, but the partitions still drop at
 # retention, so a job must not be claimable after its partition can vanish.
 JOB_CLAIM_ELIGIBILITY_INTERVAL = "6 days 12 hours"
+# The same window for handlers that must finish or give up before a job stops being claimable.
+JOB_CLAIM_ELIGIBILITY = timedelta(days=6, hours=12)
 JOB_PARTITION_PRUNING_INTERVAL = "14 days"
 
 JOB_LEASE_TTL_SECONDS = 300
 
 TERMINAL_JOB_STATES = ("succeeded", "failed")
+
+# Key in a ``waiting_retry`` status row's ``error_response`` that tags why the job retried.
+RETRY_REASON_KEY = "reason"
 
 
 @frozen
@@ -103,6 +108,15 @@ class Job:
     @property
     def is_final_batch(self) -> bool:
         return False
+
+
+@frozen
+class RetryHistory:
+    """The earlier retries of one job that count against a handler's own attempt cap."""
+
+    counted_retries: int
+    # The error text of the newest counted retry, or None when there is none.
+    last_error: str | None
 
 
 def _job_status_dual_write_sql(*, with_job_created_at: bool) -> str:
@@ -555,6 +569,41 @@ class JobsTable:
             )
             row = await cur.fetchone()
             return str(row[0]) if row else None
+
+    @staticmethod
+    async def get_retry_history(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        job_id: str,
+        job_created_at: datetime,
+        max_retries: int,
+        uncounted_reason: str,
+    ) -> RetryHistory:
+        """Count the job's earlier retries, except the ones tagged with ``uncounted_reason``.
+
+        A job has at most one ``waiting_retry`` row per attempt, so ``max_retries`` (the attempts
+        so far) bounds the scan. Heartbeats add only ``executing`` rows.
+        """
+        if max_retries <= 0:
+            return RetryHistory(counted_retries=0, last_error=None)
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT error_response
+                FROM {JOB_STATUS_TABLE}
+                WHERE job_id = %(job_id)s
+                  AND created_at >= %(job_created_at)s
+                  AND job_state = 'waiting_retry'
+                ORDER BY created_at DESC, id DESC
+                LIMIT %(limit)s
+                """,
+                {"job_id": job_id, "job_created_at": job_created_at, "limit": max_retries},
+            )
+            rows = await cur.fetchall()
+        responses: list[dict[str, Any]] = [row[0] or {} for row in rows]
+        counted = [r for r in responses if r.get(RETRY_REASON_KEY) != uncounted_reason]
+        last_error = counted[0].get("error") if counted else None
+        return RetryHistory(counted_retries=len(counted), last_error=last_error)
 
     # -- leases ----------------------------------------------------------------
 

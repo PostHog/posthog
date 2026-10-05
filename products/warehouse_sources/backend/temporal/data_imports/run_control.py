@@ -36,6 +36,9 @@ class RunControl:
     verify_v3_lock: bool
     # Thread-safe wait used by source code that blocks between requests. Returns early on shutdown.
     shutdown_wait: Callable[[float], object] | None = None
+    # Called with the row count of each batch the run stages. The Temporal path records the same
+    # count as an activity metric, which does not exist outside an activity.
+    on_rows_extracted: Callable[[int], None] | None = None
 
 
 @contextlib.asynccontextmanager

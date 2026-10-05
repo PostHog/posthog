@@ -14,6 +14,7 @@ single-table runs the loader already knows how to finish.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
@@ -94,6 +95,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
         always_final_marker: bool = False,
+        on_rows_extracted: Callable[[int], None] | None = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -112,6 +114,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
             always_final_marker=always_final_marker,
+            on_rows_extracted=on_rows_extracted,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.
