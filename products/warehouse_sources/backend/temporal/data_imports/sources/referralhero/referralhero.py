@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from requests.exceptions import HTTPError
 
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
+    PaginatorConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -36,7 +37,12 @@ class ReferralHeroResumeConfig:
 
 
 def validate_credentials(api_token: str) -> tuple[bool, str | None]:
-    client = RESTClient(base_url=BASE_URL, auth=BearerTokenAuth(api_token), paginator=SinglePagePaginator())
+    client = RESTClient(
+        base_url=BASE_URL,
+        auth=BearerTokenAuth(api_token),
+        paginator=SinglePagePaginator(),
+        request_timeout=(10, 60),
+    )
     try:
         next(client.paginate(path="lists", params={"page": 1}, data_selector="data.lists", data_selector_required=True))
     except HTTPError as error:
@@ -49,17 +55,23 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
 
 def _resource(name: str) -> EndpointResource:
     endpoint = ENDPOINTS[name]
+    paginator: PaginatorConfig = (
+        cast(
+            PaginatorConfig,
+            {
+                "type": "page_number",
+                "base_page": 1,
+                "total_path": "data.pagination.total_pages",
+            },
+        )
+        if endpoint.paginated
+        else "single_page"
+    )
     request: Endpoint = {
         "path": endpoint.path,
         "data_selector": endpoint.data_selector,
         "data_selector_required": True,
-        "paginator": {
-            "type": "page_number",
-            "base_page": 1,
-            "total_path": "data.pagination.total_pages",
-        }
-        if endpoint.paginated
-        else "single_page",
+        "paginator": paginator,
     }
     resource: EndpointResource = {
         "name": name,
@@ -92,9 +104,15 @@ def referralhero_source(
         manager.save_state(ReferralHeroResumeConfig(paginator_state=state, finished=state is None))
         manager.safe_point()
 
-    resources = [_resource(endpoint)] if endpoint == "lists" else [_resource("lists"), _resource(endpoint)]
+    resources: list[str | EndpointResource] = (
+        [_resource(endpoint)] if endpoint == "lists" else [_resource("lists"), _resource(endpoint)]
+    )
     config: RESTAPIConfig = {
-        "client": {"base_url": BASE_URL, "auth": {"type": "bearer", "token": api_token}},
+        "client": {
+            "base_url": BASE_URL,
+            "auth": {"type": "bearer", "token": api_token},
+            "request_timeout": (10, 60),
+        },
         "resources": resources,
     }
     built = rest_api_resources(

@@ -1,6 +1,6 @@
 import json
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -9,12 +9,17 @@ from unittest.mock import MagicMock, patch
 from requests import Response, Session
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.referralhero.referralhero import (
     ReferralHeroResumeConfig,
     referralhero_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.referralhero.source import ReferralHeroSource
+
+
+def batches(source: SourceResponse) -> Iterable[list[dict[str, Any]]]:
+    return cast(Iterable[list[dict[str, Any]]], source.items())
 
 
 @pytest.fixture
@@ -61,12 +66,13 @@ def test_lists_pagination_auth_and_terminal_page(transport: MagicMock, manager: 
         else [page("lists", [{"uuid": "MFexample001"}], 2), page("lists", [{"uuid": "MFexample002"}], 2)]
     )
     source = referralhero_source("fake-token", "lists", 1, "job", manager)
-    rows = [row for batch in source.items() for row in batch]
+    rows = [row for batch in batches(source) for row in batch]
 
     assert rows == ([] if empty else [{"uuid": "MFexample001"}, {"uuid": "MFexample002"}])
     assert transport.call_count == (1 if empty else 2)
     for index, call in enumerate(transport.call_args_list, 1):
         request = call.args[0]
+        assert call.kwargs["timeout"] == (10, 60)
         assert request.headers["Authorization"] == "Bearer fake-token"
         assert urlsplit(request.url).path == "/api/v2/lists"
         assert parse_qs(urlsplit(request.url).query) == {"page": [str(index)]}
@@ -86,7 +92,7 @@ def test_child_tables_follow_all_campaigns(transport: MagicMock, manager: MagicM
         page(name, [] if empty else [child]),
     ]
     source = referralhero_source("fake-token", name, 1, "job", manager)
-    rows = [row for batch in source.items() for row in batch]
+    rows = [row for batch in batches(source) for row in batch]
 
     assert rows == ([] if empty else [{**child, "list_uuid": "MFexample001"}, {**child, "list_uuid": "MFexample002"}])
     assert transport.call_count == 4
@@ -119,7 +125,7 @@ def test_child_resume_skips_completed_campaign_and_resumes_page(
         page(name, [{"id": "item-3"}], 3),
     ]
     source = referralhero_source("fake-token", name, 1, "job", manager)
-    assert [row for batch in source.items() for row in batch] == [
+    assert [row for batch in batches(source) for row in batch] == [
         {"id": "item-2", "list_uuid": "MFexample002"},
         {"id": "item-3", "list_uuid": "MFexample002"},
     ]
@@ -135,7 +141,7 @@ def test_lists_resume(transport: MagicMock, manager: MagicMock, finished: bool) 
     manager.load_state.return_value = ReferralHeroResumeConfig(paginator_state={"page": 3}, finished=finished)
     transport.side_effect = [page("lists", [{"uuid": "MFexample003"}], 3)]
     source = referralhero_source("fake-token", "lists", 1, "job", manager)
-    assert list(source.items()) == ([] if finished else [[{"uuid": "MFexample003"}]])
+    assert list(batches(source)) == ([] if finished else [[{"uuid": "MFexample003"}]])
     if finished:
         transport.assert_not_called()
     else:
@@ -161,7 +167,7 @@ def test_auth_errors(transport: MagicMock, manager: MagicMock, status: int, code
     assert validate_credentials("fake-token") == (False, message)
     source = referralhero_source("fake-token", "lists", 1, "job", manager)
     with pytest.raises(HTTPError) as error:
-        list(source.items())
+        list(batches(source))
     errors = ReferralHeroSource().get_non_retryable_errors()
     assert next(value for pattern, value in errors.items() if pattern in str(error.value)) == message
     assert transport.call_count == 2
@@ -171,6 +177,7 @@ def test_validate_credentials_only_reads_first_page(transport: MagicMock) -> Non
     transport.return_value = page("lists", [{"uuid": "MFexample001"}], 100)
     assert validate_credentials("fake-token") == (True, None)
     assert transport.call_count == 1
+    assert transport.call_args.kwargs["timeout"] == (10, 60)
     assert transport.call_args.args[0].headers["Authorization"] == "Bearer fake-token"
 
 
@@ -179,7 +186,7 @@ def test_transient_errors_retry(transport: MagicMock, manager: MagicMock, status
     transport.side_effect = [response({"code": "too_many_calls"}, status), page("lists", [])]
     with patch("tenacity.nap.time.sleep"):
         source = referralhero_source("fake-token", "lists", 1, "job", manager)
-        assert list(source.items()) == []
+        assert list(batches(source)) == []
     assert transport.call_count == 2
 
 
@@ -198,4 +205,4 @@ def test_malformed_success_does_not_silently_replace_table(transport: MagicMock,
     transport.return_value = response({"status": "ok", "data": {"unexpected": []}})
     source = referralhero_source("fake-token", "lists", 1, "job", manager)
     with pytest.raises(ValueError):
-        list(source.items())
+        list(batches(source))
