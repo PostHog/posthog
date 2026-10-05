@@ -130,6 +130,7 @@ from products.customer_analytics.backend.facade.account_property_pins import (
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
@@ -628,6 +629,7 @@ TEAM_CONFIG_FIELDS = (
     "survey_config",
     "week_start_day",
     "primary_dashboard",
+    "home_tab_dashboard",
     "live_events_columns",
     "recording_domains",
     "cookieless_server_hash_mode",
@@ -672,6 +674,7 @@ TEAM_CONFIG_MEMBER_FIELDS = (
     "autocapture_web_vitals_allowed_metrics",
     "surveys_opt_in",
     "primary_dashboard",
+    "home_tab_dashboard",
 )
 TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)
 
@@ -1395,6 +1398,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         required=False,
         allow_null=True,
         help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
+    home_tab_dashboard = serializers.PrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
+        ),
     )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
@@ -2259,6 +2270,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             self._update_feature_flag_policy_config(instance, config_data)
+
+        # Lives on a Team extension, not a Team column, so it can't flow through the generic
+        # save(update_fields=...) loop below.
+        if "home_tab_dashboard" in validated_data:
+            instance.home_tab_dashboard = validated_data.pop("home_tab_dashboard")
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -3359,6 +3375,14 @@ def validate_team_attrs(
             )
         if attrs["primary_dashboard"] and attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
+
+    if "home_tab_dashboard" in attrs:
+        if not instance:
+            raise exceptions.ValidationError(
+                {"home_tab_dashboard": "Home tab dashboard cannot be set on project creation."}
+            )
+        if attrs["home_tab_dashboard"] and attrs["home_tab_dashboard"].team_id != instance.id:
+            raise exceptions.ValidationError({"home_tab_dashboard": "Dashboard does not belong to this team."})
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:
         if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):

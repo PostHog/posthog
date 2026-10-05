@@ -126,6 +126,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
@@ -645,6 +646,16 @@ class ProjectBackwardCompatSerializer(
         allow_null=True,
         help_text="Settings for Conversations. Must be a JSON object or null.",
     )
+    # Lives on the passthrough Team's extension too, not a real Team column, so it can't be merged
+    # in by ProjectBackwardCompatBasicSerializer.get_fields() like a normal model field.
+    home_tab_dashboard = serializers.PrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
+        ),
+    )  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -733,6 +744,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
+            "home_tab_dashboard",  # Compat with TeamSerializer
             "live_events_columns",  # Compat with TeamSerializer
             "recording_domains",  # Compat with TeamSerializer
             "person_on_events_querying_enabled",  # Compat with TeamSerializer
@@ -845,6 +857,7 @@ class ProjectBackwardCompatSerializer(
             "access_control",
             "week_start_day",
             "primary_dashboard",
+            "home_tab_dashboard",
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",
@@ -1245,6 +1258,11 @@ class ProjectBackwardCompatSerializer(
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             update_team_feature_flag_policy_config(team, config_data, context=config_context)
+
+        # Lives on a Team extension, not a Project or Team column, so it can't flow through the
+        # generic passthrough loop below.
+        if "home_tab_dashboard" in validated_data:
+            team.home_tab_dashboard = validated_data.pop("home_tab_dashboard")
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])

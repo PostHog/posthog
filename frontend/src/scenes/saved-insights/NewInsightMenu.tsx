@@ -335,7 +335,7 @@ export function NewInsightMenuOverlay(): JSX.Element {
     )
 }
 
-export function NewInsightButton(): JSX.Element {
+export function NewInsightButton({ compact = false }: { compact?: boolean }): JSX.Element {
     const button = (
         <LemonButton
             type="primary"
@@ -343,8 +343,9 @@ export function NewInsightButton(): JSX.Element {
             size="small"
             icon={<IconPlusSmall />}
             tooltip="New insight"
+            aria-label="New insight"
         >
-            New
+            {compact ? <span className="hidden @min-[32rem]/saved-insights:inline">New</span> : 'New'}
         </LemonButton>
     )
 

@@ -1387,7 +1387,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
 
-    props({} as DashboardLogicProps),
+    props({ id: NaN } as DashboardLogicProps),
 
     key((props) => {
         if (!Number.isFinite(props.id)) {
