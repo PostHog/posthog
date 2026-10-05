@@ -116,7 +116,8 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
         default=None,
         description=(
             "Day after the last day to copy (YYYY-MM-DD, UTC, exclusive). Defaults to yesterday, which is also "
-            "the latest allowed value."
+            "the latest allowed value. Every copied day therefore ended at least a day before the run. That gives "
+            "late Kafka rows a day to reach flag_evaluations, so the job does not copy their calls a second time."
         ),
     )
     team_ids: list[int] | None = pydantic.Field(
@@ -517,6 +518,9 @@ class ShardBackfill:
                 f"over the limit of {self.config.max_consumer_lag_seconds}s. Copying now would insert rows "
                 "that Kafka then delivers a second time."
             )
+        # A part can reach the copy host after newer parts, through a postponed replication fetch or a queued
+        # Distributed send. The anti-join reads only local parts. The cutoff therefore subtracts the whole lag
+        # limit rather than the measured lag, which leaves that much slack for a late part.
         return checked_at - timedelta(seconds=self.config.max_consumer_lag_seconds) - _KAFKA_DELIVERY_TIMEOUT
 
     def copy_day(self, day: date, copy_query: str, settings: dict[str, Any], created_before: datetime) -> int:
