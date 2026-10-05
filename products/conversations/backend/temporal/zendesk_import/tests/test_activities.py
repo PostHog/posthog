@@ -157,14 +157,13 @@ class TestZendeskImportBatchActivity(BaseTest):
         client.fetch_tickets.assert_not_called()
 
     def test_import_sets_counters_fields_and_historical_timestamps(self) -> None:
-        # customer message, public agent reply, internal note. The private note is dropped from
-        # every customer-facing denormalized stat (matching the live signal path): message_count
-        # counts the 2 public comments, unread_team_count the 1 customer message,
-        # unread_customer_count the 1 public agent reply, and last_message_* skips the note.
+        # The private note is dropped from every customer-facing denormalized stat (matching the
+        # live signal path). Two customer messages vs one agent reply catch swapped unread counts.
         comments = [
             _zd_comment(1, 10, public=True, body="customer msg"),
             _zd_comment(2, 20, public=True, body="agent reply"),
-            _zd_comment(3, 20, public=False, body="internal note"),
+            _zd_comment(3, 10, public=True, body="customer follow-up"),
+            _zd_comment(4, 20, public=False, body="internal note"),
         ]
         result, _ = self._run_batch(
             [201],
@@ -175,8 +174,8 @@ class TestZendeskImportBatchActivity(BaseTest):
 
         self.assertEqual((result.imported, result.skipped, result.failed), (1, 0, 0))
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=201)
-        self.assertEqual(ticket.message_count, 2)
-        self.assertEqual(ticket.unread_team_count, 1)
+        self.assertEqual(ticket.message_count, 3)
+        self.assertEqual(ticket.unread_team_count, 2)
         self.assertEqual(ticket.unread_customer_count, 1)
         self.assertEqual(ticket.status, Status.OPEN)
         self.assertEqual(ticket.priority, Priority.MEDIUM)
@@ -185,14 +184,14 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(ticket.email_from, "requester@x.com")
         # The newest comment is a private note; the customer-facing summary must show the
         # latest *public* comment instead so internal note text never leaks to the widget.
-        self.assertEqual(ticket.last_message_text, "agent reply")
+        self.assertEqual(ticket.last_message_text, "customer follow-up")
         # auto_now_add / auto_now must not clobber the historical Zendesk timestamps.
         self.assertEqual(ticket.created_at, _parse_zendesk_datetime("2020-01-02T03:04:05Z"))
         self.assertEqual(ticket.updated_at, _parse_zendesk_datetime("2020-01-03T04:05:06Z"))
         self.assertEqual(ticket.last_message_at, _parse_zendesk_datetime("2020-01-02T03:04:05Z"))
 
         stored = Comment.objects.filter(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
-        self.assertEqual(stored.count(), 3)
+        self.assertEqual(stored.count(), 4)
         self.assertEqual(stored.order_by("created_at").first().created_at.year, 2020)
 
     @parameterized.expand(
@@ -633,8 +632,6 @@ def _zendesk_allocation_ticket(team: Team) -> _BuiltTicket:
         ),
         comments=[],
         tag_names=[],
-        customer_message_count=0,
-        agent_reply_count=0,
         created_at=None,
         updated_at=None,
     )
