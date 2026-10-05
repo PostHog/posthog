@@ -20,7 +20,7 @@ import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTi
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
+import { ERROR_MESSAGES, ssoEnforcedErrorMessage } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
@@ -123,11 +123,15 @@ export function LoginForm(): JSX.Element {
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
+        currentPrecheckResponse,
+        precheckTrusted,
+        ssoEnforcement,
+        ssoEnforcedErrorProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
 
-    const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
+    const isPasswordHidden = !!ssoEnforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
     const lastLoginMethod = useLastLoginMethod()
     const greeting = loginGreeting(lastLoginMethod !== null)
@@ -210,9 +214,11 @@ export function LoginForm(): JSX.Element {
                 {generalError && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
-                            {generalError.detail ||
-                                ERROR_MESSAGES[generalError.code] ||
-                                'Could not complete your login. Please try again.'}
+                            {ssoEnforcedErrorProvider
+                                ? ssoEnforcedErrorMessage(ssoEnforcedErrorProvider)
+                                : generalError.detail ||
+                                  ERROR_MESSAGES[generalError.code] ||
+                                  'Could not complete your login. Please try again.'}
                         </span>
                         {preflight?.cloud && (
                             <>
@@ -221,13 +227,6 @@ export function LoginForm(): JSX.Element {
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
                                         e.preventDefault()
-                                        // Trust the precheck only when it resolved for the email now
-                                        // in the form: a failed precheck reports permissive defaults,
-                                        // and a stale one still holds the previous email's account.
-                                        const precheckTrusted =
-                                            precheckResponse.status === 'completed' &&
-                                            !precheckResponse.precheckFailed &&
-                                            precheckResponse.email === login.email
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,
@@ -239,7 +238,7 @@ export function LoginForm(): JSX.Element {
                                                 : buildLoginSupportMessage({
                                                       errorCode: generalError.code,
                                                       region: preflight?.region,
-                                                      ssoEnforcement: precheckResponse.sso_enforcement,
+                                                      ssoEnforcement,
                                                       availableLoginMethods,
                                                       precheckTrusted,
                                                       codeVerificationPending: codeVerificationRequired,
@@ -396,7 +395,7 @@ export function LoginForm(): JSX.Element {
                             </p>
                         )}
                         {/* No password to submit means this button would do nothing */}
-                        {!precheckResponse.sso_enforcement && !isPasswordLoginUnavailable && (
+                        {!ssoEnforcement && !isPasswordLoginUnavailable && (
                             <LemonButton
                                 type="primary"
                                 size="large"
@@ -409,21 +408,21 @@ export function LoginForm(): JSX.Element {
                                 Log in
                             </LemonButton>
                         )}
-                        {precheckResponse.sso_enforcement && (
+                        {ssoEnforcement && (
                             <SSOEnforcedLoginButton
-                                provider={precheckResponse.sso_enforcement}
+                                provider={ssoEnforcement}
                                 email={login.email}
-                                isLastUsed={lastLoginMethod === precheckResponse.sso_enforcement}
+                                isLastUsed={lastLoginMethod === ssoEnforcement}
                             />
                         )}
-                        {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                        {currentPrecheckResponse.saml_available && !ssoEnforcement && (
                             <SSOEnforcedLoginButton
                                 provider="saml"
                                 email={login.email}
                                 isLastUsed={lastLoginMethod === 'saml'}
                             />
                         )}
-                        {precheckResponse.oidc_available && !precheckResponse.sso_enforcement && (
+                        {currentPrecheckResponse.oidc_available && !ssoEnforcement && (
                             <SSOEnforcedLoginButton
                                 provider="oidc"
                                 email={login.email}
@@ -435,8 +434,8 @@ export function LoginForm(): JSX.Element {
                 {/* Normally SAML replaces this row, but when the account has no password we need to
                     show whatever it does have. */}
                 {!isCodeSent &&
-                    !precheckResponse.sso_enforcement &&
-                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
+                    !ssoEnforcement &&
+                    (!currentPrecheckResponse.saml_available || isPasswordLoginUnavailable) && (
                         <SocialLoginButtons
                             topDivider
                             caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
@@ -445,7 +444,9 @@ export function LoginForm(): JSX.Element {
                             restrictToProviders={restrictToProviders}
                             // Once we know the account's methods, only offer a passkey if it actually has
                             // one — otherwise this is the same dead button we're removing.
-                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                            showPasskey={
+                                !isPasswordLoginUnavailable || !!currentPrecheckResponse.webauthn_credentials?.length
+                            }
                         />
                     )}
             </AuthSceneCard>

@@ -1,4 +1,7 @@
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+
+import { SSOProvider } from '~/types'
 
 // Login error copy shared by the auth login variants and the exporter login screen.
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
@@ -40,4 +43,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
+}
+
+export function ssoEnforcedErrorMessage(provider: SSOProvider): string {
+    return `Your organization requires you to log in with ${SSO_PROVIDER_NAMES[provider]}. Use the button below.`
 }
