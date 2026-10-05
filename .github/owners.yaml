@@ -14,7 +14,7 @@ rules:
           - '/workflows/ci-mcp-agent-api-diff.yml'
           - '/workflows/ci-mcp-ui-apps.yml'
           - '/workflows/ci-mcp.yml'
-      owners: [team-devex, team-context-mcp]
+      owners: [team-devex, team-context-and-mcp]
     - match:
           - '/workflows/ci-llm-gateway.yml'
           - '/workflows/llm-gateway-cd.yml'
