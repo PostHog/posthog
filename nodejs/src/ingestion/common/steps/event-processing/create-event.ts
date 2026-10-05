@@ -28,9 +28,10 @@ export function getElementsChain(properties: Properties): string {
         elementsChain = properties['$elements_chain']
         elementsOrElementsChainCounter.labels('elements_chain').inc()
     } else if (properties['$elements']) {
-        const elements: Record<string, any>[] | undefined = properties['$elements']
+        const elements: unknown = properties['$elements']
         let elementsList: Element[] = []
-        if (elements && elements.length) {
+        // Clients sometimes send $elements as a JSON string or an array-like object, which extractElements cannot map over.
+        if (Array.isArray(elements) && elements.length) {
             elementsList = extractElements(elements)
             elementsChain = elementsToString(elementsList)
         }
