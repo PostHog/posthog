@@ -1398,10 +1398,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # A reset left to capture keeps the schedule paused, and capture unpauses it once the reset is done.
                 reset_pending = bool((updated_instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
                 # Repair CDC unpauses the tables of a broken source, so an edit must not. A repair that
-                # is already running has listed its tables, so a table turned on now gets no hold.
-                waits_for_repair = (
-                    updated_instance.is_cdc and tables_wait_for_repair(source) and not repair_is_running(source)
-                )
+                # is already running has listed its tables, so a table turned on now gets no hold. The
+                # lock is read first: a repair clears the markers before it releases the lock, so
+                # markers read after a free lock belong to no repair that is about to end.
+                repair_running = updated_instance.is_cdc and repair_is_running(source)
+                source_is_broken = updated_instance.is_cdc and tables_wait_for_repair(source)
+                waits_for_repair = source_is_broken and not repair_running
                 held = reset_pending or waits_for_repair
                 schedule_exists = external_data_workflow_exists(str(updated_instance.id))
 
@@ -1428,9 +1430,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # schedule has nothing to update — updating a missing schedule raises "workflow not
                 # found" — so its new cadence is just saved and applies if/when it is enabled.
                 if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
-                    if waits_for_repair:
+                    if source_is_broken:
                         # The pause stays as it is, because a repair may have resumed the table
-                        # since the check above.
+                        # since the check above, and one that fails must not find it running.
                         sync_external_data_job_workflow(
                             updated_instance, create=False, should_sync=should_sync_value, keep_paused=True
                         )

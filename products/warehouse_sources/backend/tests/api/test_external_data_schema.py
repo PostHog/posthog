@@ -3322,9 +3322,20 @@ class TestUpdateExternalDataSchema:
         assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is True
         assert create.call_args.kwargs["trigger_immediately"] is False
 
-    def test_sync_turned_on_while_a_repair_runs_resumes_the_table(self, team, user, client: HttpClient, temporal):
+    @pytest.mark.parametrize(
+        "synced_before, payload, runs_after",
+        [
+            pytest.param(False, {"should_sync": True}, True, id="sync_turned_on_is_resumed"),
+            pytest.param(True, {"sync_frequency": "1hour"}, False, id="frequency_change_keeps_the_pause"),
+        ],
+    )
+    def test_an_edit_while_a_repair_runs(
+        self, team, user, client: HttpClient, temporal, synced_before, payload, runs_after
+    ):
         client.force_login(user)
-        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
+        schema = self._cdc_table_beside_a_marked_one(
+            team, {"reason": "auto_dropped_critical_lag"}, "cdc", synced_before
+        )
         sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
         repair_lock = _repair_lock_key(str(schema.source_id))
         get_client().set(repair_lock, "1", ex=60)
@@ -3333,11 +3344,38 @@ class TestUpdateExternalDataSchema:
             with self._patch_cdc_edit():
                 response = client.patch(
                     f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
-                    data={"should_sync": True},
+                    data=payload,
                     content_type="application/json",
                 )
         finally:
             get_client().delete(repair_lock)
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is (not runs_after)
+
+    def test_sync_turned_on_as_a_repair_finishes_resumes_the_table(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
+        sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
+
+        def finish_the_repair(_source: ExternalDataSource) -> bool:
+            marked = ExternalDataSchema.objects.filter(
+                source_id=schema.source_id, sync_type_config__has_key="cdc_broken"
+            )
+            for schema_id in marked.values_list("id", flat=True):
+                update_sync_type_config_keys(schema_id, team.pk, removes=["cdc_broken"])
+            return False
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            self._patch_cdc_edit(),
+            mock.patch(f"{views}.repair_is_running", side_effect=finish_the_repair),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+                content_type="application/json",
+            )
 
         assert response.status_code == 200, response.content
         assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
