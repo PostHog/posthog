@@ -8,7 +8,6 @@ interface PreviewDataset {
     id: string
     name: string
     items: number
-    updated: string
     rows: { input: string; expected: string }[]
 }
 
@@ -17,9 +16,8 @@ interface PreviewDataset {
 const DATASETS: PreviewDataset[] = [
     {
         id: 'support',
-        name: 'Support replies',
+        name: 'Example: support replies',
         items: 48,
-        updated: 'updated 2h ago',
         rows: [
             { input: 'How do I export my data?', expected: 'Links to the export docs, mentions CSV and API' },
             { input: 'Can I pause my subscription?', expected: 'Yes, from billing settings, keeps data for 90 days' },
@@ -28,9 +26,8 @@ const DATASETS: PreviewDataset[] = [
     },
     {
         id: 'refunds',
-        name: 'Refund policy Q&A',
+        name: 'Example: refund policy Q&A',
         items: 21,
-        updated: 'updated yesterday',
         rows: [
             { input: 'I was charged twice this month', expected: 'Apologize, confirm the duplicate, offer a refund' },
             { input: 'Refund a plan I cancelled last week?', expected: 'Prorated refund within 14 days of cancelling' },
@@ -39,9 +36,8 @@ const DATASETS: PreviewDataset[] = [
     },
     {
         id: 'onboarding',
-        name: 'Onboarding prompts',
+        name: 'Example: onboarding prompts',
         items: 33,
-        updated: 'updated 3d ago',
         rows: [
             { input: 'Set up tracking on a Next.js app', expected: 'Install steps, provider wrapper, env var' },
             { input: "My events aren't showing up", expected: 'Check the API key, host, and ad blockers' },
@@ -92,9 +88,7 @@ export function DatasetsPreview(): JSX.Element {
                             />
                             <span className="DatasetsPreview__copy">
                                 <span className="DatasetsPreview__name">{dataset.name}</span>
-                                <span className="DatasetsPreview__meta">
-                                    {dataset.items} items · {dataset.updated}
-                                </span>
+                                <span className="DatasetsPreview__meta">{dataset.items} items</span>
                             </span>
                         </label>
                     ))}
@@ -144,7 +138,7 @@ export function DatasetsPreview(): JSX.Element {
                 ))}
                 <div className="DatasetsPreview__incoming">
                     <span className="DatasetsPreview__dot" aria-hidden="true" />
-                    New item saved from a trace
+                    Save items straight from your traces
                 </div>
             </div>
         </div>
