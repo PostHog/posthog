@@ -166,7 +166,8 @@ export interface SearchItem {
     groupNoun?: string | null
     itemType?: string | null
     searchKeywords?: string[]
-    matchedSearchKeyword?: string
+    hiddenSearchText?: string
+    matchedSearchKeyword?: string | null
     parentName?: string
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
@@ -1098,6 +1099,7 @@ export const searchLogic = kea<searchLogicType>([
                         productCategory: item.category || null,
                         href: item.href || PLACEHOLDER_HREF,
                         itemType: item.iconType || item.type || null,
+                        hiddenSearchText: [displayName, item.path, item.type, item.iconType].filter(Boolean).join(' '),
                         record: {
                             type: item.type || item.iconType,
                             iconType: item.iconType,

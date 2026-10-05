@@ -205,15 +205,20 @@ describe('searchLogic', () => {
         )
     })
 
-    it.each(['newflag', 'new flag', 'New Feature Flag', 'newfeatureflag', 'create flag'])(
-        'puts New Feature flag first in the create category for %j',
-        (search) => {
-            logic.actions.setSearch(search)
+    it.each([
+        ['newflag', 'New Feature flag'],
+        ['new flag', 'New Feature flag'],
+        ['New Feature Flag', 'New Feature flag'],
+        ['newfeatureflag', 'New Feature flag'],
+        ['create flag', 'New Feature flag'],
+        ['new site app', 'New Web script'],
+        ['new site_app', 'New Web script'],
+    ])('puts the right item first in the create category for %j', (search, expectedFirst) => {
+        logic.actions.setSearch(search)
 
-            const create = logic.values.allCategories.find((category) => category.key === 'create')
-            expect(create?.items[0]?.name).toBe('New Feature flag')
-        }
-    )
+        const create = logic.values.allCategories.find((category) => category.key === 'create')
+        expect(create?.items[0]?.name).toBe(expectedFirst)
+    })
 
     it('maps matching support tickets into their own category', async () => {
         useMocks({

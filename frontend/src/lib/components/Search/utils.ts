@@ -11,7 +11,8 @@ interface FuseSearchable {
     displayName?: string
     category: string
     searchKeywords?: string[]
-    matchedSearchKeyword?: string
+    hiddenSearchText?: string
+    matchedSearchKeyword?: string | null
 }
 
 const SEARCH_KEYWORDS_KEY = 'searchKeywords'
@@ -23,17 +24,18 @@ const FUSE_OPTIONS = {
         { name: 'displayName', weight: 2 },
         { name: 'category', weight: 0.5 },
         { name: SEARCH_KEYWORDS_KEY, weight: 1.5 },
+        { name: 'hiddenSearchText', weight: 1 },
     ],
     ignoreLocation: true,
     useExtendedSearch: true,
     includeMatches: true,
 }
 
-const keywordOnlyMatch = (matches: readonly FuseResultMatch[] = []): string | undefined => {
+const keywordOnlyMatch = (matches: readonly FuseResultMatch[] = []): string | null => {
     if (matches.some((match) => match.key && NAME_KEYS.has(match.key))) {
-        return undefined
+        return null
     }
-    return matches.find((match) => match.key === SEARCH_KEYWORDS_KEY)?.value
+    return matches.find((match) => match.key === SEARCH_KEYWORDS_KEY)?.value ?? null
 }
 
 /**
