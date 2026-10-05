@@ -4,8 +4,10 @@ import itertools
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
@@ -23,6 +25,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -790,6 +793,38 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert "Holiday Promo" in sql_string, "SQL should contain mapped campaign name"
         assert "spring_sale_2024" in sql_string, "SQL should contain original campaign name in mapping"
         assert "holiday_campaign" in sql_string, "SQL should contain original campaign name in mapping"
+
+    @parameterized.expand(
+        [
+            ("id_mappings_only", {}),
+            # A name mapping on another source turns the displayed campaign into a multiIf, so the match key
+            # is no longer derivable from the grouping keys and has to be grouped on itself.
+            ("mixed_with_name_mappings", {"MetaAds": {"Spring Sale 2023": ["spring_sale_fb"]}}),
+        ]
+    )
+    def test_campaign_id_mapping_keys_conversions_on_the_mapped_id(self, _name, extra_mappings):
+        self.team.marketing_analytics_config.campaign_field_preferences = {"GoogleAds": {"match_field": "campaign_id"}}
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {"1001": ["spring_sale_2023"]},
+            **extra_mappings,
+        }
+        self.team.marketing_analytics_config.save()
+
+        tags = {"utm_source": "google", "utm_campaign": "spring_sale_2023"}
+        create_person(team=self.team, distinct_ids=["mapped_user"])
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="mapped_user", timestamp="2023-01-10", properties=tags
+        )
+        _create_event(team=self.team, event="purchase", distinct_id="mapped_user", timestamp="2023-01-12")
+        flush_persons_and_events()
+
+        processor = self._create_test_processor(self._create_test_conversion_goal("purchase", "Purchase"), 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+        cte = aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        # Row shape: campaign, id, source, match_key, conversion. The cost side keys this campaign on "1001".
+        assert response.results == [("spring_sale_2023", "1001", "google", "1001", 1)]
 
     def test_touchpoints_precompute_materialized_once_across_goals(self):
         processors = [

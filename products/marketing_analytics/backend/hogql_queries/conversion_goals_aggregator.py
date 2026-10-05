@@ -171,17 +171,24 @@ class ConversionGoalsAggregator:
             mapped_campaign_expr, mapped_id_expr = self._apply_campaign_name_mappings(
                 campaign_field_expr, id_field_expr, source_field_expr
             )
+            # The cost side keys a campaign_id source on its campaign id, so a utm_campaign mapped to an id
+            # has to key on that id. Unmapped rows keep the campaign, which can already hold the raw id.
+            _, match_key_expr = self._apply_campaign_name_mappings(
+                campaign_field_expr, mapped_campaign_expr, source_field_expr
+            )
             final_select = [
                 ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
                 ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
                 ast.Alias(alias=self.config.source_field, expr=source_field_expr),
-                ast.Alias(alias=self.config.match_key_field, expr=mapped_campaign_expr),
+                ast.Alias(alias=self.config.match_key_field, expr=match_key_expr),
             ]
             group_by_exprs = [
                 mapped_campaign_expr,
                 mapped_id_expr,
                 source_field_expr,
             ]
+            if match_key_expr is not mapped_campaign_expr:
+                group_by_exprs.append(match_key_expr)
 
         # Add each conversion goal as a summed column
         count_processors = self._count_processors()
