@@ -8,6 +8,8 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     RESTClient,
     rest_api_resource,
@@ -86,12 +88,23 @@ def mercado_pago_source(
             end_date = end.isoformat(timespec="milliseconds")
         params = {
             "range": "date_last_updated" if inputs.should_use_incremental_field else "date_created",
-            "sort": "date_last_updated",
+            "sort": "date_last_updated" if inputs.should_use_incremental_field else "date_created",
             "criteria": "asc",
             "begin_date": begin_date,
             "end_date": end_date,
         }
 
+    endpoint: Endpoint = {
+        "path": path,
+        "params": params,
+        "data_selector": "results",
+        "data_selector_required": True,
+    }
+    resource_config: EndpointResource = {
+        "name": inputs.schema_name,
+        "table_format": "delta",
+        "endpoint": endpoint,
+    }
     api_config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
@@ -99,18 +112,7 @@ def mercado_pago_source(
             "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": "paging.total"},
             "request_timeout": 30,
         },
-        "resources": [
-            {
-                "name": inputs.schema_name,
-                "table_format": "delta",
-                "endpoint": {
-                    "path": path,
-                    "params": params,
-                    "data_selector": "results",
-                    "data_selector_required": True,
-                },
-            }
-        ],
+        "resources": [resource_config],
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:

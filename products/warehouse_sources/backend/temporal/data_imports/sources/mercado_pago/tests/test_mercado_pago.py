@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -71,7 +72,7 @@ def test_requests_and_pagination(
         responses.get("https://api.mercadopago.com" + path, json={"results": page, "paging": {"total": total}})
 
     source = MercadoPagoSource().source_for_pipeline(MercadoPagoSourceConfig(access_token=TOKEN), manager, inputs)
-    assert [row for page in source.items() for row in page] == rows
+    assert [row for page in cast(Iterable[Any], source.items()) for row in page] == rows
     assert len(responses.calls) == 2
     queries = [parse_qs(urlsplit(call.request.url).query) for call in responses.calls]
     assert [query["offset"] for query in queries] == [["0"], ["20"]]
@@ -111,13 +112,13 @@ def test_payment_time_filters(
     responses.get("https://api.mercadopago.com/v1/payments/search", json={"results": [], "paging": {"total": 0}})
     with time_machine.travel(NOW, tick=False):
         source = MercadoPagoSource().source_for_pipeline(MercadoPagoSourceConfig(access_token=TOKEN), manager, inputs)
-        list(source.items())
+        list(cast(Iterable[Any], source.items()))
     query = parse_qs(urlsplit(responses.calls[0].request.url).query)
     begin = datetime.fromisoformat(query["begin_date"][0])
     assert begin == (expected_begin or NOW - timedelta(days=365) + timedelta(milliseconds=1))
     assert datetime.fromisoformat(query["end_date"][0]) == NOW
     assert query["range"] == ["date_last_updated" if incremental else "date_created"]
-    assert query["sort"] == ["date_last_updated"]
+    assert query["sort"] == ["date_last_updated" if incremental else "date_created"]
     assert query["criteria"] == [source.sort_mode] == ["asc"]
     assert source.partition_keys == ["date_created"]
     manager.save_state.assert_not_called()
@@ -141,7 +142,7 @@ def test_resume_keeps_offset_and_payment_window(inputs: SourceInputs, manager: M
     )
     with time_machine.travel(NOW, tick=False):
         source = MercadoPagoSource().source_for_pipeline(MercadoPagoSourceConfig(access_token=TOKEN), manager, inputs)
-        assert list(source.items()) == [[{"id": "last"}]]
+        assert list(cast(Iterable[Any], source.items())) == [[{"id": "last"}]]
     query = parse_qs(urlsplit(responses.calls[0].request.url).query)
     assert query["offset"] == ["20"]
     if name == "payments":
@@ -161,7 +162,7 @@ def test_auth_errors_are_actionable(inputs: SourceInputs, manager: MagicMock, st
     assert message is not None and "access token" in message
     response = source.source_for_pipeline(config, manager, inputs)
     with pytest.raises(HTTPError) as error:
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     assert any(
         pattern in str(error.value) and mapped == message
         for pattern, mapped in source.get_non_retryable_errors().items()
