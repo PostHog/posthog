@@ -838,11 +838,25 @@ class GitHubIntegrationBase:
 
     def installation_can_access_repository(self, repository: str) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
+        try:
+            return self.installation_can_access_repository_strict(repository)
+        except GitHubIntegrationError:
+            return False
+
+    def installation_can_access_repository_strict(self, repository: str) -> bool:
+        """Like :meth:`installation_can_access_repository`, but a 5xx that outlasts the retry in
+        :meth:`api_request` raises :class:`GitHubIntegrationError` with its status instead of reading
+        as no access, so a caller can retry the check."""
         response = self._installation_authenticated_get(
             f"https://api.github.com/repos/{repository}", endpoint="/repos/{owner}/{repo}"
         )
         if response is None:
             return False
+        if response.status_code >= 500:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: repository access check failed on /repos/{repository}",
+                status_code=response.status_code,
+            )
         return response.status_code == 200
 
     def organization(self) -> str:
