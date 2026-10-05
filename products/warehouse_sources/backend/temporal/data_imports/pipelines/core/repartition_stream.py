@@ -333,14 +333,22 @@ def conform_to_schema(table: pa.Table, schema: pa.Schema, partition_values: Mapp
 
 
 def _stats_columns(schema: pa.Schema, configuration: Mapping[str, str | None]) -> list[str]:
+    """The columns whose stats an Add action carries: the table's selection, without nested columns.
+
+    Delta nests the stats of a struct column field by field, and a flat value there is a log that
+    delta-rs refuses to commit. The pipeline flattens nested values to JSON strings before they
+    reach a table, so a nested column here is rare and loses only its pruning.
+    """
     data_columns = [name for name in schema.names if name != PARTITION_KEY]
     named = configuration.get("delta.dataSkippingStatsColumns")
     if named:
         wanted = {part.strip().strip("`") for part in named.split(",") if part.strip()}
-        return [name for name in data_columns if name in wanted]
-    raw_count = configuration.get("delta.dataSkippingNumIndexedCols")
-    count = int(raw_count) if raw_count else DEFAULT_NUM_INDEXED_COLS
-    return data_columns if count < 0 else data_columns[:count]
+        selected = [name for name in data_columns if name in wanted]
+    else:
+        raw_count = configuration.get("delta.dataSkippingNumIndexedCols")
+        count = int(raw_count) if raw_count else DEFAULT_NUM_INDEXED_COLS
+        selected = data_columns if count < 0 else data_columns[:count]
+    return [name for name in selected if not pa.types.is_nested(schema.field(name).type)]
 
 
 def _truncate_utf8(value: str, max_bytes: int) -> str:
@@ -372,43 +380,60 @@ def _string_upper_bound(value: str) -> str | None:
 
 
 class _ColumnStats:
-    """Running min, max and null count of one column across the batches of one output file."""
+    """Running min, max and null count of one column across the batches of one output file.
 
-    __slots__ = ("kind", "minimum", "maximum", "null_count", "has_max")
+    A reader skips a file whose min/max rule out its filter, so a bound that misses one value loses
+    that row from reads and turns its merge into a duplicate insert. Each bound is exact or looser,
+    and matches what delta-rs writes where delta-rs is safe.
+
+    A bound is left out only where JSON cannot hold it (infinity). That is not free: delta-rs's
+    pyarrow reader turns a missing bound into a null guarantee and skips the file for every filter
+    on the column, the same as it does for delta-rs's own stats in that case.
+    """
+
+    __slots__ = ("kind", "minimum", "maximum", "null_count", "min_unbounded", "max_unbounded")
 
     def __init__(self, data_type: pa.DataType) -> None:
         self.kind = _stats_kind(data_type)
         self.minimum: Any = None
         self.maximum: Any = None
         self.null_count = 0
-        self.has_max = True
+        self.min_unbounded = False
+        self.max_unbounded = False
 
     def update(self, column: pa.ChunkedArray) -> None:
         self.null_count += column.null_count
         if self.kind is None or column.null_count == len(column):
             return
+        if self.kind == "float":
+            # Same as delta-rs and the parquet footer: NaN is left out of the bounds. JSON has no
+            # infinity, so a file holding one has no bound on that side.
+            self.min_unbounded = self.min_unbounded or bool(
+                pc.any(pc.equal(column, pa.scalar(-math.inf, column.type))).as_py()
+            )
+            self.max_unbounded = self.max_unbounded or bool(
+                pc.any(pc.equal(column, pa.scalar(math.inf, column.type))).as_py()
+            )
+            column = pc.filter(column, pc.is_finite(column))
+            if len(column) == 0:
+                return
         result = pc.min_max(column)
         low, high = result["min"].as_py(), result["max"].as_py()
         if low is None or high is None:
             return
-        if self.kind == "float" and not (math.isfinite(low) and math.isfinite(high)):
-            self.kind = None
-            return
         if self.kind == "string":
             low = _truncate_utf8(low, STRING_STATS_MAX_BYTES)
-            upper = _string_upper_bound(high)
-            if upper is None:
-                self.has_max = False
-            high = upper
+            # With no short upper bound the exact value is kept, as delta-rs does.
+            high = _string_upper_bound(high) or high
         self.minimum = low if self.minimum is None or low < self.minimum else self.minimum
-        if high is not None and (self.maximum is None or high > self.maximum):
-            self.maximum = high
+        self.maximum = high if self.maximum is None or high > self.maximum else self.maximum
 
     def json_values(self) -> tuple[Any, Any]:
         if self.kind is None or self.minimum is None:
             return None, None
-        maximum = self.maximum if self.has_max else None
-        return _json_stat(self.minimum), (_json_stat(maximum) if maximum is not None else None)
+        low = None if self.min_unbounded else _json_stat(self.minimum)
+        high = None if self.max_unbounded else _json_stat(self.maximum)
+        return low, high
 
 
 def _stats_kind(data_type: pa.DataType) -> str | None:
@@ -430,16 +455,36 @@ def _stats_kind(data_type: pa.DataType) -> str | None:
 
 
 def _json_stat(value: Any) -> Any:
-    # Same text forms delta-rs writes, so readers that parse its stats parse these too.
+    # Same text forms delta-rs writes, so readers that parse its stats parse these too. A decimal
+    # stays a `Decimal` until `_dumps_stats` writes it as an exact JSON number.
     if isinstance(value, datetime.datetime):
         if value.tzinfo is None:
             return str(value)
         return value.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
     if isinstance(value, datetime.date):
         return value.isoformat()
-    if isinstance(value, decimal.Decimal):
-        return float(value)
     return value
+
+
+def _dumps_stats(stats: dict[str, Any]) -> str:
+    """JSON for an Add action's stats, with each decimal written as its exact JSON number.
+
+    delta-rs writes a decimal bound through a float. The float can round to the inner side of the
+    real bound, and from about 1e16 delta-rs's own reader parses it as null. The exact number text
+    is valid JSON and parses back to the exact value.
+    """
+    # A random token, so no string value in the stats can look like a placeholder.
+    token = uuid.uuid4().hex
+    numbers: list[str] = []
+
+    def default(value: Any) -> str:
+        if isinstance(value, decimal.Decimal) and value.is_finite():
+            numbers.append(format(value, "f"))
+            return f"{token}{len(numbers) - 1}"
+        raise TypeError(f"cannot write {type(value).__name__} into Delta stats")
+
+    text = json.dumps(stats, default=default)
+    return re.sub(f'"{token}(\\d+)"', lambda match: numbers[int(match.group(1))], text)
 
 
 class _OpenFile:
@@ -501,7 +546,7 @@ class _OpenFile:
             {PARTITION_KEY: self.partition_value},
             int(time.time() * 1000),
             True,
-            json.dumps(stats),
+            _dumps_stats(stats),
         )
         return WrittenFile(action=action, num_records=self.num_records)
 

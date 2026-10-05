@@ -1,6 +1,9 @@
 import os
+import glob
 import json
+import math
 import asyncio
+import decimal
 import datetime
 import itertools
 from types import SimpleNamespace
@@ -12,6 +15,7 @@ import django.db
 
 import pyarrow as pa
 import deltalake as deltalake
+import deltalite
 import structlog
 import pyarrow.parquet as pq
 from deltalake.transaction import AddAction
@@ -40,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     SOURCE_FILES_METADATA_KEY,
     SourceReader,
     StreamBudget,
+    TempTableCommitter,
     copied_source_files,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
@@ -1230,51 +1235,6 @@ class TestStreamingRewrite:
         for created, key in zip(table.column("created_at").to_pylist(), table.column(PARTITION_KEY).to_pylist()):
             assert created.strftime("%Y-%m-%d") == key
 
-    @pytest.mark.parametrize(
-        "values",
-        [
-            pytest.param(["a", "b", None], id="short_ascii"),
-            pytest.param(["x" * 100, "y" * 100], id="long_ascii"),
-            pytest.param(["é" * 40, "z"], id="long_multibyte"),
-            pytest.param(["\U0010ffff" * 20, "a"], id="no_character_can_be_raised"),
-        ],
-    )
-    def test_file_stats_bound_the_rows_in_each_file(self, values, tmp_path):
-        # Merges skip files on these stats. A max below a real value hides rows from the merge, which
-        # then inserts a duplicate instead of updating the row.
-        source = pa.table(
-            {
-                "id": pa.array(range(len(values)), type=pa.int64()),
-                "label": pa.array(values, type=pa.string()),
-                "created_at": pa.array([datetime.datetime(2024, 1, 5)] * len(values), type=pa.timestamp("us")),
-            }
-        )
-        result = append_partition_key_to_table(source, None, None, ["created_at"], "datetime", "month", logger)
-        assert result is not None
-        deltalake.write_deltalake(str(tmp_path / "live"), result.table, partition_by=PARTITION_KEY)
-        temp_uri = str(tmp_path / "temp")
-
-        asyncio.run(
-            _rewrite_into_temp(
-                old_delta=deltalake.DeltaTable(str(tmp_path / "live")),
-                temp_uri=temp_uri,
-                storage_options={},
-                target=self._day_target(),
-                budget=_budget(),
-                logger=logger,
-            )
-        )
-
-        present = [v for v in values if v is not None]
-        (add,) = pa.table(deltalake.DeltaTable(temp_uri).get_add_actions(flatten=False)).to_pylist()
-        assert add["num_records"] == len(values)
-        assert add["null_count"]["label"] == len(values) - len(present)
-        assert (add["min"]["id"], add["max"]["id"]) == (0, len(values) - 1)
-        assert add["min"]["label"] <= min(present)
-        if add["max"]["label"] is not None:
-            assert add["max"]["label"] >= max(present)
-            assert len(add["max"]["label"].encode("utf-8")) <= 64
-
     def test_files_written_before_a_column_was_added_read_as_nulls(self, tmp_path):
         # A file-by-file read sees each file's own schema. The rewrite must fill a column an older
         # file lacks, the way a scan of the whole table does, instead of failing the write.
@@ -1348,6 +1308,303 @@ class TestStreamingRewrite:
         assert rows_written == rebuilt.num_rows == rows
         assert sorted(rebuilt.column("id").to_pylist()) == sorted(f"key-{i}" for i in range(rows))
         assert len(set(rebuilt.column(PARTITION_KEY).to_pylist())) <= partition_count
+
+
+_D = decimal.Decimal
+_CUT_IN_A_CHARACTER = "a" * 63 + "é" + "zz"
+_MAX_CODE_POINT = "\U0010ffff" * 20
+
+
+def _write_streamed(uri: str, chunks: list[pa.Table]) -> None:
+    # One commit, and so one file, per chunk.
+    committer = TempTableCommitter(temp_uri=uri, storage_options={}, configuration=None)
+    file_schema = committer.open_or_create(chunks[0].schema)
+    for chunk in chunks:
+        writer = repartition_module.PartitionedFileWriter(
+            filesystem=repartition_module.storage_filesystem(uri, {}),
+            schema=file_schema,
+            budget=_budget(),
+            configuration={},
+        )
+        writer.write(chunk)
+        committer.commit(writer.finish(), [f"source-{chunk.column('id')[0].as_py()}"])
+
+
+def _raw_add_stats(uri: str) -> list[dict]:
+    # Decimals parse exactly, so a bound that is off in its last digit cannot pass as equal.
+    stats = []
+    for log in sorted(glob.glob(os.path.join(uri, "_delta_log", "*.json"))):
+        with open(log) as handle:
+            for line in handle:
+                action = json.loads(line)
+                if "add" in action:
+                    stats.append(json.loads(action["add"]["stats"], parse_float=decimal.Decimal))
+    return stats
+
+
+def _typed(value, data_type: pa.DataType):
+    if pa.types.is_decimal(data_type):
+        return _D(value)
+    if pa.types.is_date32(data_type):
+        return datetime.date.fromisoformat(value)
+    if pa.types.is_timestamp(data_type):
+        return datetime.datetime.fromisoformat(value)
+    if pa.types.is_floating(data_type):
+        return pa.scalar(float(value), data_type).as_py()
+    return value
+
+
+class TestAddActionStats:
+    """The rewrite writes its own Add-action stats. Readers skip files on them, so a bound that misses
+    one value loses that row from reads and turns its merge into a duplicate insert."""
+
+    @pytest.mark.parametrize(
+        "values,data_type,differs",
+        [
+            pytest.param([-128, 5, None, 127], pa.int8(), {}, id="int8"),
+            pytest.param([-32768, 1, 32767], pa.int16(), {}, id="int16"),
+            pytest.param([-(2**31), 0, 2**31 - 1], pa.int32(), {}, id="int32"),
+            pytest.param([-(2**63), 0, 2**63 - 1], pa.int64(), {}, id="int64"),
+            pytest.param([1.5, -2.25, 0.1, None], pa.float32(), {}, id="float32"),
+            pytest.param([0.1, -1e300, 5e-324, -0.0], pa.float64(), {}, id="float64"),
+            pytest.param([1.5, float("nan"), -2.25], pa.float32(), {}, id="float32_with_nan"),
+            pytest.param([float("nan"), float("nan")], pa.float64(), {}, id="float64_all_nan"),
+            pytest.param([float("inf"), 0.1], pa.float64(), {}, id="float64_with_inf"),
+            pytest.param([float("-inf"), 0.1], pa.float64(), {}, id="float64_with_negative_inf"),
+            pytest.param(
+                [_D("0.10"), _D("2.50"), None], pa.decimal128(20, 2), {}, id="decimal_held_exactly_by_a_float"
+            ),
+            pytest.param(
+                [_D("0.10"), _D("12345678901234567.89")],
+                pa.decimal128(20, 2),
+                {"max": "exact"},
+                id="decimal_max_a_float_cannot_hold",
+            ),
+            pytest.param(
+                [_D("12345678901234567.89"), _D("12345678901234599.99")],
+                pa.decimal128(20, 2),
+                {"min": "exact", "max": "exact"},
+                id="decimal_bounds_a_float_cannot_hold",
+            ),
+            pytest.param(
+                [_D("-1234567890123456789012345678.0123456789"), _D("1E-10")],
+                pa.decimal128(38, 10),
+                {"min": "exact"},
+                id="decimal_at_full_precision",
+            ),
+            pytest.param([_CUT_IN_A_CHARACTER, "b" * 100, "c"], pa.string(), {}, id="long_string_cut_in_a_character"),
+            pytest.param(["é" * 40, "ab", None], pa.string(), {}, id="long_multibyte_string"),
+            pytest.param([_MAX_CODE_POINT, "a"], pa.string(), {}, id="string_whose_prefix_cannot_be_raised"),
+            pytest.param(["", "", ""], pa.string(), {}, id="empty_strings"),
+            pytest.param(["", "x"], pa.string(), {}, id="empty_and_short_strings"),
+            pytest.param([None, None, None], pa.string(), {}, id="all_null_strings"),
+            pytest.param([None, None], pa.int64(), {}, id="all_null_ints"),
+            pytest.param([True, None, False], pa.bool_(), {}, id="bool"),
+            pytest.param([True, True], pa.bool_(), {}, id="bool_one_value"),
+            pytest.param([datetime.date(2024, 1, 1), datetime.date(1970, 1, 1), None], pa.date32(), {}, id="date32"),
+            pytest.param(
+                [datetime.datetime(2024, 1, 1, 1, 2, 3, 456789), datetime.datetime(1999, 12, 31), None],
+                pa.timestamp("us"),
+                {},
+                id="timestamp_naive",
+            ),
+            pytest.param(
+                [
+                    datetime.datetime(2024, 1, 1, 1, 2, 3, 456789, tzinfo=datetime.UTC),
+                    datetime.datetime(1999, 12, 31, tzinfo=datetime.UTC),
+                    None,
+                ],
+                pa.timestamp("us", tz="UTC"),
+                {},
+                id="timestamp_utc",
+            ),
+            pytest.param(
+                [{"x": 1, "y": "q"}, None, {"x": 3, "y": "r"}],
+                pa.struct([("x", pa.int64()), ("y", pa.string())]),
+                {"min": "omitted", "max": "omitted", "nullCount": "omitted"},
+                id="struct",
+            ),
+        ],
+    )
+    def test_stats_match_delta_rs_unless_delta_rs_is_unsafe(self, values, data_type, differs, tmp_path):
+        # `differs` names each stat that deliberately does not match delta-rs: "exact" where delta-rs
+        # rounds a decimal through a float, "omitted" where the writer leaves the stat out.
+        table = pa.table(
+            {
+                "id": pa.array(range(len(values)), pa.int64()),
+                "v": pa.array(values, data_type),
+                PARTITION_KEY: pa.array(["p"] * len(values)),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "reference"), table, partition_by=PARTITION_KEY)
+        _write_streamed(str(tmp_path / "streamed"), [table])
+        (reference,) = _raw_add_stats(str(tmp_path / "reference"))
+        (streamed,) = _raw_add_stats(str(tmp_path / "streamed"))
+        present = [
+            value for value in values if value is not None and value == value and value not in (math.inf, -math.inf)
+        ]
+
+        assert streamed["numRecords"] == reference["numRecords"]
+        assert streamed["nullCount"]["id"] == reference["nullCount"]["id"]
+        for key, name, true_value in (
+            ("nullCount", "nullCount", None),
+            ("minValues", "min", min),
+            ("maxValues", "max", max),
+        ):
+            ours = streamed.get(key, {}).get("v")
+            theirs = reference.get(key, {}).get("v")
+            expectation = differs.get(name)
+            if expectation == "omitted":
+                assert ours is None
+            elif expectation == "exact":
+                assert _typed(ours, data_type) == true_value(present)
+                assert _typed(theirs, data_type) != true_value(present)
+            elif key == "nullCount" or ours is None or theirs is None:
+                assert ours == theirs
+            else:
+                assert _typed(ours, data_type) == _typed(theirs, data_type)
+
+        if streamed.get("minValues", {}).get("v") is not None:
+            assert _typed(streamed["minValues"]["v"], data_type) <= min(present)
+        if streamed.get("maxValues", {}).get("v") is not None:
+            assert _typed(streamed["maxValues"]["v"], data_type) >= max(present)
+
+    @staticmethod
+    def _typed_table() -> pa.Table:
+        rows = range(12)
+        base = datetime.datetime(2024, 1, 1, 0, 0, 0, 456789)
+        return pa.table(
+            {
+                "id": pa.array(rows, pa.int64()),
+                "i8": pa.array([None if i == 3 else i * 10 - 60 for i in rows], pa.int8()),
+                "f32": pa.array([i * 1.5 - 3.0 for i in rows], pa.float32()),
+                "f64": pa.array([i * 0.1 for i in rows], pa.float64()),
+                "f64_nan": pa.array([float("nan") if i == 5 else float(i) for i in rows], pa.float64()),
+                "f64_inf": pa.array([float("inf") if i == 9 else float(i) for i in rows], pa.float64()),
+                "dec": pa.array([(_D(i) / 4).quantize(_D("0.01")) for i in rows], pa.decimal128(20, 2)),
+                "dec_big": pa.array([_D("12345678901234567.89") + i for i in rows], pa.decimal128(20, 2)),
+                "s": pa.array(["é" * 40 + chr(ord("a") + i) for i in rows], pa.string()),
+                "b": pa.array([i % 2 == 0 for i in rows], pa.bool_()),
+                "d": pa.array(
+                    [None if i == 7 else datetime.date(2024, 1, 1) + datetime.timedelta(days=i) for i in rows]
+                ),
+                "ts": pa.array([base + datetime.timedelta(hours=i) for i in rows], pa.timestamp("us")),
+                "tz": pa.array(
+                    [(base + datetime.timedelta(hours=i)).replace(tzinfo=datetime.UTC) for i in rows],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+                PARTITION_KEY: pa.array(["p"] * 12),
+            }
+        )
+
+    @staticmethod
+    def _boundaries(table: pa.Table, column: str) -> list:
+        values = []
+        for start in range(0, table.num_rows, 4):
+            chunk = [v for v in table.column(column).to_pylist()[start : start + 4] if v is not None and v == v]
+            values.extend([min(chunk), max(chunk)])
+        return values
+
+    @staticmethod
+    def _sql_literal(value, data_type: pa.DataType) -> str:
+        if pa.types.is_decimal(data_type):
+            return f"CAST('{value}' AS DECIMAL({data_type.precision},{data_type.scale}))"
+        if pa.types.is_string(data_type):
+            return "'" + value.replace("'", "''") + "'"
+        if pa.types.is_boolean(data_type):
+            return "true" if value else "false"
+        if pa.types.is_date32(data_type):
+            return f"DATE '{value.isoformat()}'"
+        if pa.types.is_timestamp(data_type):
+            if data_type.tz is None:
+                return f"TIMESTAMP '{value.isoformat(sep=' ')}'"
+            return f"CAST('{value.isoformat().replace('+00:00', 'Z')}' AS TIMESTAMP)"
+        if pa.types.is_floating(data_type):
+            return f"CAST('{value!r}' AS DOUBLE)" if math.isinf(value) else repr(float(value))
+        return str(value)
+
+    _OPS = {
+        "=": lambda a, b: a == b,
+        "<": lambda a, b: a < b,
+        ">": lambda a, b: a > b,
+        "<=": lambda a, b: a <= b,
+        ">=": lambda a, b: a >= b,
+    }
+
+    @pytest.mark.parametrize(
+        "column", ["id", "i8", "f32", "f64", "f64_nan", "dec", "dec_big", "s", "b", "d", "ts", "tz"]
+    )
+    def test_filtered_pyarrow_reads_at_each_file_bound_keep_every_matching_row(self, column, tmp_path):
+        # delta-rs turns each file's stats into a pyarrow guarantee, so a bound off by one value drops
+        # that file from a filtered read. The infinity column is not listed: JSON cannot hold its
+        # bound, and delta-rs's pyarrow reader reads a missing bound as null and drops the file,
+        # for delta-rs's own stats too. NaN rows are not compared, because readers disagree on how
+        # NaN orders.
+        table = self._typed_table()
+        uri = str(tmp_path / "temp")
+        _write_streamed(uri, [table.slice(start, 4) for start in range(0, 12, 4)])
+        delta = deltalake.DeltaTable(uri)
+        assert len(delta.file_uris()) == 3
+        values = table.column(column).to_pylist()
+        nan_rows = {i for i, value in enumerate(values) if isinstance(value, float) and math.isnan(value)}
+
+        for bound in self._boundaries(table, column):
+            for op, holds in self._OPS.items():
+                expected = sorted(
+                    i
+                    for i, value in enumerate(values)
+                    if value is not None and i not in nan_rows and holds(value, bound)
+                )
+                read = delta.to_pyarrow_table(filters=[(column, op, bound)])
+                assert sorted(set(read.column("id").to_pylist()) - nan_rows) == expected, (column, op, bound)
+
+    @pytest.mark.parametrize(
+        "column",
+        ["id", "i8", "f32", "f64", "f64_nan", "f64_inf", "dec", "dec_big", "s", "b", "d", "ts", "tz"],
+    )
+    def test_datafusion_reads_at_each_file_bound_keep_every_matching_row(self, column, tmp_path):
+        # DataFusion prunes files on the same stats during delta-rs merges and SQL reads. NaN rows are
+        # not compared: DataFusion orders NaN above every number when it evaluates a filter, but the
+        # parquet footer and delta-rs's own stats both leave NaN out, so pruning drops them for any
+        # writer.
+        table = self._typed_table()
+        uri = str(tmp_path / "temp")
+        _write_streamed(uri, [table.slice(start, 4) for start in range(0, 12, 4)])
+        query = deltalake.QueryBuilder().register("t", deltalake.DeltaTable(uri))
+        data_type = table.schema.field(column).type
+        values = table.column(column).to_pylist()
+        nan_rows = {i for i, value in enumerate(values) if isinstance(value, float) and math.isnan(value)}
+
+        for bound in self._boundaries(table, column):
+            for op, holds in self._OPS.items():
+                expected = sorted(
+                    i
+                    for i, value in enumerate(values)
+                    if value is not None and i not in nan_rows and holds(value, bound)
+                )
+                sql = f"SELECT id FROM t WHERE {column} {op} {self._sql_literal(bound, data_type)}"
+                read = pa.table(query.execute(sql).read_all())
+                assert sorted(set(read.column("id").to_pylist()) - nan_rows) == expected, sql
+
+    @pytest.mark.parametrize("key", ["id", "s", "dec", "dec_big", "ts", "tz"])
+    def test_a_stats_pruned_upsert_at_each_file_bound_updates_instead_of_inserting(self, key, tmp_path):
+        # deltalite skips files whose stats on the first primary key rule out a match. A bound that
+        # misses the key inserts the row again, so the table keeps a duplicate.
+        table = self._typed_table()
+        uri = str(tmp_path / "temp")
+        _write_streamed(uri, [table.slice(start, 4) for start in range(0, 12, 4)])
+        keys = table.column(key).to_pylist()
+        rows = sorted({keys.index(bound) for bound in self._boundaries(table, key)})
+        changed = table.take(rows).set_column(
+            table.schema.get_field_index("i8"), "i8", pa.array([99] * len(rows), pa.int8())
+        )
+
+        stats = deltalite.DeltaLiteTable.open(uri).upsert(changed, [key], PARTITION_KEY, prune_strategy="stats")
+
+        after = deltalake.DeltaTable(uri).to_pyarrow_table().sort_by("id")
+        assert stats.rows_inserted == 0
+        assert after.num_rows == table.num_rows
+        assert [after.column("i8")[i].as_py() for i in rows] == [99] * len(rows)
 
 
 class _FakeS3CM:
