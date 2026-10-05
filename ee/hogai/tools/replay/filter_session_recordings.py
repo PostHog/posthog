@@ -214,7 +214,16 @@ class FilterSessionRecordingsTool(MaxTool):
             logger.warning("failed_to_diagnose_empty_recordings_result", error=str(e))
             return ""
         if not linkages:
-            return ""
+            # No named event, so there is no linkage to measure: describe the scope the search ran
+            # under instead, because its date range and test-account default are often the cause.
+            return diagnosis.describe_scope(
+                diagnosis.SearchScope(
+                    date_from=recordings_query.date_from or "-3d",
+                    date_to=recordings_query.date_to,
+                    filter_test_accounts=bool(recordings_query.filter_test_accounts),
+                ),
+                recording_enabled=self._team.session_recording_opt_in,
+            )
 
         return diagnosis.describe(
             diagnosis.diagnose(

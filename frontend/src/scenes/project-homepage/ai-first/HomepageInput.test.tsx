@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -10,67 +10,104 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
-import { HomepageAiInput } from './HomepageInput'
+import { HomepageAiInput, HomepageInput } from './HomepageInput'
 
 jest.mock('scenes/max/components/SidebarQuestionInput', () => ({
     SidebarQuestionInput: () => <div data-attr="mock-question-input" />,
 }))
 
-describe('HomepageAiInput', () => {
-    const APPROVE_LABEL = 'I allow AI analysis in this organization'
+describe('HomepageInput', () => {
+    describe('AI consent gate', () => {
+        const APPROVE_LABEL = 'I allow AI analysis in this organization'
 
-    function renderInput(membershipLevel: OrganizationMembershipLevel): HTMLElement {
-        initKeaTests(true, undefined, undefined, {
-            ...MOCK_DEFAULT_ORGANIZATION,
-            is_ai_data_processing_approved: false,
-            membership_level: membershipLevel,
+        function renderInput(membershipLevel: OrganizationMembershipLevel): HTMLElement {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+                membership_level: membershipLevel,
+            })
+
+            const { container } = render(
+                <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
+                    <HomepageAiInput />
+                </BindLogic>
+            )
+            return container
+        }
+
+        beforeEach(() => {
+            useMocks({
+                patch: {
+                    '/api/organizations/:id': async ({ request }) => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_ORGANIZATION,
+                            ...((await request.json()) as Partial<typeof MOCK_DEFAULT_ORGANIZATION>),
+                        },
+                    ],
+                },
+                post: {
+                    '/api/organizations/:id/request_ai_access/': () => [200, { success: true }],
+                },
+            })
         })
 
-        const { container } = render(
-            <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
-                <HomepageAiInput />
-            </BindLogic>
-        )
-        return container
-    }
+        afterEach(cleanup)
 
-    beforeEach(() => {
-        useMocks({
-            patch: {
-                '/api/organizations/:id': async ({ request }) => [
-                    200,
-                    {
-                        ...MOCK_DEFAULT_ORGANIZATION,
-                        ...((await request.json()) as Partial<typeof MOCK_DEFAULT_ORGANIZATION>),
-                    },
-                ],
-            },
-            post: {
-                '/api/organizations/:id/request_ai_access/': () => [200, { success: true }],
-            },
+        it('approves AI data processing and swaps in the composer when the button is clicked', async () => {
+            const container = renderInput(OrganizationMembershipLevel.Admin)
+
+            fireEvent.click(screen.getByText(APPROVE_LABEL))
+
+            await waitFor(() =>
+                expect(organizationLogic.values.currentOrganization?.is_ai_data_processing_approved).toBe(true)
+            )
+            expect(container.querySelector('[data-attr="mock-question-input"]')).toBeTruthy()
+        })
+
+        it('lets a member ask an admin to approve, instead of dead-ending on the disabled reason', async () => {
+            renderInput(OrganizationMembershipLevel.Member)
+
+            expect(screen.queryByText(APPROVE_LABEL)).toBeNull()
+            fireEvent.click(screen.getByText('Request access'))
+
+            await waitFor(() => expect(screen.getByText(/Request sent\./)).toBeTruthy())
         })
     })
 
-    afterEach(cleanup)
+    describe('fill-in prefix', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/conversations/': { results: [] },
+                    '/api/projects/:team_id/dashboards/': { results: [] },
+                    '/api/projects/:team_id/file_system/': { results: [] },
+                    '/api/projects/:team_id/file_system_shortcut/': { results: [] },
+                },
+            })
+            initKeaTests()
+        })
 
-    it('approves AI data processing and swaps in the composer when the button is clicked', async () => {
-        const container = renderInput(OrganizationMembershipLevel.Admin)
+        afterEach(cleanup)
 
-        fireEvent.click(screen.getByText(APPROVE_LABEL))
+        // The prefix lives outside `query` now, so the input has to keep showing it. A user who
+        // cannot see the suggestion's words has no idea what their own words are completing.
+        it('shows the prefix in the input and appends what the user types', () => {
+            const logic = aiFirstHomepageLogic()
+            logic.mount()
+            render(<HomepageInput />)
+            const input = screen.getByTestId('homepage-input') as HTMLTextAreaElement
 
-        await waitFor(() =>
-            expect(organizationLogic.values.currentOrganization?.is_ai_data_processing_approved).toBe(true)
-        )
-        expect(container.querySelector('[data-attr="mock-question-input"]')).toBeTruthy()
-    })
+            act(() => logic.actions.setFillInPrefix('Find recordings for '))
+            expect(input.value).toEqual('Find recordings for ')
 
-    it('lets a member ask an admin to approve, instead of dead-ending on the disabled reason', async () => {
-        renderInput(OrganizationMembershipLevel.Member)
+            fireEvent.change(input, { target: { value: 'Find recordings for cool beans' } })
+            expect(input.value).toEqual('Find recordings for cool beans')
+            expect(logic.values.query).toEqual('cool beans')
 
-        expect(screen.queryByText(APPROVE_LABEL)).toBeNull()
-        fireEvent.click(screen.getByText('Request access'))
-
-        await waitFor(() => expect(screen.getByText(/Request sent\./)).toBeTruthy())
+            logic.unmount()
+        })
     })
 })

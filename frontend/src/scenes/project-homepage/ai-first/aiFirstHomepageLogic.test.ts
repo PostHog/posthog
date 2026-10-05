@@ -161,6 +161,44 @@ describe('aiFirstHomepageLogic', () => {
         await expectLogic(logic).toMatchValues({ mode: 'idle', query: 'my own question' })
     })
 
+    // Regression guard: a fill-in suggestion writes its own wording into the input. Before the
+    // prefix was modelled apart from `query`, "Tab to search" sent the suggestion's words along
+    // with the user's, so the search ran for "Find recordings for cool beans" and matched nothing.
+    it('keeps a fill-in suggestion prefix out of the search it submits', async () => {
+        const prefix = 'Find recordings for'
+        router.actions.push(urls.projectHomepage())
+
+        jest.useFakeTimers()
+        try {
+            logic.actions.activateGridItem({
+                id: 'suggestion-topic-replay-0',
+                label: prefix,
+                kind: 'suggestion',
+                source: 'topic',
+                prompt: prefix,
+                fillInHint: 'what to look for',
+            })
+            jest.advanceTimersByTime(10_000)
+        } finally {
+            jest.useRealTimers()
+        }
+        // The prefix waits in its own value, so the input still shows it but `query` is empty.
+        await expectLogic(logic).toMatchValues({
+            mode: 'idle',
+            query: '',
+            fillInPrefix: `${prefix} `,
+            fullQuery: `${prefix} `,
+        })
+
+        logic.actions.setQuery('cool beans')
+        expect(logic.values.fullQuery).toEqual(`${prefix} cool beans`)
+
+        logic.actions.submitQuery('search')
+        await expectLogic(logic).delay(1)
+
+        expect(router.values.searchParams.q).toEqual('cool beans')
+    })
+
     it('activating a continue-conversation suggestion restores that conversation', async () => {
         router.actions.push(urls.projectHomepage())
 
