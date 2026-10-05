@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegrationField'
@@ -12,11 +12,24 @@ import { CyclotronJobInputSchemaType } from '~/types'
 import { alertWizardLogic } from '../alertWizardLogic'
 
 export function ConfigureStep(): JSX.Element {
-    const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
+    const { requiredInputsSchema, configuration, activeTemplate, templateLoadFailed, submitting, testing } =
         useValues(alertWizardLogic)
-    const { setInputValue, submitConfiguration, testConfiguration } = useActions(alertWizardLogic)
+    const { setInputValue, submitConfiguration, testConfiguration, retryLoadTemplate } = useActions(alertWizardLogic)
 
-    if (selectedTemplateLoading) {
+    if (templateLoadFailed) {
+        return (
+            <div className="space-y-4">
+                <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: retryLoadTemplate }}>
+                    Could not load the settings for this destination.
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    // `activeTemplate` is null until the selected destination's template is the one that is loaded, which
+    // also covers the gap between a destination change and the next request starting.
+    if (!activeTemplate) {
         return (
             <div className="space-y-4">
                 <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
