@@ -23,29 +23,12 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Element, Filter, Team
+from posthog.models import Element, Filter
 from posthog.models.element.chain_query import normalized_elements_chain_expr
 from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.utils import format_query_params_absolute_url
 
 tracer = trace.get_tracer(__name__)
-
-CHAIN_NORMALIZATION_FLAG = "heatmaps-clickmap-chain-normalization"
-
-
-def chain_normalization_enabled(team: Team) -> bool:
-    try:
-        return posthog_feature_flag_enabled(
-            CHAIN_NORMALIZATION_FLAG,
-            str(team.uuid),
-            organization_id=team.organization_id,
-            team_id=team.id,
-            only_evaluate_locally=True,
-        )
-    except Exception:
-        return False
-
 
 ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",
@@ -228,7 +211,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 attributes_filter = build_attributes_filter(wanted_data_attributes)
                 chain_expr = (
                     normalized_elements_chain_expr(wanted_data_attributes)
-                    if attributes_filter is not None and chain_normalization_enabled(self.team)
+                    if attributes_filter is not None
                     else ast.Field(chain=["elements_chain"])
                 )
 
