@@ -134,10 +134,14 @@ def test_rollup_counts_view_reads_and_refreshes_and_replaces_its_partition_on_re
 
     view_only = "SELECT count() FROM orders"
     joined = "SELECT count() FROM orders o JOIN `stripe_charges` c ON o.id = c.order_id"
+    comma_joined = "SELECT count() FROM orders o, stripe_charges c WHERE o.id = c.order_id"
+    commented_join = "SELECT count() FROM orders o JOIN /* warehouse */ stripe_charges c ON o.id = c.order_id"
     rows = [
         archive_row(team, day, log_comment=view_read_comment(orders, view_only, "shared", 7), duration_ms=100),
         archive_row(team, day, log_comment=view_read_comment(orders, view_only, "shared", 7), duration_ms=300),
         archive_row(team, day, log_comment=view_read_comment(orders, joined, "joined", 8), duration_ms=50),
+        archive_row(team, day, log_comment=view_read_comment(orders, comma_joined, "comma", 8), duration_ms=60),
+        archive_row(team, day, log_comment=view_read_comment(orders, commented_join, "comment", 8), duration_ms=70),
         archive_row(team, day, log_comment=view_read_comment(orders, view_only, "staff", 9, is_impersonated=True)),
         archive_row(team, day, log_comment=view_read_comment(orders, view_only, "leaf", 7), is_initial_query=False),
         archive_row(team, day, log_comment=refresh_comment(refresh_workflow_id), duration_ms=2000, read_bytes=50000),
@@ -146,7 +150,7 @@ def test_rollup_counts_view_reads_and_refreshes_and_replaces_its_partition_on_re
     cluster.any_host(partial(insert_archive_rows, rows)).result()
 
     expected = [
-        ("read", str(orders.id), "", False, 1, 1, 1, 50, 1000),
+        ("read", str(orders.id), "", False, 3, 1, 3, 180, 3000),
         ("read", str(orders.id), "", True, 1, 1, 2, 400, 2000),
         ("refresh", str(customers.id), refresh_workflow_id, False, 1, 1, 1, 2000, 50000),
     ]

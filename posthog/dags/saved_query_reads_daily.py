@@ -41,7 +41,7 @@ SUBJECT_NAMES_TABLE = "subject_names"
 REFRESH_SUBJECTS_TABLE = "refresh_subjects"
 IDENTIFIER_QUOTE_PATTERN = r"[`\"]"
 PARTITION_ID_FORMAT = "%Y%m%d"
-FROM_OR_JOIN_TARGET_PATTERN = r"(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)"
+IDENTIFIER_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
 
 AGGREGATE_COLUMNS = (
     "uniqState(request_id) AS requests",
@@ -130,7 +130,7 @@ VIEW_READS_SQL = _archive_branch_sql(
     read_kind=ReadKind.READ,
     subject_id="viewed_saved_query_id",
     workflow_id="''",
-    queried_names="arrayDistinct(extractAll(replaceRegexpAll(lc_query__query, %(identifier_quote_pattern)s, ''), %(from_or_join_target_pattern)s))",
+    queried_names="arrayDistinct(extractAll(replaceRegexpAll(lc_query__query, %(identifier_quote_pattern)s, ''), %(identifier_pattern)s))",
     array_join="ARRAY JOIN log_comment.saved_query_ids::Array(String) AS viewed_saved_query_id",
     extra_filter="",
 )
@@ -194,7 +194,7 @@ def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
         "day": day,
         "day_start": day_start,
         "day_end": day_start + timedelta(days=1),
-        "from_or_join_target_pattern": FROM_OR_JOIN_TARGET_PATTERN,
+        "identifier_pattern": IDENTIFIER_PATTERN,
         "identifier_quote_pattern": IDENTIFIER_QUOTE_PATTERN,
     }
 
