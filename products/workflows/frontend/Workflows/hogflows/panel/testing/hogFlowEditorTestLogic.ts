@@ -1205,6 +1205,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
+                    // nosemgrep: prefer-codegen-api-namespaced-workflows -- hogFlowsInvocationsCreate() serves this route, but the invocations action declares no response schema, so its generated return type is void.
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
                         globals: {

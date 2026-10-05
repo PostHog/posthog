@@ -375,6 +375,7 @@ export const stepAiDecisionLogic = kea<stepAiDecisionLogicType>([
         const runTestInvocation = async (mockAsyncFunctions: boolean): Promise<HogflowTestResult> => {
             const { workflow } = values
             const globals = values.sampleGlobals ?? createExampleEvent(workflow.team_id, workflow.name)
+            // nosemgrep: prefer-codegen-api-namespaced-workflows -- hogFlowsInvocationsCreate() serves this route, but the invocations action declares no response schema, so its generated return type is void.
             return await api.hogFlows.createTestInvocation(workflow.id, {
                 configuration: values.workflowSanitized,
                 globals: {
