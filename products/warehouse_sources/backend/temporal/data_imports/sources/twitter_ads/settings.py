@@ -3,7 +3,7 @@ ENTITY_TABLES = ("campaigns", "line_items", "promoted_tweets", "funding_instrume
 STATS_TABLES = {"campaign_stats": "CAMPAIGN", "line_item_stats": "LINE_ITEM"}
 PLACEMENTS = ("ALL_ON_TWITTER", "SPOTLIGHT", "TREND")
 LOOKBACK_SECONDS = 3 * 24 * 60 * 60
-# The synchronous stats endpoint we use rejects windows further back than this with a 400;
+# The synchronous stats endpoint we use rejects dates further back than this with a 400;
 # X's docs say onboarding backfills should use the (unimplemented) async analytics endpoint instead.
 MAX_STATS_BACKFILL_DAYS = 90
 REVOKED_GRANT = "Your X Ads connection is no longer valid. Reconnect your X account, then re-enable the sync."
