@@ -9499,9 +9499,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--lazy-schema--light:
         hash: v1.k794b7964.746e808509f8aa54b1a216c485d99b2f3c85366daffc3a2c3cb48b56f8512956.Y-ehuWk2tXIBDKsbWcs5nNXWQe63faDn2JUX2wPXp5o
     scenes-app-data-warehouse-sql-editor--loading-insight--dark:
-        hash: v1.k794b7964.c5cca89da338912886f2d329a909da87ca3ce5e6f12e0c90ee23c7c8241f768e.XfxPjuo4QbCabh0VgS40-cL0nvbKa4LIqmMHGreN0zI
+        hash: v1.k794b7964.6a4654528c452e32987fc4054d950f101350e4e214ef0a0b9cbb53a5c3aff85f.W4xxsumuTbYHqWM4plo-C89kQHxG5_OsgdOwKhELtAM
     scenes-app-data-warehouse-sql-editor--loading-insight--light:
-        hash: v1.k794b7964.2d303aecb03d48aa8dacc6e8d6cf8ff68abb8229a4338689b74b6f79d8589ed3.JQsHYIybl3SsiKa9u_elKJhuk1Td__oUl5pjqfEO-OE
+        hash: v1.k794b7964.2431f31d5d33b7e87db300430cbab7b2cc70f40786587a09e5b41d42a02a8a5f.x7l4JtfZrwoDUHXEzxtxqbOplVJAY4H69OzVesH80Rk
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--dark:
         hash: v1.k794b7964.3c4bbe63ff30dee2cdef4a41a06d5a83bedcbaf8fd06bd14e8f7632f5c3d097c.qzBmH7GQm_oM_jCNWuSApX-cI65YcyEnwosDth6tlnE
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--light:
@@ -11467,9 +11467,9 @@ snapshots:
     scenes-app-insights-side-panel-actions--unsaved-insight--light:
         hash: v1.k794b7964.d1ae4193c6ddd6ec8ec70b8181cd1fa1e33cfa0728d586423355601166b2e8b2.GFGdmioAb_Lqr7qiZik9jLMbbO6yC4abdURWyrSNeOs
     scenes-app-insights-sqlboxplot--edit-options--dark:
-        hash: v1.k794b7964.592c80a64be448953a2cbce7666173bb5573eac6252113280bd0be2464a75690.qoIaiLRtDr1k-UVgBSrsWeE4XJfNVuewlseXmvVN9Cg
+        hash: v1.k794b7964.bb9343c44dfcb6715d5dd3e75804d343c6f19745c0a94c1bdaa47a537c170534.hwZN8OVxGdrDLJR8bRo0DXfv9sSBhbUnp4ARuI-6Eww
     scenes-app-insights-sqlboxplot--edit-options--light:
-        hash: v1.k794b7964.16fb281af494452f5485f9b4ea02b1be1c97791e8b850e54f2af3dfb9382bf5b.b9EJ6KEYTbd28cG5P1DzricBJFDwYyOro4KyNACKC3A
+        hash: v1.k794b7964.1539a8a8d4d19728490331fac7430332d2e1bbac19da9ed11ad6d571976e7864.2fmBRJA-TEOHgC7ODM42naay_EdDGTMjFH9HQFYfbLc
     scenes-app-insights-sqlboxplot--grouped-series--dark:
         hash: v1.k794b7964.0062f9e095cb6266619d2886be6973be68c7fc906f50d8b37064390de6757656.frURXaRskPxT8wSqipNvLkFVNmgq3uiSKORwD_fLWDA
     scenes-app-insights-sqlboxplot--grouped-series--light:
