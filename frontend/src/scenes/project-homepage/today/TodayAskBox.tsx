@@ -32,7 +32,7 @@ export function TodayAskBox(): JSX.Element {
                     field={
                         <Composer.Field>
                             <Composer.Placeholder>What would you like to know?</Composer.Placeholder>
-                            <Composer.Textarea data-attr="today-ask-input" />
+                            <Composer.Textarea aria-label="Ask PostHog AI" data-attr="today-ask-input" />
                         </Composer.Field>
                     }
                     send={<QuillComposerSendButton data-attr="today-ask-send" />}
