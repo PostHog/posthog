@@ -147,6 +147,27 @@ if (res.status >= 400) {
 """.strip()
 
 
+# The stock bot detection template around the insertion point. `{scope}` is the browser guard
+# that copies made before the $lib browser scoping lack.
+BOT_DETECTION_STOCK_SHAPE = """
+let user_agent := event.properties[inputs.userAgent]
+
+if (empty(user_agent) and inputs.keepUndefinedUseragent == 'No') {{
+    return null
+}}
+
+if ({scope}inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {{
+    return null
+}}
+
+let bot_list := []
+
+return event
+""".strip()
+
+IMPOSSIBLE_CHROME_MATCH = "match(user_agent, 'Chrome/[0-9]+[.][0-9]+[.][0-9]+[.][0-9]{4,} (Mobile )?Safari/537[.]36$')"
+
+
 class TestUpdateHogFunctionCode(BaseTest):
     def setUp(self):
         super().setUp()
@@ -537,6 +558,52 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "automations/direct/workflows/...)'" not in function.hog
         self.assertIn("Updated: 1", out.getvalue())
         compile_hog_for_check(function.hog, "destination")
+
+    def _create_bot_detection_function(self, hog: str) -> HogFunction:
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            return HogFunction.objects.create(
+                team=self.team,
+                name="Filter Bot Events",
+                type="transformation",
+                template_id="template-bot-detection",
+                hog=hog,
+                enabled=True,
+            )
+
+    @parameterized.expand(
+        [
+            ("browser_scoped_shape", "is_browser_traffic and "),
+            ("pre_browser_scoping_shape", ""),
+        ]
+    )
+    def test_bot_detection_impossible_chrome_patch_migration(self, _name, scope):
+        function = self._create_bot_detection_function(BOT_DETECTION_STOCK_SHAPE.format(scope=scope))
+
+        for _ in range(2):
+            out = StringIO()
+            call_command("update_hog_function_code", replace_key="bot-detection-impossible-chrome-patch", stdout=out)
+
+        function.refresh_from_db()
+        # A rerun must not insert the rule a second time.
+        assert function.hog.count(IMPOSSIBLE_CHROME_MATCH) == 1
+        assert f"if ({scope}inputs.filterKnownBotUserAgents and notEmpty(user_agent)" in function.hog
+        assert function.hog.index("isKnownBotUserAgent") < function.hog.index(IMPOSSIBLE_CHROME_MATCH)
+        assert function.hog.index(IMPOSSIBLE_CHROME_MATCH) < function.hog.index("let bot_list")
+        assert function.bytecode == compile_hog_for_check(function.hog, "transformation")
+        self.assertIn("Updated: 0", out.getvalue())
+
+    def test_bot_detection_migration_leaves_edited_known_bot_check_untouched(self):
+        edited = BOT_DETECTION_STOCK_SHAPE.format(scope="").replace(
+            "isKnownBotUserAgent(user_agent)", "isKnownBotUserAgent(user_agent) and false"
+        )
+        function = self._create_bot_detection_function(edited)
+
+        out = StringIO()
+        call_command("update_hog_function_code", replace_key="bot-detection-impossible-chrome-patch", stdout=out)
+
+        function.refresh_from_db()
+        assert function.hog == edited
+        self.assertIn("Found 1 destinations to process", out.getvalue())
 
     def test_microsoft_teams_migration_leaves_functions_without_the_stale_block_untouched(self):
         function = self._create_teams_function(COMMENTED_OUT_STALE)

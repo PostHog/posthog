@@ -12,6 +12,23 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
 
+# Copied from the bot detection template (bot-detection.template.ts). `{scope}` is the
+# `is_browser_traffic and ` guard, which is absent from copies made before the $lib browser scoping.
+_BOT_DETECTION_KNOWN_UA_CHECK = (
+    "if ({scope}inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {{\n    return null\n}}"
+)
+_BOT_DETECTION_ANCHOR_TAIL = "\n\nlet bot_list := []"
+_BOT_DETECTION_IMPOSSIBLE_CHROME_RULE = (
+    "// Modern Chrome never ships a 4-digit patch version. Scraper fleets that randomize the version\n"
+    '// emit one on stock device UAs ending in "Safari/537.36". The end anchor skips Chromium forks\n'
+    "// that put their own build there (Yandex, Opera Mobile), since their UAs end differently.\n"
+    '// Mirrors the "Impossible Chrome patch version" rule in web analytics\' bot_definitions.py.\n'
+    "if ({scope}inputs.filterKnownBotUserAgents and notEmpty(user_agent)\n"
+    "    and match(user_agent, 'Chrome/[0-9]+[.][0-9]+[.][0-9]+[.][0-9]{{4,}} (Mobile )?Safari/537[.]36$')) {{\n"
+    "    return null\n"
+    "}}"
+)
+
 
 class _Replacement(TypedDict):
     from_string: str
@@ -21,6 +38,8 @@ class _Replacement(TypedDict):
 class _ReplaceOption(TypedDict):
     template_id: str
     replacements: list[_Replacement]
+    # HogFunction.type to update. Defaults to "destination".
+    function_type: NotRequired[str]
     # Skip a destination entirely unless its hog contains this string. For options whose replacements
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
     # purpose), this pins the run to the intended cohort.
@@ -154,6 +173,32 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Bot filter transformations keep the template code they were created with, so the
+            # impossible Chrome patch rule reaches only new ones. Each anchor is the stock known-bot
+            # check followed by `let bot_list`, in the shapes before and after the $lib browser
+            # scoping. Copies that edited those lines are left alone. The rule sits between the two
+            # anchor halves, so the anchor no longer matches after one run and a rerun is a no-op.
+            "bot-detection-impossible-chrome-patch": {
+                "template_id": "template-bot-detection",
+                "function_type": "transformation",
+                "replacements": [
+                    {
+                        "from_string": _BOT_DETECTION_KNOWN_UA_CHECK.format(scope="is_browser_traffic and ")
+                        + _BOT_DETECTION_ANCHOR_TAIL,
+                        "to_string": _BOT_DETECTION_KNOWN_UA_CHECK.format(scope="is_browser_traffic and ")
+                        + "\n\n"
+                        + _BOT_DETECTION_IMPOSSIBLE_CHROME_RULE.format(scope="is_browser_traffic and ")
+                        + _BOT_DETECTION_ANCHOR_TAIL,
+                    },
+                    {
+                        "from_string": _BOT_DETECTION_KNOWN_UA_CHECK.format(scope="") + _BOT_DETECTION_ANCHOR_TAIL,
+                        "to_string": _BOT_DETECTION_KNOWN_UA_CHECK.format(scope="")
+                        + "\n\n"
+                        + _BOT_DETECTION_IMPOSSIBLE_CHROME_RULE.format(scope="")
+                        + _BOT_DETECTION_ANCHOR_TAIL,
+                    },
+                ],
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:
@@ -163,7 +208,9 @@ class Command(BaseCommand):
         replaceOption = replaceOptions[replace_key]
 
         queryset = HogFunction.objects.filter(
-            type="destination", deleted=False, template_id=replaceOption["template_id"]
+            type=replaceOption.get("function_type", "destination"),
+            deleted=False,
+            template_id=replaceOption["template_id"],
         )
 
         updated_count = 0
