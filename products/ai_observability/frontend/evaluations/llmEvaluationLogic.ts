@@ -772,7 +772,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return runs
                 },
                 loadOlderEvaluationRuns: async () => {
-                    const loadedRuns = values.evaluationRuns
+                    const { evaluationRuns: loadedRuns, runsDateRange, runsBackfillId } = values
                     const oldestTimestamp = loadedRuns[loadedRuns.length - 1]?.timestamp
                     if (!oldestTimestamp || !props.evaluationId || props.evaluationId === 'new') {
                         return loadedRuns
@@ -780,8 +780,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                     const olderRuns = await queryEvaluationRuns({
                         evaluationId: props.evaluationId,
-                        backfillId: values.runsBackfillId ?? undefined,
-                        dateRange: values.runsBackfillId ? undefined : values.runsDateRange,
+                        backfillId: runsBackfillId ?? undefined,
+                        dateRange: runsBackfillId ? undefined : runsDateRange,
                         before: {
                             timestamp: oldestTimestamp,
                             excludeIds: loadedRuns
@@ -789,8 +789,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                 .map((run) => run.id),
                         },
                     })
-                    // A reload for new filters can finish first. Do not append to rows of a different query.
-                    if (values.evaluationRuns !== loadedRuns) {
+                    // The selection can change, or a reload can finish, while this page loads. Do not append to rows of a different query.
+                    if (
+                        values.evaluationRuns !== loadedRuns ||
+                        values.runsDateRange !== runsDateRange ||
+                        values.runsBackfillId !== runsBackfillId
+                    ) {
                         return values.evaluationRuns
                     }
                     actions.setEvaluationRunsHasMore(olderRuns.length >= EVALUATION_RUNS_QUERY_LIMIT)
