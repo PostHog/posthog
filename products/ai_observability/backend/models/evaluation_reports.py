@@ -111,11 +111,9 @@ class EvaluationReport(UUIDTModel):
         default=10,
         help_text="Maximum count-triggered report runs per calendar day (UTC)",
     )
-    # Running count for count-triggered reports, so each check reads only the rows after the
-    # cursor instead of the whole window. `counted_results` covers results from
-    # `count_anchor_at` up to, but not including, `count_cursor_at`. A check resets it when the
-    # report's window anchor moves away from `count_anchor_at`, or when the evaluation's count
-    # predicates no longer match `count_predicates_hash`.
+    # Running count for count-triggered reports. `counted_results` covers results from
+    # `count_anchor_at` up to, but not including, `count_cursor_at`, and holds only for the
+    # count predicates hashed in `count_predicates_hash`.
     count_anchor_at = models.DateTimeField(null=True, blank=True)
     count_cursor_at = models.DateTimeField(null=True, blank=True)
     counted_results = models.IntegerField(null=True, blank=True)

@@ -312,6 +312,15 @@ def _check_count_triggered_eval_reports_batch(
                 settle_until=settle_until,
                 deadline=deadline,
             )
+            if result.covered_before <= now:
+                # The check still succeeds, so this log is the only sign that a team is catching up.
+                logger.warning(
+                    "count_triggered_eval_report_check.partial_count",
+                    team_id=team.pk,
+                    report_count=len(chunk),
+                    scan_start=chunk[0].cursor.isoformat(),
+                    covered_before=result.covered_before.isoformat(),
+                )
             for candidate in chunk:
                 count = result.counts.get(candidate.report_id, _EntryCount(total=0, settled=0))
                 _save_running_count(
