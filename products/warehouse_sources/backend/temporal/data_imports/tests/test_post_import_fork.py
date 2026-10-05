@@ -315,9 +315,7 @@ async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheduled_full_refresh", [True, False])
 async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_full_refresh: bool):
-    executed, _ = await _run_workflow(
-        consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh
-    )
+    executed, _ = await _run_workflow(consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh)
 
     assert ("import_data_activity_sync:scheduled_full_refresh" in executed) is scheduled_full_refresh
     assert ("maybe_repartition_table_activity" in executed) is not scheduled_full_refresh
@@ -328,9 +326,7 @@ async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_ful
 async def test_repartition_activity_is_scheduled_only_when_job_creation_finds_work(repartition_needed: bool):
     # The activity round trip is most of what a healthy sync paid for repartitioning; the
     # job-creation activity already knows whether anything is queued or due for measurement.
-    executed, _ = await _run_workflow(
-        consumer_manages_job_status=False, repartition_needed=repartition_needed
-    )
+    executed, _ = await _run_workflow(consumer_manages_job_status=False, repartition_needed=repartition_needed)
 
     assert ("maybe_repartition_table_activity" in executed) is repartition_needed
     assert "import_data_activity_sync" in executed
