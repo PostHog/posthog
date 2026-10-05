@@ -2,12 +2,39 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, 
 
 from parameterized import parameterized
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class TestEmailReach(ClickhouseTestMixin, APIBaseTest):
+    def test_identifies_senders_without_exposing_config_or_other_teams(self) -> None:
+        senders = [
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                config={"provider": provider, "verified": verified, "domain": "example.com"},
+                sensitive_config={"token": "obviously-fake-token"},
+            )
+            for provider, verified in [("sandbox", True), ("ses", True), ("ses", False), ("maildev", True)]
+        ]
+        other_team = Team.objects.create(organization=self.organization)
+        Integration.objects.create(team=other_team, kind="email", config={"provider": "ses", "verified": True})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_reach/")
+
+        assert response.status_code == 200, response.content
+        assert response.json() == {
+            "verified_member_count": 0,
+            "project_email_count": 0,
+            "email_senders": [
+                {"integration_id": senders[0].id, "provider": "sandbox", "is_verified": True},
+                {"integration_id": senders[1].id, "provider": "ses", "is_verified": True},
+                {"integration_id": senders[2].id, "provider": "ses", "is_verified": False},
+                {"integration_id": senders[3].id, "provider": "maildev", "is_verified": True},
+            ],
+        }
+
     def test_counts_sender_eligible_members_and_project_people_with_email(self) -> None:
         self.user.is_email_verified = True
         self.user.save()
@@ -30,16 +57,21 @@ class TestEmailReach(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_reach/")
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"verified_member_count": 2, "project_email_count": 2}
+        assert response.json() == {"verified_member_count": 2, "project_email_count": 2, "email_senders": []}
 
     @parameterized.expand(
         [
             (["hog_flow:read"], 403),
             (["person:read"], 403),
-            (["hog_flow:read", "person:read"], 200),
+            (["hog_flow:read", "person:read"], 403),
+            (["hog_flow:read", "integration:read"], 403),
+            (["person:read", "integration:read"], 403),
+            (["hog_flow:read", "person:read", "integration:read"], 200),
         ]
     )
-    def test_requires_workflow_and_person_read_scopes(self, scopes: list[str], expected_status: int) -> None:
+    def test_requires_workflow_person_and_integration_read_scopes(
+        self, scopes: list[str], expected_status: int
+    ) -> None:
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Email reach preview", user=self.user, secure_value=hash_key_value(key), scopes=scopes
@@ -51,7 +83,7 @@ class TestEmailReach(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         if expected_status == 200:
-            assert response.json() == {"verified_member_count": 0, "project_email_count": 0}
+            assert response.json() == {"verified_member_count": 0, "project_email_count": 0, "email_senders": []}
 
     def test_cannot_read_another_organizations_counts(self) -> None:
         organization = Organization.objects.create(name="Other organization")

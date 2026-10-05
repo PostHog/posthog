@@ -12,7 +12,9 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 - `verified_member_count`: active organization members whose email address is verified. This is the sandbox sender's eligible recipient pool.
 - `project_email_count`: project people with a non-empty email property, counted through HogQL over `persons`. An own-domain sender can email these people when they qualify for the workflow.
 
-These counts describe eligible recipients, not a trigger's matching audience or expected deliveries. Event-triggered workflows start on future qualifying events. Batch workflows still need their audience preview. Filters, subscription preferences and sending limits can reduce deliveries. The endpoint requires workflow and person read access, and counts no people from other projects.
+The response also includes `email_senders`: project email integration IDs, providers and verification state, without integration configuration or credentials. Match each workflow sender to this list before choosing a count. An unverified or missing sender needs setup; `maildev` only delivers to the local development inbox. The sandbox count applies when a sandbox sender is available and configured; this endpoint does not create one or enforce sending restrictions.
+
+These counts describe eligible recipients, not a trigger's matching audience or expected deliveries. Event-triggered workflows start on future qualifying events. Batch workflows still need their audience preview. Filters, subscription preferences and sending limits can reduce deliveries. The endpoint requires workflow, person and integration read access, and counts no people from other projects.
 
 ## Where the pieces live
 

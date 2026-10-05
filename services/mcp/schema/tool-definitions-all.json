@@ -14913,12 +14913,12 @@
         }
     },
     "workflows-email-reach": {
-        "description": "Count active verified organization members eligible for sandbox sender email and project people with a non-empty email property. These are sender-eligible recipient counts, not the audience matching a workflow trigger or a forecast of future events. An event-triggered workflow only sends when a qualifying event occurs. Read the workflow's email sender before choosing which count to report.",
+        "description": "Count active verified organization members eligible for sandbox sender email and project people with a non-empty email property. These are sender-eligible recipient counts, not the audience matching a workflow trigger or a forecast of future events. Also returns project email sender IDs, providers and verification state without configuration or credentials. An event-triggered workflow only sends when a qualifying event occurs. Match the workflow's sender against email_senders before choosing which count to report.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get email recipient eligibility counts",
         "title": "Get email recipient eligibility counts",
-        "required_scopes": ["hog_flow:read", "person:read"],
+        "required_scopes": ["hog_flow:read", "person:read", "integration:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

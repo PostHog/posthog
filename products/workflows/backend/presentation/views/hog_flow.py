@@ -895,12 +895,22 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
     )
 
 
+class EmailSenderEligibilitySerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="The project email sender integration ID.")
+    provider = serializers.CharField(help_text="Email provider, such as ses, maildev, or sandbox when available.")
+    is_verified = serializers.BooleanField(help_text="Whether the email sender has completed verification.")
+
+
 class EmailReachSerializer(serializers.Serializer):
     verified_member_count = serializers.IntegerField(
         help_text="Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast."
     )
     project_email_count = serializers.IntegerField(
         help_text="People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast."
+    )
+    email_senders = EmailSenderEligibilitySerializer(
+        many=True,
+        help_text="Project email sender identity and verification state, without configuration or credentials.",
     )
 
 
@@ -4900,7 +4910,9 @@ class HogFlowViewSet(
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
-        if self.action in ("user_blast_radius", "email_reach"):
+        if self.action == "email_reach":
+            return ["hog_flow:read", "person:read", "integration:read"]
+        if self.action == "user_blast_radius":
             return ["hog_flow:read", "person:read"]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
