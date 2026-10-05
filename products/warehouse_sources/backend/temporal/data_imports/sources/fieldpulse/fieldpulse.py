@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from requests import HTTPError, Response, Session
 
@@ -15,6 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+    PaginatorConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -31,6 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse
 class FieldpulseResumeConfig:
     page: int
     lower_bound: str | None
+
+
+REQUEST_TIMEOUT = (10.0, 60.0)
 
 
 def _normalize_rate_limit_header(response: Response, *args: object, **kwargs: object) -> Response:
@@ -53,6 +61,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         paginator=SinglePagePaginator(),
         allow_redirects=False,
         session=_session(api_key),
+        request_timeout=REQUEST_TIMEOUT,
     )
     try:
         next(client.paginate("customers", params={"limit": 1}, data_selector="response", data_selector_required=True))
@@ -107,26 +116,24 @@ def fieldpulse_source(
             )
         resumable_source_manager.safe_point()
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": BASE_URL,
-            "auth": {"type": "api_key", "name": "x-api-key", "api_key": api_key, "location": "header"},
-            "paginator": {"type": "page_number", "base_page": 1, "total_path": None},
-            "allow_redirects": False,
-            "session": _session(api_key),
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": path,
-                    "params": params,
-                    "data_selector": "response",
-                    "data_selector_required": True,
-                },
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": BASE_URL,
+        "auth": {"type": "api_key", "name": "x-api-key", "api_key": api_key, "location": "header"},
+        "paginator": cast(PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": None}),
+        "allow_redirects": False,
+        "session": _session(api_key),
+        "request_timeout": REQUEST_TIMEOUT,
     }
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": path,
+            "params": params,
+            "data_selector": "response",
+            "data_selector_required": True,
+        },
+    }
+    config: RESTAPIConfig = {"client": client_config, "resources": [resource_config]}
     resource = rest_api_resource(
         config,
         team_id,

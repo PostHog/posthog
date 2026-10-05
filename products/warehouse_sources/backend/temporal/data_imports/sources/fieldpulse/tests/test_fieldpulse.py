@@ -1,4 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 from time_machine import travel
@@ -16,6 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse.settings import AUTH_ERROR, BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse.source import FieldpulseSource
+
+
+def items(source: Any) -> list[Any]:
+    return list(cast(Iterable[Any], source.items()))
 
 
 @pytest.fixture
@@ -52,7 +58,7 @@ def test_requests_and_pagination(
             ],
         )
         source = fieldpulse_source("test-key", endpoint, 1, "job", manager, incremental, watermark)
-        assert list(source.items()) == [[{"id": 1}], [{"id": 2}]]
+        assert items(source) == [[{"id": 1}], [{"id": 2}]]
         assert [request.qs["page"] for request in http.request_history] == [["1"], ["2"], ["3"]]
         for request in http.request_history:
             assert request.headers["x-api-key"] == "test-key"
@@ -80,7 +86,7 @@ def test_resume_preserves_original_filter(manager: MagicMock, saved_bound: str |
     with requests_mock.Mocker() as http:
         http.get(BASE_URL + "customers", json={"error": False, "response": []})
         source = fieldpulse_source("test-key", "customers", 1, "job", manager, True, "2026-02-01T00:00:00+00:00")
-        assert list(source.items()) == []
+        assert items(source) == []
         assert http.call_count == 1
         assert http.last_request is not None
         assert http.last_request.qs["page"] == ["3"]
@@ -97,7 +103,7 @@ def test_expired_resume_state_starts_at_first_page(manager: MagicMock) -> None:
     with requests_mock.Mocker() as http:
         http.get(BASE_URL + "customers", json={"error": False, "response": []})
         source = fieldpulse_source("test-key", "customers", 1, "job", manager, False, None)
-        assert list(source.items()) == []
+        assert items(source) == []
         assert http.last_request is not None
         assert http.last_request.qs["page"] == ["1"]
 
@@ -113,7 +119,7 @@ def test_authentication_errors(manager: MagicMock, status: int) -> None:
         assert http.last_request.qs == {"limit": ["1"]}
         source = fieldpulse_source("test-key", "customers", 1, "job", manager, False, None)
         with pytest.raises(requests.HTTPError) as error:
-            list(source.items())
+            items(source)
         assert http.call_count == 2
         mappings = FieldpulseSource().get_non_retryable_errors()
         assert any(pattern in str(error.value) and message == AUTH_ERROR for pattern, message in mappings.items())
@@ -146,7 +152,7 @@ def test_transient_errors_retry(manager: MagicMock, status: int) -> None:
             ],
         )
         source = fieldpulse_source("test-key", "customers", 1, "job", manager, False, None)
-        assert list(source.items()) == []
+        assert items(source) == []
         assert http.call_count == 2
         assert [request.qs["page"] for request in http.request_history] == [["1"], ["1"]]
 
@@ -156,7 +162,7 @@ def test_missing_response_fails_instead_of_silently_importing_nothing(manager: M
         http.get(BASE_URL + "customers", json={"error": True})
         source = fieldpulse_source("test-key", "customers", 1, "job", manager, False, None)
         with pytest.raises(ValueError, match="response"):
-            list(source.items())
+            items(source)
         manager.save_state.assert_not_called()
 
 
@@ -179,6 +185,6 @@ def test_vendor_rate_limit_reset(manager: MagicMock, reset_value: str, expected_
         )
         with patch("tenacity.nap.time.sleep") as sleep:
             source = fieldpulse_source("test-key", "customers", 1, "job", manager, False, None)
-            assert list(source.items()) == []
+            assert items(source) == []
         sleep.assert_called_once_with(expected_delay)
         assert http.call_count == 2
