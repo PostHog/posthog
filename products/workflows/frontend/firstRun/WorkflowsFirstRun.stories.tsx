@@ -48,7 +48,6 @@ const globalTemplates = (
 function projectThatSends(seenEvents: string[]): Parameters<typeof mswDecorator>[0] {
     return {
         get: {
-            '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, ingested_event: seenEvents.length > 0 },
             '/api/projects/:team_id/event_definitions/': ({ request }) => {
                 const names = new URL(request.url).searchParams.get('names')?.split(',') ?? []
                 const seen = names.filter((name) => seenEvents.includes(name))

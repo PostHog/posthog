@@ -21,16 +21,18 @@ export function WorkflowsFirstRunGallery(): JSX.Element {
         <div className="flex flex-col gap-4" data-attr="workflows-first-run-gallery">
             <div className="flex flex-col gap-1">
                 <h2 className="text-xl font-semibold mb-0">Start with an email template</h2>
-                <p className="mb-0 text-secondary">
-                    {galleryTemplates !== null && readyTemplates.length === 0
-                        ? 'Your app does not send the events these templates start on yet. Each card says what it needs.'
-                        : "Templates your app's events can start today come first. Pick one to make it yours."}
-                </p>
+                {galleryTemplates !== null && (
+                    <p className="mb-0 text-secondary">
+                        {readyTemplates.length === 0
+                            ? 'Your app does not send the events these templates start on yet. Each card says what it needs.'
+                            : "Templates your app's events can start today come first. Pick one to make it yours."}
+                    </p>
+                )}
             </div>
             {galleryTemplates === null ? (
                 galleryLoadFailed ? (
                     <LemonBanner type="error" action={{ children: 'Try again', onClick: loadEmailTemplates }}>
-                        Couldn't load the email templates. Try again, or use New workflow to start from a blank one.
+                        Couldn't load the template gallery. Try again, or use New workflow to start from a blank one.
                     </LemonBanner>
                 ) : (
                     <div className={GALLERY_GRID}>

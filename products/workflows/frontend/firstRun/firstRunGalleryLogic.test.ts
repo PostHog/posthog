@@ -164,7 +164,7 @@ describe('firstRunGalleryLogic', () => {
         expect(requestedEventNames).toEqual([['$pageview', 'trial_started', 'user signed up', 'signed_up', 'sign_up']])
     })
 
-    it('reports the gallery once its fit is known, and the template a person picks', async () => {
+    it('reports the gallery once its fit is known', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         await openGallery({ seenEvents: ['signed_up', '$pageview'], ingestedEvent: true })
 
@@ -172,14 +172,23 @@ describe('firstRunGalleryLogic', () => {
             ready_count: 4,
             recommended_template_id: WELCOME,
         })
+    })
 
-        logic.actions.pickTemplate('trial')
+    it.each([
+        { pick: 'the recommended starter', templateId: WELCOME, recommended: true, ready: true },
+        { pick: 'another ready template', templateId: 'onboarding', recommended: false, ready: true },
+        { pick: 'a template that is not ready', templateId: 'trial', recommended: false, ready: false },
+    ])('reports picking $pick and opens it', async ({ templateId, recommended, ready }) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        await openGallery({ seenEvents: ['signed_up', '$pageview'], ingestedEvent: true })
+
+        logic.actions.pickTemplate(templateId)
 
         expect(capture).toHaveBeenCalledWith('workflows first run template picked', {
-            template_id: 'trial',
-            recommended: false,
-            ready: false,
+            template_id: templateId,
+            recommended,
+            ready,
         })
-        expect(router.values.searchParams).toMatchObject({ templateId: 'trial' })
+        expect(router.values.searchParams).toMatchObject({ templateId })
     })
 })

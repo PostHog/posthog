@@ -19,12 +19,12 @@ export const WELCOME_SEQUENCE_TEMPLATE_ID = '019b6f44-f9a3-0000-c4a7-b8050d25d69
 
 export type GalleryFilter = 'picked' | 'all'
 
-export interface EmailTemplate {
+export interface StartableTemplate {
     template: HogFlowTemplate
     startsOn: HogFlowTemplateStartsOnApi
 }
 
-export interface GalleryTemplate extends EmailTemplate {
+export interface GalleryTemplate extends StartableTemplate {
     matchedEvent: string | null
     ready: boolean
 }
@@ -40,12 +40,12 @@ function isEmailTemplate(
     return template.scope === 'global' && !!template.starts_on
 }
 
-function eventsToLookUp(emailTemplates: EmailTemplate[]): string[] {
+function eventsToLookUp(emailTemplates: StartableTemplate[]): string[] {
     return [...new Set(emailTemplates.flatMap(({ startsOn }) => startsOn.events))]
 }
 
 function fitTemplate(
-    { template, startsOn }: EmailTemplate,
+    { template, startsOn }: StartableTemplate,
     seenEvents: Set<string>,
     projectIngestedEvents: boolean
 ): GalleryTemplate {
@@ -75,7 +75,7 @@ export interface firstRunGalleryLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     activeFilter: GalleryFilter
-    emailTemplates: EmailTemplate[] | null
+    emailTemplates: StartableTemplate[] | null
     emailTemplatesLoading: boolean
     filter: GalleryFilter
     galleryLoadFailed: boolean
@@ -101,10 +101,10 @@ export interface firstRunGalleryLogicActions {
         errorObject?: any
     }
     loadEmailTemplatesSuccess: (
-        emailTemplates: EmailTemplate[],
+        emailTemplates: StartableTemplate[],
         payload?: any
     ) => {
-        emailTemplates: EmailTemplate[]
+        emailTemplates: StartableTemplate[]
         payload?: any
     }
     loadSeenEvents: (names: string[]) => string[]
@@ -134,7 +134,7 @@ export interface firstRunGalleryLogicActions {
 export interface firstRunGalleryLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         galleryTemplates: (
-            emailTemplates: EmailTemplate[] | null,
+            emailTemplates: StartableTemplate[] | null,
             seenEvents: string[] | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => GalleryTemplate[] | null
@@ -168,9 +168,9 @@ export const firstRunGalleryLogic = kea<firstRunGalleryLogicType>([
     }),
     loaders(({ values }) => ({
         emailTemplates: [
-            null as EmailTemplate[] | null,
+            null as StartableTemplate[] | null,
             {
-                loadEmailTemplates: async (): Promise<EmailTemplate[]> => {
+                loadEmailTemplates: async (): Promise<StartableTemplate[]> => {
                     const response = await hogFlowTemplatesList(String(values.currentProjectId))
                     return response.results.filter(isEmailTemplate).map((template) => ({
                         template: template as unknown as HogFlowTemplate,
@@ -211,7 +211,7 @@ export const firstRunGalleryLogic = kea<firstRunGalleryLogicType>([
         galleryTemplates: [
             (s) => [s.emailTemplates, s.seenEvents, s.currentTeam],
             (
-                emailTemplates: EmailTemplate[] | null,
+                emailTemplates: StartableTemplate[] | null,
                 seenEvents: string[] | null,
                 currentTeam: TeamType | TeamPublicType | null
             ): GalleryTemplate[] | null => {
