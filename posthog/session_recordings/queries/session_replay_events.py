@@ -835,13 +835,22 @@ class SessionReplayEvents:
         return query
 
     @staticmethod
-    def count_soon_to_expire_sessions_by_team_query() -> str:
+    def count_soon_to_expire_sessions_by_team_query(start_window_count: int) -> str:
         """Count the sessions about to expire for every team in a [team_id_start, team_id_end) range.
 
-        Parameters: team_id_start, team_id_end, python_now, ttl_threshold.
+        Parameters: team_id_start, team_id_end, python_now, ttl_threshold, and one
+        window_{i}_start / window_{i}_end pair per start window. A session can only be about to
+        expire if it started close to `now - retention` for one of the retention periods, so the
+        windows on min_first_timestamp let ClickHouse skip every other monthly partition.
         Teams without expiring sessions return no row.
         """
-        return """
+        if start_window_count < 1:
+            raise ValueError("At least one start window is required")
+        start_windows = " OR ".join(
+            f"(min_first_timestamp >= %(window_{index}_start)s AND min_first_timestamp <= %(window_{index}_end)s)"
+            for index in range(start_window_count)
+        )
+        return f"""
                 WITH
                     expiring_sessions
                 AS (
@@ -858,6 +867,7 @@ class SessionReplayEvents:
                         team_id >= %(team_id_start)s
                         AND team_id < %(team_id_end)s
                         AND min_first_timestamp <= %(python_now)s
+                        AND ({start_windows})
                     GROUP BY
                         team_id, session_id
                     HAVING
