@@ -6,7 +6,14 @@ ENDPOINTS = ("properties", "bookings", "rooms")
 PATHS = {"properties": "properties", "bookings": "reservations/bookings", "rooms": "properties/{id}/rooms"}
 PRIMARY_KEYS = {"properties": ["id"], "bookings": ["id"], "rooms": ["property_id", "id"]}
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: [{"field": "updated_at", "type": IncrementalFieldType.DateTime, "label": "updated_at"}]
+    name: [
+        {
+            "field": "updated_at",
+            "type": IncrementalFieldType.DateTime,
+            "field_type": IncrementalFieldType.DateTime,
+            "label": "updated_at",
+        }
+    ]
     for name in ("properties", "bookings")
 }
 AUTH_ERROR = "Lodgify rejected the API key. Copy your key from Settings > Public API and reconnect."

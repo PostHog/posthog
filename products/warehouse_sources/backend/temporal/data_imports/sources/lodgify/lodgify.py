@@ -16,10 +16,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lodgify.settings import (
@@ -39,7 +43,12 @@ class LodgifyResumeConfig:
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    client = RESTClient(BASE_URL, auth=APIKeyAuth(api_key, name="X-ApiKey"), headers={"Accept": "application/json"})
+    client = RESTClient(
+        BASE_URL,
+        auth=APIKeyAuth(api_key, name="X-ApiKey"),
+        headers={"Accept": "application/json"},
+        request_timeout=(10, 60),
+    )
     try:
         next(
             client.paginate(
@@ -66,15 +75,16 @@ def list_resource(endpoint: str, watermark: datetime | str | None = None) -> End
         if parsed is None:
             raise ValueError("Invalid Lodgify sync timestamp. Reset the table and try again.")
         params["updatedSince"] = parsed.isoformat()
+    endpoint_config: Endpoint = {
+        "path": PATHS[endpoint],
+        "params": params,
+        "data_selector": "items",
+        "data_selector_required": True,
+        "paginator": PageNumberPaginator(base_page=1),
+    }
     return {
         "name": endpoint,
-        "endpoint": {
-            "path": PATHS[endpoint],
-            "params": params,
-            "data_selector": "items",
-            "data_selector_required": True,
-            "paginator": {"type": "page_number", "base_page": 1},
-        },
+        "endpoint": endpoint_config,
         "columns": {"created_at": {"data_type": "timestamp"}, "updated_at": {"data_type": "timestamp"}},
     }
 
@@ -106,6 +116,7 @@ def lodgify_source(
             "base_url": BASE_URL,
             "auth": {"type": "api_key", "name": "X-ApiKey", "api_key": api_key, "location": "header"},
             "headers": {"Accept": "application/json"},
+            "request_timeout": (10, 60),
         },
         "resources": [],
     }
