@@ -104,6 +104,7 @@ export function TeamVariables(): JSX.Element {
             description:
                 'This will immediately invalidate your current project token. Any apps, websites, or services using it will stop sending data to PostHog until you update them with the new token. This action cannot be undone.',
             initialValues: { confirmation: '' },
+            showErrorsOnTouch: true,
             content: (
                 <LemonField name="confirmation">
                     <LemonInput
