@@ -51,6 +51,14 @@ class QueueResolution:
 
 
 @frozen
+class _OutrankedRaise:
+    # Every tombstone the floor call left in place, re-read at its current version.
+    refreshed: dict[UUID, PersonTombstone]
+    # Only the tombstones the call actually moved; one already at the floor is refreshed, not counted.
+    raised: int
+
+
+@frozen
 class _TeamPass:
     dropped: int
     confirmed: int
@@ -106,10 +114,10 @@ def _clickhouse_persons(team_id: int, tombstones: Sequence[PersonTombstone]) -> 
     }
 
 
-def _raise_outranked(team_id: int, tombstones: Sequence[PersonTombstone]) -> dict[UUID, PersonTombstone]:
-    """Raise each Postgres tombstone above the live ClickHouse row that outranks it, and return the raised tombstones."""
+def _raise_outranked(team_id: int, tombstones: Sequence[PersonTombstone]) -> _OutrankedRaise:
+    """Raise each Postgres tombstone above the live ClickHouse row that outranks it."""
     if not tombstones:
-        return {}
+        return _OutrankedRaise(refreshed={}, raised=0)
     persons = _clickhouse_persons(team_id, tombstones)
     floors: list[PersonVersionFloor] = []
     for tombstone in tombstones:
@@ -117,9 +125,13 @@ def _raise_outranked(team_id: int, tombstones: Sequence[PersonTombstone]) -> dic
         if row is not None and not row[0] and row[1] >= tombstone.version:
             floors.append(PersonVersionFloor(uuid=tombstone.uuid, min_version=row[1] + 1))
     if not floors:
-        return {}
-    raised = [r.uuid for r in ensure_person_version_floors(team_id, floors) if r.outcome != VersionFloorOutcome.LIVE]
-    return {t.uuid: t for t in get_person_tombstones(team_id, raised)}
+        return _OutrankedRaise(refreshed={}, raised=0)
+    results = ensure_person_version_floors(team_id, floors)
+    kept = [r.uuid for r in results if r.outcome != VersionFloorOutcome.LIVE]
+    return _OutrankedRaise(
+        refreshed={t.uuid: t for t in get_person_tombstones(team_id, kept)},
+        raised=sum(r.outcome == VersionFloorOutcome.TOMBSTONE_RAISED for r in results),
+    )
 
 
 def clickhouse_confirmed(team_id: int, tombstones: Sequence[PersonTombstone]) -> set[UUID]:
@@ -182,9 +194,9 @@ def _resolve_team(team_id: int, team_rows: Sequence[QueuedPersonTombstone], *, d
         stored = {t.uuid: t for t in get_person_tombstones(team_id, [row.person_uuid for row in chunk])}
         gone = [(row.person_uuid, row.person_version) for row in chunk if row.person_uuid not in stored]
         if not dry_run:
-            raised = _raise_outranked(team_id, list(stored.values()))
-            stored.update(raised)
-            raised_count += len(raised)
+            outranked = _raise_outranked(team_id, list(stored.values()))
+            stored.update(outranked.refreshed)
+            raised_count += outranked.raised
         confirmed = clickhouse_confirmed(team_id, list(stored.values()))
         dropped += len(gone)
         confirmed_count += len(confirmed)

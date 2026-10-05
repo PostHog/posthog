@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from dataclasses import replace
 from uuid import UUID, uuid4
 
 import pytest
@@ -21,9 +22,13 @@ from posthog.dags.person_tombstone_queue import (
 from posthog.models import Team
 from posthog.models.person.util import (
     PersonTombstone,
+    PersonVersionFloor,
+    PersonVersionFloorResult,
     QueuedPersonTombstone,
+    VersionFloorOutcome,
     create_person as create_person_in_ch,
     create_person_distinct_id,
+    ensure_person_version_floors,
     get_person_tombstones,
     publish_person_tombstone,
     tombstone_persons_in_postgres,
@@ -89,16 +94,28 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert [row.person_uuid for row in result.remaining] == [person.uuid]
         assert self._queued() == {person.uuid}
 
-    def test_raises_a_tombstone_that_a_live_clickhouse_row_outranks(self) -> None:
+    @parameterized.expand(
+        [
+            ("raised_by_this_call", VersionFloorOutcome.TOMBSTONE_RAISED, 1),
+            ("already_at_the_floor", VersionFloorOutcome.TOMBSTONE_AT_FLOOR, 0),
+        ]
+    )
+    def test_raises_a_tombstone_that_a_live_clickhouse_row_outranks(
+        self, _name: str, reported: VersionFloorOutcome, counted: int
+    ) -> None:
         person = create_person(team_id=self.team.pk, distinct_ids=["queue-outranked"])
         [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
         create_person_in_ch(uuid=str(person.uuid), team_id=self.team.pk, version=tombstone.version + 5)
 
-        result = self._resolve()
+        def floors_reporting(team_id: int, floors: list[PersonVersionFloor]) -> list[PersonVersionFloorResult]:
+            return [replace(r, outcome=reported) for r in ensure_person_version_floors(team_id, floors)]
+
+        with patch("posthog.dags.person_tombstone_queue.ensure_person_version_floors", side_effect=floors_reporting):
+            result = self._resolve()
 
         [stored] = get_person_tombstones(self.team.pk, [person.uuid])
         assert stored.version == tombstone.version + 6
-        assert (result.raised, result.confirmed) == (1, 1)
+        assert (result.raised, result.confirmed) == (counted, 1)
         assert result.remaining == []
         assert self._queued() == set()
         assert self._ch_person_deleted(person.uuid)
