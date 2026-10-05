@@ -68,6 +68,14 @@ class QueryError(ExposedHogQLError):
     code_name = "hogql_query_error"
 
 
+class InvalidPropertyFilterError(QueryError):
+    """A saved property filter holds a HogQL expression that does not parse."""
+
+    # Surfaces as the error code on API responses, so a filter the team has to correct in settings
+    # groups apart from a fault in the query that ran.
+    code_name = "invalid_property_filter"
+
+
 class TableAccessDeniedError(QueryError):
     """The user has no access to the table (raised by Database.get_table)."""
 
