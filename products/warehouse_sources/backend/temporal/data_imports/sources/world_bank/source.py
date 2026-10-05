@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank
     PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
+    INDICATOR_CODE_REJECTED_PREFIX,
     WorldBankResumeConfig,
     parse_indicator_codes,
     validate_credentials as validate_world_bank_credentials,
@@ -101,6 +102,10 @@ The API has no "changed since" filter, and the World Bank revises historical val
             "Required data_selector '[1]' matched nothing in the response": "The World Bank Indicators API returned an error instead of data. Check that every indicator code you entered is valid.",
             # A code list that is empty or over the cap can't be fixed by retrying.
             "World Bank source misconfigured": "Check the indicator codes on this source: the list is empty or has more codes than a single source can sync.",
+            # The other failure mode for a bad code: the observation path answers HTTP 400 rather
+            # than an error envelope. That raise already names the code, and None is what keeps
+            # that text instead of replacing it with a message that can't.
+            INDICATOR_CODE_REJECTED_PREFIX: None,
         }
 
     def get_schemas(
