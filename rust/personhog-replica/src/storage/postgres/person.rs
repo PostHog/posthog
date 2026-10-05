@@ -741,11 +741,13 @@ impl PersonLookup for PostgresStorage {
 
         // Resolved without locks. The delete re-checks the tombstone under its row lock, so a
         // person revived in between drops out and reads as neither deleted nor live.
-        let candidates: Vec<(i64, Uuid)> = sqlx::query!(
+        let mut candidates: Vec<(i64, Uuid)> = Vec::with_capacity(unique.len());
+        let mut skipped_live: i64 = 0;
+        for row in sqlx::query!(
             r#"
-            SELECT id::bigint AS "id!", uuid AS "uuid!"
+            SELECT id::bigint AS "id!", uuid AS "uuid!", is_deleted
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted
+            WHERE team_id = $1 AND uuid = ANY($2)
             ORDER BY id
             "#,
             team_id as i32,
@@ -753,21 +755,13 @@ impl PersonLookup for PostgresStorage {
         )
         .fetch_all(&mut *tx)
         .await?
-        .into_iter()
-        .map(|row| (row.id, row.uuid))
-        .collect();
-
-        let skipped_live: i64 = sqlx::query_scalar!(
-            r#"
-            SELECT count(*) AS "count!"
-            FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
-            "#,
-            team_id as i32,
-            unique.as_slice()
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        {
+            if row.is_deleted {
+                candidates.push((row.id, row.uuid));
+            } else {
+                skipped_live += 1;
+            }
+        }
 
         let mut outcome = TombstonedDeleteOutcome {
             skipped_live,
