@@ -333,7 +333,7 @@ export function chainConsistencyProperties(counts: {
     inconsistentClicks: number
     matchedClicks: number
     totalClicks: number
-}): Record<string, boolean | number> {
+}): Record<string, number> {
     return {
         consistent_click_count: counts.consistentClicks,
         inconsistent_click_count: counts.inconsistentClicks,
