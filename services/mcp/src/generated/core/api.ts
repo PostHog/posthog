@@ -8,9 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Projects for the current organization.
- */
 export const DomainsListParams = () => zod.object({
     organization_id: zod
         .string()

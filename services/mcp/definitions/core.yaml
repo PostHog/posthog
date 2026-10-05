@@ -97,9 +97,9 @@ tools:
         list: true
         title: List organization authentication domains
         description: >
-            List authentication domains in the active organization with their IDs and verification status. Use a domain ID
-            from this result in `organization_domain_ids` to link it to an identity provider configuration. Only verified
-            domains are used for authentication routing.
+            List authentication domains in the active organization with their IDs and verification status. Use a domain
+            ID from this result in `organization_domain_ids` to link it to an identity provider configuration. Only
+            verified domains are used for authentication routing.
         response:
             include:
                 - id
@@ -224,8 +224,8 @@ tools:
         description: >
             Create an organization identity provider configuration for SAML, OIDC, SCIM, or XAA (ID-JAG). Set
             `config_scope` to `saml`, `oidc`, `scim`, or `xaa`. Use `domain_scope: selected` with
-            `organization_domain_ids` to link specific organization domains, or `domain_scope: all` to cover all verified
-            organization domains. SAML uses `saml_entity_id`, `saml_acs_url`, and `saml_x509_cert`; OIDC uses
+            `organization_domain_ids` to link specific organization domains, or `domain_scope: all` to cover all
+            verified organization domains. SAML uses `saml_entity_id`, `saml_acs_url`, and `saml_x509_cert`; OIDC uses
             `oidc_issuer_url`, `oidc_client_id`, and `oidc_client_secret`; SCIM can be enabled with `scim_enabled`; XAA
             uses `id_jag_issuer_url` with optional JWKS and allowed-client settings. The create call requires explicit
             user confirmation before execution.
@@ -264,9 +264,9 @@ tools:
         list: true
         title: List identity provider configurations
         description: >
-            List identity provider configurations in the active organization. Configurations can use SAML, OIDC, SCIM, or
-            XAA (ID-JAG). Results include the protocol settings, SCIM URL, configuration status, and linked domain IDs.
-            A saved OIDC client secret and an existing SCIM bearer token are never returned.
+            List identity provider configurations in the active organization. Configurations can use SAML, OIDC, SCIM,
+            or XAA (ID-JAG). Results include the protocol settings, SCIM URL, configuration status, and linked domain
+            IDs. A saved OIDC client secret and an existing SCIM bearer token are never returned.
     identity-provider-configs-partial-update:
         operation: identity_provider_configs_partial_update
         enabled: true
@@ -280,8 +280,9 @@ tools:
         description: >
             Update selected fields on an identity provider configuration by ID. Use this to change SAML, OIDC, SCIM, or
             XAA (ID-JAG) settings, link selected domains with `organization_domain_ids`, or set `domain_scope: all` to
-            cover all verified organization domains. For selected domains, `organization_domain_ids` replaces the current
-            links. Omit `oidc_client_secret` to keep the saved secret. The update call requires explicit user confirmation.
+            cover all verified organization domains. For selected domains, `organization_domain_ids` replaces the
+            current links. Omit `oidc_client_secret` to keep the saved secret. The update call requires explicit user
+            confirmation.
         confirmed_action:
             message: >
                 Update identity provider configuration {id}. Review the requested settings and domain coverage, then
