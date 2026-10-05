@@ -49,6 +49,10 @@ from posthog.event_usage import groups
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.structured_output_signature import (
+    STRUCTURED_OUTPUT_SIGNATURE_PROPERTY,
+    sign_structured_output,
+)
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 
 logger = logging.getLogger(__name__)
@@ -484,7 +488,13 @@ def _build_forwards(*, run: SignalScoutRun, records: list[StructuredOutputRecord
                     )
                 ),
                 timestamp=stable_timestamp,
-                properties={**base, "subject": record.subject, "output": record.payload, **flattened},
+                properties={
+                    **base,
+                    "subject": record.subject,
+                    "output": record.payload,
+                    **flattened,
+                    STRUCTURED_OUTPUT_SIGNATURE_PROPERTY: sign_structured_output(str(run.id), record.payload),
+                },
             )
         )
     return forwards

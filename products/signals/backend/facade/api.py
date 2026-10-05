@@ -63,6 +63,7 @@ from products.signals.backend.scout_harness.run_gates import (
     # into the scout harness. Every decision behind them stays Signals-side.
     ScoutRunRejectionKind as ScoutRunRejectionKind,
 )
+from products.signals.backend.scout_harness.structured_output_signature import is_signed_structured_output
 from products.signals.backend.scout_harness.workflow_runs import (
     WorkflowScoutRunRejected as WorkflowScoutRunRejected,
     WorkflowScoutRunStarted as WorkflowScoutRunStarted,
@@ -1372,9 +1373,9 @@ def latest_structured_output_for_source(
     """The newest structured record any of a source object's scouts with `tag` submitted, or None.
 
     Records exist only as events, and anyone with the project's capture token can send an event
-    with any name and properties. So a record counts only when its `run_id` is a run of one of
-    those scouts and its timestamp is that run's start, which is how the structured output channel
-    stamps every record. Run ids come from Postgres and are not public.
+    with any name and properties. A project member can also read run ids and run starts from the
+    scout-runs API. So a record counts only when its `run_id` is a run of one of those scouts, its
+    timestamp is that run's start, and its signature is the server's HMAC over the run id and payload.
     """
     config_ids = list(
         SignalScoutConfig.objects.for_team(team_id)
@@ -1400,7 +1401,7 @@ def latest_structured_output_for_source(
     result = execute_hogql_query(
         query_type="SignalsLatestStructuredOutputForSource",
         query="""
-            SELECT properties.output, timestamp, properties.run_id
+            SELECT properties.output, timestamp, properties.run_id, properties.record_signature
             FROM events
             WHERE event = {event}
               AND properties.run_id IN {run_ids}
@@ -1418,7 +1419,7 @@ def latest_structured_output_for_source(
             "limit": ast.Constant(value=_STRUCTURED_OUTPUT_READ_LIMIT),
         },
     )
-    for output, timestamp, run_id in result.results:
+    for output, timestamp, run_id, signature in result.results:
         _, skill_name, run_start = runs[str(run_id)]
         if not isinstance(timestamp, datetime) or abs(_as_utc(timestamp) - _as_utc(run_start)) > _RUN_START_TOLERANCE:
             # A real run id with a timestamp the channel never writes was sent by something else.
@@ -1427,7 +1428,7 @@ def latest_structured_output_for_source(
             payload = json.loads(output) if isinstance(output, str) else output
         except json.JSONDecodeError:
             continue
-        if isinstance(payload, dict):
+        if isinstance(payload, dict) and is_signed_structured_output(str(run_id), payload, signature):
             return ScoutStructuredRecord(
                 payload=payload, recorded_at=run_start, skill_name=skill_name, run_id=str(run_id)
             )
