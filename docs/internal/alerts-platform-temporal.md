@@ -1,16 +1,18 @@
 # Alerts noop workers
 
-The alerts platform registers three queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The alerts platform registers four queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
-| Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
-| ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
-| `ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-platform-shared-orchestration-task-queue` | `alerts-platform-orchestrate` |
-| `ALERTS_PLATFORM_EVALUATION_TASK_QUEUE`           | `alerts-platform-evaluation-task-queue`           | `alerts-platform-evaluate`    |
-| `ALERTS_PLATFORM_DELIVERY_TASK_QUEUE`             | `alerts-platform-delivery-task-queue`             | `alerts-platform-deliver`     |
+| Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                          |
+| ------------------------------------------------- | ------------------------------------------------- | --------------------------------- |
+| `ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-platform-shared-orchestration-task-queue` | `alerts-platform-orchestrate`     |
+| `ALERTS_PLATFORM_EVALUATION_TASK_QUEUE`           | `alerts-platform-evaluation-task-queue`           | `alerts-platform-evaluate`        |
+| `ALERTS_PLATFORM_INSIGHT_EVALUATION_TASK_QUEUE`   | `alerts-platform-insight-evaluation-task-queue`   | `insight-alert-platform-evaluate` |
+| `ALERTS_PLATFORM_DELIVERY_TASK_QUEUE`             | `alerts-platform-delivery-task-queue`             | `alerts-platform-deliver`         |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow, the source dispatcher and a synthetic demand-discovery activity.
-The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), each bound source evaluation, and the probe activity.
+The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), the logs source evaluation, and the probe activity.
+The insight evaluation queue registers the insight source evaluation from `products/alerts` and the platform's record-outcomes activity, because a source records on its own queue.
 Each schedule tick starts orchestration, which discovers demand once and then pages source dispatchers until the demand is exhausted or its dispatch budget is spent.
 Each dispatcher starts one evaluation child for its source. Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
@@ -18,6 +20,7 @@ Start one worker for each queue:
 ```bash
 python manage.py start_temporal_worker --task-queue alerts-platform-shared-orchestration-task-queue --metrics-port 8104
 python manage.py start_temporal_worker --task-queue alerts-platform-evaluation-task-queue --metrics-port 8102
+python manage.py start_temporal_worker --task-queue alerts-platform-insight-evaluation-task-queue --metrics-port 8105
 python manage.py start_temporal_worker --task-queue alerts-platform-delivery-task-queue --metrics-port 8103
 ```
 
@@ -59,8 +62,8 @@ The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing
 So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
 is run, one cohort at a time.
 
-1. Bring up that deployment's three `alerts-platform-*` workers and confirm all three are ready and
-   polling. Do this before the code that registers the schedule reaches the deployment. They cost nothing
+1. Bring up that deployment's four `alerts-platform-*` workers and confirm all four are ready and
+   polling. The insight evaluation worker has to poll before the insight backfill runs. Do this before the code that registers the schedule reaches the deployment. They cost nothing
    while they idle, because no schedule is starting work for them yet.
 2. Let the deploy carry the code in. Migration-time reconciliation registers the schedule unpaused, and
    with no configurations backfilled each tick discovers empty demand and exits.

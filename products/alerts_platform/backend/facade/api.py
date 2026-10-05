@@ -7,7 +7,7 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -21,9 +21,11 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads
 
 
-def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheckInput, ...]:
-    """Every check one batch key owes, flattened as a source reads them."""
-    return platform_lifecycle.due_checks(team_id, source_kind, slot, cutoff)
+def due_checks(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, configuration_ids: Collection[str] | None = None
+) -> tuple[PlatformAlertCheckInput, ...]:
+    """Every check one batch key owes, flattened as a source reads them, or only the named ones."""
+    return platform_lifecycle.due_checks(team_id, source_kind, slot, cutoff, configuration_ids=configuration_ids)
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
