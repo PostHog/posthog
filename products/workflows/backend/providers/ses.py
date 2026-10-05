@@ -313,13 +313,16 @@ class SESProvider:
         return f"team-{team_id}"
 
     def get_tenant_reputation(self, team_id: int) -> dict[str, Any] | None:
+        """Sending status and open reputation findings for the team's SES tenant, or None if absent."""
+        return self.get_tenant_reputation_by_name(self._tenant_name_for_team(team_id))
+
+    def get_tenant_reputation_by_name(self, tenant_name: str) -> dict[str, Any] | None:
         """
-        Sending status and open reputation findings for the team's SES tenant, or None when the
+        Sending status and open reputation findings for the named SES tenant, or None when the
         tenant doesn't exist. AWS judges tenant reputation from signals we can't see (mailbox
         provider feedback loops, third-party listings), so this is the authoritative health source;
         our own app metrics only provide the per-workflow diagnosis.
         """
-        tenant_name = self._tenant_name_for_team(team_id)
         try:
             tenant = self.ses_v2_client.get_tenant(TenantName=tenant_name)["Tenant"]
         except ClientError as e:
