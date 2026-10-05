@@ -64,6 +64,39 @@ export function buildExperimentTargeting(context: ExperimentScannerContext): Sca
     }
 }
 
+export interface ScannerExperimentScope {
+    experimentId: number
+    /** Null watches every variant. */
+    variants: string[] | null
+}
+
+/**
+ * The experiment a scanner watches, wherever it is stored. The experiment type keeps it in
+ * `scanner_config`; older types use `experiment_targeting`. Mirrors the backend's `experiment_scope()`.
+ */
+export function scannerExperimentScope(scanner: ReplayScanner | null | undefined): ScannerExperimentScope | null {
+    if (!scanner) {
+        return null
+    }
+    if (scanner.scanner_type === 'experiment') {
+        const { experiment_id, variants } = scanner.scanner_config
+        return experiment_id ? { experimentId: experiment_id, variants: variants ?? null } : null
+    }
+    const targeting = scanner.experiment_targeting
+    if (!targeting?.experiment_id) {
+        return null
+    }
+    return { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
+}
+
+/** The variants a scope watches, as a short phrase: "test variant", "a, b variants", or the fallback. */
+export function scopeVariantsLabel(scope: ScannerExperimentScope, everyVariant: string): string {
+    if (!scope.variants?.length) {
+        return everyVariant
+    }
+    return `${scope.variants.join(', ')} ${scope.variants.length === 1 ? 'variant' : 'variants'}`
+}
+
 /**
  * The query keys an experiment-scoped scanner takes from its experiment. The population is never
  * one of them: it lives in `experiment_targeting`, and the API rejects an exposure filter set here.
