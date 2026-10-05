@@ -1,0 +1,512 @@
+// The canvas keeps lines and labels readable at any zoom. `--k` is the camera zoom and `--s` is how much a
+// tile's graph was shrunk to fit the tile, so `--k * --s` is the zoom a job node is seen at.
+.CIExplorer {
+    --ci-line: color-mix(in oklab, var(--color-text-primary) 34%, var(--color-bg-primary));
+    --ci-edge: color-mix(in oklab, var(--color-text-primary) 22%, transparent);
+    --ci-ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+    --ci-shadow: 0 2px 0 color-mix(in oklab, var(--color-border-primary), transparent 10%);
+    --k: 1;
+    --i0: calc(1 / max(1, var(--k)));
+    --i1: min(1, calc(26 / (16 * var(--k))));
+
+    width: 100%;
+    height: 100%;
+    background: var(--color-bg-primary);
+
+    .react-flow__pane {
+        cursor: grab;
+
+        &.dragging {
+            cursor: grabbing;
+        }
+    }
+
+    &__world {
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+
+    &__rail {
+        position: absolute;
+        inset: 0;
+        overflow: visible;
+        pointer-events: none;
+        transition: opacity 0.3s;
+
+        path {
+            fill: none;
+            stroke: var(--ci-edge);
+            stroke-width: 1.5;
+        }
+
+        circle {
+            fill: var(--ci-edge);
+        }
+    }
+
+    &__origin {
+        position: absolute;
+        top: 0;
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        height: 40px;
+        font-weight: 600;
+        line-height: 40px;
+        white-space: nowrap;
+        transition: opacity 0.3s;
+
+        span {
+            font-weight: 400;
+            color: var(--color-text-secondary);
+        }
+    }
+
+    &[data-deep='true'] &__rail,
+    &[data-deep='true'] &__origin {
+        opacity: 0;
+    }
+
+    &__dot {
+        flex: none;
+        width: 0.55em;
+        height: 0.55em;
+        border-radius: 50%;
+
+        &--success {
+            background: var(--success);
+        }
+
+        &--failure {
+            background: var(--danger);
+        }
+
+        &--running {
+            background: var(--warning);
+        }
+
+        &--neutral {
+            background: var(--muted);
+        }
+    }
+
+    &__duration {
+        font-family: var(--font-mono);
+        color: var(--color-text-secondary);
+        white-space: nowrap;
+    }
+
+    // A workflow tile. Zoomed in, the tile fades and the job graph inside it takes over.
+    &__card {
+        --i2: min(1, calc(26 / (13 * var(--k) * var(--s))));
+        --b2: calc(1 / max(1, var(--k) * var(--s)));
+
+        position: absolute;
+        box-sizing: border-box;
+        width: 300px;
+        height: 98px;
+        background: var(--color-bg-surface-primary);
+        border: calc(1px * var(--i0)) solid var(--color-border-primary);
+        border-radius: 8px;
+        box-shadow: var(--ci-shadow);
+        transition:
+            background-color 0.3s,
+            border-color 0.3s,
+            box-shadow 0.3s;
+
+        &--failure {
+            border-color: var(--danger);
+        }
+    }
+
+    &[data-deep='true'] &__card {
+        background: transparent;
+        border-color: transparent;
+        box-shadow: none;
+    }
+
+    &__cardButton {
+        position: absolute;
+        inset: 0;
+        box-sizing: border-box;
+        display: block;
+        width: 100%;
+        padding: 16px;
+        color: inherit;
+        text-align: left;
+        cursor: zoom-in;
+        background: none;
+        border: 0;
+        border-radius: inherit;
+    }
+
+    &[data-deep='true'] &__cardButton {
+        cursor: grab;
+    }
+
+    &__cardHeader {
+        display: flex;
+        gap: 0.5em;
+        align-items: center;
+        height: 24px;
+        font-size: calc(16px * var(--i1));
+        line-height: 1.5;
+        transition: opacity 0.3s;
+
+        b {
+            min-width: 0;
+            overflow: hidden;
+            font-weight: 600;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    &__cardHeader &__duration {
+        margin-left: auto;
+        font-size: 0.82em;
+    }
+
+    &__cardBar {
+        display: block;
+        height: 4px;
+        margin-top: 16px;
+        background: var(--color-border-primary);
+        border-radius: 2px;
+        transition: opacity 0.3s;
+
+        i {
+            display: block;
+            height: 100%;
+            background: var(--color-text-secondary);
+            border-radius: 2px;
+        }
+    }
+
+    &__card--failure &__cardBar i {
+        background: var(--danger);
+    }
+
+    &[data-deep='true'] &__cardHeader,
+    &[data-deep='true'] &__cardBar {
+        opacity: 0;
+    }
+
+    &__graph {
+        position: absolute;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s;
+        transform-origin: 0 0;
+
+        > svg {
+            position: absolute;
+            inset: 0;
+            overflow: visible;
+            pointer-events: none;
+
+            path {
+                fill: none;
+                stroke: var(--ci-edge);
+                stroke-width: 1.5;
+            }
+
+            circle {
+                fill: var(--ci-edge);
+            }
+        }
+    }
+
+    &[data-deep='true'] &__graph {
+        pointer-events: auto;
+        opacity: 1;
+    }
+
+    // A job node. Its outline is the job's kind, drawn as two clipped layers so the line keeps its width.
+    &__unit {
+        --u: 1px;
+        --bw: calc(1.5px * var(--b2));
+        --shape: inset(0 round calc(4 * var(--u)));
+
+        position: absolute;
+        box-sizing: border-box;
+        padding-bottom: 10px;
+        isolation: isolate;
+
+        &::before,
+        &::after {
+            position: absolute;
+            inset: 0;
+            clip-path: var(--shape);
+            content: '';
+        }
+
+        &::before {
+            z-index: -2;
+            background: var(--ci-line);
+        }
+
+        &::after {
+            inset: var(--bw);
+            z-index: -1;
+            background: var(--color-bg-primary);
+        }
+
+        &:has(> .CIExplorer__job:hover)::after {
+            background: var(--color-bg-surface-primary);
+        }
+
+        &--setup,
+        &--report {
+            --shape: inset(0 round calc(24 * var(--u)));
+        }
+
+        &--check {
+            --c: calc(17 * var(--u));
+            --shape: polygon(
+                var(--c) 0,
+                calc(100% - var(--c)) 0,
+                100% var(--c),
+                100% calc(100% - var(--c)),
+                calc(100% - var(--c)) 100%,
+                var(--c) 100%,
+                0 calc(100% - var(--c)),
+                0 var(--c)
+            );
+        }
+
+        &--build {
+            --c: calc(16 * var(--u));
+            --shape: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, 0 100%);
+        }
+
+        &--failure::before {
+            background: var(--danger);
+        }
+
+        &--focus::before {
+            background: var(--color-text-primary);
+        }
+    }
+
+    // The second sheet behind a matrix node.
+    &__stack {
+        position: absolute;
+        inset: 0;
+        z-index: -3;
+        clip-path: var(--shape);
+        background: color-mix(in oklab, var(--color-text-primary) 20%, var(--color-bg-primary));
+        transform: translate(calc(6px * var(--b2)), calc(6px * var(--b2)));
+    }
+
+    &__job {
+        position: relative;
+        box-sizing: border-box;
+        display: block;
+        width: 100%;
+        padding: 0 12px;
+        color: inherit;
+        text-align: left;
+        cursor: zoom-in;
+        background: none;
+        border: 0;
+
+        &[aria-pressed='true'] {
+            cursor: default;
+        }
+    }
+
+    &__jobTitle {
+        display: flex;
+        gap: 0.6em;
+        align-items: center;
+        height: calc(var(--th) * var(--i2));
+        font-size: calc(13px * var(--i2));
+    }
+
+    &__jobName {
+        flex: 1;
+        min-width: 0;
+        font-weight: 500;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+    }
+
+    &__unit--failure &__jobName {
+        color: var(--danger);
+    }
+
+    &__jobTitle &__duration {
+        font-size: 0.92em;
+    }
+
+    &__meter {
+        display: block;
+        height: 2px;
+        background: var(--color-border-primary);
+        border-radius: 1px;
+
+        i {
+            display: block;
+            height: 100%;
+            background: var(--color-text-secondary);
+            border-radius: 1px;
+        }
+    }
+
+    &__unit--failure &__meter i {
+        background: var(--danger);
+    }
+
+    // A matrix lays its shards out wide and scales them down. They appear once they are large enough to read.
+    &__cells {
+        position: relative;
+        margin: 12px 12px 0;
+    }
+
+    &__cellGrid {
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        align-items: start;
+        width: 744px;
+        opacity: clamp(0, calc((var(--k) * var(--s) * 0.3226 - 0.4) * 10), 1);
+        transform-origin: 0 0;
+    }
+
+    &__cell {
+        position: relative;
+        box-sizing: border-box;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+        height: 40px;
+        padding: 4px 10px;
+        overflow: hidden;
+        font-size: 12px;
+        color: inherit;
+        text-align: left;
+        cursor: zoom-in;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid color-mix(in oklab, var(--color-text-primary) 22%, var(--color-bg-primary));
+        border-radius: 4px;
+
+        // The shard's share of the slowest shard, as a fill behind its name.
+        &::before {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: calc(var(--w, 0) * 100%);
+            content: '';
+            background: color-mix(in oklab, var(--color-text-primary) 8%, transparent);
+        }
+
+        > * {
+            position: relative;
+        }
+
+        &:hover {
+            background: var(--color-bg-surface-secondary);
+        }
+
+        &--failure {
+            color: var(--danger);
+            background: var(--color-bg-fill-error-tertiary);
+            border-color: var(--danger);
+        }
+
+        &[aria-pressed='true'] {
+            cursor: default;
+            border-color: var(--color-text-primary);
+            box-shadow: 0 0 0 1px var(--color-text-primary);
+        }
+    }
+
+    &__cellName {
+        display: -webkit-box;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        line-height: 15px;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    &__cell &__duration {
+        font-size: 11px;
+    }
+
+    &__legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 16px;
+        align-items: center;
+        padding: 6px 12px;
+        font-size: 12px;
+        color: var(--color-text-secondary);
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 8px;
+        box-shadow: var(--ci-shadow);
+
+        span {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+    }
+
+    &__swatch {
+        --u: 0.32px;
+        --shape: inset(0 round calc(4 * var(--u)));
+
+        flex: none;
+        width: 26px;
+        height: 14px;
+        clip-path: var(--shape);
+        background: var(--color-text-secondary);
+
+        &--setup {
+            --shape: inset(0 round calc(24 * var(--u)));
+        }
+
+        &--check {
+            --c: calc(17 * var(--u));
+            --shape: polygon(
+                var(--c) 0,
+                calc(100% - var(--c)) 0,
+                100% var(--c),
+                100% calc(100% - var(--c)),
+                calc(100% - var(--c)) 100%,
+                var(--c) 100%,
+                0 calc(100% - var(--c)),
+                0 var(--c)
+            );
+        }
+
+        &--build {
+            --c: calc(16 * var(--u));
+            --shape: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, 0 100%);
+        }
+
+        &--matrix {
+            width: 16px;
+            height: 9px;
+            margin-right: 4px;
+            clip-path: none;
+            border-radius: 2px;
+            box-shadow: 4px 3px 0 var(--color-border-primary);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * {
+            transition: none !important;
+        }
+    }
+}
