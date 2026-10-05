@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -52,9 +53,14 @@ class TestDatabaseThreadStore(APIBaseTest):
 
     def test_an_evaluation_that_already_landed_is_not_sent_again(self) -> None:
         key = self._key()
-        claim = self.store.claim(key, "eval-1")
+        with time_machine.travel(FIRING, tick=False):
+            claim = self.store.claim(key, "eval-1")
         assert claim is not None
-        self.store.delivered(claim, MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"}))
+        with time_machine.travel(FIRING + timedelta(minutes=10), tick=False):
+            self.store.delivered(claim, MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"}))
+
+        with team_scope(self.team.id):
+            assert PlatformAlertThread.objects.get(id=claim.thread_id).updated_at == FIRING + timedelta(minutes=10)
 
         assert self.store.claim(key, "eval-1") is None
 
