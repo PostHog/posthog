@@ -6735,7 +6735,7 @@ class TestJevClassifyActionValidation(APIBaseTest):
                 "inputs": {"question": {"value": "Which team?"}, "categories": {"value": categories}},
             },
         }
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
             return self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
                 {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},

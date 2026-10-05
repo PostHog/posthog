@@ -10,9 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
-from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneNotConfigured, SystemOneRequestFailed
-from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS, build_system_one_client
 from posthog.models import Team
 
 from products.workflows.backend.service_jwt import WORKFLOW_CLASSIFY_PURPOSE
@@ -24,6 +22,8 @@ JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 # Keep it below CLASSIFY_TIMEOUT_MS in nodejs/src/cdp/async-functions/classify.ts so the worker receives the 503.
 TIMEOUT_SECONDS = 5.0
 _QUESTION_ID = "category"
+# The gateway's GATEWAY_MAX_CHOICE_OPTIONS, copied because its module must stay out of Django startup.
+MAX_CATEGORIES = 16
 # Same state limit as the ml_inference decide API, which asks the same model.
 # Keep it equal to MAX_CONTEXT_CHARS in nodejs/src/cdp/async-functions/classify.ts.
 MAX_CONTEXT_CHARS = 65_536
@@ -51,7 +51,7 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
     )
     categories = serializers.DictField(
         child=serializers.CharField(max_length=500, allow_blank=True),
-        help_text=f"Category names mapped to a short description of when each applies. 2 to {GATEWAY_MAX_CHOICE_OPTIONS} categories.",
+        help_text=f"Category names mapped to a short description of when each applies. 2 to {MAX_CATEGORIES} categories.",
     )
 
     def validate_context(self, value: Any) -> Any:
@@ -60,8 +60,8 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
         return value
 
     def validate_categories(self, value: dict[str, str]) -> dict[str, str]:
-        if not 2 <= len(value) <= GATEWAY_MAX_CHOICE_OPTIONS:
-            raise serializers.ValidationError(f"Enter between 2 and {GATEWAY_MAX_CHOICE_OPTIONS} categories.")
+        if not 2 <= len(value) <= MAX_CATEGORIES:
+            raise serializers.ValidationError(f"Enter between 2 and {MAX_CATEGORIES} categories.")
         return value
 
 
@@ -121,13 +121,15 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 status.HTTP_403_FORBIDDEN,
             )
 
+        # The client module pulls the LLM SDKs, which must stay out of Django startup.
+        from posthog.llm.system_one_client import build_system_one_client  # noqa: PLC0415
+
         try:
             client = build_system_one_client(
                 model=JEV_MODEL,
                 ai_product="workflows",
-                distinct_id=team_distinct_id(team.id),
-                # The AI usage report charges spend to the team_id label. The distinct ID does not set it.
-                properties={"hog_flow_id": cast(str, request.auth), "team_id": str(team.id)},
+                team_id=team.id,
+                properties={"hog_flow_id": cast(str, request.auth)},
                 timeout=TIMEOUT_SECONDS,
             )
             result = client.decide(

@@ -20,7 +20,7 @@ from posthog.llm.system_one import (
 )
 
 SECRET = "test-workflow-classify-jwt"
-_BUILD = "products.workflows.backend.api.workflow_classifications.build_system_one_client"
+_BUILD = "posthog.llm.system_one_client.build_system_one_client"
 CATEGORIES = {"spam": "Cold outreach or marketing", "support": "A customer asking for help"}
 
 
@@ -70,7 +70,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         }
         # No TypeSafe fallback, so the data never leaves PostHog.
         assert "typesafe_fallback" not in build.call_args.kwargs
-        assert build.call_args.kwargs["properties"]["team_id"] == str(self.team.id)
+        assert build.call_args.kwargs["team_id"] == self.team.id
         # User text stays in the state, never in the instructions.
         client.decide.assert_called_once_with(
             state={"subject": "Buy SEO"},
