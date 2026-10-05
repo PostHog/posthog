@@ -372,6 +372,165 @@ describe('BarChart', () => {
             ])
         })
 
+        describe('mixed clickability', () => {
+            // Only index 1 is actionable — the shape a volume sparkline uses when the handler
+            // acts on flagged buckets alone.
+            const onlyIndexOne = (dataIndex: number): boolean => dataIndex === 1
+
+            it.each([
+                { name: 'an actionable point', index: 1, calls: 1 },
+                { name: 'a point the predicate rejects', index: 0, calls: 0 },
+            ])('$name fires onPointClick $calls time(s)', async ({ index, calls }) => {
+                const onPointClick = jest.fn()
+                const { chart } = renderHogChart(
+                    <BarChart
+                        series={SERIES}
+                        labels={LABELS}
+                        theme={THEME}
+                        onPointClick={onPointClick}
+                        isPointClickable={onlyIndexOne}
+                    />
+                )
+                await chart.clickAtIndex(index)
+                expect(onPointClick).toHaveBeenCalledTimes(calls)
+            })
+
+            it.each([
+                { name: 'pointer over an actionable point', index: 1, expected: 'cursor-pointer' },
+                { name: 'the drag crosshair over a rejected one', index: 0, expected: 'cursor-crosshair' },
+            ])('shows $name', ({ index, expected }) => {
+                const { chart } = renderHogChart(
+                    <BarChart
+                        series={SERIES}
+                        labels={LABELS}
+                        theme={THEME}
+                        onPointClick={jest.fn()}
+                        onDateRangeZoom={jest.fn()}
+                        isPointClickable={onlyIndexOne}
+                    />
+                )
+                chart.hoverAtIndex(index)
+                expect(chart.element.className).toContain(expected)
+            })
+
+            // Each layout routes a click through its own bar resolution before dispatch, so the
+            // gate has to hold for all of them, not just the single-series path.
+            it.each<Layout>(['grouped', 'stacked'])(
+                '%s suppresses every series in a rejected column',
+                async (barLayout) => {
+                    const onPointClick = jest.fn()
+                    const { chart } = renderHogChart(
+                        <BarChart
+                            series={SERIES}
+                            labels={LABELS}
+                            theme={THEME}
+                            config={{ barLayout }}
+                            onPointClick={onPointClick}
+                            isPointClickable={onlyIndexOne}
+                        />
+                    )
+                    await chart.clickAtIndex(0)
+                    expect(onPointClick).not.toHaveBeenCalled()
+                    await chart.clickAtIndex(1)
+                    expect(onPointClick).toHaveBeenCalledTimes(1)
+                    expect(onPointClick.mock.calls[0][0]).toMatchObject({ dataIndex: 1 })
+                }
+            )
+
+            it('suppresses the nearest-series shortcut in a rejected column', async () => {
+                const onPointClick = jest.fn()
+                const { chart } = renderHogChart(
+                    <BarChart
+                        series={SERIES}
+                        labels={LABELS}
+                        theme={THEME}
+                        config={{ tooltip: { pinnable: true, resolveClickToNearestSeries: true } }}
+                        onPointClick={onPointClick}
+                        isPointClickable={onlyIndexOne}
+                    />
+                )
+                await chart.clickAtIndex(0)
+                expect(onPointClick).not.toHaveBeenCalled()
+            })
+
+            // The predicate bounds the click alone — hover, highlight, and tooltip still work.
+            it('still shows the tooltip on a rejected point', async () => {
+                // Four labels so the rejected index sits inside the plot: the jsdom hover helper
+                // lands the first and last index on the plot edge, where no tooltip resolves.
+                const labels = ['Mon', 'Tue', 'Wed', 'Thu']
+                const series: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40] }]
+                const { chart } = renderHogChart(
+                    <BarChart
+                        series={series}
+                        labels={labels}
+                        theme={THEME}
+                        onPointClick={jest.fn()}
+                        isPointClickable={onlyIndexOne}
+                    />
+                )
+                chart.hoverAtIndex(2)
+                const tooltip = await chart.waitForTooltip()
+                expect(tooltip.label).toBe('Wed')
+            })
+
+            // The hover index survives a data refresh that shortens the chart, so the predicate
+            // must never see an index its consumer can't look up.
+            it('never calls the predicate with an index outside the current labels', () => {
+                const seen: number[] = []
+                const predicate = (dataIndex: number): boolean => {
+                    seen.push(dataIndex)
+                    return true
+                }
+                // One handler identity across both renders, so `labels` is the only input that
+                // changes — otherwise a fresh handler rebuilds the click callback anyway and
+                // hides whether it tracks the label count.
+                const onPointClick = jest.fn()
+                const long = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+                const longSeries: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3, 4, 5] }]
+                const { chart, rerender } = renderHogChart(
+                    <BarChart
+                        series={longSeries}
+                        labels={long}
+                        theme={THEME}
+                        onPointClick={onPointClick}
+                        isPointClickable={predicate}
+                    />
+                )
+                chart.hoverAtIndex(3)
+                // Proves the predicate is reached at all, so the assertion below can't pass on
+                // an empty array.
+                expect(seen).toContain(3)
+                seen.length = 0
+
+                const short = ['Mon', 'Tue']
+                const shortSeries: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]
+                rerender(
+                    <BarChart
+                        series={shortSeries}
+                        labels={short}
+                        theme={THEME}
+                        onPointClick={onPointClick}
+                        isPointClickable={predicate}
+                    />
+                )
+                // The hover index survives the shrink, so a click still carries the old index —
+                // the cursor and the click each have to bound it.
+                fireEvent.click(chart.element)
+
+                expect(seen.filter((index) => index >= short.length)).toEqual([])
+            })
+
+            it('leaves every point clickable when no predicate is given', async () => {
+                const onPointClick = jest.fn()
+                const { chart } = renderHogChart(
+                    <BarChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
+                )
+                await chart.clickAtIndex(0)
+                expect(onPointClick).toHaveBeenCalledTimes(1)
+                expect(chart.element.className).toContain('cursor-pointer')
+            })
+        })
+
         it.each<[string, BarChartConfig]>([
             ['grouped', { barLayout: 'grouped' } as BarChartConfig],
             ['stacked', { barLayout: 'stacked' } as BarChartConfig],
