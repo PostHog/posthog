@@ -997,12 +997,19 @@ function SearchResults({
                                                                                 </span>
                                                                             )}
                                                                             {item.matchedSearchKeyword && (
-                                                                                <span className="text-xs text-tertiary truncate mt-[2px]">
+                                                                                <span className="ml-auto text-xxs text-tertiary truncate mt-[2px]">
                                                                                     {`Matches "${item.matchedSearchKeyword}"`}
                                                                                 </span>
                                                                             )}
                                                                             {item.lastViewedAt && (
-                                                                                <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                                <span
+                                                                                    className={cn(
+                                                                                        'text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]',
+                                                                                        item.matchedSearchKeyword
+                                                                                            ? 'ml-2'
+                                                                                            : 'ml-auto'
+                                                                                    )}
+                                                                                >
                                                                                     {formatRelativeTimeShort(
                                                                                         item.lastViewedAt
                                                                                     )}
