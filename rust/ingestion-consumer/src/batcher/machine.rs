@@ -527,7 +527,9 @@ impl Work {
             // for a worker poll for one.
             (!self.unplaced.is_empty() || self.packer.sealed_requests() > 0)
                 .then(|| now + self.config.unplaced_retry_interval),
-            (stuck > 0).then_some(stall_deadline),
+            // The watchdog fires only with nothing in flight. While a request
+            // is out, its response re-checks the stall.
+            (stuck > 0 && in_flight == 0).then_some(stall_deadline),
         ]
         .into_iter()
         .flatten()
@@ -902,6 +904,20 @@ mod tests {
         assert!(matches!(machine, BatcherState::Failed));
         assert!(step.fatal.is_some());
         assert_eq!(step.next_wakeup, None);
+    }
+
+    #[test]
+    fn a_passed_stall_deadline_with_a_request_in_flight_never_asks_for_a_past_wakeup() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let machine = machine(config(1, Duration::ZERO, 1), now);
+        let (machine, _) =
+            machine.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+
+        let late = now + STALL * 2;
+        let (machine, step) = machine.on_wakeup(late, &workers);
+        assert!(matches!(machine, BatcherState::Running(_)));
+        assert!(step.next_wakeup.is_some_and(|at| at > late));
     }
 
     #[test]
