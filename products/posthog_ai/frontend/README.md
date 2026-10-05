@@ -26,6 +26,8 @@ import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 side-effectful tool registry (`api/tools`) and the markdown/virtualization-heavy thread (`api/primitives`)
 must not leak into a bundle that only needs a status helper from `api/logics`. A status badge that imports
 a fat path drags presenters and the registry into its chunk; importing `api/logics` alone does not.
+In the same way, an eager surface that only needs an input box imports `Composer` from `api/composer`,
+because `api/primitives` pulls the query and insight stack through its thread presenters.
 
 There is deliberately **no root `index.ts` barrel** — a barrel that re-exports every tier would
 re-introduce the exact bundling problem the split solves. Always import an `api/<module>`.

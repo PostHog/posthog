@@ -15,18 +15,7 @@
 export { AttachedContextProvider } from '../components/AttachedContextProvider'
 export type { AttachedContextProviderProps } from '../components/AttachedContextProvider'
 
-export { Composer } from '../components/composer/Composer'
-export type {
-    ComposerRootProps,
-    ComposerFrameProps,
-    ComposerTextareaProps,
-    ComposerSubmitProps,
-} from '../components/composer/Composer'
-
-// The quill composer frame (bordered input group with an inline send button) and its send button.
-export { QuillComposerLayout } from '../components/quill/QuillComposerLayout'
-export type { QuillComposerLayoutProps } from '../components/quill/QuillComposerLayout'
-export { QuillComposerSendButton } from '../components/quill/QuillComposerSendButton'
+export * from './composer'
 
 // Controlled model + reasoning-effort pickers for a composer footer.
 export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'

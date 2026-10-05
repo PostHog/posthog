@@ -143,6 +143,7 @@ const ROOTS = [
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
+            'src/queries/Query/Query.tsx',
         ],
     },
     {

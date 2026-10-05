@@ -244,6 +244,7 @@ api/                # public API facade — the contract (import api/<module>, n
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
+  composer.ts       #   Tier 2: Composer + quill composer frame only, for eager surfaces that must not pull the thread
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
   tools.ts          #   Tier 4: lookup + declaration contract (registry isolated)
