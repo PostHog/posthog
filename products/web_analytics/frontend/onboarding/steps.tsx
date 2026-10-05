@@ -1,3 +1,5 @@
+import { LemonBanner, Link } from '@posthog/lemon-ui'
+
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { OnboardingProductConfiguration } from 'scenes/onboarding/legacy/OnboardingProductConfiguration'
@@ -44,7 +46,7 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
             role: ctx.role,
             setupTaskId: SetupTaskId.IngestFirstEvent,
             dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
-            render: () => <OnboardingInstallStep sdkInstructionMap={WebAnalyticsSDKInstructions} />,
+            render: (): JSX.Element => <OnboardingInstallStep sdkInstructionMap={WebAnalyticsSDKInstructions} />,
         }
 
         if (ctx.role === 'secondary') {
@@ -102,7 +104,7 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
                 stepKey: OnboardingStepKey.AUTHORIZED_DOMAINS,
                 role: ctx.role,
                 setupTaskId: SetupTaskId.AddAuthorizedDomain,
-                render: () => <OnboardingWebAnalyticsAuthorizedDomainsStep />,
+                render: (): JSX.Element => <OnboardingWebAnalyticsAuthorizedDomainsStep />,
             },
             // Dogfooding gate: suggestions (and this step surfacing them) stay flag-only for now.
             // Read from ctx so the flow recomputes when flags are delivered after first render.
@@ -113,7 +115,7 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
                           productKey: ProductKey.WEB_ANALYTICS,
                           stepKey: OnboardingStepKey.PATH_CLEANING,
                           role: ctx.role,
-                          render: () => <OnboardingWebAnalyticsPathCleaningStep />,
+                          render: (): JSX.Element => <OnboardingWebAnalyticsPathCleaningStep />,
                       },
                   ]
                 : []),
@@ -122,7 +124,28 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
                 productKey: ProductKey.WEB_ANALYTICS,
                 stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
                 role: ctx.role,
-                render: () => <OnboardingProductConfiguration options={options} />,
+                render: (): JSX.Element => (
+                    <>
+                        <OnboardingProductConfiguration options={options} />
+                        {/* Dogfooding gate: the HTTP log sources stay flag-only while the surface is reviewed.
+                            Read from ctx so the flow recomputes when flags are delivered after first render. */}
+                        {ctx.featureFlags[FEATURE_FLAGS.CDP_HTTP_LOG_SOURCES] ? (
+                            <LemonBanner type="info" className="mt-4">
+                                Bots, crawlers, and AI agents rarely run JavaScript, so they won't appear in your web
+                                analytics. To see them, forward your server's HTTP logs as <code>$http_log</code>{' '}
+                                events:{' '}
+                                <Link to={urls.hogFunctionNew('template-source-http-server-logs')} target="_blank">
+                                    set up an HTTP server logs source
+                                </Link>{' '}
+                                or{' '}
+                                <Link to="https://posthog.com/docs/web-analytics/sending-http-logs" target="_blank">
+                                    read the docs
+                                </Link>
+                                . You can do this any time after onboarding.
+                            </LemonBanner>
+                        ) : null}
+                    </>
+                ),
             },
         ]
     },
