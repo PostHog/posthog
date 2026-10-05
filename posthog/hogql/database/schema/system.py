@@ -990,12 +990,49 @@ feature_flags: PostgresTable = PostgresTable(
         ),
         "rollout_percentage": IntegerDatabaseField(
             name="rollout_percentage",
-            description="Top-level rollout percentage (0-100); detailed rules live in filters.",
+            nullable=True,
+            description=(
+                "Deprecated column that is no longer written, so it is usually null. "
+                "Read the rollout from filters.groups[].rollout_percentage instead."
+            ),
         ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the flag."
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the flag was created."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the flag was last edited."
+        ),
+        "last_called_at": DateTimeDatabaseField(
+            name="last_called_at",
+            nullable=True,
+            description=(
+                "The timestamp of the most recent $feature_flag_called event for this flag. "
+                "It can be null for a flag that SDKs still evaluate, because an evaluation "
+                "that sends no event does not update it. It stops updating when the flag is "
+                "deleted, so query $feature_flag_called events to find calls after deletion."
+            ),
+        ),
+        "_active": BooleanDatabaseField(name="active", hidden=True),
+        "active": ExpressionField(
+            name="active",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_active"])]),
+            description=(
+                "1 if the flag is switched on, 0 if it is switched off and serves nobody. "
+                "This is the flag's on/off state, not whether anything still evaluates it."
+            ),
+        ),
+        "_archived": BooleanDatabaseField(name="archived", hidden=True),
+        "archived": ExpressionField(
+            name="archived",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_archived"])]),
+            description=(
+                "1 if the flag is archived, 0 otherwise. An archived flag is always switched off. "
+                "The flag list hides archived and deleted flags. It also hides the internal "
+                "targeting flags that surveys and product tours create, which this table still "
+                "returns. So WHERE archived = 0 AND deleted = 0 can count more flags than the list shows."
+            ),
+        ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
             name="deleted",
