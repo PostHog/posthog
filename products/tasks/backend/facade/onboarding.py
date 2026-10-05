@@ -49,7 +49,7 @@ ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
 ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
 
-SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
+SPACES_FLAG = "project-bluebird"
 ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
 
 ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
@@ -129,18 +129,15 @@ def _session_enabled(team: Team, user: User) -> bool:
         return False
     organization_id = str(team.organization_id)
     try:
-        return all(
-            bool(
-                posthoganalytics.feature_enabled(
-                    flag,
-                    distinct_id=distinct_id,
-                    groups={"organization": organization_id},
-                    group_properties={"organization": {"id": organization_id}},
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                )
+        return bool(
+            posthoganalytics.feature_enabled(
+                SPACES_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
             )
-            for flag in SPACES_FLAGS
         )
     except Exception:
         logger.warning("onboarding_session_flag_check_failed", team_id=team.id)
