@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { NETWORK_LOAD_ERROR_MESSAGE } from '../../lib/load-error'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
@@ -328,6 +329,25 @@ describe('taskDetailSceneLogic', () => {
 
             expect(logic.values.selectedRunNotFound).toBe(false)
             expect(logic.values.selectedRunError).toBe('Could not load task run')
+            logic.unmount()
+        })
+
+        it('shows one connection error when offline and clears it with a single retry', async () => {
+            global.fetch = jest.fn(() => Promise.reject(new TypeError('Failed to fetch'))) as typeof fetch
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.taskError).toBe(NETWORK_LOAD_ERROR_MESSAGE)
+            expect(logic.values.runsError).toBe(NETWORK_LOAD_ERROR_MESSAGE)
+            expect(logic.values.loadError).toBe(NETWORK_LOAD_ERROR_MESSAGE)
+
+            global.fetch = createFetchMock()
+            logic.actions.retryLoad()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.loadError).toBe(null)
+            expect(logic.values.task?.id).toBe('task-123')
             logic.unmount()
         })
     })

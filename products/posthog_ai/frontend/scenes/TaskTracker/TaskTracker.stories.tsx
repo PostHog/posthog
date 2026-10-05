@@ -405,6 +405,20 @@ export const TaskRunsLoadError: Story = {
     ],
 }
 
+export const TaskOfflineError: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('task-1'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-1/': () => HttpResponse.error(),
+                '/api/projects/:team_id/tasks/task-1/runs/': () => HttpResponse.error(),
+            },
+        }),
+    ],
+}
+
 // Deep-linked run ids that no longer exist use the same NotFound convention as missing tasks.
 export const TaskRunNotFound: Story = {
     parameters: {

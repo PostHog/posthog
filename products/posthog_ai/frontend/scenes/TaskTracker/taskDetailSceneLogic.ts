@@ -39,9 +39,11 @@ export interface taskDetailSceneLogicValues {
     taskNotFound: boolean // taskLogic
     canEditRepository: boolean
     isHeaderLoading: boolean
+    isRetryingLoad: boolean
     isRunPending: boolean
     isTaskPending: boolean
     latestRun: TaskRunDetailDTOApi | null
+    loadError: string | null
     runContinuation: RunContinuationHandoff | null
     runs: TaskRun[]
     runsError: string | null
@@ -114,6 +116,9 @@ export interface taskDetailSceneLogicActions {
         runs: TaskRun[]
         payload?: any
     }
+    retryLoad: () => {
+        value: true
+    }
     setSelectedRunId: (
         runId: TaskRun['id'] | null,
         taskId: string
@@ -148,6 +153,12 @@ export interface taskDetailSceneLogicMeta {
         ) => boolean
         isHeaderLoading: (isTaskPending: boolean, isRunPending: boolean) => boolean
         title: (task: Task | null) => string
+        loadError: (
+            taskError: string | null,
+            runsError: string | null,
+            selectedRunError: string | null
+        ) => string | null
+        isRetryingLoad: (taskLoading: boolean, runsLoading: boolean, selectedRunDataLoading: boolean) => boolean
     }
 }
 
@@ -176,6 +187,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         updateRun: (run: TaskRun) => ({ run }),
         continueWithRun: (handoff: RunContinuationHandoff) => ({ handoff }),
         clearContinuationDraft: (runId: string) => ({ runId }),
+        retryLoad: true,
     }),
 
     reducers(({ props }) => ({
@@ -330,9 +342,31 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 return task?.title || task?.slug || 'Task'
             },
         ],
+        // One outage usually fails the task and runs loads together, so the scene shows one error for all of them.
+        loadError: [
+            (s) => [s.taskError, s.runsError, s.selectedRunError],
+            (taskError: string | null, runsError: string | null, selectedRunError: string | null): string | null =>
+                taskError ?? runsError ?? selectedRunError,
+        ],
+        isRetryingLoad: [
+            (s) => [s.taskLoading, s.runsLoading, s.selectedRunDataLoading],
+            (taskLoading: boolean, runsLoading: boolean, selectedRunDataLoading: boolean): boolean =>
+                taskLoading || runsLoading || selectedRunDataLoading,
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
+        retryLoad: () => {
+            if (values.taskError) {
+                actions.loadTask()
+            }
+            if (values.runsError) {
+                actions.loadTaskRuns()
+            }
+            if (values.selectedRunError) {
+                actions.loadSelectedTaskRun()
+            }
+        },
         continueWithRun: ({ handoff }) => {
             if (handoff.run.task === props.taskId) {
                 actions.loadTaskRuns()

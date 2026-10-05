@@ -1,16 +1,19 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 
 import { RunLogSkeleton } from 'products/posthog_ai/frontend/api/primitives'
 
+import { NETWORK_LOAD_ERROR_MESSAGE } from '../../../lib/load-error'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
-import { TaskErrorBanner } from './TaskErrorBanner'
+import { TaskLoadErrorState } from './TaskLoadErrorState'
 import { TaskRunChat } from './TaskRunChat'
 
 /**
  * Run-log slot state machine. Reads `taskDetailSceneLogic` directly (no prop drilling) and resolves to
- * exactly one of: an error banner, a `NotFound`, the shared `RunLogSkeleton`, an empty state, or the live
+ * exactly one of: an error state, a `NotFound`, the shared `RunLogSkeleton`, an empty state, or the live
  * `TaskRunChat`. The skeleton is the only loading affordance here — once it hands off to `TaskRunChat`, the
  * eager `RunSurface` shows the same `RunLogSkeleton` during its own bootstrap, so the transition is seamless.
  */
@@ -34,13 +37,13 @@ export function TaskRunLog({
         runs,
         selectedRun,
         selectedRunId,
-        runsError,
-        selectedRunError,
+        loadError,
+        isRetryingLoad,
         selectedRunNotFound,
         isRunPending,
         runContinuation,
     } = useValues(logic)
-    const { loadTaskRuns, loadSelectedTaskRun, clearContinuationDraft } = useActions(logic)
+    const { retryLoad, clearContinuationDraft } = useActions(logic)
 
     if (runContinuation && selectedRunId === runContinuation.run.id) {
         return (
@@ -74,25 +77,8 @@ export function TaskRunLog({
         )
     }
 
-    if (runsError) {
-        return (
-            <TaskErrorBanner
-                title="We couldn't load this task's runs."
-                message={runsError}
-                onRetry={loadTaskRuns}
-                dataAttr="task-runs-load-error"
-            />
-        )
-    }
-    if (selectedRunError) {
-        return (
-            <TaskErrorBanner
-                title="We couldn't load this task's runs."
-                message={selectedRunError}
-                onRetry={loadSelectedTaskRun}
-                dataAttr="task-runs-load-error"
-            />
-        )
+    if (loadError && !selectedRun) {
+        return <TaskLoadErrorState message={loadError} onRetry={retryLoad} retrying={isRetryingLoad} />
     }
     if (selectedRunNotFound) {
         return <NotFound object="task run" className="m-0 py-8" />
@@ -111,9 +97,28 @@ export function TaskRunLog({
         // The viewer owns scroll edge-to-edge; this box just bounds the height. No `overflow-hidden`/negative
         // margins — content is kept off the scrollbar via the viewer's `threadRowClassName`, not by clipping here.
         return (
-            <div className="flex-1 min-h-0">
-                <TaskRunChat taskId={taskId} runId={selectedRun.id} />
-            </div>
+            <>
+                {loadError && (
+                    <LemonBanner
+                        type="warning"
+                        className="mx-4 mt-2"
+                        action={{
+                            children: 'Try again',
+                            onClick: retryLoad,
+                            loading: isRetryingLoad,
+                            'data-attr': 'task-refresh-error-retry',
+                        }}
+                        data-attr="task-refresh-error"
+                    >
+                        {loadError === NETWORK_LOAD_ERROR_MESSAGE
+                            ? "Can't reach PostHog, so this task may be out of date."
+                            : `Couldn't refresh this task. ${loadError}`}
+                    </LemonBanner>
+                )}
+                <div className="flex-1 min-h-0">
+                    <TaskRunChat taskId={taskId} runId={selectedRun.id} />
+                </div>
+            </>
         )
     }
     return selectedRunId ? <RunLogSkeleton /> : null

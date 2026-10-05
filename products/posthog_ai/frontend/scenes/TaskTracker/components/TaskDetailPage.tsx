@@ -22,9 +22,18 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
-        useValues(sceneLogic)
-    const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
+    const {
+        task,
+        taskNotFound,
+        taskError,
+        latestRun,
+        selectedRun,
+        isTaskPending,
+        isHeaderLoading,
+        isRetryingLoad,
+        runTaskInFlight,
+    } = useValues(sceneLogic)
+    const { runTask, deleteTask, retryLoad, updateTask } = useActions(sceneLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const isActiveCreation = activeCreation?.taskId === taskId
 
@@ -111,7 +120,8 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             onRename={task ? renameTask : undefined}
             onArchive={deleteTask}
             taskError={taskError}
-            onRetry={loadTask}
+            onRetry={retryLoad}
+            isRetrying={isRetryingLoad}
             isMobile={isMobile}
         >
             <TaskRunLog

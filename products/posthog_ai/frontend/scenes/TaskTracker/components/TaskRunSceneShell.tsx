@@ -5,7 +5,6 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -23,7 +22,7 @@ import { TaskSourceIcon } from '../../../components/TaskSourceIcon'
 import type { Task } from '../../../types/taskTypes'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
-import { TaskErrorBanner } from './TaskErrorBanner'
+import { TaskLoadErrorState } from './TaskLoadErrorState'
 import { TaskRunMetadata } from './TaskRunMetadata'
 
 export interface TaskRunSceneShellProps {
@@ -40,6 +39,7 @@ export interface TaskRunSceneShellProps {
     onArchive: () => void
     taskError: string | null
     onRetry: () => void
+    isRetrying?: boolean
     isMobile: boolean
     /** The run-log slot (the streamed thread). */
     children: ReactNode
@@ -59,6 +59,7 @@ export function TaskRunSceneShell({
     onArchive,
     taskError,
     onRetry,
+    isRetrying = false,
     isMobile,
     children,
 }: TaskRunSceneShellProps): JSX.Element {
@@ -107,26 +108,10 @@ export function TaskRunSceneShell({
             </ScenePanel>
 
             {taskError && !task ? (
-                <TaskErrorBanner
-                    title="We couldn't load this task."
-                    message={taskError}
-                    onRetry={onRetry}
-                    dataAttr="task-load-error"
-                    className="max-w-200"
-                />
+                <TaskLoadErrorState message={taskError} onRetry={onRetry} retrying={isRetrying} />
             ) : (
                 <>
-                    {taskError && (
-                        <TaskErrorBanner
-                            title="We couldn't load this task."
-                            message={taskError}
-                            onRetry={onRetry}
-                            dataAttr="task-load-error"
-                            className="max-w-200"
-                        />
-                    )}
-
-                    <header className={cn('flex flex-col gap-y-2 px-4 pt-2', taskError && 'mt-4')}>
+                    <header className="flex flex-col gap-y-2 px-4 pt-2">
                         <SceneTitleSection
                             className="-mt-2"
                             name={task?.title || 'Task'}
