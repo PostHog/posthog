@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     BillingUsageResponseBreakdownType as BillingUsageResponseBreakdownType,
     BingAdsDefaultSources as BingAdsDefaultSources,
     BounceRatePageViewMode as BounceRatePageViewMode,
+    Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
     BreakdownType as BreakdownType,
     CalendarHeatmapMathType as CalendarHeatmapMathType,
@@ -1992,12 +1993,13 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
         extra="forbid",
     )
     clicks: float
-    conversions: float
-    cost: float
+    conversions: float | None = None
+    cost: float | None = None
     cpa: float | None = None
     cpc: float | None = None
     ctr: float | None = None
     impressions: float
+    position: float | None = None
 
 
 class MarketingAnalyticsSearchRow(BaseModel):
@@ -2005,8 +2007,8 @@ class MarketingAnalyticsSearchRow(BaseModel):
         extra="forbid",
     )
     clicks: float
-    conversions: float
-    cost: float
+    conversions: float | None = None
+    cost: float | None = None
     cpa: float | None = None
     cpc: float | None = None
     ctr: float | None = None
@@ -2014,7 +2016,9 @@ class MarketingAnalyticsSearchRow(BaseModel):
     impressions: float
     keyword: str | None = None
     matchType: str | None = None
+    page: str | None = None
     platform: Platform
+    position: float | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
 
 
@@ -2023,6 +2027,7 @@ class MarketingAnalyticsSearchSource(BaseModel):
         extra="forbid",
     )
     keywordTable: str | None = None
+    queryPageTable: bool | None = None
     sourceType: SourceType
     statsTable: str
 
@@ -28638,10 +28643,13 @@ class MarketingAnalyticsSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown: Breakdown1 | None = None
     compareFilter: CompareFilter | None = None
     dateRange: DateRange | None = None
+    keyword: str | None = None
     kind: Literal["MarketingAnalyticsSearchQuery"] = "MarketingAnalyticsSearchQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    page: str | None = None
     response: MarketingAnalyticsSearchQueryResponse | None = None
     search: str | None = None
     sources: list[MarketingAnalyticsSearchSource]

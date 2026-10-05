@@ -29,7 +29,16 @@ import {
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSchemaStatus, ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
+
+import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/search/searchPerformanceLogic'
 
 import {
     MarketingAnalyticsTab,
@@ -63,24 +72,75 @@ describe('marketingAnalyticsLogic', () => {
         localStorage.clear()
     })
 
-    it.each([
-        ['select Bing', ['google', 'bing'], ['meta', 'google', 'bing']],
-        ['clear search integrations', [], ['meta']],
-    ])('preserves other tabs’ integrations when search filters %s', async (_label, selectedIds, expectedIds) => {
+    it('keeps the search date range in the URL when restoring a tab', async () => {
+        router.actions.push(urls.marketingAnalyticsApp(), {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            date_from: '-28d',
+            compare: 'true',
+        })
         logic = marketingAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setIntegrationFilter({ integrationSourceIds: ['google', 'meta'], includeNonIntegrated: false })
+        expect(logic.values.dateFilter.dateFrom).toBe('-28d')
+        expect(router.values.searchParams).toMatchObject({
+            date_from: '-28d',
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+        })
+    })
 
-        logic.actions.setIntegrationFilter({ integrationSourceIds: selectedIds, includeNonIntegrated: false }, [
-            'google',
-            'bing',
-        ])
-
-        expect(logic.values.integrationFilter).toEqual({
-            integrationSourceIds: expectedIds,
+    it('keeps a connected Search Console integration selected after refreshing sources', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIntegrationFilter({
+            integrationSourceIds: ['organic', 'deleted'],
             includeNonIntegrated: false,
         })
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({
+                count: 1,
+                next: null,
+                previous: null,
+                results: [
+                    {
+                        id: 'organic',
+                        source_id: 'example.com',
+                        connection_id: 'example-organic',
+                        source_type: 'GoogleSearchConsole',
+                        schemas: [],
+                        status: ExternalDataJobStatus.Completed,
+                        prefix: null,
+                        description: 'example.com',
+                        created_via: 'web',
+                        latest_error: null,
+                        sync_frequency: '24hour',
+                        job_inputs: {},
+                        user_access_level: AccessControlLevel.Admin,
+                        revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                    },
+                ],
+            })
+        ).toFinishAllListeners()
+        expect(logic.values.integrationFilter.integrationSourceIds).toEqual(['organic'])
+        const searchLogic = searchPerformanceLogic()
+        const unmountSearch = searchLogic.mount()
+        try {
+            expect(searchLogic.values.missingSources).toEqual(['GoogleAds'])
+            logic.actions.setCompareFilter({ compare: true })
+            logic.actions.setDates('-28d', null)
+            searchLogic.actions.setChannel('paid')
+            searchLogic.actions.setQuerySearch('missing query')
+            expect(searchLogic.values.hasActiveFilters).toBe(true)
+            expect(searchLogic.values.sources).toEqual([])
+
+            searchLogic.actions.clearFilters()
+            expect(searchLogic.values.hasActiveFilters).toBe(false)
+            expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
+            expect(searchLogic.values.query.search).toBe('')
+            expect(logic.values.compareFilter).toEqual({ compare: true })
+        } finally {
+            unmountSearch()
+        }
     })
 
     it.each<{

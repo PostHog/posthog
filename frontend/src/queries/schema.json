@@ -35907,10 +35907,10 @@
                     "type": "number"
                 },
                 "conversions": {
-                    "type": "number"
+                    "type": ["number", "null"]
                 },
                 "cost": {
-                    "type": "number"
+                    "type": ["number", "null"]
                 },
                 "cpa": {
                     "type": ["number", "null"]
@@ -35923,6 +35923,9 @@
                 },
                 "impressions": {
                     "type": "number"
+                },
+                "position": {
+                    "type": ["number", "null"]
                 }
             },
             "required": ["clicks", "impressions", "cost", "conversions", "ctr", "cpc", "cpa"],
@@ -35931,11 +35934,18 @@
         "MarketingAnalyticsSearchQuery": {
             "additionalProperties": false,
             "properties": {
+                "breakdown": {
+                    "enum": ["keyword", "page"],
+                    "type": "string"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "keyword": {
+                    "type": "string"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsSearchQuery",
@@ -35944,6 +35954,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "page": {
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/MarketingAnalyticsSearchQueryResponse"
@@ -36040,10 +36053,10 @@
                     "type": "number"
                 },
                 "conversions": {
-                    "type": "number"
+                    "type": ["number", "null"]
                 },
                 "cost": {
-                    "type": "number"
+                    "type": ["number", "null"]
                 },
                 "cpa": {
                     "type": ["number", "null"]
@@ -36066,9 +36079,15 @@
                 "matchType": {
                     "type": ["string", "null"]
                 },
+                "page": {
+                    "type": ["string", "null"]
+                },
                 "platform": {
-                    "enum": ["GoogleAds", "BingAds"],
+                    "enum": ["GoogleAds", "BingAds", "GoogleSearchConsole"],
                     "type": "string"
+                },
+                "position": {
+                    "type": ["number", "null"]
                 },
                 "previous": {
                     "anyOf": [
@@ -36102,8 +36121,11 @@
                 "keywordTable": {
                     "type": "string"
                 },
+                "queryPageTable": {
+                    "type": "boolean"
+                },
                 "sourceType": {
-                    "enum": ["GoogleAds", "BingAds"],
+                    "enum": ["GoogleAds", "BingAds", "GoogleSearchConsole"],
                     "type": "string"
                 },
                 "statsTable": {

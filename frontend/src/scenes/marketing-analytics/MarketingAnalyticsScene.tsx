@@ -283,16 +283,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
-            ? [
-                  {
-                      key: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
-                      label: 'Search performance',
-                      content: <SearchPerformanceTab />,
-                  },
-              ]
-            : []),
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ||
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
             ? [
                   {
                       key: MarketingAnalyticsTab.AD_PERFORMANCE,
@@ -301,6 +293,11 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                           <>
                               <MarketingAnalyticsFilters tabs={<></>} />
                               <MarketingAnalyticsDashboard />
+                              {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] && (
+                                  <div className="mt-8">
+                                      <SearchPerformanceTab />
+                                  </div>
+                              )}
                               {integrationSettingsModal.integration && (
                                   <IntegrationSettingsModal
                                       integrationName={integrationSettingsModal.integration}
@@ -313,6 +310,10 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                           </>
                       ),
                   },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+            ? [
                   {
                       key: MarketingAnalyticsTab.PAGE_VISIBILITY,
                       label: 'Page visibility',
@@ -370,9 +371,14 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const tabIsRendered = tabs.some((tab) => tab.key === activeTab)
     useEffect(() => {
         if (!tabIsRendered && !absorbed) {
-            setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+            setActiveTab(
+                activeTab === MarketingAnalyticsTab.SEARCH_PERFORMANCE &&
+                    featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+                    ? MarketingAnalyticsTab.AD_PERFORMANCE
+                    : MarketingAnalyticsTab.DASHBOARD
+            )
         }
-    }, [tabIsRendered, absorbed, setActiveTab])
+    }, [tabIsRendered, absorbed, setActiveTab, activeTab, featureFlags])
     const selectedTab = tabIsRendered ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
@@ -387,7 +393,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
     [MarketingAnalyticsTab.SEARCH_PERFORMANCE]:
-        'Compare paid search keywords, spend and conversions across Google Ads and Bing Ads.',
+        'Explore paid and organic search performance across keywords, queries and landing pages.',
     [MarketingAnalyticsTab.PAGE_VISIBILITY]:
         'Explore page traffic, Google search visibility, AI referrals, crawler activity, and conversions.',
     [MarketingAnalyticsTab.AD_PERFORMANCE]: 'Compare ad spend, clicks and impressions across your connected platforms.',

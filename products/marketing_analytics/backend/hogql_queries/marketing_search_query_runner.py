@@ -11,7 +11,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -61,19 +61,78 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             "date_from": ast.Constant(value=date_range.date_from()),
             "date_to": ast.Constant(value=date_range.date_to()),
         }
+        if source.sourceType == "GoogleSearchConsole":
+            if (self.query.keyword is not None or self.query.page is not None) and not source.queryPageTable:
+                raise ValueError("Search details require the query and page table")
+            placeholders.update(
+                {
+                    "keyword_value": ast.Constant(value=None)
+                    if self.query.breakdown == "page"
+                    else parse_expr("nullIf(lower(trim(s.query)), '')"),
+                    "page_value": ast.Field(chain=["s", "page"])
+                    if self.query.breakdown == "page"
+                    else ast.Constant(value=None),
+                    "keyword_filter": parse_expr(
+                        "lower(trim(s.query)) = {keyword}",
+                        placeholders={"keyword": ast.Constant(value=self.query.keyword.strip().lower())},
+                    )
+                    if self.query.keyword is not None
+                    else ast.Constant(value=True),
+                    "page_filter": parse_expr(
+                        "s.page = {page}", placeholders={"page": ast.Constant(value=self.query.page)}
+                    )
+                    if self.query.page is not None
+                    else ast.Constant(value=True),
+                }
+            )
+            return parse_select(
+                """
+                SELECT {period} AS period, {keyword_value} AS keyword, {page_value} AS page,
+                    'GoogleSearchConsole' AS platform, NULL AS matchType, NULL AS currency,
+                    sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
+                    0 AS total_cost, 0 AS conversion_count,
+                    sum(toFloat(s.position) * toFloat(s.impressions)) AS position_total
+                FROM {stats} AS s
+                WHERE toDate(date) >= toDate({date_from}) AND toDate(date) <= toDate({date_to})
+                    AND {keyword_filter} AND {page_filter}
+                GROUP BY keyword, page
+                """,
+                placeholders=placeholders,
+            )
+        if self.query.breakdown == "page":
+            if source.sourceType != "GoogleAds":
+                raise ValueError("Landing pages are supported by Google Ads and Google Search Console")
+            return parse_select(
+                """
+                SELECT {period} AS period, NULL AS keyword,
+                    nullIf(landing_page_view_unexpanded_final_url, '') AS page,
+                    'GoogleAds' AS platform, NULL AS matchType,
+                    nullIf(upper(customer_currency_code), '') AS currency,
+                    sum(toFloat(metrics_clicks)) AS click_count,
+                    sum(toFloat(metrics_impressions)) AS impression_count,
+                    sum(toFloat(metrics_cost_micros)) / 1000000 AS total_cost,
+                    sum(toFloat(metrics_conversions)) AS conversion_count, 0 AS position_total
+                FROM {stats}
+                WHERE toDate(segments_date) >= toDate({date_from})
+                    AND toDate(segments_date) <= toDate({date_to})
+                    AND segments_ad_network_type IN ('SEARCH', 'SEARCH_PARTNERS')
+                GROUP BY page, currency
+                """,
+                placeholders=placeholders,
+            )
         if source.sourceType == "GoogleAds":
             if not source.keywordTable:
                 raise ValueError("Google Ads requires a synced keyword table")
             placeholders["keywords"] = ast.Field(chain=[*source.keywordTable.split(".")])
             return parse_select(
                 """
-                SELECT {period} AS period, nullIf(lower(trim(k.keyword)), '') AS keyword, 'GoogleAds' AS platform,
+                SELECT {period} AS period, nullIf(lower(trim(k.keyword)), '') AS keyword, NULL AS page, 'GoogleAds' AS platform,
                     nullIf(lower(k.match_type), '') AS matchType,
                     nullIf(upper(s.customer_currency_code), '') AS currency,
                     sum(toFloat(s.metrics_clicks)) AS click_count,
                     sum(toFloat(s.metrics_impressions)) AS impression_count,
                     sum(toFloat(s.metrics_cost_micros)) / 1000000 AS total_cost,
-                    sum(toFloat(s.metrics_conversions)) AS conversion_count
+                    sum(toFloat(s.metrics_conversions)) AS conversion_count, 0 AS position_total
                 FROM {stats} AS s
                 LEFT JOIN (
                     SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
@@ -93,10 +152,10 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             )
         return parse_select(
             """
-            SELECT {period} AS period, nullIf(lower(trim(keyword)), '') AS keyword, 'BingAds' AS platform,
+            SELECT {period} AS period, nullIf(lower(trim(keyword)), '') AS keyword, NULL AS page, 'BingAds' AS platform,
                 nullIf(lower(bid_match_type), '') AS matchType, nullIf(upper(currency_code), '') AS currency,
                 sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
-                sum(toFloat(spend)) AS total_cost, sum(toFloat(conversions)) AS conversion_count
+                sum(toFloat(spend)) AS total_cost, sum(toFloat(conversions)) AS conversion_count, 0 AS position_total
             FROM {stats}
             WHERE toDate(time_period) >= toDate({date_from}) AND toDate(time_period) <= toDate({date_to})
             GROUP BY keyword, matchType, currency
@@ -113,23 +172,26 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         sources = ast.SelectSetQuery.create_from_queries(source_queries, "UNION ALL")
         return parse_select(
             """
-            SELECT keyword, platform, matchType, currency,
+            SELECT keyword, page, platform, matchType, currency,
                 coalesce(sumIf(click_count, period = 0), 0) AS clicks, coalesce(sumIf(impression_count, period = 0), 0) AS impressions,
-                coalesce(sumIf(total_cost, period = 0), 0) AS cost, coalesce(sumIf(conversion_count, period = 0), 0) AS conversions,
+                if(platform = 'GoogleSearchConsole', NULL, coalesce(sumIf(total_cost, period = 0), 0)) AS cost,
+                if(platform = 'GoogleSearchConsole', NULL, coalesce(sumIf(conversion_count, period = 0), 0)) AS conversions,
                 sumIf(click_count, period = 0) / nullIf(sumIf(impression_count, period = 0), 0) AS ctr,
-                sumIf(total_cost, period = 0) / nullIf(sumIf(click_count, period = 0), 0) AS cpc,
+                if(platform = 'GoogleSearchConsole', NULL, sumIf(total_cost, period = 0) / nullIf(sumIf(click_count, period = 0), 0)) AS cpc,
                 sumIf(total_cost, period = 0) / nullIf(sumIf(conversion_count, period = 0), 0) AS cpa,
                 coalesce(sumIf(click_count, period = 1), 0) AS previous_clicks,
                 coalesce(sumIf(impression_count, period = 1), 0) AS previous_impressions,
-                coalesce(sumIf(total_cost, period = 1), 0) AS previous_cost,
-                coalesce(sumIf(conversion_count, period = 1), 0) AS previous_conversions,
+                if(platform = 'GoogleSearchConsole', NULL, coalesce(sumIf(total_cost, period = 1), 0)) AS previous_cost,
+                if(platform = 'GoogleSearchConsole', NULL, coalesce(sumIf(conversion_count, period = 1), 0)) AS previous_conversions,
                 sumIf(click_count, period = 1) / nullIf(sumIf(impression_count, period = 1), 0) AS previous_ctr,
-                sumIf(total_cost, period = 1) / nullIf(sumIf(click_count, period = 1), 0) AS previous_cpc,
-                sumIf(total_cost, period = 1) / nullIf(sumIf(conversion_count, period = 1), 0) AS previous_cpa
+                if(platform = 'GoogleSearchConsole', NULL, sumIf(total_cost, period = 1) / nullIf(sumIf(click_count, period = 1), 0)) AS previous_cpc,
+                sumIf(total_cost, period = 1) / nullIf(sumIf(conversion_count, period = 1), 0) AS previous_cpa,
+                if(platform = 'GoogleSearchConsole', sumIf(position_total, period = 0) / nullIf(sumIf(impression_count, period = 0), 0), NULL) AS position,
+                if(platform = 'GoogleSearchConsole', sumIf(position_total, period = 1) / nullIf(sumIf(impression_count, period = 1), 0), NULL) AS previous_position
             FROM {sources}
-            WHERE positionCaseInsensitive(coalesce(keyword, ''), {search}) > 0
-            GROUP BY keyword, platform, matchType, currency
-            ORDER BY clicks DESC, impressions DESC, previous_clicks DESC, platform, keyword, matchType, currency
+            WHERE positionCaseInsensitive(coalesce(keyword, page, ''), {search}) > 0
+            GROUP BY keyword, page, platform, matchType, currency
+            ORDER BY clicks DESC, impressions DESC, previous_clicks DESC, platform, keyword, page, matchType, currency
             LIMIT 100
             """,
             placeholders={"sources": sources, "search": ast.Constant(value=(self.query.search or "").strip())},

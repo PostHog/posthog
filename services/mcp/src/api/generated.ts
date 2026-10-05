@@ -17764,6 +17764,14 @@ export namespace Schemas {
       state: string | null;
     }
 
+    export type Breakdown1 = typeof Breakdown1[keyof typeof Breakdown1];
+
+
+    export const Breakdown1 = {
+      Keyword: 'keyword',
+      Page: 'page',
+    } as const;
+
     /**
      * * `auto` - auto
      * * `manual` - manual
@@ -53942,22 +53950,24 @@ export namespace Schemas {
     export const Platform = {
       GoogleAds: 'GoogleAds',
       BingAds: 'BingAds',
+      GoogleSearchConsole: 'GoogleSearchConsole',
     } as const;
 
     export interface MarketingAnalyticsSearchMetrics {
       clicks: number;
-      conversions: number;
-      cost: number;
+      conversions?: number | null;
+      cost?: number | null;
       cpa?: number | null;
       cpc?: number | null;
       ctr?: number | null;
       impressions: number;
+      position?: number | null;
     }
 
     export interface MarketingAnalyticsSearchRow {
       clicks: number;
-      conversions: number;
-      cost: number;
+      conversions?: number | null;
+      cost?: number | null;
       cpa?: number | null;
       cpc?: number | null;
       ctr?: number | null;
@@ -53965,7 +53975,9 @@ export namespace Schemas {
       impressions: number;
       keyword?: string | null;
       matchType?: string | null;
+      page?: string | null;
       platform: Platform;
+      position?: number | null;
       previous?: MarketingAnalyticsSearchMetrics | null;
     }
 
@@ -53997,20 +54009,25 @@ export namespace Schemas {
     export const SourceType = {
       GoogleAds: 'GoogleAds',
       BingAds: 'BingAds',
+      GoogleSearchConsole: 'GoogleSearchConsole',
     } as const;
 
     export interface MarketingAnalyticsSearchSource {
       keywordTable?: string | null;
+      queryPageTable?: boolean | null;
       sourceType: SourceType;
       statsTable: string;
     }
 
     export interface MarketingAnalyticsSearchQuery {
+      breakdown?: Breakdown1 | null;
       compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
+      keyword?: string | null;
       kind?: 'MarketingAnalyticsSearchQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      page?: string | null;
       response?: MarketingAnalyticsSearchQueryResponse | null;
       search?: string | null;
       sources: MarketingAnalyticsSearchSource[];

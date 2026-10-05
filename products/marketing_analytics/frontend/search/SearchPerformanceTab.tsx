@@ -1,18 +1,22 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSkeleton,
+} from '@posthog/lemon-ui'
 
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { urls } from 'scenes/urls'
-import { IntegrationFilter } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/IntegrationFilter'
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-
-import { SEARCH_PLATFORM_LABELS, SEARCH_SOURCE_TYPES } from './searchPerformance'
+import { SEARCH_PLATFORM_LABELS, SearchChannel, SearchPlatform, requiredSearchTables } from './searchPerformance'
+import { SearchPerformanceDetail } from './SearchPerformanceDetail'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
+import { SearchSourceSuggestions } from './SearchSourceSuggestions'
 
 export function SearchPerformanceTab(): JSX.Element {
     const {
@@ -20,71 +24,67 @@ export function SearchPerformanceTab(): JSX.Element {
         dataWarehouseSourcesLoading,
         sourcesError,
         sources,
+        allSearchSources,
         pendingSources,
         readySources,
-        compareFilter,
-        metrics,
+        displayMetrics,
+        hasPaidSources,
+        showPosition,
+        canShowPosition,
         search,
-        dateFilter,
         query,
+        breakdown,
+        channel,
+        hasActiveFilters,
+        hasSelectedBingSource,
     } = useValues(searchPerformanceLogic)
-    const { loadSources, setMetrics, setSearch } = useActions(searchPerformanceLogic)
-    const { setDates, setCompareFilter } = useActions(marketingAnalyticsLogic)
+    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, setShowPosition, clearFilters } =
+        useActions(searchPerformanceLogic)
     const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
 
     return (
-        <div className="@container flex flex-col gap-4" data-attr="marketing-search-performance">
-            <div className="flex flex-wrap items-center gap-2">
-                <IntegrationFilter sourceTypes={SEARCH_SOURCE_TYPES} />
-                <DateFilter
-                    size="small"
-                    dateFrom={dateFilter.dateFrom}
-                    dateTo={dateFilter.dateTo}
-                    onChange={setDates}
+        <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
+            <div className="flex flex-wrap gap-2 items-center justify-between">
+                <LemonSegmentedButton
+                    value={breakdown}
+                    onChange={setBreakdown}
+                    options={[
+                        { value: 'keyword', label: 'Keywords and queries' },
+                        { value: 'page', label: 'Landing pages' },
+                    ]}
                 />
-                <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                <ReloadAll />
+                <LemonSelect<SearchChannel>
+                    value={channel}
+                    onChange={setChannel}
+                    options={[
+                        { value: 'all', label: 'Paid and organic' },
+                        { value: 'paid', label: 'Paid search' },
+                        { value: 'organic', label: 'Organic search' },
+                    ]}
+                />
             </div>
             <div>
-                <h2 className="mb-1">Paid search keywords</h2>
-                <p className="text-secondary mb-0">Compare the keywords you target in Google Ads and Bing Ads.</p>
+                <h2 className="mb-1">{breakdown === 'page' ? 'Landing page performance' : 'Search performance'}</h2>
+                <p className="text-secondary mb-0">
+                    {breakdown === 'page'
+                        ? 'See which pages receive paid and organic search traffic. Click a page to explore its organic queries.'
+                        : 'Compare ad keywords with organic search queries. Click a keyword or query to explore its landing pages.'}
+                </p>
             </div>
             {loading ? (
                 <LemonSkeleton repeat={5} className="h-10" />
             ) : sourcesError ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSources, loading }}>
-                    Could not load your ad platforms. Try again to view search performance.
+                    Could not load your search sources. Try again to view search performance.
                 </LemonBanner>
             ) : (
                 <>
-                    {sources.length === 0 && (
-                        <div className="border rounded p-4 flex flex-col gap-3 items-start">
-                            <p className="mb-0">Connect an ad platform to see keyword clicks, spend and conversions.</p>
-                            <div className="flex flex-wrap gap-2">
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.dataWarehouseSourceNew(
-                                        'GoogleAds',
-                                        `${urls.marketingAnalyticsApp()}?tab=search-performance`,
-                                        'Search performance'
-                                    )}
-                                    data-attr="marketing-search-connect-google"
-                                >
-                                    Connect Google Ads
-                                </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    to={urls.dataWarehouseSourceNew(
-                                        'BingAds',
-                                        `${urls.marketingAnalyticsApp()}?tab=search-performance`,
-                                        'Search performance'
-                                    )}
-                                    data-attr="marketing-search-connect-bing"
-                                >
-                                    Connect Bing Ads
-                                </LemonButton>
-                            </div>
-                        </div>
+                    {!hasActiveFilters && <SearchSourceSuggestions />}
+                    {breakdown === 'page' && channel !== 'organic' && hasSelectedBingSource && (
+                        <LemonBanner type="info">
+                            Bing Ads landing page metrics are not available in this view. Its keyword metrics are
+                            available under Keywords and queries.
+                        </LemonBanner>
                     )}
                     {pendingSources.map((source) => (
                         <LemonBanner
@@ -92,39 +92,82 @@ export function SearchPerformanceTab(): JSX.Element {
                             type="info"
                             action={{ children: 'Manage source', to: urls.dataWarehouseSource(source.id) }}
                         >
-                            {`${source.description || SEARCH_PLATFORM_LABELS[source.source_type as 'GoogleAds' | 'BingAds']}: enable ${source.source_type === 'GoogleAds' ? 'keyword and keyword_stats' : 'keyword_performance_report'} and wait for the first sync to finish.`}
+                            {`${source.description || SEARCH_PLATFORM_LABELS[source.source_type as SearchPlatform]}: enable ${requiredSearchTables(source, breakdown)} and wait for the first sync to finish.`}
                         </LemonBanner>
                     ))}
+                    {sources.length === 0 && (hasActiveFilters || allSearchSources.length > 0) && (
+                        <LemonBanner type="info" action={{ children: 'Clear filters', onClick: clearFilters }}>
+                            No search data matches your filters. Clear the filters to see all connected search sources.
+                        </LemonBanner>
+                    )}
                     {readySources.length > 0 && (
                         <>
                             <div className="flex flex-wrap gap-2 justify-between">
                                 <LemonInput
                                     type="search"
-                                    placeholder="Filter keywords"
+                                    placeholder={breakdown === 'page' ? 'Filter pages' : 'Filter keywords and queries'}
                                     value={search}
                                     onChange={setSearch}
                                     data-attr="marketing-search-keyword-filter"
                                 />
-                                <LemonSegmentedButton
-                                    value={metrics}
-                                    onChange={setMetrics}
-                                    options={[
-                                        { value: 'traffic', label: 'Traffic' },
-                                        { value: 'conversions', label: 'Spend and conversions' },
-                                    ]}
-                                />
+                                <div className="flex flex-wrap items-center gap-3">
+                                    {canShowPosition && (
+                                        <LemonCheckbox
+                                            checked={showPosition}
+                                            onChange={setShowPosition}
+                                            label="Show position"
+                                            data-attr="marketing-search-show-position"
+                                        />
+                                    )}
+                                    <LemonSegmentedButton
+                                        value={displayMetrics}
+                                        onChange={setMetrics}
+                                        options={[
+                                            { value: 'traffic', label: 'Traffic' },
+                                            {
+                                                value: 'conversions',
+                                                label: 'Spend and conversions',
+                                                disabledReason: !hasPaidSources
+                                                    ? 'Organic search does not report spend or conversions'
+                                                    : undefined,
+                                            },
+                                        ]}
+                                    />
+                                </div>
                             </div>
-                            <SearchPerformanceTable query={query} metrics={metrics} />
+                            <SearchPerformanceTable
+                                query={query}
+                                metrics={displayMetrics}
+                                showPosition={showPosition}
+                                onSelect={selectRow}
+                                emptyState={
+                                    <div className="flex flex-col items-center gap-2 py-4">
+                                        <span>
+                                            {hasActiveFilters
+                                                ? 'No search data matches your filters. Try clearing them to see more results.'
+                                                : 'No search data for this period. Try a wider date range or check your source sync status.'}
+                                        </span>
+                                        {hasActiveFilters && (
+                                            <LemonButton type="secondary" size="small" onClick={clearFilters}>
+                                                Clear filters
+                                            </LemonButton>
+                                        )}
+                                    </div>
+                                }
+                            />
                             <p className="text-secondary text-xs mb-0">
-                                Top 100 keywords by clicks. Keywords are grouped by platform, match type and account
-                                currency. Comparisons show the change from the selected comparison period; hover for its
-                                value. Conversions use each ad platform's attribution. These are targeted keywords;
-                                people's actual searches can differ.
+                                Top 100 results by clicks, grouped by platform, match type and currency.{' '}
+                                {breakdown === 'keyword' &&
+                                    'Paid rows show targeted keywords; organic rows show actual Google queries. '}
+                                Conversions use the ad platform's attribution. Google Search Console does not report
+                                spend or conversions, and can omit low-volume queries. Organic positions are weighted by
+                                impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}
                 </>
             )}
+            <SearchPerformanceDetail />
         </div>
     )
 }

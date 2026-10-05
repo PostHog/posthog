@@ -69,9 +69,20 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 ## Marketing search performance
 
 `MarketingAnalyticsSearchQuery` reads synced ad-platform tables through HogQL and the query result cache, independently of the web-event serving tiers above.
-The Search performance tab requires `marketing-analytics-organic-keywords` in both the legacy and new Marketing analytics dashboards.
-Google Ads requires the `keyword` and `keyword_stats` tables; Bing Ads requires `keyword_performance_report`.
-The integration filter selects connected search-ad sources without clearing selections for other platforms in the other tabs.
+Google Ads requires the `keyword` and `keyword_stats` tables for keywords, and `landing_page_stats` for landing pages; Bing Ads supports keywords through `keyword_performance_report`.
+Google Search Console uses `search_analytics_by_query` or `search_analytics_by_page` for aggregate views, with `search_analytics_by_query_page` as a fallback and for exact query-to-page and page-to-query details.
+The query only selects one GSC table per source, so syncing both aggregate and detailed tables does not multiply metrics.
+The integration and channel filters keep paid and organic rows separate.
+GSC does not report spend or conversions; these values remain null.
+Organic position is weighted by impressions in each period, while CTR uses summed clicks divided by summed impressions.
+Traffic shows position instead of cost for organic-only selections; mixed selections can add position with the Show position checkbox.
+Comparison colors show increases in impressions as positive and increases in cost, CPC, CPA or position as negative.
+Query and page breakdowns can omit low-volume queries and differ from property totals.
+The Search performance section sits below the campaign table in Ad performance, behind `marketing-analytics-organic-keywords` in both dashboards.
+It shares the integration, date and comparison filters with the campaign table.
+The integration filter and Add source menu list Google Search Console separately under Organic search.
+Empty filtered results offer Clear filters; unfiltered views suggest connecting missing Google Ads or Google Search Console sources.
+Connected sources with missing tables show a sync setup action instead of a reconnect prompt.
 Source discovery loads every page of connected integrations before applying the filter.
 The date and comparison controls select the current and comparison periods.
 Cached results are partitioned by warehouse table, view, and source permissions.

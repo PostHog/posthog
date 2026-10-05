@@ -8147,9 +8147,10 @@ export type CachedMarketingAnalyticsRetentionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
 export interface MarketingAnalyticsSearchSource {
-    sourceType: 'GoogleAds' | 'BingAds'
+    sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
     statsTable: string
     keywordTable?: string
+    queryPageTable?: boolean
 }
 
 export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyticsSearchQueryResponse> {
@@ -8158,21 +8159,26 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     sources: MarketingAnalyticsSearchSource[]
     compareFilter?: CompareFilter
     search?: string
+    breakdown?: 'keyword' | 'page'
+    keyword?: string
+    page?: string
 }
 
 export interface MarketingAnalyticsSearchMetrics {
     clicks: number
     impressions: number
-    cost: number
-    conversions: number
+    cost: number | null
+    conversions: number | null
     ctr: number | null
     cpc: number | null
     cpa: number | null
+    position?: number | null
 }
 
 export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
     keyword: string | null
-    platform: 'GoogleAds' | 'BingAds'
+    page?: string | null
+    platform: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
     matchType: string | null
     currency: string | null
     previous?: MarketingAnalyticsSearchMetrics | null

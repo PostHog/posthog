@@ -588,13 +588,7 @@ export interface marketingAnalyticsLogicActions {
     setInitialized: () => {
         value: true
     }
-    setIntegrationFilter: (
-        integrationFilter: IntegrationFilter,
-        visibleSourceIds?: string[]
-    ) => {
-        integrationFilter: IntegrationFilter
-        visibleSourceIds: string[] | undefined
-    }
+    setIntegrationFilter: (integrationFilter: IntegrationFilter) => { integrationFilter: IntegrationFilter }
     setOptionsOpen: (optionsOpen: boolean) => {
         optionsOpen: boolean
     }
@@ -866,10 +860,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dateTo,
             interval,
         }),
-        setIntegrationFilter: (integrationFilter: IntegrationFilter, visibleSourceIds?: string[]) => ({
-            integrationFilter,
-            visibleSourceIds,
-        }),
+        setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
         setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
@@ -970,18 +961,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // and strands the unreadable value under the old key for a rollback to find again.
                 { ...persistConfig, storageKey: 'scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter' },
                 {
-                    setIntegrationFilter: (state, { integrationFilter, visibleSourceIds }) =>
-                        visibleSourceIds
-                            ? {
-                                  ...integrationFilter,
-                                  integrationSourceIds: [
-                                      ...(state.integrationSourceIds || []).filter(
-                                          (id) => !visibleSourceIds.includes(id)
-                                      ),
-                                      ...(integrationFilter.integrationSourceIds || []),
-                                  ],
-                              }
-                            : integrationFilter,
+                    setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
                     syncFromUrl: (state, { params }) => {
                         if (!params.integrationSourceIds && params.includeNonIntegrated === undefined) {
                             return state
@@ -1129,7 +1109,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (s) => [s.activeTab, s.featureFlags],
             (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet): boolean =>
                 activeTab === MarketingAnalyticsTab.AD_PERFORMANCE &&
-                !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+                (!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ||
+                    !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]),
         ],
         includeConversionGoals: [
             (s) => [s.isAdPerformance, s.adPerformanceConversionGoals, s.conversion_goals],
@@ -1780,7 +1761,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // Clean up integrationFilter if it contains IDs of sources that no longer exist
                 const currentFilter = values.integrationFilter
                 if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
-                    const availableSourceIds = values.allAvailableSources.map((s) => s.id)
+                    const availableSourceIds = [
+                        ...values.allAvailableSources.map((s) => s.id),
+                        ...(values.dataWarehouseSources?.results ?? [])
+                            .filter((source) => source.source_type === 'GoogleSearchConsole')
+                            .map((source) => source.id),
+                    ]
                     const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
                         availableSourceIds.includes(id)
                     )
@@ -1810,9 +1796,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
         const rawTab = searchParams.get('tab')
-        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
-            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
-        }
 
         const section = searchParams.get('section') as SetupSection | null
         if (section && Object.values(SetupSection).includes(section)) {
@@ -1865,6 +1848,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         // Apply URL params if any were found
         if (Object.keys(params).length > 0) {
             actions.syncFromUrl(params)
+        }
+
+        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
+            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
         }
 
         actions.loadSources()

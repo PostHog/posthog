@@ -1,9 +1,11 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within, waitFor } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
 import { urls } from 'scenes/urls'
+import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -13,6 +15,9 @@ import { MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchRow } from '~/qu
 
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconGoogleAds from 'public/services/google-ads.png'
+import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { SearchPerformanceTab } from './SearchPerformanceTab'
 
@@ -23,13 +28,15 @@ const SOURCES = [
         description: 'Example Google Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['campaign', 'campaign_overview_stats', 'keyword', 'keyword_stats'].map((name) => ({
-            id: `example-${name}`,
-            name,
-            should_sync: true,
-            status: 'Completed',
-            table: { name: `example_${name}`, hogql_name: `example.${name}` },
-        })),
+        schemas: ['campaign', 'campaign_overview_stats', 'keyword', 'keyword_stats', 'landing_page_stats'].map(
+            (name) => ({
+                id: `example-${name}`,
+                name,
+                should_sync: true,
+                status: 'Completed',
+                table: { name: `example_${name}`, hogql_name: `example.${name}` },
+            })
+        ),
     },
     {
         id: 'example-bing',
@@ -45,9 +52,39 @@ const SOURCES = [
             table: { name: `example_bing_${name}`, hogql_name: `example.bing_${name}` },
         })),
     },
+    {
+        id: 'example-organic',
+        source_type: 'GoogleSearchConsole',
+        description: 'example.com',
+        prefix: 'example_organic',
+        status: 'Completed',
+        schemas: ['search_analytics_by_query', 'search_analytics_by_page', 'search_analytics_by_query_page'].map(
+            (name) => ({
+                id: `example-organic-${name}`,
+                name,
+                should_sync: true,
+                status: 'Completed',
+                table: { name: `example_organic_${name}`, hogql_name: `example.organic_${name}` },
+            })
+        ),
+    },
 ]
 
 const ROWS: MarketingAnalyticsSearchRow[] = [
+    {
+        keyword: 'product analytics',
+        platform: 'GoogleSearchConsole',
+        matchType: null,
+        currency: null,
+        clicks: 1240,
+        impressions: 18000,
+        ctr: 1240 / 18000,
+        position: 4.2,
+        cost: null,
+        conversions: null,
+        cpc: null,
+        cpa: null,
+    },
     {
         keyword: 'product analytics',
         platform: 'GoogleAds',
@@ -120,8 +157,19 @@ const MOCKS: Mocks = {
         '/api/environments/:team_id/external_data_sources/wizard/': {
             GoogleAds: { name: 'GoogleAds', label: 'Google Ads', iconPath: IconGoogleAds, fields: [] },
             BingAds: { name: 'BingAds', label: 'Bing Ads', iconPath: IconBingAds, fields: [] },
+            GoogleSearchConsole: {
+                name: 'GoogleSearchConsole',
+                label: 'Google Search Console',
+                iconPath: IconGoogleSearchConsole,
+                fields: [],
+            },
         },
-        '/api/environments/:team_id/external_data_sources/': { results: SOURCES, count: 2, next: null, previous: null },
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES,
+            count: SOURCES.length,
+            next: null,
+            previous: null,
+        },
     },
     post: {
         '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async ({ request }) => {
@@ -129,24 +177,43 @@ const MOCKS: Mocks = {
             return [
                 200,
                 {
-                    results: ROWS.filter(
-                        (row) =>
-                            query.sources.some((source) => source.sourceType === row.platform) &&
-                            (row.keyword ?? '').includes((query.search ?? '').toLowerCase())
-                    ).map((row) => ({
-                        ...row,
-                        previous: query.compareFilter?.compare
-                            ? {
-                                  clicks: row.clicks * 0.8,
-                                  impressions: row.impressions * 0.9,
-                                  cost: row.cost * 1.1,
-                                  conversions: row.conversions * 0.75,
-                                  ctr: row.impressions ? (row.clicks * 0.8) / (row.impressions * 0.9) : null,
-                                  cpc: row.clicks ? (row.cost * 1.1) / (row.clicks * 0.8) : null,
-                                  cpa: row.conversions ? (row.cost * 1.1) / (row.conversions * 0.75) : null,
-                              }
-                            : null,
-                    })),
+                    results: (query.breakdown === 'page'
+                        ? ROWS.filter((row) => row.platform !== 'BingAds' && row.clicks > 0).map((row) => ({
+                              ...row,
+                              page: `https://example.com/${row.keyword?.replaceAll(' ', '-')}`,
+                              keyword: null,
+                              matchType: null,
+                          }))
+                        : ROWS
+                    )
+                        .filter(
+                            (row) =>
+                                query.sources.some((source) => source.sourceType === row.platform) &&
+                                (row.page ?? row.keyword ?? '').includes((query.search ?? '').toLowerCase()) &&
+                                (!query.keyword ||
+                                    row.page === `https://example.com/${query.keyword.replaceAll(' ', '-')}`) &&
+                                (!query.page ||
+                                    `https://example.com/${row.keyword?.replaceAll(' ', '-')}` === query.page)
+                        )
+                        .map((row) => ({
+                            ...row,
+                            previous: query.compareFilter?.compare
+                                ? {
+                                      clicks: row.clicks * 0.8,
+                                      position: row.position == null ? null : row.position + 1.5,
+                                      impressions: row.impressions * 0.9,
+                                      cost: row.cost == null ? null : row.cost * 1.1,
+                                      conversions: row.conversions == null ? null : row.conversions * 0.75,
+                                      ctr: row.impressions ? (row.clicks * 0.8) / (row.impressions * 0.9) : null,
+                                      cpc:
+                                          row.cost != null && row.clicks ? (row.cost * 1.1) / (row.clicks * 0.8) : null,
+                                      cpa:
+                                          row.cost != null && row.conversions
+                                              ? (row.cost * 1.1) / (row.conversions * 0.75)
+                                              : null,
+                                  }
+                                : null,
+                        })),
                 },
             ]
         },
@@ -156,6 +223,15 @@ const MOCKS: Mocks = {
 const meta: Meta<typeof SearchPerformanceTab> = {
     title: 'Scenes-App/Marketing Analytics/Search performance',
     component: SearchPerformanceTab,
+    beforeEach: () => {
+        localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
+    },
+    render: () => (
+        <>
+            <MarketingAnalyticsFilters tabs={<></>} />
+            <SearchPerformanceTab />
+        </>
+    ),
     decorators: [
         mswDecorator({}),
         (Story) => (
@@ -164,19 +240,50 @@ const meta: Meta<typeof SearchPerformanceTab> = {
             </BindLogic>
         ),
     ],
-    parameters: { layout: 'fullscreen', msw: { mocks: MOCKS } },
+    parameters: {
+        layout: 'fullscreen',
+        msw: { mocks: MOCKS },
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-7d`,
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
+    },
 }
 export default meta
 type Story = StoryObj<typeof meta>
 
 export const Connected: Story = {
-    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=false` },
+    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
 }
 export const Comparison: Story = {
-    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=true` },
+    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+}
+export const MixedWithPosition: Story = {
+    ...Comparison,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('checkbox', { name: 'Show position' }))
+    },
+}
+export const OrganicTraffic: Story = {
+    ...Comparison,
+    parameters: {
+        ...Comparison.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/external_data_sources/': {
+                        results: SOURCES.filter((source) => source.source_type === 'GoogleSearchConsole'),
+                        count: 1,
+                        next: null,
+                        previous: null,
+                    },
+                },
+            },
+        },
+    },
 }
 export const Narrow: Story = {
-    parameters: { layout: 'padded' },
+    ...Comparison,
+    play: MixedWithPosition.play,
+    parameters: { ...Comparison.parameters, layout: 'padded' },
     decorators: [
         (Story) => (
             <div className="w-[520px]">
@@ -184,6 +291,19 @@ export const Narrow: Story = {
             </div>
         ),
     ],
+}
+export const LandingPages: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(within(canvasElement).getByText('Landing pages', { exact: true }))
+    },
+}
+export const OrganicDetail: Story = {
+    ...Comparison,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const keywords = await canvas.findAllByRole('button', { name: 'product analytics' })
+        await userEvent.click(keywords[0])
+    },
 }
 export const NotConnected: Story = {
     parameters: {
@@ -211,7 +331,23 @@ export const AwaitingSync: Story = {
                             ...source,
                             schemas: source.schemas.map((schema) => ({ ...schema, table: null })),
                         })),
-                        count: 2,
+                        count: SOURCES.length,
+                        next: null,
+                        previous: null,
+                    },
+                },
+            },
+        },
+    },
+}
+export const OnlyGoogleAds: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/external_data_sources/': {
+                        results: SOURCES.filter((source) => source.source_type === 'GoogleAds'),
+                        count: 1,
                         next: null,
                         previous: null,
                     },
@@ -224,6 +360,44 @@ export const Empty: Story = {
     parameters: {
         msw: {
             mocks: { post: { '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': { results: [] } } },
+        },
+    },
+}
+export const FilteredEmpty: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.type(await canvas.findByPlaceholderText('Filter keywords and queries'), 'no matching keyword')
+        await canvas.findByText('No search data matches your filters. Try clearing them to see more results.')
+        await expect(canvas.getByRole('button', { name: 'Clear filters' })).toBeVisible()
+    },
+}
+export const ClearFilters: Story = {
+    play: async (context) => {
+        await FilteredEmpty.play!(context)
+        const canvas = within(context.canvasElement)
+        await userEvent.click(canvas.getByRole('button', { name: 'Clear filters' }))
+        await waitFor(() =>
+            expect(canvas.getAllByRole('button', { name: 'product analytics' }).length).toBeGreaterThan(0)
+        )
+    },
+}
+export const EmptyGoogleAds: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: OnlyGoogleAds.parameters!.msw.mocks.get,
+                post: Empty.parameters!.msw.mocks.post,
+            },
+        },
+    },
+}
+export const EmptyOrganic: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: OrganicTraffic.parameters!.msw.mocks.get,
+                post: Empty.parameters!.msw.mocks.post,
+            },
         },
     },
 }
@@ -283,7 +457,7 @@ export const SourcesError: Story = {
 export const LegacyScene: Story = {
     render: () => <MarketingAnalyticsScene />,
     parameters: {
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
     },
 }

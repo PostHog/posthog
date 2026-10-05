@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { ExternalDataSchemaStatus } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
@@ -11,14 +14,34 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { MarketingSourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { StatusIcon } from '../settings/StatusIcon'
 
-export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = {}): JSX.Element {
-    const { allAvailableSourcesWithStatus, integrationFilter } = useValues(marketingAnalyticsLogic)
+export function IntegrationFilter(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { allAvailableSourcesWithStatus, integrationFilter, dataWarehouseSources, isAdPerformance } =
+        useValues(marketingAnalyticsLogic)
     const { setIntegrationFilter } = useActions(marketingAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
-    const availableSources = sourceTypes
-        ? allAvailableSourcesWithStatus.filter((source) => sourceTypes.includes(source.source_type))
-        : allAvailableSourcesWithStatus
+    const includeOrganic = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+    const organicSources = includeOrganic
+        ? (dataWarehouseSources?.results ?? [])
+              .filter((source) => source.source_type === 'GoogleSearchConsole')
+              .map((source) => ({
+                  id: source.id,
+                  name: source.source_type,
+                  type: 'native',
+                  source_type: source.source_type,
+                  prefix: source.description || source.prefix || undefined,
+                  status: undefined,
+                  statusMessage: undefined,
+              }))
+        : []
+    const availableSources = [...allAvailableSourcesWithStatus, ...organicSources]
+    const groups = includeOrganic
+        ? [
+              { title: 'Ad sources', sources: allAvailableSourcesWithStatus },
+              { title: 'Organic search', sources: organicSources },
+          ]
+        : [{ title: '', sources: availableSources }]
     const selectedIds = (integrationFilter.integrationSourceIds || []).filter((id) =>
         availableSources.some((source) => source.id === id)
     )
@@ -30,15 +53,9 @@ export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = 
 
     const handleToggleAll = (): void => {
         if (isAllSelected || isSomeSelected) {
-            setIntegrationFilter(
-                { integrationSourceIds: [], includeNonIntegrated },
-                sourceTypes ? allSourceIds : undefined
-            )
+            setIntegrationFilter({ integrationSourceIds: [], includeNonIntegrated })
         } else {
-            setIntegrationFilter(
-                { integrationSourceIds: allSourceIds, includeNonIntegrated },
-                sourceTypes ? allSourceIds : undefined
-            )
+            setIntegrationFilter({ integrationSourceIds: allSourceIds, includeNonIntegrated })
         }
     }
 
@@ -47,10 +64,7 @@ export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = 
             ? selectedIds.filter((id) => id !== sourceId)
             : [...selectedIds, sourceId]
 
-        setIntegrationFilter(
-            { integrationSourceIds: newIds, includeNonIntegrated },
-            sourceTypes ? allSourceIds : undefined
-        )
+        setIntegrationFilter({ integrationSourceIds: newIds, includeNonIntegrated })
     }
 
     const handleToggleNonIntegrated = (): void => {
@@ -59,15 +73,15 @@ export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = 
 
     const formatSourceLabel = (source: { name: string; type: string; prefix?: string }): string => {
         const prefix = source.prefix ? `${source.prefix} - ` : 'default - '
-        return `${prefix}${source.name}`
+        return `${prefix}${source.name.replace(/([a-z])([A-Z])/g, '$1 $2')}`
     }
 
     const displayValue = (): string => {
         // Hiding the non-integrated rows changes what the table reports, so the button says so at
         // every selection, not only when the sources are all in or all out.
-        const suffix = sourceTypes || includeNonIntegrated ? '' : ', integrated only'
+        const suffix = includeNonIntegrated ? '' : ', integrated only'
         if (selectedIds.length === 0 || isAllSelected) {
-            return sourceTypes || includeNonIntegrated ? 'All integrations' : 'Integrated only'
+            return includeNonIntegrated ? 'All integrations' : 'Integrated only'
         }
         if (selectedIds.length === 1) {
             const source = availableSources.find((s) => s.id === selectedIds[0])
@@ -99,32 +113,42 @@ export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = 
                         </span>
                     </LemonButton>
                     <div className="border-t border-border my-1" />
-                    {availableSources.map((source) => (
-                        <LemonButton
-                            key={source.id}
-                            fullWidth
-                            size="small"
-                            onClick={() => handleToggleSource(source.id)}
-                            className="justify-start"
-                        >
-                            <span className="flex items-center gap-2">
-                                <LemonCheckbox
-                                    checked={selectedIds.includes(source.id)}
-                                    className="pointer-events-none"
-                                />
-                                <SourceIcon type={source.name} size="xsmall" disableTooltip />
-                                <span className="flex-1">{formatSourceLabel(source)}</span>
-                                {/* We don't show the status icon for Completed sources because it would be too many statuses */}
-                                {source.status &&
-                                    source.statusMessage &&
-                                    source.status !==
-                                        (ExternalDataSchemaStatus.Completed || MarketingSourceStatus.Success) && (
-                                        <StatusIcon status={source.status} message={source.statusMessage} />
-                                    )}
-                            </span>
-                        </LemonButton>
-                    ))}
-                    {sourceTypes === undefined && (
+                    {groups
+                        .filter((group) => group.sources.length > 0)
+                        .map((group) => (
+                            <div key={group.title}>
+                                {group.title && (
+                                    <div className="px-2 py-1 text-xs font-semibold text-secondary">{group.title}</div>
+                                )}
+                                {group.sources.map((source) => (
+                                    <LemonButton
+                                        key={source.id}
+                                        fullWidth
+                                        size="small"
+                                        onClick={() => handleToggleSource(source.id)}
+                                        className="justify-start"
+                                    >
+                                        <span className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={selectedIds.includes(source.id)}
+                                                className="pointer-events-none"
+                                            />
+                                            <SourceIcon type={source.name} size="xsmall" disableTooltip />
+                                            <span className="flex-1">{formatSourceLabel(source)}</span>
+                                            {/* We don't show the status icon for Completed sources because it would be too many statuses */}
+                                            {source.status &&
+                                                source.statusMessage &&
+                                                source.status !==
+                                                    (ExternalDataSchemaStatus.Completed ||
+                                                        MarketingSourceStatus.Success) && (
+                                                    <StatusIcon status={source.status} message={source.statusMessage} />
+                                                )}
+                                        </span>
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        ))}
+                    {!isAdPerformance && (
                         <>
                             <div className="border-t border-border my-1" />
                             <LemonButton
@@ -144,8 +168,14 @@ export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = 
                 </div>
             }
         >
-            <LemonButton type="secondary" size="small" icon={<IconFilter />} data-attr="integration-filter">
-                {displayValue()}
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconFilter />}
+                data-attr="integration-filter"
+                className="max-w-full"
+            >
+                <span className="truncate">{displayValue()}</span>
             </LemonButton>
         </LemonDropdown>
     )

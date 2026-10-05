@@ -1945,14 +1945,21 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
+class Breakdown1(StrEnum):
+    KEYWORD = "keyword"
+    PAGE = "page"
+
+
 class Platform(StrEnum):
     GOOGLE_ADS = "GoogleAds"
     BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
 
 
 class SourceType(StrEnum):
     GOOGLE_ADS = "GoogleAds"
     BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
 
 
 class MatchField(StrEnum):
