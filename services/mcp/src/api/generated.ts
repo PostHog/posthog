@@ -89085,6 +89085,18 @@ export namespace Schemas {
       code_usage_billing_active: boolean;
     }
 
+    /**
+     * * `weighted-score` - weighted-score
+     * * `jev` - jev
+     */
+    export type RankerEnum = typeof RankerEnum[keyof typeof RankerEnum];
+
+
+    export const RankerEnum = {
+      WeightedScore: 'weighted-score',
+      Jev: 'jev',
+    } as const;
+
     export interface Rapid7InsightvmScannerFindingSignalExtra {
       severity: string | null;
       cvss_v3_score: string | null;
@@ -106863,6 +106875,11 @@ export namespace Schemas {
     export interface WatchFeedResponse {
       /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
       results: WatchFeedItem[];
+      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+       *
+       * * `weighted-score` - weighted-score
+       * * `jev` - jev */
+      ranker: RankerEnum;
     }
 
     export interface WebAnalyticsBotCondition {
