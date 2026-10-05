@@ -8,8 +8,8 @@ _SESSION_START = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _COLUMNS = ["uuid", "event", "timestamp", "$current_url", "$window_id"]
 
 
-def _row(uuid: str, seconds: int, url: Any, window: Any) -> list[Any]:
-    return [uuid, f"event-{uuid}", _SESSION_START + dt.timedelta(seconds=seconds), url, window]
+def _row(uuid: str, seconds: int, url: Any, window: Any, event: str | None = None) -> list[Any]:
+    return [uuid, event or f"event-{uuid}", _SESSION_START + dt.timedelta(seconds=seconds), url, window]
 
 
 def _navigation(rows: list[list[Any]]) -> tuple[list[NavigationEntry], int]:
@@ -38,6 +38,16 @@ class TestNavigationDigest:
         ]
         navigation, _ = _navigation(rows)
         assert [(e.window, e.new_window) for e in navigation] == [("window_1", False), ("window_2", True)]
+
+    def test_web_vitals_first_load_url_does_not_count_as_navigation(self) -> None:
+        rows = [
+            _row("u1", 0, "https://ex.com/login", "w-a", event="$pageview"),
+            _row("u2", 10, "https://ex.com/inbox", "w-a", event="$pageview"),
+            _row("u3", 40, "https://ex.com/login", "w-a", event="$web_vitals"),
+            _row("u4", 50, "https://ex.com/inbox", "w-a", event="$autocapture"),
+        ]
+        navigation, _ = _navigation(rows)
+        assert [(e.rec_t, e.url) for e in navigation] == [(0, "https://ex.com/login"), (10, "https://ex.com/inbox")]
 
     def test_caps_entries_and_reports_dropped_count(self) -> None:
         rows = [_row(f"u{i}", i, f"https://ex.com/page-{i}", "w-a") for i in range(35)]
