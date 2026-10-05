@@ -90,7 +90,7 @@ describe("ChatView", () => {
     expect(lines).toEqual([
       "❯ yo",
       "",
-      "▸ Read 1 file · edited 1 file",
+      "▶ Read 1 file · edited 1 file",
       "",
       "Done.",
       "",
@@ -164,18 +164,18 @@ describe("ChatView", () => {
       tool("t2", "bash"),
     ]);
     const closed = plain(chat.render(40, 3)).map((line) => line.trim());
-    expect(closed[2]).toBe("▸ Ran 2 shell commands · 1 failed");
+    expect(closed[2]).toBe("▶ Ran 2 shell commands · 1 failed");
 
     expect(chat.hoverAt(2)).toBe(true);
     expect(chat.hoverAt(2)).toBe(false);
-    expect(chat.render(40, 3)[2]).not.toContain("\u001b[2m▸");
+    expect(chat.render(40, 3)[2]).not.toContain("\u001b[2m▶");
     expect(chat.hoverAt(null)).toBe(true);
     expect(chat.toggleAt(0)).toBe(false);
     expect(chat.toggleAt(2)).toBe(true);
     expect(plain(chat.render(40, 8)).map((line) => line.trim())).toEqual([
       "❯ yo",
       "",
-      "▾ Ran 2 shell commands · 1 failed",
+      "▼ Ran 2 shell commands · 1 failed",
       "● bash ls src",
       "⎿ a.ts",
       "b.ts",
@@ -375,7 +375,7 @@ describe("ChatView", () => {
     const lines = plain(chat.render(40, 10)).map((line) => line.trim());
 
     expect(lines).toEqual([
-      "▸ Ran 1 shell command",
+      "▶ Ran 1 shell command",
       "",
       "! ls src",
       "⎿ 1",
@@ -422,12 +422,12 @@ describe("ChatView", () => {
     expect(trimmed(4)).toEqual([
       "❯ yo",
       "",
-      "▸ Running pnpm test · 30s · 2 tools",
+      "▶ Running pnpm test · 30s · 2 tools",
       "",
     ]);
     expect(chat.toggleAt(2)).toBe(true);
     expect(trimmed(5).slice(2)).toEqual([
-      "▾ Running pnpm test · 30s · 2 tools",
+      "▼ Running pnpm test · 30s · 2 tools",
       "● bash cmd",
       "● bash pnpm test",
     ]);
