@@ -215,6 +215,32 @@ def test_post_query_disables_http_compression(clickhouse_client):
     assert call_kwargs["params"]["enable_http_compression"] == "0"
 
 
+def _mock_aiohttp_session(client):
+    """Replace the client's aiohttp session so requests are recorded instead of sent."""
+
+    @contextlib.asynccontextmanager
+    async def _request(**kwargs):
+        yield MagicMock(status=200)
+
+    mock_session = MagicMock()
+    mock_session.get.side_effect = lambda **kwargs: _request(**kwargs)
+    mock_session.post.side_effect = lambda **kwargs: _request(**kwargs)
+    client.session = mock_session
+    return mock_session
+
+
+@pytest.mark.parametrize("method", ["aget_query", "apost_query"])
+async def test_async_queries_disable_http_compression(method):
+    client = ClickHouseClient()
+    mock_session = _mock_aiohttp_session(client)
+
+    async with getattr(client, method)("SELECT 1", query_parameters={}, query_id=None):
+        pass
+
+    mock_request = mock_session.get if method == "aget_query" else mock_session.post
+    assert mock_request.call_args.kwargs["params"]["enable_http_compression"] == "0"
+
+
 def test_post_query_sends_freshly_read_token(tmp_path):
     token = tmp_path / "token"
     token.write_text("tok-0")
