@@ -21,7 +21,7 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -688,7 +688,7 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=user.email,
                 user_uuid=str(user.uuid),
@@ -698,7 +698,10 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
             call_site="wizard_mint",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
+        logger.exception("security_access_check_site_failed", call_site="wizard_mint")
+        refused = False
+    if refused:
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     app = get_wizard_app()
 
