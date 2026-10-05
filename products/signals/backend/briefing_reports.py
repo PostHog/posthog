@@ -336,43 +336,37 @@ def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) 
     return ranked if limit is None else ranked[:limit]
 
 
-def _relation_to_person(team_id: int, user: User) -> Case:
-    """A report's strongest `BriefingReportRelation` to the person, or NULL when it has none.
+def _reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
+    """The open reports that are for this person, each with its strongest `BriefingReportRelation`.
 
-    Reads the `briefing_priority` annotation, so the queryset must carry `_latest_priority()` first.
+    This is the set the briefing ranks and the Inbox counts. Postgres evaluates OR and AND arguments
+    in the written order, so the cheap tests come first. The priority subquery and the regex-based
+    implementation PR check then run only for open, ready, immediately actionable reports that
+    nobody claimed, not for every open report of the team.
     """
     names_me = _names_person(team_id, user)
     claimed = reports_with_active_claim(team_id=team_id, actor=ArtefactAttribution.from_user(user.id))
-    unowned = ~reports_with_active_claim(team_id=team_id) & ~implementation_pr_report_filter(
-        team_id=team_id, active_only=True
+    urgent_unowned = (
+        Q(status=SignalReport.Status.READY, latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value)
+        & ~reports_with_active_claim(team_id=team_id)
+        & Q(briefing_priority="P0")
+        & ~implementation_pr_report_filter(team_id=team_id, active_only=True)
     )
-    return Case(
+    # Every row that passes the filter has a relation, so the CASE does not repeat the expensive tests.
+    relation = Case(
         When(
             names_me & Q(status=SignalReport.Status.PENDING_INPUT), then=Value(BriefingReportRelation.WAITING_FOR_YOU)
         ),
         When(claimed, then=Value(BriefingReportRelation.CLAIMED)),
-        When(names_me & Q(status=SignalReport.Status.READY), then=Value(BriefingReportRelation.SUGGESTED_REVIEWER)),
-        When(
-            unowned
-            & Q(
-                status=SignalReport.Status.READY,
-                latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-                briefing_priority="P0",
-            ),
-            then=Value(BriefingReportRelation.URGENT_UNOWNED),
-        ),
-        default=Value(None),
+        When(names_me, then=Value(BriefingReportRelation.SUGGESTED_REVIEWER)),
+        default=Value(BriefingReportRelation.URGENT_UNOWNED),
         output_field=CharField(),
     )
-
-
-def _reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
-    """The open reports that are for this person: the set the briefing ranks and the Inbox counts."""
     return (
         _open_reports(team_id)
         .annotate(briefing_priority=_latest_priority())
-        .annotate(briefing_relation=_relation_to_person(team_id, user))
-        .filter(briefing_relation__isnull=False)
+        .filter(names_me | claimed | urgent_unowned)
+        .annotate(briefing_relation=relation)
     )
 
 
