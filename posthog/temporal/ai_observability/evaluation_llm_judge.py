@@ -50,13 +50,16 @@ from posthog.temporal.common.utils import close_db_connections
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
     provider_error_detail,
@@ -64,8 +67,6 @@ from products.ai_observability.backend.llm.errors import (
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
     SystemOneEndpointBlockedError,
-    SystemOneRateLimitError,
-    SystemOneRequestRejectedError,
     system_one_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.types import CompletionResponse
@@ -343,6 +344,24 @@ def _build_output_limit_skip_result(
         allows_na=allows_na,
         reasoning="Evaluation model hit its output limit before it finished; evaluation skipped.",
         skip_reason="output_limit_exceeded",
+    )
+    result.update({"is_byok": is_byok, "key_id": key_id, "model": model, "provider": provider})
+    return result
+
+
+def _build_content_filtered_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str, output_type: str = "boolean"
+) -> EvaluationActivityResult:
+    """Per-item skip for a judge call the provider's content filter refused.
+
+    Backfills treat it as covered, like an over-window prompt, because a re-run sends the same
+    content to the same filter.
+    """
+    result = build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning="Evaluation model's content filter refused the input; evaluation skipped.",
+        skip_reason="content_filtered",
     )
     result.update({"is_byok": is_byok, "key_id": key_id, "model": model, "provider": provider})
     return result
@@ -735,7 +754,7 @@ def call_llm_judge(
             key_id=key_id,
             is_byok=is_byok,
         )
-    except SystemOneRequestRejectedError as e:
+    except ProviderRequestRejectedError as e:
         increment_user_errors("request_rejected", provider=provider)
         return build_skipped_evaluation_result(
             output_type=output_type,
@@ -743,7 +762,7 @@ def call_llm_judge(
             reasoning=str(e),
             skip_reason="request_rejected",
         )
-    except SystemOneRateLimitError as e:
+    except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
         raise ApplicationError(
             str(e),
@@ -879,6 +898,21 @@ def call_llm_judge(
             error=str(e),
         )
         return _build_output_limit_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, output_type=output_type
+        )
+
+    except ContentFilteredError as e:
+        # Skip rather than raise: the refusal comes from customer content, so a retry rarely
+        # changes it, and raising files a new error tracking issue per call site.
+        increment_errors("content_filtered", provider=provider)
+        logger.warning(
+            "LLM judge request was refused by the provider content filter",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error=str(e),
+        )
+        return _build_content_filtered_skip_result(
             allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, output_type=output_type
         )
 
