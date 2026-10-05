@@ -56,6 +56,7 @@ export interface apiSurveyLogicActions {
     ) => { questionId: string; choice: string; checked: boolean }
     submitRating: (answer: string) => { answer: string }
     acceptRating: () => { value: true }
+    editRating: () => { value: true }
     submit: (partial?: boolean) => { partial: boolean }
     responseQueued: (completed?: boolean) => { completed: boolean }
 }
@@ -78,6 +79,7 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
         toggleChoice: (questionId: string, choice: string, checked: boolean) => ({ questionId, choice, checked }),
         submitRating: (answer: string) => ({ answer }),
         acceptRating: true,
+        editRating: true,
         submit: (partial = false) => ({ partial }),
         responseQueued: (completed = true) => ({ completed }),
     }),
@@ -94,7 +96,7 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
         ],
         submitting: [false, { submit: () => true, responseQueued: () => false, setError: () => false }],
         completed: [false, { responseQueued: (_, { completed }) => completed }],
-        ratingAccepted: [false, { acceptRating: () => true }],
+        ratingAccepted: [false, { acceptRating: () => true, editRating: () => false }],
         submissionId: ['', { surveyLoaded: (_, { submissionId }) => submissionId }],
         eventProperties: [
             {} as Record<string, unknown>,
@@ -212,11 +214,13 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
             }
             try {
                 const responses = Object.fromEntries(
-                    values.survey.questions.flatMap(({ id }) => {
-                        const answer = values.answers[id!]
-                        const value = typeof answer === 'string' ? answer.trim() : answer
-                        return value?.length ? [[`$survey_response_${id}`, value]] : []
-                    })
+                    values.survey.questions
+                        .filter(({ id }) => !partial || id === firstQuestion?.id)
+                        .flatMap(({ id }) => {
+                            const answer = values.answers[id!]
+                            const value = typeof answer === 'string' ? answer.trim() : answer
+                            return value?.length ? [[`$survey_response_${id}`, value]] : []
+                        })
                 )
                 const queued = (props.client ?? posthog).capture('survey sent', {
                     ...values.eventProperties,

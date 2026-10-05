@@ -88,3 +88,8 @@ export const NumericRating: Story = {
 
 export const FeedbackLoading: Story = { ...Dialog, args: Loading.args, parameters: Loading.parameters }
 export const FeedbackUnavailable: Story = { ...Dialog, args: Unavailable.args }
+
+export const RatingWithoutPartialResponses: Story = {
+    ...Dialog,
+    args: { client: exampleSurveyClient([{ ...exampleRatingSurvey, enable_partial_responses: false }]) },
+}
