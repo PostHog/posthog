@@ -410,6 +410,11 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
+    {
+        value: 'experiment',
+        label: 'Experiment',
+        description: 'Summarizes sessions for each variant of an A/B test.',
+    },
 ]
 
 export interface MonitorScannerConfig {
@@ -437,10 +442,13 @@ export interface ScorerScannerConfig {
 export interface ExperimentScannerConfig {
     prompt: string
     length?: 'short' | 'medium' | 'long'
-    experiment_id: number
+    /** Null only on an unsaved form, before an experiment is picked. */
+    experiment_id: number | null
     /** Variant keys to watch; null or absent means every variant. */
     variants?: string[] | null
     balance_variants?: boolean
+    /** Saved off on a draft experiment; the backend turns the scanner on at launch. */
+    start_on_launch?: boolean
 }
 
 export type ScannerConfig =
