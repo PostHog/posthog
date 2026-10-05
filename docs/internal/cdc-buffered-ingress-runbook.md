@@ -144,20 +144,12 @@ queued. The run returns an empty response, which no-ops the tick and keeps the s
 listed, so nothing is read, nothing is deleted, and the tick never counts as proof that a file was
 consumed. The next scheduled run picks the buffer up once the queue has drained.
 
-## Leftover legacy state
+## The `legacy_lane_retired` marker
 
-Capture used to deliver some tables' changes itself, on the retired legacy lane.
-The code that converted what that lane left behind is gone.
-Every source that still read as legacy when it was removed is marked `cdc_broken`, so Repair CDC is its only way back.
-Repair CDC resets every table, recreates the slot and resumes the table schedules, so no legacy state survives it.
-
-Two leftovers remain in the data, and nothing reads them:
-
-- `cdc_ingest_mode` in a source's `job_inputs`.
-  CDC setup and Repair CDC still write `buffered`, and the API still keeps the key on a PATCH.
-  A rollback to the release that converted legacy sources would read a source without it as legacy and empty its unconsumed buffer.
-- `cdc_deferred_runs` in a table's `sync_type_config`.
-  A resync, a table-mode change and Repair CDC remove it.
+A few sources carry `cdc_broken` with the reason `legacy_lane_retired`.
+Their capture had stopped before every table's changes went through the buffer, and the marker was set by hand so that Repair CDC is their only way back.
+No code sets that reason.
+Repair CDC clears it like any other marker.
 
 ## When a schedule stops firing
 
@@ -292,9 +284,6 @@ Consume runs are ordinary jobs: `billable=True`, `rows_synced` = consumed rows.
 towards usage: the `_cdc` table for `cdc_only`, and the consolidated table for `consolidated` and
 `both`. So `both` bills the same as `consolidated`, and keeping a history table alongside the merged
 one costs nothing extra.
-
-The retired legacy lane wrote the two tables from two `ExternalDataJob` rows and counted each event
-twice, so a `both` source's synced-row count roughly halved when it moved to the buffer.
 
 **The merge lane re-bills the rows at its position until the file holding them is deleted.** It
 keeps every row at its position deliberately, since dropping one would lose a later event for the
