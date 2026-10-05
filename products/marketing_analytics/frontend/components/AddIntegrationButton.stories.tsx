@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -10,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { expect, userEvent, waitFor, within } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { AddIntegrationButton } from './AddIntegrationButton'
 import { NEW_AD_SOURCES_SEEN_KEY } from './newAdSourcesLogic'

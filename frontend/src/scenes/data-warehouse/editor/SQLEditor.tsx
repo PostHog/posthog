@@ -39,6 +39,7 @@ import { ExpressionModal } from 'products/data_warehouse/frontend/shared/compone
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -144,8 +145,8 @@ export function SQLEditor({
             queryPaneMinHeight,
             biEditorResizerProps: {
                 containerRef: biEditorRef,
-                logicKey: 'bi-editor-pane',
-                placement: 'bottom' as const,
+                logicKey: 'bi-editor-side-pane',
+                placement: 'right' as const,
                 persistent: true,
                 persistPrefix: 'v1',
             },
@@ -249,6 +250,10 @@ export function SQLEditor({
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), logic)
+    useAttachedLogic(
+        aiChartRecommendationLogic({ visualizationProps: dataVisualizationLogicProps, tabId: tabId || '' }),
+        logic
+    )
     useAttachedLogic(connectionSelectorLogic(), logic)
 
     const variablesLogicProps: VariablesLogicProps = {

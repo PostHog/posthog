@@ -59,11 +59,14 @@ _COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, cre
 # consumer's position. The lookback spans several days so that a partition that stops delivering
 # stays in the query and reports its real lag. A partition that has delivered nothing for the whole
 # lookback drops out of this query.
+# Lag comes from _timestamp, the Kafka message time. A consumer that works through a backlog writes
+# rows now, so the time a row is written does not show how far the consumer is behind.
+# The lookback filters on inserted_at because only inserted_at has a skip index.
 _KAFKA_LOOKBACK_DAYS = 7
 _KAFKA_POSITION_QUERY = f"""
 SELECT count(), max(lag_seconds)
 FROM (
-    SELECT _partition, dateDiff('second', max(inserted_at), now64(6)) AS lag_seconds
+    SELECT _partition, dateDiff('second', max(_timestamp), now()) AS lag_seconds
     FROM {FLAG_EVALUATIONS_DATA_TABLE}
     WHERE inserted_at >= now() - INTERVAL {_KAFKA_LOOKBACK_DAYS} DAY AND inserted_at != timestamp
     GROUP BY _partition

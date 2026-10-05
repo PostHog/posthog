@@ -209,6 +209,30 @@ export const Canvas: Story = {
     ),
 }
 
+// The minimap is gated on the canvas container instead of the viewport, so a canvas that is narrow
+// inside a wide window must still hide it and leave the zoom controls room. The graph is cut to two
+// nodes because fit-view scales the whole graph into 480px, and nodes that small render text the
+// snapshot cannot compare reliably.
+export const NarrowCanvas: Story = {
+    render: () => (
+        <LineageGraph
+            nodes={GRAPH_NODES.slice(0, 2)}
+            edges={[]}
+            variant="canvas"
+            showControls
+            showMinimap
+            interactive
+        />
+    ),
+    decorators: [
+        (StoryFn) => (
+            <div className="h-[500px] w-[480px]">
+                <StoryFn />
+            </div>
+        ),
+    ],
+}
+
 export const DraggableNodes: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING] },
     render: () => <ModelsLineageTab />,

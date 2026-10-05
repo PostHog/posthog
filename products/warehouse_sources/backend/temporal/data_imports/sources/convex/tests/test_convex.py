@@ -152,6 +152,28 @@ class TestValidateDeployUrl:
         assert "convex.cloud" not in err
         assert "400" in err
 
+    @parameterized.expand(
+        [
+            ("same_deployment", "prod:swift-lemur-123|abc", "Convex rejected your deploy key."),
+            ("unnamed_key", "abc123", "Convex rejected your deploy key."),
+            ("dev_key_for_prod_url", "dev:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+            ("key_for_other_project", "prod:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_explains_a_rejected_deploy_key(self, _name, deploy_key, expected, mock_get):
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError(response=Mock(status_code=401))
+        mock_get.return_value.get.return_value = response
+
+        ok, err = validate_credentials("https://swift-lemur-123.eu-west-1.convex.cloud", deploy_key)
+
+        assert not ok
+        assert err is not None
+        assert expected in err
+        assert "swift-lemur-123" not in err
+        assert "quiet-otter-456" not in err
+
 
 class TestValidateDeployKey:
     @parameterized.expand(

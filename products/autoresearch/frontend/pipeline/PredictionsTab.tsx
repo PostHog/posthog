@@ -1,7 +1,9 @@
 import { useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonCollapse, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonSkeleton } from '@posthog/lemon-ui'
+
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { DailyVolumeChart } from '../DailyVolumeChart'
@@ -52,6 +54,20 @@ function ProbabilityDistributionPanel(): JSX.Element {
     return <ProbabilityHistogram buckets={probabilityHistogram} />
 }
 
+function ScoringCoverageBanner(): JSX.Element | null {
+    const { scoringCoverage } = useValues(autoresearchPipelineLogic)
+    if (!scoringCoverage) {
+        return null
+    }
+    const { scored, eligible, rescoreDays } = scoringCoverage
+    return (
+        <LemonBanner type="info">
+            The latest run scored {humanFriendlyNumber(scored)} of {humanFriendlyNumber(eligible)} users, starting with
+            users never scored, then those scored longest ago. Everyone is rescored about every {rescoreDays} days.
+        </LemonBanner>
+    )
+}
+
 export function PredictionsTab(): JSX.Element {
     const { pipeline } = useValues(autoresearchPipelineLogic)
     if (!pipeline) {
@@ -75,6 +91,8 @@ export function PredictionsTab(): JSX.Element {
                 <code>{pipeline.output_person_property}</code> person property and emits an{' '}
                 <code>autoresearch_prediction</code> event. These views read straight from those events.
             </p>
+
+            <ScoringCoverageBanner />
 
             <LemonCollapse
                 multiple

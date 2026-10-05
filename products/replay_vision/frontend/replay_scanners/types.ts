@@ -125,6 +125,7 @@ export type FailureKind =
     | 'infra_transient'
     | 'internal_error'
     | 'orphaned'
+    | 'pii_detected'
 
 type FailureKindInfo = {
     label: string
@@ -175,6 +176,12 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
     orphaned: {
         label: 'Interrupted',
         description: 'The scan was interrupted before it finished, and PostHog cleaned it up. Retry the scan.',
+        retryWorthwhile: true,
+    },
+    pii_detected: {
+        label: 'Personal data in the answer',
+        description:
+            "The AI's answer included personal data the scanner didn't ask for, so PostHog didn't save it. Retry the scan, or rephrase the scanner prompt if it keeps happening.",
         retryWorthwhile: true,
     },
 }
