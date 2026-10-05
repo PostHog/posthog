@@ -55,6 +55,7 @@ QUERY_SETTINGS = {
     "set_overflow_mode": "throw",
     "distributed_foreground_insert": "1",
 }
+UNKNOWN_TABLE = 60
 
 
 def _name(table: str) -> str:
@@ -86,6 +87,27 @@ class _RedactedQuery(Query):
         return Query.__repr__(replace(self, parameters=_redact(self.parameters)))
 
 
+# Staging tables belong to event deletion operations, which can drop them at any time. A create or drop
+# that fails on some hosts leaves the storage on only part of the cluster, and its Distributed proxy then
+# fails on the other shards. So staged keys are read and deleted on each host's storage table, and a host
+# without that table holds no staged keys.
+class _StagedQuery(_RedactedQuery):
+    def __call__(self, client: Client) -> list[tuple]:
+        try:
+            return super().__call__(client)
+        except ServerException as exc:
+            if exc.code != UNKNOWN_TABLE:
+                raise
+            return []
+
+
+def _on_staged_hosts(
+    placement: TargetPlacement, sql: str, parameters: Mapping[str, object], **query_settings: str
+) -> list[list[tuple]]:
+    query = _StagedQuery(sql, dict(parameters), settings={**QUERY_SETTINGS, **query_settings})
+    return list(placement.cluster.map_hosts_by_role(query, placement.cluster.shard_role).result().values())
+
+
 def _delete(placement: TargetPlacement, predicate: str, parameters: Mapping[str, object]) -> None:
     runner = _RedactedDeleteRunner(
         table=placement.target.data_table,
@@ -109,6 +131,20 @@ def _verify_empty(cluster: ClickhouseCluster, table: str, predicate: str, parame
     ).result()[0][0]
     if survivors:
         raise UnsweptRowsError(f"{table}: {survivors} membership rows remain after deletion")
+
+
+def _delete_staged(placement: TargetPlacement, predicate: str, parameters: Mapping[str, object]) -> None:
+    table = _name(placement.target.data_table)
+    _on_staged_hosts(
+        placement,
+        f"DELETE FROM {table} WHERE {predicate}",
+        parameters,
+        lightweight_deletes_sync="2",
+        mutations_sync="2",
+    )
+    counts = _on_staged_hosts(placement, f"SELECT count() FROM {table} WHERE {predicate}", parameters)
+    if survivors := sum(rows[0][0] for rows in counts if rows):
+        raise UnsweptRowsError(f"{placement.target.data_table}: {survivors} membership rows remain after deletion")
 
 
 def _staged_placements(cluster: ClickhouseCluster) -> list[TargetPlacement]:
@@ -143,8 +179,7 @@ def _staged_placements(cluster: ClickhouseCluster) -> list[TargetPlacement]:
 
 
 def has_team_membership(cluster: ClickhouseCluster, team_id: int) -> bool:
-    targets = [*resolve_placements(cluster, MEMBERSHIP_DELETION_TARGETS[:1]), *_staged_placements(cluster)]
-    for placement in targets:
+    for placement in resolve_placements(cluster, MEMBERSHIP_DELETION_TARGETS[:1]):
         if cluster.any_host_by_role(
             Query(
                 f"SELECT 1 FROM {_name(placement.target.read_table)} WHERE team_id = %(team_id)s LIMIT 1",
@@ -153,19 +188,31 @@ def has_team_membership(cluster: ClickhouseCluster, team_id: int) -> bool:
             NodeRole.DATA,
         ).result():
             return True
-    return False
+    return any(
+        any(
+            _on_staged_hosts(
+                placement,
+                f"SELECT 1 FROM {_name(placement.target.data_table)} WHERE team_id = %(team_id)s LIMIT 1",
+                {"team_id": team_id},
+            )
+        )
+        for placement in _staged_placements(cluster)
+    )
 
 
 def delete_distinct_ids(cluster: ClickhouseCluster, team_id: int, distinct_ids: Sequence[str]) -> None:
     if not distinct_ids:
         return
-    placements = [*resolve_placements(cluster, MEMBERSHIP_DELETION_TARGETS[:1]), *_staged_placements(cluster)]
+    placements = resolve_placements(cluster, MEMBERSHIP_DELETION_TARGETS[:1])
+    staged = _staged_placements(cluster)
     for start in range(0, len(distinct_ids), 5000):
         predicate = "team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s"
         parameters = {"team_id": team_id, "distinct_ids": list(distinct_ids[start : start + 5000])}
         for placement in placements:
             _delete(placement, predicate, parameters)
             _verify_empty(cluster, placement.target.read_table, predicate, parameters)
+        for placement in staged:
+            _delete_staged(placement, predicate, parameters)
 
 
 def delete_teams(cluster: ClickhouseCluster, team_ids: Sequence[int], *, include_config: bool = True) -> None:
@@ -174,9 +221,11 @@ def delete_teams(cluster: ClickhouseCluster, team_ids: Sequence[int], *, include
     predicate = "team_id IN %(team_ids)s"
     parameters = {"team_ids": list(team_ids)}
     targets = MEMBERSHIP_DELETION_TARGETS if include_config else MEMBERSHIP_DELETION_TARGETS[:1]
-    for placement in [*resolve_placements(cluster, targets), *_staged_placements(cluster)]:
+    for placement in resolve_placements(cluster, targets):
         _delete(placement, predicate, parameters)
         _verify_empty(cluster, placement.target.read_table, predicate, parameters)
+    for placement in _staged_placements(cluster):
+        _delete_staged(placement, predicate, parameters)
 
 
 def removes_account_group_property(cluster: ClickhouseCluster, team_id: int, properties: Sequence[str]) -> bool:
@@ -208,8 +257,8 @@ class MembershipReconciliation:
         return placements[0] if placements else None
 
     def _create(self, placement: TargetPlacement) -> None:
-        # _staged_placements finds storage tables and reads them through their proxies, so storage
-        # must never exist without its proxy. Create the proxy first and drop it last.
+        # reconcile reads storage through its proxy, so storage must never exist without its proxy.
+        # Create the proxy first and drop it last.
         distributed = Distributed(
             self.storage_table, sharding_key="cityHash64(distinct_id)", cluster=placement.cluster.data_cluster_name
         )

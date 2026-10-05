@@ -46,6 +46,7 @@ from posthog.models.person_group_membership.sql import (
     SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE,
     SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE_SQL,
 )
+from posthog.models.team import Team
 from posthog.models.team.util import _delete_persons_for_teams
 from posthog.personhog_client.client import require_personhog_client
 from posthog.personhog_client.proto import SplitPersonRequest
@@ -58,6 +59,7 @@ from products.customer_analytics.backend.facade.membership_deletion import (
     reconcile_membership_deletion,
     stage_membership_deletion,
 )
+from products.customer_analytics.backend.logic.membership_deletion import MembershipReconciliation
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.test.factories import create_account
 
@@ -179,6 +181,24 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
         )
         assert retry.failures == []
         assert [(key, did) for key, did, *_ in self._rows()] == [("acme", "b"), ("other", "b")]
+
+    def test_staging_storage_without_proxy_does_not_block_person_deletion(self) -> None:
+        stage_membership_deletion(
+            self.cluster,
+            self.operation_id,
+            [("events", False, "team_id = %(team_id)s AND event = 'only'", {"team_id": self.team.pk})],
+        )
+        stage = MembershipReconciliation(self.cluster, self.operation_id)
+        sync_execute(f"DROP TABLE {stage.read_table} SYNC")
+        assert sync_execute(f"SELECT distinct_id FROM {stage.storage_table}") == [("a",)]
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_person = create_person(team=other_team, distinct_ids=["z"])
+        with patch("posthog.models.person.bulk_delete.queue_person_training_deletion"):
+            for team, person in [(other_team, other_person), (self.team, self.person_a)]:
+                result = delete_persons_profile(team.pk, [person], actor=None)
+                assert result.failures == []
+                assert result.deleted_count == 1
+        assert sync_execute(f"SELECT distinct_id FROM {stage.storage_table}") == []
 
     def test_reassigned_id_survives_old_person_deletion(self) -> None:
         client = require_personhog_client()
