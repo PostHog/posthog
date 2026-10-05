@@ -864,8 +864,12 @@ export function createMarketingTile(
         }
     }
 
-    if (sourceType === 'AmazonAds') {
-        if (!['campaign_id', 'date', 'cost', 'impressions', 'clicks'].every((field) => field in table.fields)) {
+    if (sourceType === 'AmazonAds' || sourceType === 'TwitterAds') {
+        const requiredFields =
+            sourceType === 'AmazonAds'
+                ? ['campaign_id', 'date', 'cost', 'impressions', 'clicks']
+                : ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks']
+        if (!requiredFields.every((field) => field in table.fields)) {
             return null
         }
         const monetaryColumn =
@@ -873,7 +877,8 @@ export function createMarketingTile(
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
             tileColumnSelection === 'roas' ||
             tileColumnSelection === 'cost_per_reported_conversion'
-        if (monetaryColumn && !('campaign_budget_currency_code' in table.fields)) {
+        const currencyColumn = sourceType === 'AmazonAds' ? 'campaign_budget_currency_code' : 'currency'
+        if (monetaryColumn && !(currencyColumn in table.fields)) {
             return null
         }
     }

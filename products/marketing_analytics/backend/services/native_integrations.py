@@ -131,6 +131,14 @@ def is_native_source_enabled(source_type: str, team: "Team") -> bool:
     )
 
 
+def get_enabled_native_integrations(team: "Team") -> dict[str, NativeMarketingSource]:
+    return {
+        source_type: native
+        for source_type, native in EXTERNAL_SOURCE_TYPE_TO_NATIVE.items()
+        if is_native_source_enabled(source_type, team)
+    }
+
+
 def display_name_for_key(key: NativeIntegration) -> str:
     return DISPLAY_NAMES[KEY_TO_NATIVE[key]]
 

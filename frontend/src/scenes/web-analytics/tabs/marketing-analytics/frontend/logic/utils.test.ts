@@ -494,28 +494,35 @@ describe('marketing analytics utils', () => {
             expect(result?.table_name).toBe(source.tables[0].name)
         })
 
-        it.each(['campaign_budget_currency_code', 'date', 'campaign_id', 'cost', 'impressions', 'clicks'])(
-            'omits Amazon monetary tiles missing %s',
-            (field) => {
-                const source = makeMockSource(
-                    'AmazonAds',
-                    sourceFields.AmazonAds.filter((name) => name !== field)
-                )
-                for (const column of [
-                    MarketingAnalyticsColumnsSchemaNames.Cost,
-                    MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
-                    'roas',
-                    'cost_per_reported_conversion',
-                ] as const) {
-                    expect(createMarketingTile(source, column, 'EUR')).toBeNull()
-                }
-            }
-        )
-
-        it('keeps Amazon impressions available without currency', () => {
+        it.each(
+            (['AmazonAds', 'TwitterAds'] as const).flatMap((sourceType) =>
+                (sourceType === 'AmazonAds'
+                    ? ['campaign_budget_currency_code', 'date', 'campaign_id', 'cost', 'impressions', 'clicks']
+                    : ['currency', 'date', 'entity_id', 'billed_charge_local_micro', 'impressions', 'clicks']
+                ).map((field) => [sourceType, field] as const)
+            )
+        )('omits %s monetary tiles missing %s', (sourceType, field) => {
             const source = makeMockSource(
-                'AmazonAds',
-                sourceFields.AmazonAds.filter((name) => name !== 'campaign_budget_currency_code')
+                sourceType,
+                sourceFields[sourceType].filter((name) => name !== field)
+            )
+            for (const column of [
+                MarketingAnalyticsColumnsSchemaNames.Cost,
+                MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+                'roas',
+                'cost_per_reported_conversion',
+            ] as const) {
+                expect(createMarketingTile(source, column, 'EUR')).toBeNull()
+            }
+        })
+
+        it.each([
+            ['AmazonAds', 'campaign_budget_currency_code'],
+            ['TwitterAds', 'currency'],
+        ] as const)('keeps %s impressions available without currency', (sourceType, currencyColumn) => {
+            const source = makeMockSource(
+                sourceType,
+                sourceFields[sourceType].filter((name) => name !== currencyColumn)
             )
             expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Impressions, 'EUR')).not.toBeNull()
         })
