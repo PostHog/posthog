@@ -260,6 +260,15 @@ export const DraggableNodes: Story = {
         if (!nodeCard || nodeCard.getAttribute('role') === 'button' || nodeCard.tabIndex >= 0) {
             throw new Error('A draggable node must not navigate as a card')
         }
+
+        fireEvent.contextMenu(nodeCard)
+        const page = within(canvasElement.ownerDocument.body)
+        await page.findByRole('menuitem', { name: 'Open in new tab' })
+        await page.findByRole('menuitem', { name: 'Copy name' })
+        if (page.queryByText(/Highlight|Show only/)) {
+            throw new Error('The node menu must not duplicate the graph lineage behavior')
+        }
+        fireEvent.keyDown(canvasElement.ownerDocument, { key: 'Escape' })
     },
 }
 
