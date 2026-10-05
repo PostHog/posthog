@@ -111,6 +111,7 @@ class AudienceSize:
 
     affected: int
     total: int
+    without_email: int | None
     limit: int
     dedupe_key: str | None
 

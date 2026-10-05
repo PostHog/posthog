@@ -59,6 +59,7 @@ import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/t
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { AudienceWithoutEmailNotice } from './components/AudienceWithoutEmailNotice'
 import { ConversionGoalEditor } from './components/ConversionGoalEditor'
 import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
@@ -603,7 +604,7 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return null
     }
 
-    const { affected, total, limit } = blastRadius
+    const { affected, total, limit, without_email } = blastRadius
 
     if (affected != null && total != null) {
         const exceeded = limit != null && affected > limit
@@ -622,6 +623,10 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
                             : ''}
                     </div>
                 )}
+                <AudienceWithoutEmailNotice
+                    withoutEmail={without_email}
+                    audienceProperties={filters?.properties ?? []}
+                />
             </div>
         )
     }

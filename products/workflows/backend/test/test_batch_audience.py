@@ -52,7 +52,8 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         count = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
 
-        assert count == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
+        assert count.sends == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
+        assert count.without_email == 2
 
     def test_count_rejects_unsupported_dedupe_key(self):
         # Defence-in-depth: the endpoint's serializer allowlist is the primary gate, but this
