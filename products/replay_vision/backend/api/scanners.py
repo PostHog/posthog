@@ -849,13 +849,18 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             # Unchanged scope (the restore already required experiment access on updates): the
             # linkage was checked when the scope was written. Only the launch can have moved since.
             experiment_id = config.get("experiment_id")
-            if enabled and not self.instance.enabled and isinstance(experiment_id, int):
+            turning_on = enabled and not self.instance.enabled
+            writes_marker = "start_on_launch" in config and "scanner_config" in attrs
+            if isinstance(experiment_id, int) and (turning_on or writes_marker):
                 status = experiment_status(team, experiment_id=experiment_id)
-                if status is not None and status.start_date is None:
+                if turning_on and status is not None and status.start_date is None:
                     raise serializers.ValidationError(
                         {"enabled": "This experiment hasn't launched. Turn the scanner on after launch."}
                     )
-                if "start_on_launch" in config:
+                launched = status is not None and status.start_date is not None
+                if "start_on_launch" in config and (turning_on or (writes_marker and launched)):
+                    # A stale form can send the marker back after the launch consumed it, and the
+                    # reconciler's launch catch-up would then turn the scanner on.
                     attrs["scanner_config"] = {k: v for k, v in config.items() if k != "start_on_launch"}
             return
         experiment_id = config.get("experiment_id")

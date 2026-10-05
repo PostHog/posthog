@@ -40,6 +40,7 @@ from products.replay_vision.backend.api.scanners import (
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
+from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
 from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -445,6 +446,35 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         )
         self.assertEqual(patch_launch.status_code, 200, patch_launch.json())
         self.assertTrue(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+
+    def test_stale_save_after_launch_drops_the_start_on_launch_marker(self) -> None:
+        draft = create_experiment(self.team, "stale-form-flag", variants=["control", "test"])
+        config = {"prompt": "p", "experiment_id": draft.id, "start_on_launch": True}
+        created = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "stale-form",
+                "scanner_type": ScannerType.EXPERIMENT,
+                "scanner_config": config,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+                "enabled": False,
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.json())
+        scanner_url = f"{self.scanners_url}{created.json()['id']}/"
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{draft.id}/launch/")
+        self.assertEqual(launch.status_code, 200, launch.json())
+        self.client.patch(scanner_url, data={"enabled": False}, format="json")
+
+        stale = self.client.patch(scanner_url, data={"enabled": False, "scanner_config": config}, format="json")
+        self.assertEqual(stale.status_code, 200, stale.json())
+
+        scanner = ReplayScanner.objects.get(id=created.json()["id"])
+        self.assertNotIn("start_on_launch", scanner.scanner_config)
+        start_scanners_of_launched_experiments()
+        scanner.refresh_from_db()
+        self.assertFalse(scanner.enabled)
 
     def test_experiment_scanner_experiment_is_fixed_after_creation(self) -> None:
         # Retargeting would mix two experiments' populations under one scanner's history and
