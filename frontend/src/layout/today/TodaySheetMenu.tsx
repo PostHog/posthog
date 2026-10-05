@@ -1,17 +1,7 @@
 import { ReactNode, useMemo, useState } from 'react'
 
 import { IconChevronLeft } from '@posthog/icons'
-import {
-    Button,
-    Drawer,
-    DrawerContent,
-    DrawerDescription,
-    DrawerHeader,
-    DrawerTitle,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { Button, Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@posthog/quill'
 
 import { TodaySheetMenuContext, TodaySheetMenuControls } from './todaySheetMenuContext'
 
@@ -58,37 +48,25 @@ export function TodaySheetMenu({ open, onOpenChange, title, description, childre
             <DrawerContent data-attr="today-sheet-menu">
                 <TodaySheetMenuContext.Provider value={controls}>
                     {page ? (
-                        <div className="flex items-center gap-1 px-2 pt-1 pb-2">
-                            <Tooltip>
-                                <TooltipTrigger
-                                    delay={0}
-                                    render={
-                                        <Button
-                                            size="icon-lg"
-                                            className="rounded-full"
-                                            aria-label="Back"
-                                            onClick={() => setPage(null)}
-                                            data-attr="today-sheet-menu-back"
-                                        />
-                                    }
-                                >
-                                    <IconChevronLeft />
-                                </TooltipTrigger>
-                                <TooltipContent>Back</TooltipContent>
-                            </Tooltip>
-                            <DrawerTitle className="truncate text-base font-semibold">{page.title}</DrawerTitle>
-                        </div>
+                        <DrawerHeader className="flex-row items-center gap-2">
+                            <Button
+                                size="icon"
+                                aria-label="Back"
+                                onClick={() => setPage(null)}
+                                data-attr="today-sheet-menu-back"
+                            >
+                                <IconChevronLeft />
+                            </Button>
+                            <DrawerTitle className="min-w-0 flex-1 truncate">{page.title}</DrawerTitle>
+                            <span aria-hidden className="size-7 shrink-0" />
+                        </DrawerHeader>
                     ) : (
-                        <DrawerHeader className="gap-0.5 border-b border-border px-4 pt-1 pb-3">
-                            <DrawerTitle className="truncate text-base font-semibold">{title}</DrawerTitle>
-                            {description && (
-                                <DrawerDescription className="truncate text-sm text-muted-foreground">
-                                    {description}
-                                </DrawerDescription>
-                            )}
+                        <DrawerHeader>
+                            <DrawerTitle>{title}</DrawerTitle>
+                            {description && <DrawerDescription>{description}</DrawerDescription>}
                         </DrawerHeader>
                     )}
-                    <div className="flex min-h-0 flex-col overflow-y-auto px-2 pt-1 pb-3" hidden={page !== null}>
+                    <div className="flex min-h-0 flex-col overflow-y-auto px-2 pb-3" hidden={page !== null}>
                         {children}
                     </div>
                     <div

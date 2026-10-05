@@ -471,7 +471,6 @@ class PipelineV3(Generic[ResumableData]):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
-                    partition_count_fallback=self._resource.partition_count,
                 )
 
             async def stage_remaining_rows() -> None:

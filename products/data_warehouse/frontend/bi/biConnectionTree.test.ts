@@ -126,37 +126,29 @@ describe('BI connections', () => {
         expect(buildBIConnections(source, catalog, [], {}, true)).toEqual([])
     })
 
-    it('uses the virtual person schema instead of the printed events table', () => {
-        const personFields = {
-            id: field('id', 'string'),
-            created_at: field('created_at', 'datetime'),
-            revenue_analytics: field('revenue_analytics', 'lazy_table', { table: 'persons_revenue_analytics' }),
-        }
+    it('lists virtual fields without borrowing types or connections from the printed parent table', () => {
         const catalog = {
             events: table('events', [
+                field('id', 'integer'),
+                field('created_at', 'lazy_table', { table: 'companies' }),
                 field('person', 'field_traverser', { chain: ['poe'] }),
                 field('poe', 'virtual_table', {
                     table: 'events',
-                    fields: Object.keys(personFields),
-                    fields_schema: personFields,
+                    fields: ['id', 'created_at', 'properties', 'team_id'],
                 }),
             ]),
-            persons_revenue_analytics: table('persons_revenue_analytics', [field('lifetime_value', 'float')]),
         }
-        const person = buildBIConnections(
-            source,
-            catalog,
-            ['["person"]', '["person","revenue_analytics"]'],
-            {},
-            true
-        ).find((c) => c.name === 'person')!
-        expect(person.fields.dimensions).toEqual(
-            expect.arrayContaining([expect.objectContaining({ name: 'person.created_at', type: 'datetime' })])
-        )
-        expect(person.connections[0].fields.measures[0]).toMatchObject({
-            name: 'person.revenue_analytics.lifetime_value',
-            type: 'float',
-        })
+        const person = buildBIConnections(source, catalog, ['["person"]'], { events: 'error' }, false).find(
+            (c) => c.name === 'person'
+        )!
+        expect(person).toMatchObject({ state: 'ready', tableName: undefined, connections: [] })
+        expect(person.fields.dimensions).toEqual([
+            expect.objectContaining({ name: 'person.created_at', type: 'unknown', source }),
+            expect.objectContaining({ name: 'person.id', type: 'unknown', source }),
+            expect.objectContaining({ name: 'person.properties', type: 'unknown', source }),
+        ])
+        expect(person.fields.measures).toEqual([])
+        expect(getPendingBIConnectionTables([person])).toEqual([])
     })
 
     it.each([undefined, 'error'] as const)(

@@ -4,6 +4,10 @@ DRF serializers for visual_review.
 Converts DTOs to/from JSON using DataclassSerializer.
 """
 
+from datetime import datetime
+
+from django.utils import timezone
+
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -408,9 +412,22 @@ class QuarantineInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = QuarantineInput
 
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        # A past expiry would end the active quarantine and store one that is already over.
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("The expiry must be in the future.")
+        return value
+
 
 class UnquarantineQuerySerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
+
+
+class ErrorDetailSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What went wrong and what to do next.")
+    code = serializers.CharField(
+        required=False, help_text="A stable code for the error, such as `lift_commit_unknown` or `rate_limited`."
+    )
 
 
 class LiftOnMergeInputSerializer(DataclassSerializer):

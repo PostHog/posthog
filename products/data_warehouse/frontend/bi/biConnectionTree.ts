@@ -25,7 +25,7 @@ function getConnectionState(
     status: TableFieldsStatus[string] | undefined,
     complete: boolean
 ): BIConnection['state'] {
-    if (field.fields_schema) {
+    if (field.type === 'virtual_table') {
         return 'ready'
     }
     if (status === 'error' || status === 'missing') {
@@ -38,22 +38,23 @@ function getConnectionState(
 }
 
 function getConnectionFields(field: DatabaseSchemaField, table: DatabaseSchemaTable | null): DatabaseSchemaField[] {
-    if (field.fields_schema) {
-        return Object.values(field.fields_schema)
-    }
+    // A virtual table's printed table is not the owner of its child field definitions.
+    const fieldsTable = field.type === 'virtual_table' ? null : table
     return field.fields?.length
         ? field.fields
               .filter((name) => name !== 'team_id')
               .map(
                   (name): DatabaseSchemaField =>
-                      table?.fields[name] ?? {
+                      fieldsTable?.fields[name] ?? {
                           name,
                           hogql_value: name,
                           type: 'unknown',
                           schema_valid: true,
                       }
               )
-        : Object.values(table?.fields ?? {}).filter((child) => child.name !== 'team_id' || child.type !== 'unknown')
+        : Object.values(fieldsTable?.fields ?? {}).filter(
+              (child) => child.name !== 'team_id' || child.type !== 'unknown'
+          )
 }
 
 export function buildBIConnections(
@@ -97,7 +98,7 @@ export function buildBIConnections(
                 }
                 const childPath = [...path, originalField.name]
                 const id = JSON.stringify(childPath)
-                const table = pendingTable ?? getTable(field?.table)
+                const table = pendingTable ?? (field?.type === 'virtual_table' ? null : getTable(field?.table))
                 const status = table ? tableFieldsStatus[getHydrationKey(table)] : undefined
                 const state = pendingState ?? getConnectionState(field!, table, status, databaseFieldsComplete)
                 const connection: BIConnection = {

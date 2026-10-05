@@ -54,7 +54,7 @@ export function TodaySpaceFileList({
                 targets.map((space) => (
                     <ItemRadio
                         key={space.id}
-                        className="flex-nowrap text-base"
+                        className="flex-nowrap"
                         aria-checked={space.id === currentSpaceId}
                         onClick={() => {
                             onSelect(space.id)
