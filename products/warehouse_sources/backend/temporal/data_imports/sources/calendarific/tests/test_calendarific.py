@@ -1,4 +1,5 @@
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -44,7 +45,8 @@ def test_full_refresh_reads_one_complete_response(http: responses.RequestsMock, 
     http.get(f"{BASE_URL}/{endpoint}", json={"meta": {"code": 200}, "response": {endpoint: rows}})
 
     result = client().source_response(endpoint, 1, "test-job")
-    assert [row for page in result.items() for row in page] == rows
+    pages = cast(Iterable[Iterable[Any]], result.items())
+    assert [row for page in pages for row in page] == rows
     assert len(http.calls) == 1
     request = http.calls[0].request
     assert request.method == "GET"
@@ -114,7 +116,7 @@ def test_authentication_errors_are_actionable_and_terminal(
     assert len(http.calls) == 1
 
     with pytest.raises(HTTPError) as raised:
-        list(client().source_response("holidays", 1, "test-job").items())
+        list(cast(Iterable[Any], client().source_response("holidays", 1, "test-job").items()))
     assert API_KEY not in str(raised.value)
     mappings = CalendarificSource().get_non_retryable_errors()
     assert any(pattern in str(raised.value) and mapped == error for pattern, mapped in mappings.items())
@@ -133,7 +135,7 @@ def test_other_http_errors_are_not_reported_as_invalid_credentials(http: respons
 def test_transient_errors_use_framework_retries(http: responses.RequestsMock, status: int) -> None:
     http.get(f"{BASE_URL}/holidays", status=status, json={"meta": {"code": status}, "response": []})
     http.get(f"{BASE_URL}/holidays", json={"meta": {"code": 200}, "response": {"holidays": []}})
-    with patch.object(RESTClient._send_request.retry, "sleep", return_value=None):
+    with patch.object(cast(Any, RESTClient._send_request).retry, "sleep", return_value=None):
         assert client().validate_credentials(1, None) == (True, None)
     assert len(http.calls) == 2
 
@@ -142,5 +144,5 @@ def test_transient_errors_use_framework_retries(http: responses.RequestsMock, st
 def test_missing_collection_fails_instead_of_erasing_table(http: responses.RequestsMock, endpoint: str) -> None:
     http.get(f"{BASE_URL}/{endpoint}", json={"meta": {"code": 200}, "response": {"unexpected": []}})
     with pytest.raises(ValueError, match="matched nothing"):
-        list(client().source_response(endpoint, 1, "test-job").items())
+        list(cast(Iterable[Any], client().source_response(endpoint, 1, "test-job").items()))
     assert len(http.calls) == 1
