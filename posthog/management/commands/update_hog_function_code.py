@@ -38,7 +38,6 @@ class _Replacement(TypedDict):
 class _ReplaceOption(TypedDict):
     template_id: str
     replacements: list[_Replacement]
-    # HogFunction.type to update. Defaults to "destination".
     function_type: NotRequired[str]
     # Skip a destination entirely unless its hog contains this string. For options whose replacements
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
@@ -173,11 +172,8 @@ class Command(BaseCommand):
                     },
                 ],
             },
-            # Bot filter transformations keep the template code they were created with, so the
-            # impossible Chrome patch rule reaches only new ones. Each anchor is the stock known-bot
-            # check followed by `let bot_list`, in the shapes before and after the $lib browser
-            # scoping. Copies that edited those lines are left alone. The rule sits between the two
-            # anchor halves, so the anchor no longer matches after one run and a rerun is a no-op.
+            # The rule is inserted between the two halves of the anchor, so the anchor stops matching
+            # after one run and a rerun is a no-op. Copies that edited the anchor lines are skipped.
             "bot-detection-impossible-chrome-patch": {
                 "template_id": "template-bot-detection",
                 "function_type": "transformation",

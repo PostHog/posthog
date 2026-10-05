@@ -584,7 +584,6 @@ class TestUpdateHogFunctionCode(BaseTest):
             call_command("update_hog_function_code", replace_key="bot-detection-impossible-chrome-patch", stdout=out)
 
         function.refresh_from_db()
-        # A rerun must not insert the rule a second time.
         assert function.hog.count(IMPOSSIBLE_CHROME_MATCH) == 1
         assert f"if ({scope}inputs.filterKnownBotUserAgents and notEmpty(user_agent)" in function.hog
         assert function.hog.index("isKnownBotUserAgent") < function.hog.index(IMPOSSIBLE_CHROME_MATCH)
