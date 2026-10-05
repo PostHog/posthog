@@ -309,12 +309,20 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                         required=False,
                         placeholder="7d_click,1d_view",
                         secret=False,
+                        caption=(
+                            "A stats table that already imported keeps its current attribution. A change "
+                            "applies to those rows only after you resync that table."
+                        ),
                     ),
                     SourceFieldSelectConfig(
                         name="use_unified_attribution_setting",
                         label="Use Meta's unified attribution setting",
                         required=False,
                         defaultValue="",
+                        caption=(
+                            "A stats table that already imported keeps its current attribution. A change "
+                            "applies to those rows only after you resync that table."
+                        ),
                         options=[
                             SourceFieldSelectConfigOption(label="Use Meta's default", value=""),
                             SourceFieldSelectConfigOption(label="Yes", value="true"),
