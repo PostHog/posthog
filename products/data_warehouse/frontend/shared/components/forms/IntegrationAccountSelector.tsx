@@ -6,8 +6,7 @@ import { LemonInput, LemonInputSelect, LemonSkeleton, LemonTag, Link } from '@po
 
 import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
+import { integrationsLogic, reconnectReturnUrl } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -190,17 +189,6 @@ function IntegrationAccountSelectorInner({
 
 function captionHelp(caption?: string): JSX.Element | undefined {
     return caption ? <LemonMarkdown className="text-xs">{caption}</LemonMarkdown> : undefined
-}
-
-/** Where the in-place reconnect returns to. The wizard keeps the chosen source in `?kind=`, so a
- *  bare pathname lands the user back on the source catalog. The previous callback's result params
- *  are dropped because the new callback sets its own. */
-export function reconnectReturnUrl(pathname: string, search: string): string {
-    const params = new URLSearchParams(search)
-    params.delete('integration_id')
-    params.delete(INTEGRATION_ERROR_PARAM)
-    const query = params.toString()
-    return query ? `${pathname}?${query}` : pathname
 }
 
 /** Re-run OAuth for the connected integration in place, so a failed account load is recoverable
