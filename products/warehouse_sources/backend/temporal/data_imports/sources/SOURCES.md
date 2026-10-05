@@ -480,6 +480,7 @@ the row lists both.
 | linode                           | HTTP                        | requests                                                        | ✅                          |
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
+| lodgify                          | HTTP                        | requests                                                        | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -510,6 +511,7 @@ the row lists both.
 | metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mintlify                         | HTTP                        | requests                                                        | ✅                          |
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
 | mixmax                           | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                         | HTTP                        | requests                                                        | ✅                          |
@@ -1218,7 +1220,6 @@ doesn't conflict with concurrent PRs.
 - linnworks
 - liveblocks
 - llama_cloud
-- lodgify
 - logicmonitor
 - logrocket
 - lokalise
@@ -1254,7 +1255,6 @@ doesn't conflict with concurrent PRs.
 - microsoft_teams_call_records
 - midtrans
 - mindbody
-- mintlify
 - mirakl
 - miro
 - missive
