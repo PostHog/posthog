@@ -30,9 +30,9 @@ export interface ScheduleOccurrence {
     /** Max rollout of the condition this occurrence adds; null for other operations. */
     addedRolloutPercentage: number | null
     /**
-     * True when this occurrence adds a condition at or below the rollout the flag already serves to
-     * everyone, so it reaches nobody new and the projected rollout holds its level. False for every
-     * other operation.
+     * True when this occurrence adds a condition on the flag-level target at or below the rollout the
+     * flag already serves to everyone. Such a condition reaches nobody new, so the projected rollout
+     * holds its level. False for every other operation.
      */
     rolloutUnchanged: boolean
     /** The occurrence will be skipped at fire time unless its approval request is approved first. */
@@ -77,8 +77,7 @@ export function maxRolloutPercentage(groups: FeatureFlagGroupType[] | undefined)
 
 /**
  * The aggregation target every one of these condition sets buckets on, or undefined when they do
- * not share one. A condition set's own target overrides the flag-level one, and it decides which
- * identifier the set hashes, so sets on different targets cover no part of each other.
+ * not share one.
  */
 export function sharedAggregationTarget(
     groups: FeatureFlagGroupType[] | undefined,
@@ -94,14 +93,12 @@ export function sharedAggregationTarget(
 
 /**
  * Max rollout across the condition sets that no property filter narrows and that bucket on
- * `targetAggregationGroupTypeIndex`, so the percentage is a share of everyone a condition on that
- * target reaches rather than a share of a segment. Those sets are OR'd and hash the same
- * identifier, so a condition at or below this level serves nobody the flag does not serve already.
+ * `targetAggregationGroupTypeIndex`. The result is a share of everyone that a condition on that
+ * target reaches, not a share of a segment.
  */
 export function maxUntargetedRolloutPercentage(
     groups: FeatureFlagGroupType[] | undefined,
     flagAggregationGroupTypeIndex: number | null | undefined,
-    /** Undefined leaves the identifier unknown, and no set can be measured against that. */
     targetAggregationGroupTypeIndex: number | null | undefined
 ): number | null {
     if (targetAggregationGroupTypeIndex === undefined) {
@@ -118,14 +115,11 @@ export function maxUntargetedRolloutPercentage(
 }
 
 /**
- * What the flag reaches on its own aggregation target, which a condition set that a property filter
- * narrows does not raise. Such a set serves its percentage of a segment, and the flag definition
- * does not say how large the segment is, so counting one at 100% pins the level at 100% while the
- * flag still reaches almost nobody.
+ * What the flag reaches on its own aggregation target.
  *
- * The step line starts at this level and every projected occurrence sits on it, so both ends have
- * to come from here. Read one end across every condition set instead and a targeted set lifts that
- * end alone, drawing a gain or a loss of reach the flag never makes.
+ * The step line starts at this level. Every projected occurrence also sits on it, so both ends have
+ * to come from here. If one end reads across every condition set instead, a targeted set lifts that
+ * end alone. The chart then draws a gain or a loss of reach that the flag never makes.
  */
 export function projectedRolloutPercentage(
     filters: Pick<FeatureFlagFilters, 'groups' | 'aggregation_group_type_index'>
@@ -242,12 +236,9 @@ export function expandScheduleOccurrences(
     raw.sort((a, b) => a.at.valueOf() - b.at.valueOf() || a.schedule.id - b.schedule.id)
 
     let active = flag.active
-    // Grows as each add applies, the way add_release_condition appends its sets to the flag's, so a
-    // later add is judged against everything the flag holds by then.
-    let conditionSets = flag.filters.groups ?? []
-    const projectedRollout = (groups: FeatureFlagGroupType[]): number | null =>
-        projectedRolloutPercentage({ groups, aggregation_group_type_index: flag.filters.aggregation_group_type_index })
-    let rolloutPercentage = projectedRollout(conditionSets)
+    const flagAggregation = flag.filters.aggregation_group_type_index
+    const flagTarget = resolveAggregationGroupTypeIndex(undefined, flagAggregation)
+    let rolloutPercentage = projectedRolloutPercentage(flag.filters)
     let variantCount = flag.filters.multivariate?.variants.length ?? null
 
     return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule, isFirst }) => {
@@ -259,17 +250,19 @@ export function expandScheduleOccurrences(
         } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
             const addedGroups = payload.value.groups
             addedRolloutPercentage = maxRolloutPercentage(addedGroups)
-            // Only sets that share the added condition's aggregation target can cover it, and the
-            // flag-level target is the one the backend keeps: the payload's own is dropped.
-            const servedAlready = maxUntargetedRolloutPercentage(
-                conditionSets,
-                flag.filters.aggregation_group_type_index,
-                sharedAggregationTarget(addedGroups, flag.filters.aggregation_group_type_index)
-            )
+            // Only sets on the added condition's own target can cover it. The backend appends only the
+            // payload's groups. Each group keeps its own target. A payload-level target never applies.
+            // The no-change copy quotes the projected level, which counts only sets on the flag-level
+            // target. A condition on another target is therefore not judged here.
             rolloutUnchanged =
-                addedRolloutPercentage !== null && servedAlready !== null && addedRolloutPercentage <= servedAlready
-            conditionSets = [...conditionSets, ...(addedGroups ?? [])]
-            rolloutPercentage = projectedRollout(conditionSets)
+                addedRolloutPercentage !== null &&
+                rolloutPercentage !== null &&
+                sharedAggregationTarget(addedGroups, flagAggregation) === flagTarget &&
+                addedRolloutPercentage <= rolloutPercentage
+            const addedLevel = maxUntargetedRolloutPercentage(addedGroups, flagAggregation, flagTarget)
+            if (addedLevel !== null) {
+                rolloutPercentage = rolloutPercentage === null ? addedLevel : Math.max(rolloutPercentage, addedLevel)
+            }
         } else if (payload.operation === ScheduledChangeOperationType.UpdateVariants) {
             variantCount = payload.value.variants.length
         }

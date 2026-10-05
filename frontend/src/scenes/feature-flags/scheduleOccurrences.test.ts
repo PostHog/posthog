@@ -34,10 +34,23 @@ const PERSON_FILTER: AnyPropertyFilter = {
     operator: PropertyOperator.Exact,
 }
 
-function conditionPayload(rolloutPercentage: number, properties: AnyPropertyFilter[] = []): ScheduledChangePayload {
+function conditionPayload(
+    rolloutPercentage: number,
+    properties: AnyPropertyFilter[] = [],
+    aggregationGroupTypeIndex?: number | null
+): ScheduledChangePayload {
     return {
         operation: ScheduledChangeOperationType.AddReleaseCondition,
-        value: { groups: [{ properties, rollout_percentage: rolloutPercentage, variant: null }] },
+        value: {
+            groups: [
+                {
+                    properties,
+                    rollout_percentage: rolloutPercentage,
+                    variant: null,
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
+                },
+            ],
+        },
     }
 }
 
@@ -113,9 +126,6 @@ describe('expandScheduleOccurrences', () => {
     })
 
     it('ignores property-narrowed condition sets in the projected reach and the no-change flag', () => {
-        // A narrowed set serves its percentage of one segment (internal emails, a beta cohort), not
-        // of everyone, so it cannot prove that a wider condition reaches nobody new. Counting one at
-        // 100% as full reach also pins the projection at 100% and flattens a staged ramp.
         const schedules = [
             change({ payload: conditionPayload(100, [PERSON_FILTER]), scheduled_at: NOW.add(1, 'day').toISOString() }),
             change({ payload: conditionPayload(50), scheduled_at: NOW.add(2, 'day').toISOString() }),
@@ -136,8 +146,6 @@ describe('expandScheduleOccurrences', () => {
         )
 
         expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false])
-        // The flag's own untargeted 10% holds while a targeted condition lands, then the 50% add
-        // raises it.
         expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([10, 50])
     })
 
@@ -145,29 +153,50 @@ describe('expandScheduleOccurrences', () => {
         name: string
         flagAggregation: number | null | undefined
         coveringAggregation: number | null | undefined
+        addedAggregation?: number | null
+        extraGroups?: FeatureFlagGroupType[]
         expected: boolean
+        expectedRollout: number | null
     }[] = [
         {
-            // The covering set hashes the group key, so its 100% is a share of groups and covers no
-            // share of the users an inherited condition reaches.
             name: 'a covering set on another aggregation target',
             flagAggregation: undefined,
             coveringAggregation: 0,
             expected: false,
+            expectedRollout: 25,
         },
         {
-            // Both sets hash the group key here, so the coverage claim still holds.
             name: 'a covering set that shares the flag-level group target',
             flagAggregation: 0,
             coveringAggregation: undefined,
             expected: true,
+            expectedRollout: 100,
+        },
+        {
+            name: 'an added set on another aggregation target',
+            flagAggregation: undefined,
+            coveringAggregation: undefined,
+            addedAggregation: 0,
+            expected: false,
+            expectedRollout: 100,
+        },
+        {
+            name: 'a covering set on a target the line does not plot',
+            flagAggregation: null,
+            coveringAggregation: 0,
+            addedAggregation: 0,
+            extraGroups: [
+                { properties: [], rollout_percentage: 10, variant: null, aggregation_group_type_index: null },
+            ],
+            expected: false,
+            expectedRollout: 10,
         },
     ]
 
     it.each(aggregationCases)(
         'judges an added condition against $name: no change=$expected',
-        ({ flagAggregation, coveringAggregation, expected }) => {
-            const schedules = [change({ payload: conditionPayload(25) })]
+        ({ flagAggregation, coveringAggregation, addedAggregation, extraGroups = [], expected, expectedRollout }) => {
+            const schedules = [change({ payload: conditionPayload(25, [], addedAggregation) })]
 
             const occurrences = expandScheduleOccurrences(
                 schedules,
@@ -180,6 +209,7 @@ describe('expandScheduleOccurrences', () => {
                                 variant: null,
                                 aggregation_group_type_index: coveringAggregation,
                             },
+                            ...extraGroups,
                         ],
                         aggregation_group_type_index: flagAggregation,
                         multivariate: null,
@@ -189,6 +219,7 @@ describe('expandScheduleOccurrences', () => {
             )
 
             expect(occurrences[0].rolloutUnchanged).toBe(expected)
+            expect(occurrences[0].projected.rolloutPercentage).toBe(expectedRollout)
         }
     )
 

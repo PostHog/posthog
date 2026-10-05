@@ -21,6 +21,20 @@ function occurrence(overrides: Partial<ScheduleOccurrence> = {}): ScheduleOccurr
     }
 }
 
+function coveredStep(
+    active: boolean,
+    addedRolloutPercentage: number,
+    overrides: Partial<ScheduleOccurrence> = {}
+): ScheduleOccurrence {
+    return occurrence({
+        operation: ScheduledChangeOperationType.AddReleaseCondition,
+        addedRolloutPercentage,
+        rolloutUnchanged: true,
+        projected: { active, rolloutPercentage: 100, variantCount: null },
+        ...overrides,
+    })
+}
+
 describe('ScheduleTimeline', () => {
     // The component reads the wall clock to place marks, so an unpinned clock leaves the fixed
     // fixture dates decades away and squashes every x onto the right edge.
@@ -87,21 +101,15 @@ describe('ScheduleTimeline', () => {
                 'Next: add a condition at 25% rollout, no change from the 100% the flag already serves on Aug 26, 10:22 AM',
         },
         {
-            // The chart has no On/Off marker beside a lone summary, so a claim about who the flag
-            // serves is the whole message a reader gets.
             name: 'a flag that is off',
             active: false,
             expected:
                 'Next: add a condition at 25% rollout, no change from the 100% set on this disabled flag on Aug 26, 10:22 AM',
         },
     ])('summarizes a covered condition add as no change on $name', ({ active, expected }) => {
-        const covered = occurrence({
-            operation: ScheduledChangeOperationType.AddReleaseCondition,
-            addedRolloutPercentage: 25,
-            rolloutUnchanged: true,
-            projected: { active, rolloutPercentage: 100, variantCount: null },
-        })
-        render(<ScheduleTimeline occurrences={[covered]} currentRolloutPercentage={100} timezone="UTC" />)
+        render(
+            <ScheduleTimeline occurrences={[coveredStep(active, 25)]} currentRolloutPercentage={100} timezone="UTC" />
+        )
 
         expect(screen.getByText(expected)).toBeInTheDocument()
     })
@@ -123,19 +131,8 @@ describe('ScheduleTimeline', () => {
             const { container } = render(
                 <ScheduleTimeline
                     occurrences={[
-                        occurrence({
-                            operation: ScheduledChangeOperationType.AddReleaseCondition,
-                            addedRolloutPercentage: 25,
-                            rolloutUnchanged: true,
-                            projected: { active, rolloutPercentage: 100, variantCount: null },
-                        }),
-                        occurrence({
-                            timestamp: '2099-08-28T10:22:00Z',
-                            operation: ScheduledChangeOperationType.AddReleaseCondition,
-                            addedRolloutPercentage: 50,
-                            rolloutUnchanged: true,
-                            projected: { active, rolloutPercentage: 100, variantCount: null },
-                        }),
+                        coveredStep(active, 25),
+                        coveredStep(active, 50, { timestamp: '2099-08-28T10:22:00Z' }),
                     ]}
                     currentRolloutPercentage={100}
                     timezone="UTC"
@@ -148,8 +145,6 @@ describe('ScheduleTimeline', () => {
     )
 
     it('anchors a step label at its mark near either edge, so the text stays in the plot', () => {
-        // An uneven plan puts the first mark at the axis origin and the last at the right edge. The
-        // longest label centered on either one leaves the 600-unit viewBox, and the SVG clips that.
         const step = (timestamp: string, rollout: number): ScheduleOccurrence =>
             occurrence({
                 timestamp,

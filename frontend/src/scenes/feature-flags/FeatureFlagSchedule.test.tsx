@@ -77,7 +77,6 @@ function buildFeatureFlag({
     }
 }
 
-/** Where the step line begins: the start point of its leftmost segment. */
 function stepLineStart(timeline: Element): { x: number; y: number } {
     const starts = [...timeline.querySelectorAll('path')].map((path) => {
         const [, x, y] = path.getAttribute('d')!.split(' ')
@@ -104,6 +103,23 @@ describe('FeatureFlagSchedule', () => {
             logic.actions.setFeatureFlag(featureFlag)
             logic.actions.setScheduledChangeOperation(operation)
         })
+    }
+
+    function scheduleConditionAdd(rolloutPercentage: number, aggregationGroupTypeIndex?: number | null): void {
+        featureFlagLogic(logicProps).actions.setSchedulePayload(
+            {
+                groups: [
+                    {
+                        properties: [],
+                        rollout_percentage: rolloutPercentage,
+                        variant: null,
+                        aggregation_group_type_index: aggregationGroupTypeIndex,
+                    },
+                ],
+                multivariate: null,
+            },
+            null
+        )
     }
 
     beforeEach(() => {
@@ -193,11 +209,12 @@ describe('FeatureFlagSchedule', () => {
         expect(screen.getByText(new RegExp(expectedText))).toBeInTheDocument()
     })
 
-    // A staged ramp on a flag that already serves everyone changes nothing when it fires.
     const conditionAddCases: {
         name: string
+        active?: boolean
         currentRollout: number
         currentGroupTypeIndex?: number | null
+        scheduledGroupTypeIndex?: number | null
         scheduledRollout: number
         expectWarning: boolean
     }[] = [
@@ -206,22 +223,35 @@ describe('FeatureFlagSchedule', () => {
         { name: 'above the current rollout', currentRollout: 40, scheduledRollout: 60, expectWarning: false },
         { name: 'left at the form default', currentRollout: 100, scheduledRollout: 0, expectWarning: false },
         {
-            // The existing condition targets a group type, so its 100% is a share of groups and
-            // says nothing about the users the scheduled condition reaches.
             name: 'covered only by a condition on another aggregation target',
             currentRollout: 100,
             currentGroupTypeIndex: 0,
             scheduledRollout: 25,
             expectWarning: false,
         },
+        {
+            name: 'scheduled on another aggregation target',
+            currentRollout: 100,
+            scheduledGroupTypeIndex: 0,
+            scheduledRollout: 25,
+            expectWarning: false,
+        },
+        { name: 'on a disabled flag', active: false, currentRollout: 100, scheduledRollout: 25, expectWarning: false },
     ]
 
     it.each(conditionAddCases)(
         'condition add $name: warns=$expectWarning',
-        ({ currentRollout, currentGroupTypeIndex, scheduledRollout, expectWarning }) => {
+        ({
+            active = true,
+            currentRollout,
+            currentGroupTypeIndex,
+            scheduledGroupTypeIndex,
+            scheduledRollout,
+            expectWarning,
+        }) => {
             renderSchedule(
                 buildFeatureFlag({
-                    active: true,
+                    active,
                     rolloutPercentage: currentRollout,
                     aggregationGroupTypeIndex: currentGroupTypeIndex,
                 }),
@@ -229,13 +259,7 @@ describe('FeatureFlagSchedule', () => {
             )
 
             act(() => {
-                featureFlagLogic(logicProps).actions.setSchedulePayload(
-                    {
-                        groups: [{ properties: [], rollout_percentage: scheduledRollout, variant: null }],
-                        multivariate: null,
-                    },
-                    null
-                )
+                scheduleConditionAdd(scheduledRollout, scheduledGroupTypeIndex)
             })
 
             const warning = screen.queryByText(/This flag already serves/)
@@ -243,8 +267,6 @@ describe('FeatureFlagSchedule', () => {
         }
     )
 
-    // The measured rollout follows the aggregation target, so a flag that buckets on a group type
-    // serves a share of groups. Naming users there overstates who the flag reaches.
     it.each([
         { name: 'persons', flagAggregationGroupTypeIndex: undefined, expectedTarget: 'users' },
         { name: 'a group type', flagAggregationGroupTypeIndex: 0, expectedTarget: 'organizations' },
@@ -258,13 +280,7 @@ describe('FeatureFlagSchedule', () => {
 
             act(() => {
                 groupsModel.actions.loadAllGroupTypesSuccess(MOCK_GROUP_TYPES)
-                featureFlagLogic(logicProps).actions.setSchedulePayload(
-                    {
-                        groups: [{ properties: [], rollout_percentage: 25, variant: null }],
-                        multivariate: null,
-                    },
-                    null
-                )
+                scheduleConditionAdd(25)
             })
 
             expect(screen.getByText(/This flag already serves/)).toHaveTextContent(
@@ -339,15 +355,12 @@ describe('FeatureFlagSchedule', () => {
     })
 
     it('opens the step line at the first scheduled level when only a targeted condition covers the flag', async () => {
-        // A 100% condition narrowed to a segment reaches a share of that segment, and the flag says
-        // nothing about how large it is. Counting it as the level the flag serves today draws the
-        // line at 100% and drops it to the first scheduled step, a loss of reach that never happens.
         useMocks({
             get: schedulesMock([addConditionChange(25, 30), addConditionChange(50, 60)]),
         })
         renderWithSchedules()
         await screen.findByText('What happens next')
-        // The mount loads a flag of its own, so set the targeted condition after that settles.
+        // The mount loads a flag of its own. Set the targeted condition after that load settles.
         act(() => {
             featureFlagLogic(logicProps).actions.setFeatureFlag(
                 buildFeatureFlag({ active: true, rolloutPercentage: 100, properties: [PERSON_FILTER] })

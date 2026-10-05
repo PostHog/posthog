@@ -23,10 +23,6 @@ const TOP_LABEL_LANE_OFFSET = 10
  */
 const STEP_LABEL_EDGE_PAD = 65
 
-/**
- * Names the level an added condition sits under. A disabled flag serves nobody whatever its rollout
- * says, so the wording follows the projected status rather than claiming an audience either way.
- */
 function coveringLevel(projected: ScheduleProjectedState): string {
     return projected.active
         ? `${projected.rolloutPercentage}% the flag already serves`
@@ -44,10 +40,8 @@ function describeOccurrence(occurrence: ScheduleOccurrence): string {
         }
         // Describe the condition this change adds, not the flag's projected max rollout: the change
         // appends a condition set, so an existing higher one would otherwise be misreported here.
-        // Say when that existing one holds the level, or the plan reads as a ramp that does not ramp.
-        return occurrence.rolloutUnchanged
-            ? `add a condition at ${addedRolloutPercentage}% rollout, no change from the ${coveringLevel(projected)}`
-            : `add a condition at ${addedRolloutPercentage}% rollout`
+        const added = `add a condition at ${addedRolloutPercentage}% rollout`
+        return occurrence.rolloutUnchanged ? `${added}, no change from the ${coveringLevel(projected)}` : added
     }
     return `switch to ${pluralize(occurrence.projected.variantCount ?? 0, 'variant')}`
 }
@@ -89,7 +83,6 @@ function yForRollout(rollout: number): number {
     return MARGIN.top + ((100 - rollout) * PLOT_HEIGHT) / 100
 }
 
-/** Hover text for a mark: why it waits on approval, why its level holds, or both. */
 function markTitle(occurrence: ScheduleOccurrence): string {
     return [
         occurrence.needsApproval ? 'Needs approval' : '',
@@ -101,7 +94,6 @@ function markTitle(occurrence: ScheduleOccurrence): string {
         .join('. ')
 }
 
-/** Label above a step mark. Says when the level holds, or a flat line reads as a broken chart. */
 function stepLabel(occurrence: ScheduleOccurrence, rollout: number): string {
     const level = occurrence.rolloutUnchanged ? `still ${rollout}%` : `${rollout}%`
     return occurrence.needsApproval ? `${level} (needs approval)` : level

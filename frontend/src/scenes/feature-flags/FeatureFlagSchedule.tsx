@@ -491,8 +491,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
 
-    // Release condition sets are OR'd, and the sets that bucket on one identifier share a hash, so
-    // a condition at or below a rollout the flag already serves to everyone reaches nobody new.
+    // Release condition sets are OR'd. The sets that bucket on one identifier share a hash. A condition
+    // at or below a rollout the flag already serves to everyone therefore reaches nobody new.
     const scheduledAggregationTarget = sharedAggregationTarget(
         schedulePayload.filters?.groups,
         aggregationGroupTypeIndex
@@ -987,12 +987,11 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             </div>
                         )}
 
-                    {/* Warning when the added condition is already covered by what the flag serves */}
                     {conditionReachesNobodyNew && (
                         <LemonBanner type="warning">
-                            {/* These values move while the banner stays up, so each is its own element rather
-                                than a bare text node among siblings. A page-translation extension swaps such a node
-                                for a <font>, and React then writes the new value to the detached one. */}
+                            {/* These values move while the banner stays up. Each one is therefore its own element
+                                rather than a bare text node among siblings. A page-translation extension swaps such a
+                                node for a <font>. React then writes the new value to the detached node. */}
                             This flag already serves <span translate="no">{`${servedToEveryone}%`}</span> of all{' '}
                             <span>{aggregationLabel(scheduledAggregationTarget, true).plural}</span>, and release
                             conditions are combined with OR. A condition at{' '}
