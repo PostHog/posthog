@@ -699,6 +699,7 @@ the row lists both.
 | sevdesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sevenshifts                      | HTTP                        | requests                                                        | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
+| sharepoint                       | HTTP                        | requests                                                        | ✅                          |
 | shipmail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
 | shipstation                      | HTTP                        | requests                                                        | ✅                          |
@@ -1390,7 +1391,6 @@ doesn't conflict with concurrent PRs.
 - servicetitan
 - servicetrade
 - sevalla
-- sharepoint
 - sharetribe
 - shippo
 - shopware
