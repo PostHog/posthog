@@ -58,6 +58,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
+from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
@@ -3910,11 +3911,35 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         [
             ("sampling_rate_above_one", {"sampling_rate": 1.5}),
             ("sampling_rate_negative", {"sampling_rate": -0.1}),
+            (
+                "both_scope_shapes",
+                {"experiment": {"experiment_id": 1}, "experiment_targeting": {"experiment_id": 1, "variant": None}},
+            ),
+            ("empty_variant_list", {"experiment": {"experiment_id": 1, "variants": []}}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
+
+    def test_estimate_scopes_to_an_experiment_scanners_experiment(self) -> None:
+        # An experiment scanner keeps its experiment in its config, so the estimate has to take that
+        # shape, or an agent sizing one counts every session instead of the exposed ones.
+        experiment = create_experiment(self.team, "estimate-flag", launched=True, variants=["control", "test"])
+        scope = {"experiment_id": experiment.id, "variants": ["test"]}
+        with patch(
+            "products.replay_vision.backend.api.scanners.estimate_scanner_session_volume",
+            wraps=estimate_scanner_session_volume,
+        ) as estimate:
+            resp = self.client.post(self.estimate_url, data={"experiment": scope}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        exposure = estimate.call_args.kwargs["query"].experiment_exposure
+        self.assertEqual((exposure.experiment_id, exposure.variants), (experiment.id, ["test"]))
+
+        # A denied or unknown experiment reads the same, so its existence can't be probed.
+        resp = self.client.post(self.estimate_url, data={"experiment": {"experiment_id": 999_999}}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["attr"], "experiment")
 
     def test_estimate_counts_only_in_window_sessions(self) -> None:
         for index in range(3):
