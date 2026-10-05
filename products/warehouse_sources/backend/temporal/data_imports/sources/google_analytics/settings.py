@@ -95,6 +95,7 @@ GOOGLE_ANALYTICS_REPORT_SCHEMAS: dict[str, GoogleAnalyticsReportSchema] = {
             "screenPageViews",
             "sessions",
             "totalUsers",
+            "activeUsers",
             "averageSessionDuration",
             "bounceRate",
         ],
@@ -128,6 +129,7 @@ GOOGLE_ANALYTICS_REPORT_SCHEMAS: dict[str, GoogleAnalyticsReportSchema] = {
         "metrics": [
             "sessions",
             "totalUsers",
+            "activeUsers",
             "newUsers",
             "screenPageViews",
             "averageSessionDuration",
