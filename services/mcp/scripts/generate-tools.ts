@@ -87,6 +87,8 @@ interface OpenApiSchema {
 
 interface OpenApiOperation {
     operationId: string
+    /** Scopes the API requires, written by `posthog/api/documentation.py`. */
+    security?: Array<Record<string, string[]>>
     parameters?: OpenApiParam[]
     requestBody?: {
         content?: {
@@ -1686,6 +1688,80 @@ ${handlerBody}    },
 }
 
 // ------------------------------------------------------------------
+// Scope and annotation resolution
+// ------------------------------------------------------------------
+
+type ToolAnnotations = EnabledToolConfig['annotations']
+
+// Only methods whose behavior is the same for every endpoint get defaults.
+// POST and PUT vary too much (search vs. create vs. upsert), so authors declare them.
+const ANNOTATION_DEFAULTS_BY_METHOD: Record<string, ToolAnnotations> = {
+    GET: { readOnly: true, destructive: false, idempotent: true },
+    DELETE: { readOnly: false, destructive: true, idempotent: true },
+    PATCH: { readOnly: false, destructive: false, idempotent: true },
+}
+
+function getSpecScopes(operation: OpenApiOperation): string[] {
+    const scopes = new Set<string>()
+    for (const requirement of operation.security ?? []) {
+        for (const requirementScopes of Object.values(requirement)) {
+            for (const scope of requirementScopes) {
+                scopes.add(scope)
+            }
+        }
+    }
+    return [...scopes]
+}
+
+/** YAML `scopes` win. Without them, the scopes the API itself requires are used. */
+function resolveToolScopes(name: string, config: ToolConfig, resolved: ResolvedOperation): string[] {
+    if (config.scopes?.length) {
+        return config.scopes
+    }
+    const specScopes = getSpecScopes(resolved.operation)
+    if (specScopes.length === 0) {
+        throw new Error(
+            `Enabled tool "${name}" has no "scopes" and the OpenAPI spec lists none for "${resolved.operation.operationId}" ` +
+                `(the API computes them per request). Add "scopes" to the tool's YAML by hand.`
+        )
+    }
+    return specScopes
+}
+
+/** YAML `annotations` win. Without them, GET, DELETE and PATCH get fixed defaults. */
+function resolveToolAnnotations(name: string, config: ToolConfig, method: string): ToolAnnotations {
+    if (config.annotations) {
+        return config.annotations
+    }
+    const defaults = ANNOTATION_DEFAULTS_BY_METHOD[method]
+    if (!defaults) {
+        throw new Error(
+            `Enabled tool "${name}" is missing required "annotations". ` +
+                `${method} endpoints have no defaults, so declare readOnly, destructive and idempotent in the tool's YAML.`
+        )
+    }
+    return { ...defaults }
+}
+
+/** Scopes the API requires that the YAML list leaves out. Empty when the YAML has no list or the spec has none. */
+function findMissingSpecScopes(config: ToolConfig, resolved: ResolvedOperation): string[] {
+    if (!config.scopes?.length) {
+        return []
+    }
+    return getSpecScopes(resolved.operation).filter((scope) => !config.scopes?.includes(scope))
+}
+
+function reportMissingSpecScopes(name: string, yamlLabel: string, missingScopes: string[]): void {
+    const message =
+        `Tool "${name}" does not list the scope(s) the API requires: ${missingScopes.join(', ')}. ` +
+        `A token without them sees the tool and then gets a 403. Add them to "scopes" or drop "scopes" to use the API's.`
+    process.stdout.write(`WARNING ${yamlLabel}: ${message}\n`)
+    if (process.env.GITHUB_ACTIONS === 'true') {
+        process.stdout.write(`::warning file=${yamlLabel}::${message}\n`)
+    }
+}
+
+// ------------------------------------------------------------------
 // Generate a full category file
 // ------------------------------------------------------------------
 
@@ -1707,14 +1783,6 @@ function generateCategoryFile(
         if (!config.enabled) {
             continue
         }
-        if (!config.scopes?.length) {
-            console.error(`Enabled tool "${name}" is missing required "scopes"`)
-            process.exit(1)
-        }
-        if (!config.annotations) {
-            console.error(`Enabled tool "${name}" is missing required "annotations"`)
-            process.exit(1)
-        }
         const resolved = findOperation(spec, config.operation)
         if (!resolved) {
             console.error(
@@ -1723,7 +1791,24 @@ function generateCategoryFile(
             )
             process.exit(1)
         }
-        enabledTools.push([name, config as EnabledToolConfig, resolved])
+        const missingScopes = findMissingSpecScopes(config, resolved)
+        if (missingScopes.length > 0) {
+            reportMissingSpecScopes(name, fileName, missingScopes)
+        }
+        try {
+            enabledTools.push([
+                name,
+                {
+                    ...config,
+                    scopes: resolveToolScopes(name, config, resolved),
+                    annotations: resolveToolAnnotations(name, config, resolved.method),
+                },
+                resolved,
+            ])
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error))
+            process.exit(1)
+        }
     }
 
     // Collect enabled query wrappers from the optional wrappers section
@@ -2501,6 +2586,11 @@ export {
     generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
+    findMissingSpecScopes,
+    getSpecScopes,
+    reportMissingSpecScopes,
+    resolveToolAnnotations,
+    resolveToolScopes,
 }
 export type { OpenApiSpec, ResolvedOperation }
 
