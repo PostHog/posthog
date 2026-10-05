@@ -29,6 +29,9 @@ A heatmap editor with resource-level access can change the data URL of a toolbar
 Changing the captured page or its rendering settings still requires a new capture from the toolbar.
 Object-level editor access alone does not allow changing either URL.
 
+Saving again retries all configured page widths and creates a new heatmap.
+It does not add missing widths to an existing heatmap.
+
 ## Screenshot capture
 
 Saving a heatmap uses the browser's current page to capture screenshots at several widths.
