@@ -1049,6 +1049,7 @@ tools:
         param_overrides:
             limit:
                 default: 20
+                description: Page size, from 1 to 100. Defaults to 20.
         feature_flag: ai-observability-offline-evaluations
         response:
             informational_wrapper:
@@ -1094,6 +1095,7 @@ tools:
         param_overrides:
             limit:
                 default: 20
+                description: Page size, from 1 to 100. Defaults to 20.
         feature_flag: ai-observability-offline-evaluations
         response:
             informational_wrapper:
@@ -1120,6 +1122,7 @@ tools:
         param_overrides:
             limit:
                 default: 20
+                description: Page size, from 1 to 100. Defaults to 20.
         feature_flag: ai-observability-offline-evaluations
         response:
             informational_wrapper:
@@ -1188,6 +1191,7 @@ tools:
         param_overrides:
             limit:
                 default: 20
+                description: Page size, from 1 to 100. Defaults to 20.
         feature_flag: ai-observability-offline-evaluations
         response:
             informational_wrapper:
@@ -1238,6 +1242,7 @@ tools:
         param_overrides:
             limit:
                 default: 20
+                description: Page size, from 1 to 100. Defaults to 20.
         feature_flag: ai-observability-offline-evaluations
         response:
             informational_wrapper:

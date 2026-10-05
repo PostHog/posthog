@@ -5,6 +5,9 @@ application, local script, or CI job. They do not execute that evaluator. Never
 invent outputs or scores to fill a run. Use the REST API for bulk producer uploads;
 MCP is useful for small submissions and lifecycle operations.
 
+The `posthog:llma-offline-experiment-*` tools below exist only in projects where
+offline evaluations are enabled. If they are not in the tool list, stop and tell the user.
+
 ## Prepare stable identities
 
 Find or create a scorer with `posthog:llma-score-definition-list`,

@@ -16,6 +16,10 @@ PostHog. Their create/upload tools record results; they do not run code or call 
 For online Hog, LLM-judge, or sentiment evaluations on captured generations, use
 `exploring-llm-evaluations` instead.
 
+The `posthog:llma-offline-*` tools exist only in projects where offline evaluations
+are enabled. If they are not in the tool list, tell the user that offline evaluations
+are not enabled for the project and stop. Do not substitute online evaluation tools.
+
 ## Find the runs and establish a comparison
 
 Use `posthog:llma-offline-experiment-list` to find executions, then

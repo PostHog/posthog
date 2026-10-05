@@ -49,7 +49,7 @@
         },
         "limit": {
             "default": 20,
-            "description": "Page size, from 1 to 100. Defaults to 50.",
+            "description": "Page size, from 1 to 100. Defaults to 20.",
             "maximum": 100,
             "minimum": 1,
             "type": "number"

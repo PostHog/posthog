@@ -1707,7 +1707,12 @@ const LlmaOfflineExperimentItemListSchema = () => {
         orvalSchemas.AiObservabilityOfflineExperimentsItemsListQueryParams()
     return AiObservabilityOfflineExperimentsItemsListParams.omit({ project_id: true })
         .extend(AiObservabilityOfflineExperimentsItemsListQueryParams.shape)
-        .extend({ limit: AiObservabilityOfflineExperimentsItemsListQueryParams.shape['limit'].default(20).optional() })
+        .extend({
+            limit: AiObservabilityOfflineExperimentsItemsListQueryParams.shape['limit']
+                .default(20)
+                .optional()
+                .describe('Page size, from 1 to 100. Defaults to 20.'),
+        })
 }
 
 const llmaOfflineExperimentItemList = (): ToolBase<
@@ -1772,7 +1777,10 @@ const LlmaOfflineExperimentItemResultListSchema = () => {
     return AiObservabilityOfflineExperimentsItemsResultsListParams.omit({ project_id: true })
         .extend(AiObservabilityOfflineExperimentsItemsResultsListQueryParams.shape)
         .extend({
-            limit: AiObservabilityOfflineExperimentsItemsResultsListQueryParams.shape['limit'].default(20).optional(),
+            limit: AiObservabilityOfflineExperimentsItemsResultsListQueryParams.shape['limit']
+                .default(20)
+                .optional()
+                .describe('Page size, from 1 to 100. Defaults to 20.'),
         })
 }
 
@@ -1809,7 +1817,10 @@ const LlmaOfflineExperimentListSchema = () => {
     const AiObservabilityOfflineExperimentsListQueryParams =
         orvalSchemas.AiObservabilityOfflineExperimentsListQueryParams()
     return AiObservabilityOfflineExperimentsListQueryParams.extend({
-        limit: AiObservabilityOfflineExperimentsListQueryParams.shape['limit'].default(20).optional(),
+        limit: AiObservabilityOfflineExperimentsListQueryParams.shape['limit']
+            .default(20)
+            .optional()
+            .describe('Page size, from 1 to 100. Defaults to 20.'),
     })
 }
 
@@ -1924,7 +1935,8 @@ const LlmaOfflineExperimentScorerSummaryListSchema = () => {
         .extend({
             limit: AiObservabilityOfflineExperimentsScorerSummariesListQueryParams.shape['limit']
                 .default(20)
-                .optional(),
+                .optional()
+                .describe('Page size, from 1 to 100. Defaults to 20.'),
         })
 }
 
@@ -1997,7 +2009,12 @@ const LlmaOfflineScorerHistorySchema = () => {
         orvalSchemas.AiObservabilityOfflineScorersHistoryListQueryParams()
     return AiObservabilityOfflineScorersHistoryListParams.omit({ project_id: true })
         .extend(AiObservabilityOfflineScorersHistoryListQueryParams.shape)
-        .extend({ limit: AiObservabilityOfflineScorersHistoryListQueryParams.shape['limit'].default(20).optional() })
+        .extend({
+            limit: AiObservabilityOfflineScorersHistoryListQueryParams.shape['limit']
+                .default(20)
+                .optional()
+                .describe('Page size, from 1 to 100. Defaults to 20.'),
+        })
 }
 
 const llmaOfflineScorerHistory = (): ToolBase<
