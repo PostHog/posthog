@@ -93,6 +93,17 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
 }
 
+const AI_DECISION_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'AI decision (Jeeeeeeeeev)',
+    description: 'Ask Jev to pick one of your options. Branch on the decision with a conditional branch.',
+    config: { template_id: 'template-posthog-ai-decision', inputs: {} },
+    output_variable: [
+        { key: 'ai_decision', result_path: 'decision', label: 'AI decision' },
+        { key: 'ai_decision_confidence', result_path: 'confidence', label: 'AI decision confidence' },
+    ],
+}
+
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'delay',
@@ -411,6 +422,18 @@ export function HogFlowEditorPanelBuild({
                             </span>
                         </HogFlowEditorToolbarNode>
                     )}
+                {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_DECISION_ACTION] && (
+                    <HogFlowEditorToolbarNode
+                        key="ai-decision"
+                        action={AI_DECISION_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    >
+                        <span className="inline-flex items-center gap-1.5">
+                            {AI_DECISION_ACTION_NODE.name}
+                            <LemonTag type="completion">Beta</LemonTag>
+                        </span>
+                    </HogFlowEditorToolbarNode>
+                )}
                 <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
             </HogFlowEditorToolbarSection>
 
