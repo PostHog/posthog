@@ -15,6 +15,7 @@
 //! the failure decision stays in the consumer loop.
 
 pub mod key_queues;
+pub mod packer;
 pub mod request_class;
 #[cfg(test)]
 pub(crate) mod test_support;
