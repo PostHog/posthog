@@ -25,6 +25,7 @@ export const SECTIONS = [
     { id: 'toolbar-size', title: 'Toolbar bundle' },
     { id: 'dist-size', title: 'Dist folder size' },
     { id: 'mcp-ui-apps', title: 'MCP UI apps size' },
+    { id: 'mcp-agent-api', title: 'MCP agent API' },
     { id: 'playwright', title: 'Playwright' },
     { id: 'storybook-snapshots', title: 'Storybook snapshots' },
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
