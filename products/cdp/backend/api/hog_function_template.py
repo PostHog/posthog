@@ -1,4 +1,6 @@
+from collections.abc import Sequence
 from functools import cached_property
+from typing import Any
 
 from django.db.models import Count, QuerySet
 
@@ -8,6 +10,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, hidden_gated_template_ids
@@ -165,6 +168,26 @@ class PublicHogFunctionTemplateViewSet(
 
         return queryset
 
+    def _template_ids_by_popularity(self, queryset: QuerySet) -> list[str]:
+        template_usage = (
+            HogFunction.objects.filter(deleted=False, enabled=True, template_id__in=queryset.values("template_id"))
+            .values("template_id")
+            .annotate(count=Count("template_id"))
+        )
+        popularity = {item["template_id"]: item["count"] for item in template_usage}
+
+        templates = list(queryset.values_list("template_id", "name"))
+        # template_id is the final tie-breaker, so templates with the same usage and name keep one order.
+        templates.sort(key=lambda template: (-popularity.get(template[0], 0), template[1].lower(), template[0]))
+
+        return [template_id for template_id, _ in templates]
+
+    def _serialize_in_order(self, queryset: QuerySet, template_ids: Sequence[str]) -> Any:
+        templates = {template.template_id: template for template in queryset.filter(template_id__in=template_ids)}
+        ordered = [templates[template_id] for template_id in template_ids if template_id in templates]
+
+        return self.get_serializer(ordered, many=True).data
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -185,27 +208,14 @@ class PublicHogFunctionTemplateViewSet(
         ]
     )
     def list(self, request: Request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
+        queryset = self.filter_queryset(self.get_queryset())
+        # The catalog can be bigger than one page, so the full result set is ordered before it is
+        # paginated. An unordered queryset lets the database pick the page boundaries, which can
+        # drop a template from every page or repeat it on two of them.
+        ordered_template_ids = self._template_ids_by_popularity(queryset)
 
-        # Load the counts of usage for these templates and re-order the results by usage
-        results = response.data["results"]
-        template_ids = [result["id"] for result in results]
+        page_template_ids = self.paginate_queryset(ordered_template_ids)
+        if page_template_ids is None:
+            return Response(self._serialize_in_order(queryset, ordered_template_ids))
 
-        template_usage = (
-            HogFunction.objects.filter(deleted=False, enabled=True, template_id__in=template_ids)
-            .values("template_id")
-            .annotate(count=Count("template_id"))
-            .order_by("-count")[:500]
-        )
-
-        popularity_dict = {item["template_id"]: item["count"] for item in template_usage}
-
-        for result in results:
-            if result["id"] not in popularity_dict:
-                popularity_dict[result["id"]] = 0
-
-        results.sort(key=lambda template: (-popularity_dict[template["id"]], template["name"].lower()))
-
-        response.data["results"] = results
-
-        return response
+        return self.get_paginated_response(self._serialize_in_order(queryset, page_template_ids))
