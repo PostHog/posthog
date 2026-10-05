@@ -46,7 +46,7 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
         max_length=2000,
         help_text="What to decide about the context, for example 'Which team should handle this ticket?'",
     )
-    context = serializers.JSONField(
+    context = serializers.JSONField(  # type: ignore[assignment]  # The field name shadows DRF Field.context.
         help_text=f"The data to classify, such as ticket fields or event properties. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON."
     )
     categories = serializers.DictField(
