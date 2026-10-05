@@ -145,6 +145,17 @@ TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE = (
 )
 
 
+# TikTok's 40001 wording for a token issued without a scope one endpoint needs. Its own text tells an
+# app developer to reauthorize their API app, which a customer can't act on and which names the
+# endpoint and error code. Reconnecting issues a new token with the scopes PostHog's app holds.
+TIKTOK_MISSING_SCOPE_FRAGMENT = "The access token lacks the required scope"
+
+TIKTOK_MISSING_SCOPE_MESSAGE = (
+    "TikTok denied access to this table because your connection is missing a permission. Reconnect "
+    "your TikTok Ads integration and approve every permission TikTok asks for."
+)
+
+
 class TikTokAdsAPIError(Exception):
     """A TikTok API failure, carrying the body `code` as `api_code` so callers can branch on it: the
     pipeline retries all of these, while the account-listing endpoint maps the auth and transient

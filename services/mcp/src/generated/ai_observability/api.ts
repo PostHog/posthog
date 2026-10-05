@@ -2094,6 +2094,8 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax
 
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
@@ -2147,6 +2149,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -2155,8 +2178,33 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -2203,11 +2251,21 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.obje
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax)
+        .optional()
+        .describe('Updated scorer name, saved with this version.'),
+    description: zod.string().nullish().describe('Updated scorer description, saved with this version.'),
     config: zod
         .union([
             zod.object({
@@ -2248,6 +2306,27 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -2256,8 +2335,33 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -2306,6 +2410,7 @@ export const LlmAnalyticsSummarizationCreateParams = () => zod.object({
 
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
+export const llmAnalyticsSummarizationCreateBodyCompactContextDefault = false
 
 export const LlmAnalyticsSummarizationCreateBody = () => zod.object({
     summarize_type: zod
@@ -2332,6 +2437,12 @@ export const LlmAnalyticsSummarizationCreateBody = () => zod.object({
         .boolean()
         .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
         .describe('Force regenerate summary, bypassing cache'),
+    compact_context: zod
+        .boolean()
+        .default(llmAnalyticsSummarizationCreateBodyCompactContextDefault)
+        .describe(
+            'Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title.'
+        ),
     model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
     trace_id: zod
         .string()

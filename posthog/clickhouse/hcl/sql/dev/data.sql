@@ -641,6 +641,7 @@ CREATE TABLE posthog.platform_alert_events (
   consecutive_failures UInt32,
   muted_notification LowCardinality(String),
   occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
   expires_at Date DEFAULT today() + toIntervalDay(90)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.plugin_log_entries (

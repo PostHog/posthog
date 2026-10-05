@@ -83,6 +83,7 @@ export function reportSource(report: Pick<SignalReport, 'source_products'>): Tod
 export function teamReportCard(report: SignalReport): TodayReportCard {
     return {
         key: `team-report:${report.id}`,
+        reportId: report.id,
         title: reportTitle(report),
         reason: null,
         stateLabel: null,
