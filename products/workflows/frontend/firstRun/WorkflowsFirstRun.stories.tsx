@@ -52,7 +52,10 @@ function projectThatSends(seenEvents: string[]): Parameters<typeof mswDecorator>
             '/api/projects/:team_id/event_definitions/': ({ request }) => {
                 const names = new URL(request.url).searchParams.get('names')?.split(',') ?? []
                 const seen = names.filter((name) => seenEvents.includes(name))
-                return [200, toPaginatedResponse(seen.map((name) => ({ id: name, name })))]
+                return [
+                    200,
+                    toPaginatedResponse(seen.map((name) => ({ id: name, name, last_seen_at: '2026-10-01T00:00:00Z' }))),
+                ]
             },
         },
     }

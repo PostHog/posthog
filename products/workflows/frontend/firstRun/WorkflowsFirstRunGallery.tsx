@@ -22,7 +22,9 @@ export function WorkflowsFirstRunGallery(): JSX.Element {
             <div className="flex flex-col gap-1">
                 <h2 className="text-xl font-semibold mb-0">Start with an email template</h2>
                 <p className="mb-0 text-secondary">
-                    Templates your app's events can start today come first. Pick one to make it yours.
+                    {galleryTemplates !== null && readyTemplates.length === 0
+                        ? 'Your app does not send the events these templates start on yet. Each card says what it needs.'
+                        : "Templates your app's events can start today come first. Pick one to make it yours."}
                 </p>
             </div>
             {galleryTemplates === null ? (

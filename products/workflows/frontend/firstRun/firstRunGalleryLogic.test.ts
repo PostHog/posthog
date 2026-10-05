@@ -39,26 +39,40 @@ describe('firstRunGalleryLogic', () => {
     let logic: ReturnType<typeof firstRunGalleryLogic.build>
     let requestedEventNames: string[][]
     let seenEvents: string[]
+    let plannedEvents: string[]
 
     beforeEach(() => {
         requestedEventNames = []
         seenEvents = []
+        plannedEvents = []
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flow_templates/': { count: TEMPLATES.length, results: TEMPLATES },
                 '/api/projects/:team_id/event_definitions/': ({ request }) => {
                     const names = new URL(request.url).searchParams.get('names')?.split(',') ?? []
                     requestedEventNames.push(names)
-                    const seen = names.filter((name) => seenEvents.includes(name))
-                    return [200, { count: seen.length, results: seen.map((name) => ({ id: name, name })) }]
+                    const definitions = names
+                        .filter((name) => seenEvents.includes(name) || plannedEvents.includes(name))
+                        .map((name) => ({
+                            id: name,
+                            name,
+                            last_seen_at: seenEvents.includes(name) ? '2026-10-01T00:00:00Z' : null,
+                        }))
+                        .reverse()
+                    return [200, { count: definitions.length, results: definitions }]
                 },
             },
         })
         initKeaTests()
     })
 
-    async function openGallery(project: { seenEvents: string[]; ingestedEvent: boolean }): Promise<void> {
+    async function openGallery(project: {
+        seenEvents: string[]
+        plannedEvents?: string[]
+        ingestedEvent: boolean
+    }): Promise<void> {
         seenEvents = project.seenEvents
+        plannedEvents = project.plannedEvents ?? []
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: project.ingestedEvent })
         logic = firstRunGalleryLogic()
         logic.mount()
@@ -92,6 +106,34 @@ describe('firstRunGalleryLogic', () => {
             all: ['onboarding', 're-engagement', 'unused-features', 'trial', WELCOME],
         },
         {
+            project: 'that sends several signup events',
+            seenEvents: ['sign_up', 'user signed up'],
+            ingestedEvent: true,
+            recommended: WELCOME,
+            welcomeMatchedEvent: 'user signed up',
+            picked: [WELCOME, 'unused-features'],
+            all: [WELCOME, 'unused-features', 'onboarding', 'trial', 're-engagement'],
+        },
+        {
+            project: 'that only planned a signup event and sends pageviews',
+            seenEvents: ['$pageview'],
+            plannedEvents: ['signed_up'],
+            ingestedEvent: true,
+            recommended: 'onboarding',
+            welcomeMatchedEvent: null,
+            picked: ['onboarding', 're-engagement', 'unused-features'],
+            all: ['onboarding', 're-engagement', 'unused-features', 'trial', WELCOME],
+        },
+        {
+            project: 'that sends only events no template starts on',
+            seenEvents: [],
+            ingestedEvent: true,
+            recommended: 'unused-features',
+            welcomeMatchedEvent: null,
+            picked: ['unused-features'],
+            all: ['unused-features', 'onboarding', 'trial', WELCOME, 're-engagement'],
+        },
+        {
             project: 'that sends no events',
             seenEvents: [],
             ingestedEvent: false,
@@ -102,8 +144,8 @@ describe('firstRunGalleryLogic', () => {
         },
     ])(
         'tailors the gallery to a project $project',
-        async ({ seenEvents, ingestedEvent, recommended, welcomeMatchedEvent, picked, all }) => {
-            await openGallery({ seenEvents, ingestedEvent })
+        async ({ recommended, welcomeMatchedEvent, picked, all, ...project }) => {
+            await openGallery(project)
 
             expect(logic.values.recommendedStarter?.templateId ?? null).toEqual(recommended)
             expect(

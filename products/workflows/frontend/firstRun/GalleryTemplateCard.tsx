@@ -1,15 +1,12 @@
 import { useActions } from 'kea'
 
-import { IconBolt, IconClock, IconStarFilled, IconWarning } from '@posthog/icons'
+import { IconStarFilled, IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
-
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { WorkflowTemplateCard } from '../Workflows/templates/WorkflowTemplateCard'
 import { WorkflowTemplateSteps } from '../Workflows/templates/WorkflowTemplateSteps'
 import { firstRunGalleryLogic, GalleryTemplate } from './firstRunGalleryLogic'
+import { TemplateStartsOnLine } from './TemplateStartsOnLine'
 
 export function GalleryTemplateCard({
     galleryTemplate,
@@ -19,7 +16,7 @@ export function GalleryTemplateCard({
     recommendedBecause?: string
 }): JSX.Element {
     const { pickTemplate } = useActions(firstRunGalleryLogic)
-    const { template, ready } = galleryTemplate
+    const { template, startsOn, ready } = galleryTemplate
 
     return (
         <WorkflowTemplateCard
@@ -35,6 +32,7 @@ export function GalleryTemplateCard({
             }
             preview={
                 <div className="flex flex-col gap-3 w-full">
+                    {recommendedBecause && <span className="text-sm font-medium">{recommendedBecause}</span>}
                     {template.image_url && (
                         <img
                             src={template.image_url}
@@ -47,61 +45,19 @@ export function GalleryTemplateCard({
             }
             footer={
                 <div className="flex flex-col gap-1 text-xs">
-                    {recommendedBecause && <span className="font-medium">{recommendedBecause}</span>}
-                    <StartsOnLine galleryTemplate={galleryTemplate} />
-                    {!ready && <StillNeedsLine galleryTemplate={galleryTemplate} />}
+                    <TemplateStartsOnLine galleryTemplate={galleryTemplate} />
+                    {!ready && (
+                        <span className="flex items-center gap-1 text-warning">
+                            <IconWarning className="shrink-0" />
+                            {startsOn.kind === 'schedule'
+                                ? 'Your app does not send any events yet'
+                                : 'Your app does not send this event yet'}
+                        </span>
+                    )}
                 </div>
             }
             onClick={() => pickTemplate(template.id)}
             data-attr={recommendedBecause ? 'first-run-recommended-template' : 'first-run-template'}
         />
-    )
-}
-
-function StartsOnLine({ galleryTemplate }: { galleryTemplate: GalleryTemplate }): JSX.Element {
-    const { startsOn, matchedEvent } = galleryTemplate
-    const event = matchedEvent ?? startsOn.events[0]
-
-    if (startsOn.kind === 'schedule') {
-        return (
-            <span className="flex items-center gap-1 text-accent">
-                <IconClock className="shrink-0" />
-                {capitalizeFirstLetter(startsOn.detail)}
-            </span>
-        )
-    }
-    return (
-        <span className="flex flex-wrap items-center gap-1 text-accent">
-            {startsOn.kind === 'event' ? <IconBolt className="shrink-0" /> : <IconClock className="shrink-0" />}
-            {startsOn.kind === 'no_event' && <span>No</span>}
-            <EventChip event={event} />
-            {startsOn.detail && <span>{startsOn.detail}</span>}
-        </span>
-    )
-}
-
-function StillNeedsLine({ galleryTemplate }: { galleryTemplate: GalleryTemplate }): JSX.Element {
-    const { startsOn } = galleryTemplate
-    return (
-        <span className="flex flex-wrap items-center gap-1 text-warning">
-            <IconWarning className="shrink-0" />
-            {startsOn.kind === 'schedule' ? (
-                <span>Your app does not send any events yet</span>
-            ) : (
-                <>
-                    <span>Your app does not send</span>
-                    <EventChip event={startsOn.events[0]} />
-                    <span>yet</span>
-                </>
-            )}
-        </span>
-    )
-}
-
-function EventChip({ event }: { event: string }): JSX.Element {
-    return (
-        <LemonTag size="small" className="max-w-full">
-            <PropertyKeyInfo value={event} type={TaxonomicFilterGroupType.Events} disablePopover ellipsis />
-        </LemonTag>
     )
 }
