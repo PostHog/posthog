@@ -103,7 +103,7 @@ export interface spaceFeedSelectionLogicActions {
     } // spaceFeedViewLogic
     loadSessions: () => any // spaceSceneLogic
     loadPinnedTasks: () => any // todaySpacesLogic
-    loadRecentTasks: () => any // todaySpacesLogic
+    loadRecentTasks: (_: void) => void // todaySpacesLogic
     archiveSelected: () => {
         value: true
     }

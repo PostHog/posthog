@@ -2,7 +2,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_RECENT_FILTERS, TodayRecentFilters } from './todayRecentFilters'
-import { todaySpacesLogic } from './todaySpacesLogic'
+import { recentRefreshIsDue, todaySpacesLogic } from './todaySpacesLogic'
 
 const SAVED_FILTERS_KEY = 'layout.today.todaySpacesLogic.recentFilters'
 
@@ -34,5 +34,16 @@ describe('todaySpacesLogic', () => {
 
         expect(logic.values.recentFilters).toEqual({ ...DEFAULT_RECENT_FILTERS, ...expected })
         expect(logic.values.recentFiltersActive).toBe(active)
+    })
+
+    it.each<[string, number | undefined, boolean]>([
+        ['a rail that has never loaded refreshes', undefined, true],
+        ['a return moments later keeps what it has', 14_000, false],
+        ['a return once the cooldown passes refreshes', 15_000, true],
+    ])('holds a flick between tabs to one Recent request: %s', (_, sinceLastLoad, due) => {
+        const now = 1_000_000
+        const loadedAt = sinceLastLoad === undefined ? undefined : now - sinceLastLoad
+
+        expect(recentRefreshIsDue(loadedAt, now)).toBe(due)
     })
 })
