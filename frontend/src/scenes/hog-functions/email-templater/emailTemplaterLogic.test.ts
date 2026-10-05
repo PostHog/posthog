@@ -1,6 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -50,6 +54,43 @@ describe('emailTemplaterLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.useRealTimers()
+    })
+
+    describe('sender picker', () => {
+        const OWN_SENDER = { id: 5, kind: 'email', display_name: 'Acme <hello@acme.example.com>', config: {} }
+        const SANDBOX_SENDER = {
+            id: 7,
+            kind: 'email',
+            display_name: 'Acme via PostHog <sandbox@example.com>',
+            config: { provider: 'sandbox', verified: true },
+        }
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([
+            { surface: 'a workflow email step', sandboxSenderAllowed: true, flag: true, expectedIds: [5, 7] },
+            {
+                surface: 'a workflow email step with the flag off',
+                sandboxSenderAllowed: true,
+                flag: false,
+                expectedIds: [5],
+            },
+            { surface: 'a broadcast or destination', sandboxSenderAllowed: false, flag: true, expectedIds: [5] },
+        ])('lists the sandbox sender last only on $surface', async ({ sandboxSenderAllowed, flag, expectedIds }) => {
+            if (flag) {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                    [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+                })
+            }
+            useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [SANDBOX_SENDER, OWN_SENDER] } } })
+            logic = emailTemplaterLogic(makeProps({ sandboxSenderAllowed }))
+            logic.mount()
+
+            await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+            expect(logic.values.senderIntegrations.map((integration) => integration.id)).toEqual(expectedIds)
+        })
     })
 
     describe('advanced fields', () => {

@@ -1,6 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -133,6 +136,144 @@ describe('messageTemplateTestSendLogic', () => {
         expect(mockToast.error).not.toHaveBeenCalled()
         expect(logic.values.isModalOpen).toBe(true)
         expect(logic.values.testSendResult?.status).toBe('skipped')
+        expect(logic.values.testSendSkipMessage).toBe('Recipient has opted out.')
+    })
+
+    describe('sandbox sender', () => {
+        const SANDBOX_SENDER = {
+            id: 7,
+            kind: 'email',
+            display_name: 'Acme via PostHog <sandbox@example.com>',
+            config: { provider: 'sandbox', name: 'Acme via PostHog', email: 'sandbox@example.com', verified: true },
+        }
+        const UNVERIFIED_OWN_SENDER = {
+            id: 4,
+            kind: 'email',
+            display_name: 'Unverified sender <unverified@example.com>',
+            config: { verified: false },
+        }
+        const VERIFIED_OWN_SENDER = {
+            id: 5,
+            kind: 'email',
+            display_name: 'Sender <sender@example.com>',
+            config: { verified: true },
+        }
+        let ensureCalls: number
+        let integrationsPayload: Record<string, any>[]
+
+        const loadIntegrations = async (integrations: Record<string, any>[]): Promise<void> => {
+            integrationsPayload = integrations
+            await expectLogic(integrationsLogic, () => {
+                integrationsLogic.actions.loadIntegrations()
+            }).toDispatchActions(['loadIntegrationsSuccess'])
+        }
+
+        beforeEach(() => {
+            ensureCalls = 0
+            integrationsPayload = []
+            useMocks({
+                get: { '/api/projects/:team_id/integrations/': () => [200, { results: integrationsPayload }] },
+                post: {
+                    '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
+                        ensureCalls += 1
+                        return [200, SANDBOX_SENDER]
+                    },
+                },
+            })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([
+            {
+                description: 'preselects the sandbox sender when the project has no verified own sender',
+                integrations: [UNVERIFIED_OWN_SENDER, SANDBOX_SENDER],
+                expectedSenderId: 7,
+                expectedSenderIds: [7],
+            },
+            {
+                description: 'prefers a verified own sender and lists the sandbox sender last',
+                integrations: [SANDBOX_SENDER, VERIFIED_OWN_SENDER],
+                expectedSenderId: 5,
+                expectedSenderIds: [5, 7],
+            },
+        ])('$description', async ({ integrations, expectedSenderId, expectedSenderIds }) => {
+            await loadIntegrations(integrations)
+
+            await expectLogic(logic).toMatchValues({ senderIntegrationId: expectedSenderId })
+            expect(logic.values.emailIntegrations.map((integration) => integration.id)).toEqual(expectedSenderIds)
+        })
+
+        it('lists the sandbox sender only while the flag is on', async () => {
+            await loadIntegrations([SANDBOX_SENDER])
+            await expectLogic(logic).toMatchValues({ senderIntegrationId: 7 })
+
+            featureFlagLogic.actions.setFeatureFlags([], {})
+
+            await expectLogic(logic).toMatchValues({ senderIntegrationId: null, emailIntegrations: [] })
+        })
+
+        it.each([
+            { flagState: 'on', flag: true, expectedCalls: 1 },
+            { flagState: 'off', flag: false, expectedCalls: 0 },
+        ])(
+            'opening the modal creates a missing sandbox sender with the flag $flagState',
+            async ({ flag, expectedCalls }) => {
+                if (!flag) {
+                    featureFlagLogic.actions.setFeatureFlags([], {})
+                }
+                await loadIntegrations([UNVERIFIED_OWN_SENDER])
+
+                await expectLogic(logic, () => {
+                    logic.actions.setModalOpen(true)
+                }).toFinishAllListeners()
+                await expectLogic(integrationsLogic).toFinishAllListeners()
+
+                expect(ensureCalls).toBe(expectedCalls)
+            }
+        )
+
+        it('warns about a recipient outside the organization and blocks the send while the sandbox sender is selected', async () => {
+            await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
+            templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+                logic.actions.setSenderIntegrationId(7)
+                logic.actions.setRecipientEmail('outsider@example.com')
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({
+                    recipientOutsideOrganization: true,
+                    sendDisabledReason: 'The sandbox sender only delivers to members of your organization',
+                    recipientSuggestions: expect.arrayContaining(['rose.dawson@posthog.com']),
+                })
+
+            logic.actions.setRecipientEmail('Rose.Dawson@posthog.com')
+            await expectLogic(logic).toMatchValues({
+                recipientOutsideOrganization: false,
+                sendDisabledReason: undefined,
+            })
+
+            logic.actions.setRecipientEmail('outsider@example.com')
+            logic.actions.setSenderIntegrationId(5)
+            await expectLogic(logic).toMatchValues({
+                recipientOutsideOrganization: false,
+                sendDisabledReason: undefined,
+            })
+        })
+
+        it('does not warn before the member list has loaded', async () => {
+            await loadIntegrations([SANDBOX_SENDER])
+            logic.actions.setRecipientEmail('outsider@example.com')
+
+            await expectLogic(logic).toMatchValues({ recipientOutsideOrganization: false })
+        })
     })
 
     it('keeps the modal open and surfaces the error when the send fails', async () => {
