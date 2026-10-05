@@ -17,6 +17,7 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.person import Person
 from posthog.models.person.divergence import (
     DivergentPerson,
+    MappingDivergenceKind,
     PersonDivergenceKind,
     PersonRef,
     RepairAction,
@@ -27,6 +28,7 @@ from posthog.models.person.divergence import (
     scan_stale_persons,
     scan_swept_persons,
 )
+from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
     tombstone_persons_in_postgres,
@@ -72,6 +74,26 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             is_deleted=deleted,
             properties=CH_PROPERTIES,
             timestamp=now() - timedelta(hours=hours_ago),
+        )
+
+    def _ch_mapping_row(
+        self, distinct_id: str, person_uuid: UUID | str, version: int, *, deleted: bool = False, hours_ago: float = 0
+    ) -> None:
+        sync_execute(
+            BULK_INSERT_PERSON_DISTINCT_ID2,
+            [
+                {
+                    "distinct_id": distinct_id,
+                    "person_id": str(person_uuid),
+                    "team_id": self.team.pk,
+                    "is_deleted": int(deleted),
+                    "version": version,
+                    "_timestamp": _utc_naive(hours_ago),
+                    "_offset": 0,
+                    "_partition": 0,
+                }
+            ],
+            flush=False,
         )
 
     def _stop_person_merges(self) -> None:
@@ -121,10 +143,26 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         )
         return int(deleted), int(version), json.loads(properties)
 
+    def _ch_mapping(self, distinct_id: str) -> tuple[str, int, int]:
+        [[person_uuid, deleted, version]] = sync_execute(
+            """
+            SELECT toString(argMax(person_id, version)), argMax(is_deleted, version), max(version)
+            FROM person_distinct_id2 WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+            """,
+            {"team_id": self.team.pk, "distinct_id": distinct_id},
+        )
+        return person_uuid, int(deleted), int(version)
+
     def _pg_version(self, person: Person) -> int:
         stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
         assert stored is not None
         return stored.version
+
+    def _pg_mapping_versions(self, person: Person) -> dict[str, int]:
+        response = get_active_fake().get_distinct_ids_for_persons(
+            person_pb2.GetDistinctIdsForPersonsRequest(team_id=self.team.pk, person_ids=[person.pk])
+        )
+        return {d.distinct_id: d.version for pd in response.person_distinct_ids for d in pd.distinct_ids}
 
     def _repair(self, *person_uuids: UUID | str, apply: bool = True) -> tuple[RepairSummary, list[RepairAction]]:
         actions: list[RepairAction] = []
@@ -141,7 +179,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         person_uuid: UUID | str,
         outcome: RepairOutcome,
         *,
-        kind: PersonDivergenceKind | None = None,
+        distinct_id: str | None = None,
+        kind: PersonDivergenceKind | MappingDivergenceKind | None = None,
         pg_version: int | None = None,
         ch_max_version: int | None = None,
         target_version: int | None = None,
@@ -149,6 +188,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         return RepairAction(
             team_id=self.team.pk,
             person_uuid=str(person_uuid),
+            distinct_id=distinct_id,
             kind=kind,
             pg_version=pg_version,
             ch_max_version=ch_max_version,
@@ -288,37 +328,50 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert self._ch_person(person.uuid) == (0, target_version, PG_PROPERTIES)
 
     @parameterized.expand([("dry_run", False), ("apply", True)])
-    def test_repairs_a_hidden_person_only_when_applied(self, _name: str, apply: bool) -> None:
-        person = self._pg_person(version=3)
+    def test_repairs_a_hidden_person_and_its_hidden_mapping_only_when_applied(self, _name: str, apply: bool) -> None:
+        person = self._pg_person(version=3, distinct_ids={"hidden-did": 0})
         self._ch_person_row(person.uuid, 3)
         self._ch_person_row(person.uuid, 103, deleted=True)
+        self._ch_mapping_row("hidden-did", person.uuid, 0)
+        self._ch_mapping_row("hidden-did", person.uuid, 100, deleted=True)
 
         summary, actions = self._repair(person.uuid, apply=apply)
 
         outcome: RepairOutcome = "repaired" if apply else "would_repair"
         assert actions == [
             self._action(person.uuid, outcome, kind="hidden", pg_version=3, ch_max_version=103, target_version=104),
+            self._action(
+                person.uuid,
+                outcome,
+                distinct_id="hidden-did",
+                kind="hidden",
+                pg_version=0,
+                ch_max_version=100,
+                target_version=101,
+            ),
         ]
         assert summary.applied is apply
         if apply:
-            assert self._pg_version(person) == 104
+            assert (self._pg_version(person), self._pg_mapping_versions(person)) == (104, {"hidden-did": 101})
             assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
+            assert self._ch_mapping("hidden-did") == (str(person.uuid), 0, 101)
         else:
             get_active_fake().assert_not_called("set_person_version_floor")
-            assert self._pg_version(person) == 3
+            get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+            assert (self._pg_version(person), self._pg_mapping_versions(person)) == (3, {"hidden-did": 0})
             assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
+            assert self._ch_mapping("hidden-did") == (str(person.uuid), 1, 100)
 
     @parameterized.expand([("dry_run", False, []), ("apply", True, [1.0])])
     def test_throttles_on_each_divergent_row_written(self, _name: str, apply: bool, sleeps: list[float]) -> None:
-        person = self._pg_person(version=3)
+        person = self._pg_person(version=3, distinct_ids={"throttled-did": 0})
         self._ch_person_row(person.uuid, 103, deleted=True)
-        other = self._pg_person(version=3)
-        self._ch_person_row(other.uuid, 103, deleted=True)
+        self._ch_mapping_row("throttled-did", person.uuid, 100, deleted=True)
 
         with patch("posthog.models.person.divergence.time") as clock:
             clock.monotonic.return_value = 0.0
             repair_persons(
-                [PersonRef(team_id=self.team.pk, person_uuid=str(p.uuid)) for p in (person, other)],
+                [PersonRef(team_id=self.team.pk, person_uuid=str(person.uuid))],
                 apply=apply,
                 max_writes_per_second=1,
                 on_action=lambda _: None,
@@ -361,8 +414,9 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
     def _skipped_person(self, case: str) -> UUID:
         if case == "in_sync":
-            person = self._pg_person(version=3)
+            person = self._pg_person(version=3, distinct_ids={"steady": 2})
             self._ch_person_row(person.uuid, 3)
+            self._ch_mapping_row("steady", person.uuid, 1)
             return person.uuid
         if case == "tombstoned_in_postgres":
             person = self._pg_person(version=3)
@@ -375,7 +429,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("in_sync", ["skipped_not_divergent"]),
+            ("in_sync", ["skipped_not_divergent", "skipped_not_divergent"]),
             ("tombstoned_in_postgres", ["skipped_not_live"]),
             ("absent_from_postgres", ["skipped_not_live"]),
         ]
@@ -390,11 +444,13 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
         assert [a.outcome for a in actions] == outcomes
         get_active_fake().assert_not_called("set_person_version_floor")
+        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
         assert self._ch_person(person_uuid) == before
 
     def test_skips_a_person_the_primary_tombstoned_while_the_replica_still_shows_it_live(self) -> None:
-        person = self._pg_person(version=3)
+        person = self._pg_person(version=3, distinct_ids={"lagging-did": 0})
         self._ch_person_row(person.uuid, 103, deleted=True)
+        self._ch_mapping_row("lagging-did", person.uuid, 100, deleted=True)
         fake = get_active_fake()
         replica_view = person_pb2.Person()
         stored = fake.stored_person(self.team.pk, str(person.uuid))
@@ -407,8 +463,74 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         ):
             _, actions = self._repair(person.uuid)
 
-        assert [a.outcome for a in actions] == ["skipped_tombstoned"]
+        assert [(a.distinct_id, a.outcome) for a in actions] == [
+            (None, "skipped_tombstoned"),
+            ("lagging-did", "skipped_tombstoned"),
+        ]
         assert self._ch_person(person.uuid)[:2] == (1, 103)
+        assert self._ch_mapping("lagging-did") == (str(person.uuid), 1, 100)
+
+    @parameterized.expand(
+        [
+            ("winner_deleted", "self", True, 100, "hidden", 101),
+            ("winner_is_another_person", "other", False, 7, "other_person", 8),
+            ("winner_is_another_person_below_postgres", "other", False, 1, "other_person", 2),
+            ("absent_from_clickhouse", None, False, None, "absent", 2),
+        ]
+    )
+    def test_republishes_a_divergent_mapping_for_its_postgres_owner(
+        self,
+        _name: str,
+        ch_owner: str | None,
+        ch_deleted: bool,
+        ch_version: int | None,
+        kind: MappingDivergenceKind,
+        target_version: int,
+    ) -> None:
+        person = self._pg_person(version=3, distinct_ids={"divergent": 2, "steady": 0})
+        self._ch_person_row(person.uuid, 3)
+        self._ch_mapping_row("steady", person.uuid, 0)
+        if ch_owner is not None and ch_version is not None:
+            owner = person.uuid if ch_owner == "self" else uuid4()
+            self._ch_mapping_row("divergent", owner, ch_version, deleted=ch_deleted)
+
+        _, actions = self._repair(person.uuid)
+
+        assert actions == [
+            self._action(person.uuid, "skipped_not_divergent", pg_version=3, ch_max_version=3),
+            self._action(person.uuid, "skipped_not_divergent", distinct_id="steady", pg_version=0, ch_max_version=0),
+            self._action(
+                person.uuid,
+                "repaired",
+                distinct_id="divergent",
+                kind=kind,
+                pg_version=2,
+                ch_max_version=ch_version,
+                target_version=target_version,
+            ),
+        ]
+        floors = get_active_fake().assert_called("set_person_distinct_id_version_floor", times=1)
+        assert floors[0].request.distinct_id == "divergent"
+        get_active_fake().assert_not_called("set_person_version_floor")
+        assert self._pg_mapping_versions(person)["divergent"] == target_version
+        assert self._ch_mapping("divergent") == (str(person.uuid), 0, target_version)
+
+    def test_leaves_a_mapping_unpublished_once_the_primary_moved_it_to_another_person(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"moved": 0})
+        self._ch_person_row(person.uuid, 3)
+        self._ch_mapping_row("moved", person.uuid, 100, deleted=True)
+        new_owner = self._pg_person(version=1)
+        # The primary maps the id to new_owner while the replica list read for person still carries it.
+        with mute_selected_signals():
+            add_distinct_id(person=new_owner, distinct_id="moved")
+
+        _, actions = self._repair(person.uuid)
+
+        assert [(a.distinct_id, a.outcome) for a in actions] == [
+            (None, "skipped_not_divergent"),
+            ("moved", "skipped_owner_changed"),
+        ]
+        assert self._ch_mapping("moved") == (str(person.uuid), 1, 100)
 
 
 class TestScanTeamRanges(SimpleTestCase):

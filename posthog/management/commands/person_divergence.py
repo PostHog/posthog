@@ -86,8 +86,8 @@ class Command(BaseCommand):
                 )
 
         repair_help = (
-            "DRY RUN unless --apply is passed. Republish the Postgres state of the persons in --input "
-            "to ClickHouse where ClickHouse disagrees."
+            "DRY RUN unless --apply is passed. Republish the Postgres state of the persons in --input, "
+            "and their distinct ids, to ClickHouse where ClickHouse disagrees."
         )
         repair = actions.add_parser("repair", help=repair_help, description=repair_help)
         repair.add_argument(
@@ -104,7 +104,7 @@ class Command(BaseCommand):
             "--max-writes-per-second",
             type=float,
             default=50.0,
-            help="Divergent persons repaired per second, each one a Postgres write (default: %(default)s).",
+            help="Divergent persons and distinct ids repaired per second, each one a Postgres write (default: %(default)s).",
         )
 
     @staticmethod
@@ -165,7 +165,7 @@ class Command(BaseCommand):
             )
         self._log(
             f"repair {'APPLY' if apply else 'DRY RUN'}: {summary.persons} persons, "
-            f"person outcomes {summary.person_outcomes}, "
+            f"person outcomes {summary.person_outcomes}, mapping outcomes {summary.mapping_outcomes}, "
             f"undelivered messages {summary.undelivered}"
         )
         if not apply:
