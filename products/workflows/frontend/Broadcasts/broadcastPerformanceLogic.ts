@@ -25,6 +25,8 @@ export interface BroadcastPerformanceStats {
     unsubscribed: number
     /** Sends with open and click tracking, the denominator for engagement rates. */
     trackedSends: number
+    /** Recipients who met the broadcast's goal. */
+    converted: number
 }
 
 const TOTALS_METRICS = [
@@ -37,6 +39,7 @@ const TOTALS_METRICS = [
     'email_failed',
     'email_untracked',
     'email_unsubscribed',
+    'conversion',
 ]
 
 /** Hourly buckets read well for a few days after a send, then the tail of late opens needs daily ones. */
@@ -210,6 +213,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                     failed: totals.email_failed ?? 0,
                     unsubscribed: totals.email_unsubscribed ?? 0,
                     trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
+                    converted: totals.conversion ?? 0,
                 }
             },
         ],

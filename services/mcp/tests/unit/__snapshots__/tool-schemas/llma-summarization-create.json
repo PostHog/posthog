@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "compact_context": {
+            "default": false,
+            "description": "Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title.",
+            "type": "boolean"
+        },
         "data": {
             "description": "Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id."
         },

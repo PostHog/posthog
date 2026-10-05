@@ -814,8 +814,8 @@ def refresh_deletion_stats(request: "DataDeletionRequest", *, user_id: int | Non
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     """Count rows still matching an event-removal request's criteria in ClickHouse.
 
-    Counts across every registered read table that could hold the named events. A request is only
-    complete once its rows are gone from all of them.
+    Counts across every default deletion target that could hold the named events. A request is only
+    complete once its rows are gone from every table that the scheduled deletion job sweeps.
 
     A target that cannot take the compiled HogQL fragment is counted with the portable predicate
     instead, which matches a superset. That can only hold a request in QUEUED, never promote one
@@ -826,7 +826,11 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
-    from posthog.models.deletion_targets import resolve_read_targets_via_sync_execute, surviving_rows_sql
+    from posthog.models.deletion_targets import (
+        DEFAULT_DELETION_TARGETS,
+        resolve_read_targets_via_sync_execute,
+        surviving_rows_sql,
+    )
 
     events = [] if request.delete_all_events else request.events
     total = 0
@@ -837,7 +841,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
     ):
-        for target in resolve_read_targets_via_sync_execute():
+        for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
             if not target.may_hold_any_of(events):
                 continue
             if target.accepts_hogql_predicate:

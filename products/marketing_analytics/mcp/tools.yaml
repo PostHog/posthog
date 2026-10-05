@@ -30,6 +30,9 @@ tools:
             events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count
             may differ from the dashboard's attribution-windowed number.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-conversion-recordings-list:
+        operation: marketing_analytics_conversion_recordings_list
+        enabled: false
     marketing-analytics-create-conversion-goal:
         operation: marketing_analytics_conversion_goals_create_create
         enabled: true
@@ -122,6 +125,9 @@ tools:
         feature_flag: marketing-analytics-mcp
     marketing-analytics-setup-plan-retrieve:
         operation: marketing_analytics_setup_plan_retrieve
+        enabled: false
+    marketing-analytics-source-validation-retrieve:
+        operation: marketing_analytics_source_validation_retrieve
         enabled: false
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve

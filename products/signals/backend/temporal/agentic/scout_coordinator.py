@@ -21,16 +21,25 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutConfig
 from products.signals.backend.report_check_execution import run_due_report_checks
 from products.signals.backend.scout_harness.config_registry import (
+    MAX_RUN_INTERVAL_MINUTES,
+    MIN_RUN_INTERVAL_MINUTES,
     canonical_operational_skill_names,
+    enabled_scout_count,
     live_scout_skill_names,
     operational_configs_needing_reconcile,
     reconcile_operational_configs,
     register_missing_configs,
 )
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_config_tags_for,
+    canonical_display_name_for,
+    canonical_skill_names,
+    discover_canonical_skills,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
     COORDINATOR_INTERVAL_MINUTES,
@@ -45,9 +54,11 @@ from products.signals.backend.scout_harness.limits import (
 # them unqualified and tests can patch them on this module.
 from products.signals.backend.scout_harness.team_limits import (
     DAILY_BUDGET_WINDOW,
+    BackgroundEnrollment,
     Enrollment,
     _canonicalize_team_config_keys,
     _default_team_config,
+    _parse_background,
     _parse_enrollment,
     _read_flag_payload,
     _resolve_dispatch_smear_seconds,
@@ -58,6 +69,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_withheld_skills,
     _runs_today_by_team,
     _team_configs,
+    background_sample_bucket,
     resolve_max_enabled_scouts,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
@@ -67,6 +79,7 @@ from products.signals.backend.temporal.metrics import (
     increment_coordinator_dispatch,
     increment_coordinator_tick,
 )
+from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
@@ -183,6 +196,7 @@ async def fetch_enabled_signals_scout_runs_activity(
         # configs are derived from the same snapshot so they can't disagree across two reads.
         payload = await asyncio.to_thread(_read_flag_payload)
         enrollment = _parse_enrollment(payload)
+        background = _parse_background(payload)
         team_configs = _team_configs(payload)
         default_team_config = _default_team_config(payload)
         # The global per-tick ceiling is flag-tunable (no deploy): resolve it here off the same
@@ -191,7 +205,7 @@ async def fetch_enabled_signals_scout_runs_activity(
         global_max_runs_per_tick = _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK)
         smear_seconds = _resolve_dispatch_smear_seconds(payload, DISPATCH_SMEAR_SECONDS)
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
-            enrollment, team_configs, default_team_config, global_max_runs_per_tick
+            enrollment, team_configs, default_team_config, global_max_runs_per_tick, background
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     increment_coordinator_tick(len(planned))
@@ -336,17 +350,38 @@ def _collect_planned_runs(
     team_configs: dict[int, dict] | None = None,
     default_team_config: dict | None = None,
     max_runs_per_tick: int | None = None,
+    background: BackgroundEnrollment | None = None,
 ) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
     Takes the parsed enrollment (explicit allowlist + the `"*"` wildcard), the optional per-team
-    config overrides, the fleet-wide default config, and the resolved global per-tick ceiling — so
-    the flag reads all stay off this DB pool.
+    config overrides, the fleet-wide default config, the resolved global per-tick ceiling, and the
+    parsed `background` block — so the flag reads all stay off this DB pool.
+
+    Background configs are dispatched only through `_collect_background_runs`, never through the
+    participating-team loop, so the consent check and the background kill switch gate every one.
     """
     now = timezone.now()
     team_configs = _canonicalize_team_config_keys(team_configs or {})
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
+    background_team_ids: set[int] = set()
+    if background is not None:
+        skipped_team_ids = _canonicalize_team_ids(enrollment.skip)
+        background_team_ids = _canonicalize_team_ids(set(background.team_ids)) - skipped_team_ids
+        try:
+            # A hand-picked team keeps no band, so `team_ids` stays an override that bands never change.
+            band_by_team = {
+                team_id: band
+                for team_id, band in _sampled_band_teams(background).items()
+                if team_id not in background_team_ids and team_id not in skipped_team_ids
+            }
+            background_team_ids |= band_by_team.keys()
+            _reconcile_background_configs(
+                background, background_team_ids, band_by_team, team_configs, default_team_config
+            )
+        except Exception:
+            logger.exception("signals_scout coordinator: background reconcile failed; continuing")
     paused_by_team = _breaker_paused_configs_by_team()
     reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
     for team, needs_seed in _participating_teams(enrollment, reconcile_team_ids=set(reconcile_by_team)):
@@ -402,12 +437,17 @@ def _collect_planned_runs(
         # Skip enabled configs whose skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
-        for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
+        for config in SignalScoutConfig.all_teams.filter(
+            team_id=team.id, enabled=True, skill_name__in=live_skills
+        ).exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND):
             overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
         due.extend(_collect_probe_runs(paused_by_team.get(team.id, []), live_skills, now))
+
+    if background is not None and background.enabled:
+        due.extend(_collect_background_runs(background, background_team_ids, team_configs, default_team_config, now))
 
     if not due:
         return []
@@ -589,6 +629,7 @@ def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | 
                     pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
                 )
             )
+            .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
             .values_list("team_id", flat=True)
             .distinct()
         )
@@ -616,7 +657,7 @@ def _breaker_paused_configs_by_team() -> dict[int, list[SignalScoutConfig]]:
     paused = SignalScoutConfig.all_teams.filter(
         status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
         pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
-    )
+    ).exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
     for config in paused:
         paused_by_team.setdefault(config.team_id, []).append(config)
     return paused_by_team
@@ -664,6 +705,258 @@ def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: se
         )
         probes.append(_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name))
     return probes
+
+
+def _ai_data_processing_approved(team: Team) -> bool:
+    return team.organization.is_ai_data_processing_approved is True
+
+
+def _sampled_band_teams(background: BackgroundEnrollment) -> dict[int, int]:
+    """`team_id -> band` for each project that its band percent samples into the background lane.
+
+    Reads nothing when every band is at 0 percent, which is the rollout default.
+    """
+    percents = {band: entry.percent for band, entry in background.bands.items() if entry.percent > 0}
+    if not percents:
+        return {}
+    return {
+        team_id: band
+        for team_id, band in SignalScoutBackgroundBand.all_teams.filter(band__in=percents).values_list(
+            "team_id", "band"
+        )
+        if background_sample_bucket(team_id) < percents[band]
+    }
+
+
+def _reconcile_background_configs(
+    background: BackgroundEnrollment,
+    listed_team_ids: set[int],
+    band_by_team: dict[int, int],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+) -> None:
+    """Move background configs toward the `background` block of the flag payload.
+
+    `listed_team_ids` holds the hand-picked `team_ids` and the band-sampled teams in `band_by_team`.
+    Runs on a valid block only, because an unreadable block must never read as an empty list. The
+    pause of departed teams runs even with `enabled` off, so an operator can drain one team without
+    stopping the pilot. A lower band percent pauses through the same path, because the team leaves
+    the listed set. Creation, resume, and band updates run only with `enabled` on.
+    """
+    _pause_departed_background_configs(listed_team_ids)
+    if not background.enabled:
+        return
+    if background.skill_name not in canonical_skill_names():
+        logger.warning(
+            "signals_scout coordinator: background skill is not a canonical scout; skipping background setup",
+            skill_name=background.skill_name,
+        )
+        return
+    eligible = [
+        team
+        for team in Team.objects.filter(id__in=listed_team_ids).select_related("organization").order_by("id")
+        if _ai_data_processing_approved(team)
+        and background.skill_name not in _resolve_withheld_skills(team.id, team_configs, default_team_config)
+    ]
+    _resume_background_configs(background, eligible, team_configs, default_team_config)
+    _sync_background_bands(background, eligible, band_by_team)
+    _create_background_configs(background, eligible, band_by_team, team_configs, default_team_config)
+
+
+def _pause_departed_background_configs(listed_team_ids: set[int]) -> None:
+    """Pause every runnable background config whose team is no longer listed.
+
+    `transition_status_by_system` refuses a row a person paused or another writer owns, so this
+    only ever pauses what the background coordinator may still change.
+    """
+    departed = SignalScoutConfig.all_teams.filter(
+        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+        status__in=SignalScoutConfig.RUNNABLE_STATUSES,
+    ).exclude(team_id__in=listed_team_ids)
+    for config in departed:
+        if config.transition_status_by_system(
+            SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.BACKGROUND_REMOVED,
+        ):
+            logger.info(
+                "signals_scout coordinator: paused background scout for a team that left the list",
+                team_id=config.team_id,
+                skill_name=config.skill_name,
+            )
+
+
+def _resume_background_configs(
+    background: BackgroundEnrollment,
+    eligible_teams: list[Team],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+) -> None:
+    """Resume the background configs this coordinator paused, for teams that are listed again."""
+    paused = SignalScoutConfig.all_teams.filter(
+        team_id__in=[team.id for team in eligible_teams],
+        skill_name=background.skill_name,
+        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.BACKGROUND_REMOVED,
+    )
+    for config in paused:
+        config.transition_status_by_system(
+            SignalScoutConfig.Status.ACTIVE,
+            pause_reason=SignalScoutConfig.PauseReason.BACKGROUND_REMOVED,
+            max_enabled_scouts=resolve_max_enabled_scouts(
+                [team_configs.get(config.team_id) or {}, default_team_config]
+            ),
+        )
+
+
+def _background_interval(background: BackgroundEnrollment, band: int | None) -> int | None:
+    """The interval a background config gets, or `None` to keep the model default."""
+    interval = background.band_interval_minutes(band)
+    if interval is not None and MIN_RUN_INTERVAL_MINUTES <= interval <= MAX_RUN_INTERVAL_MINUTES:
+        return interval
+    return None
+
+
+def _sync_background_bands(
+    background: BackgroundEnrollment,
+    eligible_teams: list[Team],
+    band_by_team: dict[int, int],
+) -> None:
+    """Keep the band of each background config current, and give a config its new band's interval.
+
+    Only `managed_by=background` rows change, so a person who took a config over keeps their schedule.
+    """
+    stale = SignalScoutConfig.all_teams.filter(
+        team_id__in=[team.id for team in eligible_teams],
+        skill_name=background.skill_name,
+        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+    ).only("id", "team_id", "background_band")
+    for config in stale:
+        band = band_by_team.get(config.team_id)
+        if config.background_band == band:
+            continue
+        # Without a configured interval, fall back to the model default rather than keep the old band's.
+        interval = _background_interval(background, band)
+        changes: dict = {
+            "background_band": band,
+            "run_interval_minutes": interval
+            if interval is not None
+            else SignalScoutConfig._meta.get_field("run_interval_minutes").default,
+        }
+        SignalScoutConfig.all_teams.filter(pk=config.pk, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND).update(
+            **changes
+        )
+
+
+def _create_background_configs(
+    background: BackgroundEnrollment,
+    eligible_teams: list[Team],
+    band_by_team: dict[int, int],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+) -> None:
+    """Create one background config for the background skill on each listed team that has none.
+
+    Seeds only the background skill, not the canonical catalog that `guaranteed_team_ids` seeds,
+    and creates only this one config. A team that already has a config for the skill keeps it
+    untouched, whoever created it. At most `max_new_teams_per_tick` teams are set up per tick.
+    """
+    has_config = set(
+        SignalScoutConfig.all_teams.filter(
+            team_id__in=[team.id for team in eligible_teams], skill_name=background.skill_name
+        ).values_list("team_id", flat=True)
+    )
+    pending = [team for team in eligible_teams if team.id not in has_config]
+    if not pending:
+        return
+    defaults: dict = {"managed_by": SignalScoutConfig.ManagedBy.BACKGROUND}
+    if tags := canonical_config_tags_for(background.skill_name):
+        defaults["tags"] = list(tags)
+    if display_name := canonical_display_name_for(background.skill_name):
+        defaults["display_name"] = display_name
+    other_canonical_names = {canonical.name for canonical in discover_canonical_skills()} - {background.skill_name}
+
+    created = 0
+    for team in pending:
+        if created >= background.max_new_teams_per_tick:
+            break
+        max_enabled = resolve_max_enabled_scouts([team_configs.get(team.id) or {}, default_team_config])
+        if enabled_scout_count(team.id) >= max_enabled:
+            logger.info(
+                "signals_scout coordinator: team at enabled-scout cap, skipping background setup",
+                team_id=team.id,
+                cap=max_enabled,
+            )
+            continue
+        try:
+            sync_canonical_skills(team, withheld_skill_names=other_canonical_names)
+        except Exception:
+            logger.exception(
+                "signals_scout coordinator: background skill seed failed for team; continuing",
+                team_id=team.id,
+            )
+            continue
+        band = band_by_team.get(team.id)
+        team_defaults = {**defaults, "background_band": band}
+        if (interval := _background_interval(background, band)) is not None:
+            team_defaults["run_interval_minutes"] = interval
+        _, was_created = SignalScoutConfig.objects.for_team(team.id).get_or_create(
+            team_id=team.id, skill_name=background.skill_name, defaults=team_defaults
+        )
+        if was_created:
+            created += 1
+            logger.info(
+                "signals_scout coordinator: created background scout config",
+                team_id=team.id,
+                skill_name=background.skill_name,
+                background_band=band,
+            )
+
+
+def _collect_background_runs(
+    background: BackgroundEnrollment,
+    listed_team_ids: set[int],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+    now: datetime,
+) -> list[_DueRun]:
+    """Due runs for background configs on listed teams whose organization approved AI data processing.
+
+    Checks consent again at dispatch, because an organization can withdraw it after its config was
+    created. Breaker-paused background configs get their probes here too, so no background run
+    skips the consent check.
+    """
+    if not listed_team_ids:
+        return []
+    configs = SignalScoutConfig.all_teams.filter(
+        Q(enabled=True)
+        | Q(
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        ),
+        team_id__in=listed_team_ids,
+        skill_name=background.skill_name,
+        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+    ).select_related("team__organization")
+    live_team_ids = set(
+        LLMSkill.objects.filter(
+            team_id__in=listed_team_ids, name=background.skill_name, is_latest=True, deleted=False
+        ).values_list("team_id", flat=True)
+    )
+    due: list[_DueRun] = []
+    live_skills = {background.skill_name}
+    for config in configs:
+        if config.team_id not in live_team_ids or not _ai_data_processing_approved(config.team):
+            continue
+        if background.skill_name in _resolve_withheld_skills(config.team_id, team_configs, default_team_config):
+            continue
+        if not config.enabled:
+            due.extend(_collect_probe_runs([config], live_skills, now))
+            continue
+        overdue_s = _overdue_seconds(config, now, config.team.timezone_info)
+        if overdue_s is not None:
+            due.append(_DueRun(overdue_s, str(config.pk), config.team_id, config.skill_name))
+    return due
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:

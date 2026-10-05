@@ -9,14 +9,17 @@ import { getSidebarProduct } from '../../ProjectTree/defaultTree'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
+import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'
 import { NavProductRow } from './NavProductRow'
 import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
 import { NavProductTooltip } from './NavProductTooltip'
+import { NavTabSection } from './NavTabSection'
 
 export function NavTabProducts(): JSX.Element {
-    const { pinnedItems, groupedItems, allProductsVisible, allProductsCollapsible } = useValues(navProductsTabLogic)
-    const { setAllProductsOpen } = useActions(navProductsTabLogic)
+    const { pinnedItems, groupedItems, allProductsVisible, allProductsCollapsible, search } =
+        useValues(navProductsTabLogic)
+    const { setAllProductsOpen, revealAllProductsForFind } = useActions(navProductsTabLogic)
     // Fade only on a toggle the user makes, not on the first render after starred items load. A height
     // slide over the whole product list moves too far to read, so the panel opens in place.
     const [animatePanel, setAnimatePanel] = useState(false)
@@ -45,29 +48,43 @@ export function NavTabProducts(): JSX.Element {
                     </div>
                 )}
                 {showStarred && (
-                    <section aria-label="Starred" className="flex flex-col gap-0.5">
-                        <h3 className="px-2 mb-0 text-xs leading-4 font-semibold text-tertiary">Starred</h3>
-                        {/* The tree insets its rows by 5px and pads itself by 4px vertically. This lines its
+                    <section aria-label="Starred">
+                        <NavTabSection
+                            label="Starred"
+                            dataAttr="nav-apps-starred-toggle"
+                            key={`starred-${!!search.trim()}`}
+                        >
+                            {/* The tree insets its rows by 5px and pads itself by 4px vertically. This lines its
                             icons up with the rows above and cancels its own vertical padding. */}
-                        <div className="-ml-[5px] -my-1">
-                            <ProjectTree
-                                root="shortcuts://"
-                                shortcutScope="products"
-                                logicKey={PRODUCTS_STARRED_TREE_KEY}
-                                onlyTree
-                                showShortcutHelp={false}
-                                renderItemTooltip={(treeItem) => {
-                                    const product = getSidebarProduct(treeItem.record?.href)
-                                    return product ? <NavProductTooltip item={product} /> : undefined
-                                }}
-                            />
-                        </div>
+                            <div className="-ml-[5px] -my-1">
+                                <ProjectTree
+                                    root="shortcuts://"
+                                    shortcutScope="products"
+                                    logicKey={PRODUCTS_STARRED_TREE_KEY}
+                                    onlyTree
+                                    showShortcutHelp={false}
+                                    renderItemTooltip={(treeItem) => {
+                                        const product = getSidebarProduct(treeItem.record?.href)
+                                        return product ? <NavProductTooltip item={product} /> : undefined
+                                    }}
+                                    renderItemTooltipDocLink={(treeItem) => {
+                                        const product = getSidebarProduct(treeItem.record?.href)
+                                        return product ? sidebarProductMeta(product).docsHref : undefined
+                                    }}
+                                />
+                            </div>
+                        </NavTabSection>
                     </section>
                 )}
                 {groupedItems.length > 0 ? (
                     <Collapsible
                         open={allProductsVisible}
-                        onOpenChange={(open) => {
+                        onOpenChange={(open, eventDetails) => {
+                            // A find-in-page match opens the list for this visit only.
+                            if (open && eventDetails.event?.type === 'beforematch') {
+                                revealAllProductsForFind()
+                                return
+                            }
                             setAnimatePanel(true)
                             setAllProductsOpen(open)
                         }}
@@ -83,6 +100,7 @@ export function NavTabProducts(): JSX.Element {
                             </Collapsible.Trigger>
                         )}
                         <Collapsible.Panel
+                            hiddenUntilFound
                             className={cn(
                                 'gap-3 transition-opacity duration-150 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
                                 !animatePanel && 'transition-none',

@@ -76,7 +76,7 @@ from products.messaging.backend.services.unsubscribe_metrics import (
     parse_unsubscribe_source,
     record_email_unsubscribed_metric,
 )
-from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode
+from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -256,6 +256,10 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         response["dev_disable_navigation_hooks"] = True
 
     if request.user.is_authenticated:
+        from products.webmcp.backend.facade import (  # noqa: PLC0415 - circular via posthog.api.oauth, which imports this module
+            api as webmcp_api,
+        )
+
         response = {
             **response,
             "available_timezones": _traced("preflight.available_timezones", get_available_timezones_with_offsets),
@@ -271,6 +275,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
             "ai_gateway_url": settings.AI_GATEWAY_PUBLIC_URL or None,
+            "webmcp_available": webmcp_api.is_available(),
         }
 
     return JsonResponse(response)

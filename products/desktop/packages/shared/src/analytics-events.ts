@@ -1,8 +1,8 @@
 // Analytics event types and properties
 
-import type { Adapter, ModelAccess } from "./adapter";
-import type { EffortLevel } from "./domain-types";
-import type { SourceProduct } from "./inbox-types";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
+import type { SourceProduct } from "@posthog/agent-contracts/inbox-types";
 
 export interface PromptHistoryOpenedProperties {
   entry_count: number;
@@ -144,6 +144,7 @@ export interface TaskRunStartedProperties {
   model?: string;
   initial_mode?: string;
   adapter?: string;
+  gateway_mode?: "legacy" | "go";
 }
 
 export interface TaskRunCompletedProperties {
@@ -320,6 +321,8 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
+  /** How a rail destination was picked. Only the channels rail sends it. */
+  source?: "click" | "shortcut";
 }
 
 /** Every row of the account / project / org menu, plus opening it. */
@@ -1364,6 +1367,22 @@ export interface CanvasRuntimeErrorProperties {
   csp_directive?: string;
 }
 
+export interface CanvasDataRequestRejectedProperties {
+  /** Which host bridge refused it: the authoring sandbox or a published build. */
+  surface: "freeform" | "built";
+  /**
+   * Why the host refused it. The request method only — never the payload, which
+   * is agent-authored and can carry query results.
+   */
+  reason:
+    | "payload-too-large"
+    | "data-queue-full"
+    | "connector-queue-full"
+    | "needs-user-action"
+    | "agent-needs-user-action";
+  method: string;
+}
+
 export type ContextActionType =
   | "save_version"
   | "generate_started"
@@ -1606,6 +1625,7 @@ export interface AnnouncementProperties {
 export interface EvidencePreviewShownProperties {
   kind: string;
   cache: "hit" | "miss";
+  reference_source: "link" | "tag";
 }
 
 export interface EvidencePreviewReadyProperties {
@@ -1830,6 +1850,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_VIEWED: "Canvas viewed",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
+  CANVAS_DATA_REQUEST_REJECTED: "Canvas data request rejected",
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
 
@@ -2053,6 +2074,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
+  [ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED]: CanvasDataRequestRejectedProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
   [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 

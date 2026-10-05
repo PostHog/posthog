@@ -56,6 +56,7 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_sandbox_id,
     needs_full_history,
     parse_requested_sandbox_template,
+    pinned_agent_version,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -418,6 +419,8 @@ def _resolve_sandbox_github_token(
     one only after the create-time Desktop gate passed. So a repo-less run with no integration
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
+    if task.is_scout_trial_judge is True:
+        return ""
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
@@ -580,13 +583,11 @@ def _build_environment_variables(
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
-    if settings.DEBUG:
-        # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
-        # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
-        # the cache key) and cost attribution. Rely on Temporal retries instead.
+    if settings.DEBUG or (ctx.state or {}).get("scout_trial") or (ctx.state or {}).get("scout_trial_judge"):
+        # Pinned eval runs must not switch models after an overload.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
-    if ctx.agent_otel_telemetry_enabled:
+    if ctx.agent_otel_telemetry_enabled and task.is_scout_experiment is not True:
         environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
@@ -737,7 +738,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -833,7 +834,13 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
-def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase) -> None:
+def _pin_governs_sandbox_agent(ctx: TaskProcessingContext, config: SandboxConfig, *, used_snapshot: bool) -> bool:
+    if ctx.sandbox_backend == "hogland" or config.custom_image_name:
+        return False
+    return not used_snapshot or config.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
+
+
+def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare_with_pin: bool) -> None:
     version: str | None = None
     try:
         result = sandbox.execute("cat /scripts/node_modules/@posthog/agent/package.json", timeout_seconds=10)
@@ -845,11 +852,27 @@ def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase) -> None:
     except Exception:
         logger.warning("Failed to read sandbox agent version", extra={"run_id": run_id}, exc_info=True)
 
-    try:
-        if version is None:
-            TaskRun.update_state_atomic(run_id, remove_keys=["agent_version"])
+    expected = pinned_agent_version() if compare_with_pin else None
+    if version is not None and expected is not None and version != expected:
+        logger.warning(
+            "Sandbox agent version differs from the pinned version",
+            extra={
+                "run_id": run_id,
+                "sandbox_id": sandbox.id,
+                "agent_version": version,
+                "agent_version_expected": expected,
+            },
+        )
+
+    updates: dict[str, str] = {}
+    remove_keys: list[str] = []
+    for key, value in (("agent_version", version), ("agent_version_expected", expected)):
+        if value is None:
+            remove_keys.append(key)
         else:
-            TaskRun.update_state_atomic(run_id, updates={"agent_version": version})
+            updates[key] = value
+    try:
+        TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
     except Exception:
         logger.warning("Failed to persist sandbox agent version", extra={"run_id": run_id}, exc_info=True)
 
@@ -976,7 +999,11 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
-        _persist_sandbox_agent_version(ctx.run_id, sandbox)
+        _persist_sandbox_agent_version(
+            ctx.run_id,
+            sandbox,
+            compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
+        )
         try:
             if config.outbound_domain_allowlist is not None:
                 emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
@@ -1363,7 +1390,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",

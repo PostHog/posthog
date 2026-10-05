@@ -58,8 +58,9 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -1178,11 +1179,13 @@ class InsightSerializer(InsightBasicSerializer):
         resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
         return {key: value or None for key, value in resolved_layers.items()}
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, insight: Insight) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.insight(insight).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, insight: Insight) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW
@@ -1420,28 +1423,33 @@ class InsightSerializer(InsightBasicSerializer):
                     error_code=getattr(e, "code_name", None),
                     last_refresh=None,
                 )
-            except ConcurrencyLimitExceeded as e:
-                logger.warn(
-                    "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
-                )
-                return self._degraded_insight_result(
-                    insight,
-                    dashboard,
-                    error=e,
-                    error_message="concurrency_limit_exceeded",
-                    error_code="concurrency_limit_exceeded",
-                    last_refresh=now(),
-                )
             except Exception as e:
-                # Capture unexpected crashes so the API list doesn't fail
-                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                is_rate_limited = classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
+                error_message = str(e)
+                if is_rate_limited:
+                    # Older dashboard clients retry on this marker. Other capacity messages can
+                    # contain internal Redis keys, task IDs or raw ClickHouse details.
+                    error_message = (
+                        "concurrency_limit_exceeded"
+                        if isinstance(e, ConcurrencyLimitExceeded)
+                        else ClickHouseAtCapacity.default_detail
+                    )
+                    logger.warn(
+                        "insight_calculation_rate_limited",
+                        exception=e,
+                        insight_id=insight.id,
+                        team_id=insight.team_id,
+                    )
+                else:
+                    # Capture unexpected crashes so the API list doesn't fail
+                    logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
                     error=e,
-                    error_message=str(e),
-                    error_code=None,
-                    last_refresh=None,
+                    error_message=error_message,
+                    error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
+                    last_refresh=now() if is_rate_limited else None,
                 )
 
     def _degraded_insight_result(

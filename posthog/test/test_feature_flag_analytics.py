@@ -10,12 +10,15 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
+    _create_flag_evaluations,
     flush_persons_and_events,
     snapshot_postgres_queries_context,
 )
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+
+from parameterized import parameterized
 
 from posthog import redis
 from posthog.constants import FlagRequestType
@@ -24,6 +27,7 @@ from posthog.models.team.team import Team
 from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
 from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
     _enriched_flag_key_expr_sql,
@@ -38,6 +42,7 @@ from products.feature_flags.backend.flag_analytics import (
     increment_request_count,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
 class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
@@ -86,7 +91,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_increment_request_count_uses_one_bucket_per_request_type(self):
+    def test_increment_request_count_remote_config_uses_own_bucket(self):
         team_id = 3
 
         with time_machine.travel("2022-05-07 12:23:07", tick=False):
@@ -94,14 +99,11 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 increment_request_count(team_id)
             for _ in range(6):
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
-            for _ in range(2):
-                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
 
             client = redis.get_client()
 
             # Remote config fetches are telemetry-only, so they must never leak into the
-            # decide bucket that billing consumes. The literal keys are the contract with the
-            # Rust service, which writes them, so a drift would leave those requests unbilled.
+            # decide bucket that billing consumes.
             self.assertEqual(
                 client.hgetall(f"posthog:decide_requests:{team_id}"),
                 {b"165192618": b"4"},
@@ -109,10 +111,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             self.assertEqual(
                 client.hgetall(f"posthog:remote_config_requests:{team_id}"),
                 {b"165192618": b"6"},
-            )
-            self.assertEqual(
-                client.hgetall(f"posthog:local_evaluation_not_modified_requests:{team_id}"),
-                {b"165192618": b"2"},
             )
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
@@ -131,7 +129,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
-                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(7):
                 # 7 requests for other team
@@ -143,7 +140,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in second bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
-                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(3):
                 # 3 requests for other team
@@ -155,7 +151,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
-                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
                 increment_request_count(other_team_id)
 
@@ -163,7 +158,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             # these other requests should not add duplicate counts
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
-            assert mock_capture.capture.call_count == 4
+            assert mock_capture.capture.call_count == 3
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="decide usage",
@@ -179,18 +174,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="local evaluation usage",
-                properties={
-                    "count": 15,
-                    "team_id": team_id,
-                    "team_uuid": team_uuid,
-                    "max_time": 1651926190,
-                    "min_time": 1651926180,
-                    "token": "token",
-                },
-            )
-            mock_capture.capture.assert_any_call(
-                distinct_id=team_id,
-                event="local evaluation not modified usage",
                 properties={
                     "count": 15,
                     "team_id": team_id,
@@ -1121,10 +1104,13 @@ class TestFindFlagsWithEnrichedAnalyticsTask(BaseTest):
 
 class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
     def test_returns_zero_when_no_events(self):
-        counts = get_evaluations_7d_by_team("some_key", [self.team.id])
+        counts = get_evaluations_7d_by_team("some_key", [self.team.id], from_flag_evaluations=False)
         assert counts == {self.team.id: 0}
 
-    def test_counts_events_by_team(self):
+    @parameterized.expand([("events", False, 2, 1), ("flag_evaluations", True, 1, 3)])
+    def test_counts_flag_calls_by_team_from_the_selected_table(
+        self, _name, from_flag_evaluations, team_count, other_team_count
+    ):
         other_team = self.organization.teams.create(name="Other")
         _create_event(
             team=self.team,
@@ -1152,19 +1138,28 @@ class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        counts = get_evaluations_7d_by_team("my_flag", [self.team.id, other_team.id])
+        _create_flag_evaluations(self.team.id, "my_flag")
+        _create_flag_evaluations(other_team.id, "my_flag", count=3)
+        _create_flag_evaluations(self.team.id, "unrelated")
+        _create_flag_evaluations(
+            self.team.id, "my_flag", timestamp=datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=8)
+        )
 
-        assert counts == {self.team.id: 2, other_team.id: 1}
+        counts = get_evaluations_7d_by_team(
+            "my_flag", [self.team.id, other_team.id], from_flag_evaluations=from_flag_evaluations
+        )
+
+        assert counts == {self.team.id: team_count, other_team.id: other_team_count}
 
     def test_returns_empty_dict_when_no_team_ids(self):
-        assert get_evaluations_7d_by_team("any_flag", []) == {}
+        assert get_evaluations_7d_by_team("any_flag", [], from_flag_evaluations=False) == {}
 
     def test_returns_none_when_clickhouse_fails(self):
         with patch(
             "products.feature_flags.backend.flag_analytics.sync_execute",
             side_effect=RuntimeError("boom"),
         ):
-            assert get_evaluations_7d_by_team("my_flag", [self.team.id, 99]) is None
+            assert get_evaluations_7d_by_team("my_flag", [self.team.id, 99], from_flag_evaluations=False) is None
 
 
 class TestCachedCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
@@ -1177,8 +1172,8 @@ class TestCachedCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
             "products.feature_flags.backend.flag_analytics.get_evaluations_7d_by_team",
             return_value={self.team.id: 5},
         ) as spy:
-            first = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
-            second = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
+            first = get_cached_evaluations_7d_by_team("my_flag", [self.team.id], self.organization.id)
+            second = get_cached_evaluations_7d_by_team("my_flag", [self.team.id], self.organization.id)
 
         assert first == {self.team.id: 5}
         assert second == {self.team.id: 5}
@@ -1189,15 +1184,33 @@ class TestCachedCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
             "products.feature_flags.backend.flag_analytics.get_evaluations_7d_by_team",
             side_effect=[None, {self.team.id: 7}],
         ) as spy:
-            first = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
-            second = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
+            first = get_cached_evaluations_7d_by_team("my_flag", [self.team.id], self.organization.id)
+            second = get_cached_evaluations_7d_by_team("my_flag", [self.team.id], self.organization.id)
 
         assert first is None
         assert second == {self.team.id: 7}
         assert spy.call_count == 2
 
     def test_cached_returns_empty_dict_when_no_team_ids(self):
-        assert get_cached_evaluations_7d_by_team("any_flag", []) == {}
+        assert get_cached_evaluations_7d_by_team("any_flag", [], self.organization.id) == {}
+
+    def test_mode_change_does_not_serve_the_result_cached_under_the_previous_mode(self):
+        _create_event(
+            team=self.team,
+            distinct_id="u1",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "my_flag", "$feature_flag_response": True},
+        )
+        flush_persons_and_events()
+        _create_flag_evaluations(self.team.id, "my_flag", count=2)
+        assert get_cached_evaluations_7d_by_team("my_flag", [self.team.id], self.organization.id) == {self.team.id: 1}
+
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+        )
+        counts = get_cached_evaluations_7d_by_team("my_flag", [self.team.id], self.organization.id)
+
+        assert counts == {self.team.id: 2}
 
 
 class TestFlagKeyFilterSQL(BaseTest):

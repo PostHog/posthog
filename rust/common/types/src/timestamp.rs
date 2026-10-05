@@ -164,7 +164,11 @@ fn normalize_timezone_format(input: &str) -> Cow<'_, str> {
         return Cow::Borrowed(input);
     }
 
-    let last_3_chars = &input[input.len() - 3..];
+    // `input` is client-supplied, so its last three bytes can fall inside a multi-byte
+    // character. Slicing at a index that is not a character boundary panics.
+    let Some(last_3_chars) = input.get(input.len() - 3..) else {
+        return Cow::Borrowed(input);
+    };
     if !(last_3_chars.starts_with('+') || last_3_chars.starts_with('-'))
         || !last_3_chars[1..].chars().all(|c| c.is_ascii_digit())
     {
@@ -198,6 +202,27 @@ fn convert_jiff_to_chrono(jiff_timestamp: jiff::Zoned) -> Option<DateTime<Utc>> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_timestamp_ending_mid_character_is_rejected_rather_than_fatal() {
+        // The timestamp string comes straight from the client. Reading its last three
+        // bytes panicked when they fell inside a multi-byte character, and a panic here
+        // aborts the request, so the caller loses the whole batch and retries it forever.
+        for input in [
+            "2023-01-01T00:00:00+0\u{1F980}",
+            "\u{1F980}",
+            "ab\u{1F980}",
+            "\u{65E5}\u{672C}\u{8A9E}",
+        ] {
+            assert_eq!(parse_date(input), None, "{input}");
+        }
+
+        // The format the slice exists to catch still normalizes.
+        assert_eq!(
+            parse_date("2025-09-17T14:05:04.805+03"),
+            parse_date("2025-09-17T14:05:04.805+03:00"),
+        );
+    }
 
     fn dt(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)

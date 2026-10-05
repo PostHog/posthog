@@ -2,7 +2,9 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
@@ -10,15 +12,17 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
@@ -394,6 +398,8 @@ describe('taskTrackerSceneLogic', () => {
             repository: null,
             github_integration: null,
         })
+        // Only a host that passes `channelId` files the task in a channel.
+        expect(createBody).not.toHaveProperty('channel')
         // Interactive so the sandbox event stream survives across turns (follow-ups stream), and the
         // typed message is seeded as turn 1 (interactive runs boot with the agent pulling it from run
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
@@ -427,6 +433,69 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toMatchObject({ description: 'do the thing' })
         expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
         expect(logic.values.newTaskData.description).toBe('')
+    })
+
+    describe('task defaults', () => {
+        const useTaskDefaultsMocks = (): void => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/tasks/@me/config/': {
+                        ...myConfigResponse(null),
+                        task_defaults: { start_in_plan_mode: true, auto_publish_cloud_runs: true },
+                    },
+                },
+            })
+        }
+
+        it.each([
+            ['on', true, 'plan', true],
+            ['off', false, 'auto', undefined],
+        ])(
+            'applies the stored defaults to a new task with today-rail-nav %s',
+            async (_state, flagOn, expectedMode, expectedAutoPublish) => {
+                useTaskDefaultsMocks()
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn,
+                })
+                logic.mount()
+                await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+                logic.actions.setNewTaskData({ description: 'do the thing' })
+                logic.actions.submitNewTask()
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(runBody?.initial_permission_mode).toBe(expectedMode)
+                expect(runBody?.auto_publish).toBe(expectedAutoPublish)
+                expect(createBody?.auto_publish).toBe(expectedAutoPublish)
+            }
+        )
+
+        it.each([
+            ['a picked mode', 'default' as const, 'default'],
+            ['a model change alone', null, 'plan'],
+        ])('sends the right mode after %s', async (_case, pickedMode, expectedMode) => {
+            useTaskDefaultsMocks()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.mount()
+            logic.actions.setNewTaskData({
+                description: 'do the thing',
+                model: 'claude-opus-5-5',
+                permissionMode: 'auto',
+            })
+            if (pickedMode) {
+                logic.actions.pickPermissionMode(pickedMode)
+            }
+            await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+            logic.actions.submitNewTask()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(runBody?.initial_permission_mode).toBe(expectedMode)
+        })
     })
 
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
@@ -691,6 +760,37 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.newTaskData.model).toBeNull()
     })
 
+    it('bills a codex default to the saved chatgpt plan when the task submits before the defaults load', async () => {
+        const flag = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse({
+                    runtime_adapter: 'codex',
+                    model: 'gpt-5',
+                    reasoning_effort: 'high',
+                    source: 'user',
+                }),
+                '/api/users/@me/integrations/codex/': { status: 'connected' },
+            },
+        })
+        const billing = codexBillingLogic()
+        billing.mount()
+        billing.actions.setPreferredCodexModelAccess(ModelAccessEnumApi.OwnSubscription)
+        logic.mount()
+
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody).toMatchObject({
+            runtime_adapter: 'codex',
+            model: 'gpt-5',
+            codex_model_access: ModelAccessEnumApi.OwnSubscription,
+        })
+        billing.unmount()
+    })
+
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the
     // connected GitHub org). Submitting resets the form, wiping that id; without re-deriving it the picker
     // stays blank for every subsequent new task. Guards that the auto-select is restored after a submit.
@@ -712,6 +812,45 @@ describe('taskTrackerSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
+    })
+
+    // A channel host starts on its own repo instead of the remembered one, files the task in its channel, and
+    // keeps the shared last-used repo intact.
+    it('creates the task in the host channel from the host repository default', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
+                },
+            },
+        })
+        localStorage.setItem(
+            'posthog_ai.tasks.lastRepositoryConfig',
+            JSON.stringify({ integrationId: 7, repository: 'acme/remembered' })
+        )
+        const onTaskCreated = jest.fn()
+        logic = taskTrackerSceneLogic({
+            panelId: 'space-1',
+            channelId: 'channel-1',
+            initialRepositoryConfig: { integrationId: 7, repository: 'acme/space-repo' },
+            onTaskCreated,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.newTaskData.repositoryConfig).toEqual({ integrationId: 7, repository: 'acme/space-repo' })
+
+        logic.actions.setNewTaskData({ description: 'ship it' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({
+            channel: 'channel-1',
+            repository: 'acme/space-repo',
+            github_integration: 7,
+        })
+        expect(onTaskCreated).toHaveBeenCalledWith('new-task')
+        expect(logic.values.newTaskData.repositoryConfig.repository).toBe('acme/space-repo')
+        expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
     })
 
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.

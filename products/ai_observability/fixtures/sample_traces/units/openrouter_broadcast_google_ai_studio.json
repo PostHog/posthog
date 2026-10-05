@@ -1,0 +1,86 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Rental car suggestion via OpenRouter",
+  "scenario": "A travel booking assistant routes a rental-car search through OpenRouter to a Google AI Studio Gemini model, which returns a structured JSON suggestion for a specific vehicle and class.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "capture-api"
+    ],
+    "providers": [
+      "Google AI Studio"
+    ],
+    "frameworks": [],
+    "models": [
+      "google/gemini-3.8-flash-tts-20260922"
+    ],
+    "content_types": [
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "openrouter_source": "openrouter",
+        "$ai_span_id": "gen-1758750463-8f2a9c3b1e7d6a5f9c3b2a1e",
+        "$ai_model": "google/gemini-3.8-flash-tts-20260922",
+        "distinct_id": "user_HKJRtv29eHZqnynJAFkh27sH3mM",
+        "$ai_span_name": "LLM Generation",
+        "openrouter_entity_id": "user_HKJRtv29eHZqnynJAFkh27sH3mM",
+        "$ai_output_cost_usd": 0.000882,
+        "$ai_output_tokens": 98,
+        "$ai_total_cost_usd": 0.000887,
+        "$ai_provider": "Google AI Studio",
+        "trace_name": "OpenRouter Request",
+        "$ai_latency": 2.101,
+        "openrouter_api_key_name": "default",
+        "metadata_provider_responses": [
+          {
+            "endpoint_id": "257e995c-22c3-73b8-ba6d-a1f1a36ab708",
+            "id": "chatcmpl-9f8a7b6c5d4e3",
+            "is_byok": false,
+            "latency": 2097,
+            "model_permaslug": "google/gemini-3.8-flash-tts-20260922",
+            "provider_name": "Google AI Studio",
+            "status": 179
+          }
+        ],
+        "$ai_input_tokens": 10,
+        "$ai_trace_id": "gen-1758750463-8f2a9c3b1e7d6a5f9c3b2a1e",
+        "$ai_input_cost_usd": 5e-06,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "{\"prompt\": \"Find an economy rental car in Lisbon\"}",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "text": "{\"tool_calls\": null, \"reasoning\": null, \"rental_car\": {\"model\": \"google/gemini-3.8-flash-tts\", \"class\": \"economy\"}}",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}
