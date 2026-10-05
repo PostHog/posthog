@@ -299,9 +299,14 @@ impl KeyQueues {
                 keep
             });
             purged += before - state.queue.len();
-            if state.queue.is_empty() {
+            // The wait belongs to the returned messages. Once the revoke drops
+            // them, newer messages behind them must not wait for their retry.
+            if !state.queue.iter().any(|queued| queued.class.replay) {
                 if let Some(at) = state.retry_at.take() {
                     self.waiting.remove(&(at, key.clone()));
+                    if state.is_ready() {
+                        self.ready.push_back(key.clone());
+                    }
                 }
             }
         }
@@ -434,6 +439,24 @@ mod tests {
             claimed(&queues.take_ready(now)),
             vec![("a", vec![7], true)],
             "only the message of the kept partition returns"
+        );
+    }
+
+    #[test]
+    fn a_revoke_that_drops_the_returned_messages_ends_their_wait() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        queues.push("a", 0, vec![message("a", 0, 1)], now);
+        queues.take_ready(now);
+        queues.push("a", 0, vec![message("a", 1, 7)], now);
+        let retry_at = now + Duration::from_millis(100);
+        queues.settle("a", vec![message("a", 0, 1)], Some(retry_at), now);
+
+        queues.purge(&[("events".to_string(), 0)]);
+        assert_eq!(queues.next_retry_at(), None);
+        assert_eq!(
+            claimed(&queues.take_ready(now)),
+            vec![("a", vec![7], false)]
         );
     }
 
