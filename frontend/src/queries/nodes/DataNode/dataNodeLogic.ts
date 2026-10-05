@@ -1341,6 +1341,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => false,
                 loadData: () => false,
                 cancelQuery: () => true,
+                clearResponse: () => false,
             },
         ],
         pollResponse: [

@@ -24,6 +24,10 @@ import type {
     AccountTrackRuleRunViewApi,
     AccountTrackRulesConfigApi,
     AccountTrackRulesRunsListParams,
+    AccountViewApi,
+    AccountViewCreateApi,
+    AccountViewUpdateApi,
+    AccountViewsDestroyParams,
     AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
@@ -39,6 +43,7 @@ import type {
     AnnouncementChannelApi,
     AnnouncementsListParams,
     CalendarSyncBackfillApi,
+    CalendarSyncIntervalApi,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
@@ -70,6 +75,7 @@ import type {
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
     ExternalAccountApi,
+    ExternalAccountCreateApi,
     ExternalAccountListPageApi,
     FeatureRequestAddAccountApi,
     FeatureRequestApi,
@@ -168,6 +174,26 @@ export const customerAnalyticsExternalAccountRetrieve = async (
     return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountRetrieveUrl(params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCustomerAnalyticsExternalAccountCreateUrl = () => {
+    return `/api/customer_analytics/external/account`
+}
+
+/**
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * @summary Create an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountCreate = async (
+    externalAccountCreateApi: ExternalAccountCreateApi,
+    options?: RequestInit
+): Promise<ExternalAccountApi> => {
+    return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalAccountCreateApi),
     })
 }
 
@@ -438,6 +464,110 @@ export const accountTrackRulesRunsList = async (
     return apiMutator<PaginatedAccountTrackRuleRunViewListApi>(getAccountTrackRulesRunsListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAccountViewsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_views/`
+}
+
+/**
+ * @summary List account views
+ */
+export const accountViewsList = async (projectId: string, options?: RequestInit): Promise<AccountViewApi[]> => {
+    return apiMutator<AccountViewApi[]>(getAccountViewsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_views/`
+}
+
+/**
+ * @summary Create a personal account view
+ */
+export const accountViewsCreate = async (
+    projectId: string,
+    accountViewCreateApi: AccountViewCreateApi,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountViewCreateApi),
+    })
+}
+
+export const getAccountViewsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Get an account view
+ */
+export const accountViewsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountViewsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Update an account view
+ */
+export const accountViewsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    accountViewUpdateApi: AccountViewUpdateApi,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountViewUpdateApi),
+    })
+}
+
+export const getAccountViewsDestroyUrl = (projectId: string, id: string, params: AccountViewsDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_views/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Delete an account view
+ */
+export const accountViewsDestroy = async (
+    projectId: string,
+    id: string,
+    params: AccountViewsDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountViewsDestroyUrl(projectId, id, params), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1111,6 +1241,28 @@ export const calendarSyncBackfillCreate = async (
     })
 }
 
+export const getCalendarSyncIntervalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/interval/`
+}
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ * @summary Set Google account sync interval
+ */
+export const calendarSyncIntervalCreate = async (
+    projectId: string,
+    calendarSyncIntervalApi: CalendarSyncIntervalApi,
+    options?: RequestInit
+): Promise<CalendarSyncIntervalApi> => {
+    return apiMutator<CalendarSyncIntervalApi>(getCalendarSyncIntervalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncIntervalApi),
+    })
+}
+
 export const getCalendarSyncSyncNowCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/calendar_sync/sync_now/`
 }
@@ -1397,8 +1549,8 @@ export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: strin
 
 /**
  * Person and group sources only: start a backfill that reads the whole warehouse table and
- * populates person or group properties for historical rows. Coalesces if one is already running
- * for the table.
+ * populates person or group properties for historical rows. If one is already running for the
+ * table, queue a follow-up that observes the latest mapping.
  */
 export const customPropertySourcesBackfill = async (
     projectId: string,
@@ -2541,7 +2693,7 @@ export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id:
 }
 
 /**
- * Get the requesting user's account sidebar and task digest configuration for this project. The first read creates an empty configuration row.
+ * Get the requesting user's account sidebar and task digest configuration for this project. Project defaults are returned until the user saves a personal pinned-property selection.
  * @summary Get account sidebar configuration
  */
 export const userCustomerAnalyticsConfigRetrieve = async (

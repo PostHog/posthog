@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { Scene } from 'scenes/sceneTypes'
 
 import { InsightType } from '~/types'

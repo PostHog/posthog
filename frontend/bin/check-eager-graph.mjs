@@ -122,6 +122,43 @@ const ROOTS = [
             },
         ],
     },
+    // The most visited logged-in scenes, whose JS gates their LCP. A scene root counts every chunk the
+    // scene needs, so code it shares with the shell is in both numbers. Like the other roots it adds the
+    // whole linked stylesheet, not the per-scene CSS the stable build serves, so a budget tracks JS.
+    {
+        root: 'src/scenes/dashboard/Dashboard.tsx',
+        label: 'dashboard scene',
+        // 2026-10-01: 12.25 MiB (4720 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 14_130_000,
+        forbidden: [],
+    },
+    {
+        root: [
+            AUTHENTICATED_SHELL,
+            'src/scenes/project-homepage/ProjectHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayHome.tsx',
+        ],
+        label: 'today home path',
+        budgetBytes: 9_000_000,
+        forbidden: [
+            'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayReportPage.tsx',
+        ],
+    },
+    {
+        root: 'src/scenes/activity/explore/EventsScene.tsx',
+        label: 'events scene',
+        // 2026-10-01: 11.48 MiB (4382 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 13_250_000,
+        forbidden: [],
+    },
+    {
+        root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
+        label: 'replay detail scene',
+        // 2026-10-01: 14.29 MiB (5280 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 16_480_000,
+        forbidden: [],
+    },
 ]
 
 function fail(message) {

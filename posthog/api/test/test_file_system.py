@@ -24,13 +24,13 @@ from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -220,24 +220,6 @@ FILE_SYSTEM_ACTIVITY_CASES: list[tuple[str, FileSystemActivityCase]] = [
             ),
             ref_getter=lambda instance: str(instance.short_id),
             item_id_getter=lambda instance: str(instance.short_id),
-        ),
-    ),
-    (
-        "link",
-        FileSystemActivityCase(
-            type_string="link",
-            scope="Link",
-            create_instance=lambda test: Link.objects.create(
-                team=test.team,
-                redirect_url="https://posthog.com",
-                short_link_domain="hog.gg",
-                short_code=f"lnk-{uuid4().hex[:8]}",
-                description="File system link",
-                created_by=test.user,
-            ),
-            ref_getter=lambda instance: str(instance.id),
-            item_id_getter=lambda instance: str(instance.id),
-            supports_restore=False,
         ),
     ),
     (
@@ -722,8 +704,60 @@ class TestFileSystemDeletion(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert FileSystem.objects.filter(team=self.team, path="Unfiled/Unknown/Item").exists()
 
-    def test_undo_delete_restores_feature_flag(self) -> None:
+    @parameterized.expand(
+        [("plain",), ("active_dependent_flag",), ("depends_on_inactive_flag",), ("disable_and_enable_policies",)]
+    )
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_undo_delete_restores_feature_flag(self, setup: str, _mock_approvals_enabled) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="undo-flag", created_by=self.user)
+        if setup == "active_dependent_flag":
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="dependent-flag",
+                created_by=self.user,
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": str(flag.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            )
+        elif setup == "depends_on_inactive_flag":
+            # Restore skips the serializer's enable-side check, which refuses to turn on a flag
+            # whose conditions depend on a disabled flag.
+            dependency = FeatureFlag.objects.create(
+                team=self.team, key="dependency-flag", created_by=self.user, active=False
+            )
+            flag.filters = {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(dependency.id),
+                                "type": "flag",
+                                "value": True,
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            }
+            flag.save()
+        elif setup == "disable_and_enable_policies":
+            for action_key in ("feature_flag.disable", "feature_flag.enable"):
+                ApprovalPolicy.objects.create(
+                    organization=self.organization,
+                    team=self.team,
+                    action_key=action_key,
+                    conditions={},
+                    approver_config={"quorum": 1, "users": [self.user.id]},
+                    created_by=self.user,
+                )
         file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
 
         delete_response = self.client.delete(
@@ -745,6 +779,7 @@ class TestFileSystemDeletion(APIBaseTest):
         assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
         assert flag.active is True
         assert flag.deleted is False  # type: ignore
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
 
     def test_undo_delete_restores_original_path(self) -> None:
         flag = FeatureFlag(team=self.team, key="undo-path-flag", created_by=self.user)

@@ -240,7 +240,8 @@ class TestGetRows:
 
         assert "S=50" in session.get.call_args_list[0].args[0]
 
-    def test_incremental_sync_sends_after_filter(self):
+    @pytest.mark.parametrize("endpoint", ["changes", "change_comments", "change_files"])
+    def test_incremental_sync_sends_after_filter(self, endpoint):
         session, session_patcher = _patch_session([_response(text=")]}'\n[]")])
 
         with (
@@ -252,7 +253,7 @@ class TestGetRows:
                     host="https://gerrit.example.com",
                     username="reviewbot",
                     http_password="secret",
-                    endpoint="changes",
+                    endpoint=endpoint,
                     team_id=1,
                     logger=mock.MagicMock(),
                     resumable_source_manager=_FakeResumeManager(),
@@ -278,6 +279,159 @@ class TestGetRows:
                 {"id": "gerrit", "name": "gerrit", "state": "ACTIVE"},
             ]
         ]
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_body, child_responses, expected_child_paths, expected_batches",
+        [
+            (
+                "group_members",
+                '{"Admins": {"id": "abc123"}, "ldap/eng": {"id": "ldap%3Acn%3Deng"}}',
+                # External groups have no member list and answer 405.
+                [_response(text=")]}'\n" + '[{"_account_id": 7, "name": "Ada"}]'), _response(status_code=405)],
+                ["/a/groups/abc123/members/", "/a/groups/ldap%3Acn%3Deng/members/"],
+                [[{"_account_id": 7, "name": "Ada", "group_uuid": "abc123"}]],
+            ),
+            (
+                "project_branches",
+                '{"plugins/replication": {"id": "plugins%2Freplication"}, "gerrit": {"id": "gerrit"}}',
+                [
+                    _response(text=")]}'\n" + '[{"ref": "refs/heads/main", "revision": "abc"}]'),
+                    _response(text=")]}'\n" + '[{"ref": "refs/heads/stable", "revision": "def"}]'),
+                ],
+                ["/a/projects/plugins%2Freplication/branches/", "/a/projects/gerrit/branches/"],
+                # One batch per parent, so a page of fan-out children is never buffered whole.
+                [
+                    [{"ref": "refs/heads/main", "revision": "abc", "project": "plugins/replication"}],
+                    [{"ref": "refs/heads/stable", "revision": "def", "project": "gerrit"}],
+                ],
+            ),
+            (
+                "change_comments",
+                '[{"id": "plugins%2Freplication~12", "_number": 12, "project": "plugins/replication",'
+                ' "updated": "u12", "created": "c12"}, {"id": "gerrit~13", "_number": 13, "project": "gerrit"}]',
+                # A change deleted between the listing and the comments request answers 404.
+                [
+                    _response(
+                        text=")]}'\n" + '{"src/a.py": [{"id": "c1", "line": 3}, {"id": "c2", "in_reply_to": "c1"}],'
+                        ' "/COMMIT_MSG": [{"id": "c3"}]}'
+                    ),
+                    _response(status_code=404),
+                ],
+                ["/a/changes/plugins%2Freplication~12/comments", "/a/changes/gerrit~13/comments"],
+                [
+                    [
+                        {
+                            "path": "src/a.py",
+                            "id": "c1",
+                            "line": 3,
+                            "_change_number": 12,
+                            "project": "plugins/replication",
+                            "change_updated": "u12",
+                            "change_created": "c12",
+                        },
+                        {
+                            "path": "src/a.py",
+                            "id": "c2",
+                            "in_reply_to": "c1",
+                            "_change_number": 12,
+                            "project": "plugins/replication",
+                            "change_updated": "u12",
+                            "change_created": "c12",
+                        },
+                        {
+                            "path": "/COMMIT_MSG",
+                            "id": "c3",
+                            "_change_number": 12,
+                            "project": "plugins/replication",
+                            "change_updated": "u12",
+                            "change_created": "c12",
+                        },
+                    ],
+                ],
+            ),
+        ],
+    )
+    def test_fanout_fetches_children_per_parent(
+        self, endpoint, parent_body, child_responses, expected_child_paths, expected_batches
+    ):
+        session, session_patcher = _patch_session([_response(text=")]}'\n" + parent_body), *child_responses])
+
+        with (
+            session_patcher,
+            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
+        ):
+            batches = list(
+                get_rows(
+                    host="https://gerrit.example.com",
+                    username="reviewbot",
+                    http_password="secret",
+                    endpoint=endpoint,
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_FakeResumeManager(),
+                )
+            )
+
+        child_urls = [call.args[0] for call in session.get.call_args_list[1:]]
+        assert child_urls == [f"https://gerrit.example.com{path}" for path in expected_child_paths]
+        assert batches == expected_batches
+
+    def test_fanout_child_error_other_than_ignored_statuses_fails_the_sync(self):
+        parent_body = ")]}'\n" + '{"gerrit": {"id": "gerrit"}}'
+        forbidden = _response(status_code=403)
+        forbidden.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden", response=forbidden)
+        with pytest.raises(requests.HTTPError):
+            _get_all_rows("project_branches", [_response(text=parent_body), forbidden])
+
+    def test_change_files_flattens_current_revision_files(self):
+        body = (
+            ")]}'\n"
+            '[{"id": "gerrit~12", "_number": 12, "project": "gerrit", "updated": "u", "created": "c",'
+            ' "current_revision": "sha2", "revisions": {"sha2": {"_number": 2, "files": {'
+            '"src/a.py": {"lines_inserted": 5, "lines_deleted": 1},'
+            ' "img.png": {"binary": true, "status": "A"}}}}},'
+            ' {"id": "gerrit~13", "_number": 13, "project": "gerrit", "current_revision": "sha9",'
+            ' "revisions": {"sha9": {"_number": 1}}, "_more_changes": true}]'
+        )
+        page_2 = ")]}'\n[]"
+        session, session_patcher = _patch_session([_response(text=body), _response(text=page_2)])
+        manager = _FakeResumeManager()
+
+        with (
+            session_patcher,
+            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
+        ):
+            batches = list(
+                get_rows(
+                    host="https://gerrit.example.com",
+                    username="reviewbot",
+                    http_password="secret",
+                    endpoint="change_files",
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        parent = {"_change_number": 12, "project": "gerrit", "change_updated": "u", "change_created": "c"}
+        assert batches == [
+            [
+                {
+                    "lines_inserted": 5,
+                    "lines_deleted": 1,
+                    "path": "src/a.py",
+                    "revision": "sha2",
+                    "_revision_number": 2,
+                    **parent,
+                },
+                {"binary": True, "status": "A", "path": "img.png", "revision": "sha2", "_revision_number": 2, **parent},
+            ]
+        ]
+        first_url = session.get.call_args_list[0].args[0]
+        assert "o=CURRENT_REVISION&o=CURRENT_FILES" in first_url
+        # The resume offset counts changes, not file rows, because `S` skips changes.
+        assert "S=2" in session.get.call_args_list[1].args[0]
+        assert [s.offset for s in manager.saved] == [2]
 
     def test_anonymous_requests_skip_the_auth_prefix(self):
         session, session_patcher = _patch_session([_response(text=")]}'\n[]")])

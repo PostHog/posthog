@@ -172,6 +172,8 @@ pub struct UpsertStats {
     #[pyo3(get)]
     pub open_ms: u64,
     #[pyo3(get)]
+    pub initial_open_ms: u64,
+    #[pyo3(get)]
     pub ingest_ms: u64,
     #[pyo3(get)]
     pub relax_ms: u64,
@@ -218,6 +220,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             commit_ms: s.commit_ms,
             columns_relaxed: s.columns_relaxed,
             open_ms: s.open_ms,
+            initial_open_ms: s.initial_open_ms,
             ingest_ms: s.ingest_ms,
             relax_ms: s.relax_ms,
             maintenance_ms: s.maintenance_ms,
@@ -225,9 +228,10 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
     }
 }
 
-/// A handle on a Delta table for deltalite writes. Reads (schema, history, file
-/// listing) exist for parity tooling; production read paths stay on the Python
-/// `deltalake` package -- both address the same `_delta_log`.
+/// A handle on a Delta table for deltalite writes, plus snapshot reads (version, table
+/// id, schema, live files) served from the loaded state so a writer does not need a
+/// second delta-rs `DeltaTable` open for them. `history` is the one read that goes back
+/// to the log.
 #[pyclass(module = "deltalite")]
 pub struct DeltaLiteTable {
     handle: TableHandle,
@@ -267,6 +271,43 @@ impl DeltaLiteTable {
     /// The table version this handle currently observes (-1 before any load).
     fn version(&self) -> i64 {
         self.handle.version()
+    }
+
+    /// The table id from the snapshot's metadata action.
+    fn table_id(&self) -> PyResult<String> {
+        self.handle.table_id().map_err(to_py_err)
+    }
+
+    /// The table configuration (`delta.*` properties and custom keys).
+    fn configuration(&self) -> PyResult<HashMap<String, String>> {
+        self.handle.configuration().map_err(to_py_err)
+    }
+
+    /// The Delta schema of the loaded snapshot as a JSON string, in the form
+    /// `deltalake.DeltaTable.schema().to_json()` returns.
+    fn schema_json(&self) -> PyResult<String> {
+        self.handle.schema_json().map_err(to_py_err)
+    }
+
+    /// Number of live data files in the loaded snapshot.
+    fn num_files(&self) -> PyResult<usize> {
+        self.handle.num_files().map_err(to_py_err)
+    }
+
+    /// The live data files of the loaded snapshot, one dict per file with `path`
+    /// (relative to the table root), `size`, `modification_time` (epoch ms) and
+    /// `partition_values` (`dict[str, str | None]`, empty when unpartitioned).
+    fn files(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let out = PyList::empty(py);
+        for file in self.handle.files().map_err(to_py_err)? {
+            let d = PyDict::new(py);
+            d.set_item("path", file.path)?;
+            d.set_item("size", file.size)?;
+            d.set_item("modification_time", file.modification_time)?;
+            d.set_item("partition_values", file.partition_values)?;
+            out.append(d)?;
+        }
+        Ok(out.into())
     }
 
     /// Re-read the log so this handle observes commits made elsewhere. Incremental --
@@ -324,6 +365,10 @@ impl DeltaLiteTable {
     /// PK set); `0` disables the guard, `None` uses `DELTALITE_MAX_SOURCE_BYTES` or the
     /// built-in 2 GiB default. `multipart_threshold` / `multipart_part_size` control
     /// multipart upload of output files (`0` threshold disables).
+    ///
+    /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
+    /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
+    /// per process). A row group larger than the cap still runs, alone.
     #[pyo3(signature = (
         data,
         primary_keys,
@@ -333,6 +378,7 @@ impl DeltaLiteTable {
         max_parallel_partitions = 2,
         max_parallel_files = 4,
         max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
         skip_unmatched_files = true,
         prune_strategy = None,
         probe_concurrency = 8,
@@ -354,6 +400,7 @@ impl DeltaLiteTable {
         max_parallel_partitions: usize,
         max_parallel_files: usize,
         max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
         skip_unmatched_files: bool,
         prune_strategy: Option<String>,
         probe_concurrency: usize,
@@ -389,6 +436,7 @@ impl DeltaLiteTable {
             probe_concurrency,
             max_parallel_files,
             max_buffered_bytes,
+            max_fetch_bytes,
             commit_max_retries,
             read_batch_size,
             target_file_size,
