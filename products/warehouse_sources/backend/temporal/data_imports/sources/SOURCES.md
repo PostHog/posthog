@@ -495,6 +495,7 @@ the row lists both.
 | medusa                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | membrain                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                          | HTTP                        | requests                                                        | ✅                          |
+| mercado_pago                     | HTTP                        | requests                                                        | ✅                          |
 | mercury                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | meta_ads                         | HTTP                        | requests                                                        | ✅                          |
 | metabase                         | HTTP                        | requests                                                        | ✅                          |
@@ -620,6 +621,7 @@ the row lists both.
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
+| qdrant                           | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
@@ -636,6 +638,7 @@ the row lists both.
 | recruitee                        | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift                         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
+| referralhero                     | HTTP                        | requests                                                        | ✅                          |
 | render                           | HTTP                        | requests                                                        | ✅                          |
 | rentcast                         | HTTP                        | requests                                                        | ✅                          |
 | replicate                        | HTTP                        | requests                                                        | ✅                          |
@@ -676,6 +679,7 @@ the row lists both.
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
 | sentry                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sequenzy                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| serpstat                         | HTTP                        | requests                                                        | ✅                          |
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sevdesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -779,6 +783,7 @@ the row lists both.
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
 | twenty                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
+| twitter                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twitter_ads                      | HTTP                        | requests                                                        | ✅                          |
 | tyntec_sms                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1216,7 +1221,6 @@ doesn't conflict with concurrent PRs.
 - memberful
 - mendeley
 - mercado_ads
-- mercado_pago
 - merge
 - metricool
 - metriport
@@ -1325,7 +1329,6 @@ doesn't conflict with concurrent PRs.
 - promptwatch
 - proofpoint_tap
 - pubnub
-- qdrant
 - qonto
 - quay
 - quickbooks
@@ -1340,7 +1343,6 @@ doesn't conflict with concurrent PRs.
 - reddit
 - redis
 - redpanda_cloud
-- referralhero
 - rent_manager
 - repairshopr
 - reply_io
@@ -1376,7 +1378,6 @@ doesn't conflict with concurrent PRs.
 - semrush
 - sendpulse
 - senseforce
-- serpstat
 - service_fusion
 - servicetitan
 - servicetrade
@@ -1462,7 +1463,6 @@ doesn't conflict with concurrent PRs.
 - triple_whale
 - trustradius
 - twitch
-- twitter
 - two_c2p
 - tyntec_sms
 - typesense
