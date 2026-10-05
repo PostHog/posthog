@@ -21,6 +21,7 @@
     --today-ease-nudge: cubic-bezier(0.2, 0.8, 0.2, 1);
     --today-card-shadow: 0 1px 2px #00000008, 0 12px 32px -24px #00000059;
     --today-marker: #f54e00;
+    --today-key-clause: rgb(29 74 255 / 75%);
 
     [theme='dark'] & {
         --today-ink: #f1f1ee;
@@ -36,6 +37,7 @@
         --today-button: #f1f1ee;
         --today-button-text: #151515;
         --today-marker: #ff8a4c;
+        --today-key-clause: rgb(138 164 255 / 85%);
     }
 }
 
@@ -550,6 +552,28 @@
     .TodayFigureMark__circle path {
         stroke-dashoffset: 0;
         transition: stroke-dashoffset 0.5s var(--today-ease);
+    }
+}
+
+.TodayKeyClauseMark {
+    padding-bottom: 0.12em;
+    background-image: linear-gradient(var(--today-key-clause), var(--today-key-clause));
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 100% 1.5px;
+    transition: background-size 0.15s var(--today-ease);
+    animation: TodayKeyClauseMark__sweep 0.7s var(--today-ease-in-out) 0.5s both;
+
+    &:hover,
+    &:focus-visible,
+    &[data-popup-open] {
+        background-size: 100% 2.5px;
+    }
+}
+
+@keyframes TodayKeyClauseMark__sweep {
+    from {
+        background-size: 0% 1.5px;
     }
 }
 

@@ -54,8 +54,10 @@ from products.signals.backend.report_metrics import (
     ReportMetricSnapshot as ReportMetricSnapshot,
 )
 from products.signals.backend.report_page_source import (
+    ReportArtefactText as ReportArtefactText,
     ReportPageSource as ReportPageSource,
     ReportSignal as ReportSignal,
+    report_agent_texts as report_agent_texts,
     report_page_source as report_page_source,
 )
 from products.signals.backend.report_sections import (

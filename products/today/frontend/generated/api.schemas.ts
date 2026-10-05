@@ -359,12 +359,50 @@ export interface CandidateListApi {
     more_reports_count: number
 }
 
-export interface PullRequestLinkApi {
-    /** The pull request on GitHub. */
-    url: string
-    /** The pull request number. */
-    number: number
+export interface ExcerptChoiceRequestApi {
+    /**
+     * The finding the code excerpts should show.
+     * @maxLength 6000
+     */
+    finding: string
+    /**
+     * Candidate code excerpts, best scored first.
+     * @minItems 2
+     * @maxItems 5
+     * @items.maxLength 2000
+     */
+    excerpts: string[]
 }
+
+export interface ExcerptChoiceApi {
+    /**
+     * The excerpt that shows what the finding describes, or null when unsure.
+     * @nullable
+     */
+    index: number | null
+}
+
+/**
+ * * `lead` - Lead
+ * * `impact` - Impact
+ */
+export type FigureTextEnumApi = (typeof FigureTextEnumApi)[keyof typeof FigureTextEnumApi]
+
+export const FigureTextEnumApi = {
+    Lead: 'lead',
+    Impact: 'impact',
+} as const
+
+/**
+ * * `signal` - Signal
+ * * `research` - Agent's research
+ */
+export type FigureSourceKindEnumApi = (typeof FigureSourceKindEnumApi)[keyof typeof FigureSourceKindEnumApi]
+
+export const FigureSourceKindEnumApi = {
+    Signal: 'signal',
+    Research: 'research',
+} as const
 
 /**
  * * `code` - Code
@@ -477,6 +515,89 @@ export interface SignalViewApi {
     preview: SignalPreviewApi | null
 }
 
+export interface FigureQuoteApi {
+    /** Where the number comes from: a signal or the agent's research.
+     *
+     * * `signal` - Signal
+     * * `research` - Agent's research */
+    kind: FigureSourceKindEnumApi
+    /** The signal that states the number. Null when the agent's research states it. */
+    signal: SignalViewApi | null
+    /** When the source was written. */
+    at: string
+    /** The source sentence that states the number. */
+    sentence: string
+    /** Where the number starts in the sentence. */
+    start: number
+    /** Where the number ends in the sentence. */
+    end: number
+}
+
+export interface FigureMarkApi {
+    /** The page text the number is in: the lead or the impact sentence.
+     *
+     * * `lead` - Lead
+     * * `impact` - Impact */
+    text: FigureTextEnumApi
+    /** Where the number starts in that text, as the reader sees it. */
+    start: number
+    /** Where the number ends in that text. */
+    end: number
+    /** The number as the page shows it. */
+    figure: string
+    /** The sentence that states the same result. */
+    quote: FigureQuoteApi
+}
+
+export interface FigureMarksApi {
+    /** The numbers to mark, at most 4, each with its source. */
+    marks: FigureMarkApi[]
+}
+
+/**
+ * * `problem` - Problem
+ * * `cause` - Cause
+ * * `fix` - Fix
+ */
+export type KeyClauseRoleEnumApi = (typeof KeyClauseRoleEnumApi)[keyof typeof KeyClauseRoleEnumApi]
+
+export const KeyClauseRoleEnumApi = {
+    Problem: 'problem',
+    Cause: 'cause',
+    Fix: 'fix',
+} as const
+
+export interface KeyClauseApi {
+    /** Where the clause starts in its text, as the reader sees it. */
+    start: number
+    /** Where the clause ends in its text. */
+    end: number
+    /** What the clause tells the reader.
+     *
+     * * `problem` - Problem
+     * * `cause` - Cause
+     * * `fix` - Fix */
+    role: KeyClauseRoleEnumApi
+    /** Sentences from the report that explain the clause further. */
+    expansion: string[]
+}
+
+export interface ReportKeyClausesApi {
+    /** The clauses that state the problem or its cause in the lead. */
+    lead: KeyClauseApi[]
+    /** The clauses that state the problem or its cause in the impact sentence. */
+    impact: KeyClauseApi[]
+    /** The clause that states the fix in the proposal. */
+    proposal: KeyClauseApi[]
+}
+
+export interface PullRequestLinkApi {
+    /** The pull request on GitHub. */
+    url: string
+    /** The pull request number. */
+    number: number
+}
+
 /**
  * * `tickets` - Support tickets
  * * `query-hours` - Database hours
@@ -559,4 +680,11 @@ export type TodayCandidatesRetrieveParams = {
      * @maxLength 64
      */
     timezone?: string
+}
+
+export type TodayReportsKeyClausesRetrieveParams = {
+    /**
+     * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
+     */
+    include_impact?: boolean
 }

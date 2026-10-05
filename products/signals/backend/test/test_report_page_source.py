@@ -9,9 +9,9 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
 from products.signals.backend.report_access import may_read_reports
-from products.signals.backend.report_page_source import report_page_source
+from products.signals.backend.report_page_source import report_agent_texts, report_page_source
 
 
 class TestReportPageSource(BaseTest):
@@ -56,11 +56,11 @@ class TestReportPageSource(BaseTest):
         assert source is not None
         assert source.action_prompts == expected
 
-    def test_finds_no_page_for_a_deleted_or_foreign_report(self) -> None:
+    def test_finds_no_page_or_summary_for_a_deleted_or_foreign_report(self) -> None:
         deleted = self._report(status=SignalReport.Status.DELETED)
         foreign = self._report(team=Team.objects.create(organization=self.organization))
-        assert self._source(str(deleted.id)) is None
-        assert self._source(str(foreign.id)) is None
+        for report in (deleted, foreign):
+            assert self._source(str(report.id)) is None
 
 
 class TestReportAccess(BaseTest):
@@ -77,3 +77,29 @@ class TestReportAccess(BaseTest):
             True,
             False,
         )
+
+
+class TestReportAgentTexts(BaseTest):
+    def test_returns_the_newest_texts_an_agent_wrote(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=1, total_weight=1.0
+        )
+        for content, actor_kind, created_by in [
+            ("Old agent note.", SignalActorKind.AGENT, self.user),
+            ("New agent note.", SignalActorKind.AGENT, self.user),
+            ("By a person.", SignalActorKind.USER, self.user),
+            ("By a deleted person.", SignalActorKind.USER, None),
+            ("Legacy person note.", None, self.user),
+        ]:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                content=content,
+                actor_kind=actor_kind,
+                created_by=created_by,
+            )
+
+        texts = report_agent_texts(team=self.team, report_id=str(report.id), types=["note"], per_type=1)
+
+        assert [text.content for text in texts] == ["New agent note."]

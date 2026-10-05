@@ -3,6 +3,8 @@ from datetime import date
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
+from posthog.dataclasses import frozen
+
 from .formats import GitHubLink, collapsed_whitespace, github_links, is_word_char, replace_iso_dates
 
 MARKDOWN = MarkdownIt("commonmark")
@@ -27,40 +29,60 @@ def _is_bare_link(text: str, link: GitHubLink) -> bool:
     return not opened and not is_word_char(following) and following != "/"
 
 
-def _shortened_github_links(text: str) -> str:
-    parts: list[str] = []
+@frozen
+class _Part:
+    text: str
+    prose: bool
+
+
+def _dated(text: str) -> str:
+    return replace_iso_dates(text, readable_date)
+
+
+def _prose_parts(text: str) -> list[_Part]:
+    parts: list[_Part] = []
     last = 0
     for link in github_links(text, lambda link: _is_bare_link(text, link)):
-        parts.extend((text[last : link.start], f"#{link.number}"))
+        parts.extend(
+            (_Part(text=_dated(text[last : link.start]), prose=True), _Part(text=f"#{link.number}", prose=False))
+        )
         last = link.end
-    parts.append(text[last:])
-    return "".join(parts)
+    parts.append(_Part(text=_dated(text[last:]), prose=True))
+    return parts
 
 
-def _prose_text(text: str, in_link: bool) -> str:
-    return replace_iso_dates(text if in_link else _shortened_github_links(text), readable_date)
-
-
-def _inline_text(tokens: list[Token]) -> str:
-    parts: list[str] = []
+def _inline_parts(tokens: list[Token]) -> list[_Part]:
+    parts: list[_Part] = []
     link_depth = 0
     for token in tokens:
         if token.type == "link_open":
             link_depth += 1
         elif token.type == "link_close":
             link_depth -= 1
+        elif token.type == "text" and link_depth:
+            parts.append(_Part(text=_dated(token.content), prose=False))
         elif token.type == "text":
-            parts.append(_prose_text(token.content, link_depth > 0))
+            parts.extend(_prose_parts(token.content))
         elif token.type in _RAW_TOKENS:
-            parts.append(token.content)
+            parts.append(_Part(text=token.content, prose=False))
         elif token.type in _BREAK_TOKENS:
-            parts.append(" ")
+            parts.append(_Part(text=" ", prose=True))
         elif token.type == "image":
-            parts.append("".join(child.content for child in token.children or [] if child.type in _ALT_TOKENS))
-    return "".join(parts)
+            alt = "".join(child.content for child in token.children or [] if child.type in _ALT_TOKENS)
+            parts.append(_Part(text=alt, prose=False))
+    return parts
+
+
+def _rendered_parts(markdown: str) -> list[_Part]:
+    tokens: list[Token] = MARKDOWN.parseInline(collapsed_whitespace(markdown))
+    return [part for token in tokens for part in _inline_parts(token.children or [])]
 
 
 def rendered_text(markdown: str) -> str:
     """The text a reader sees. Dates and bare GitHub links change only in prose, never in code or link targets."""
-    tokens: list[Token] = MARKDOWN.parseInline(collapsed_whitespace(markdown))
-    return "".join(_inline_text(token.children or []) for token in tokens)
+    return "".join(part.text for part in _rendered_parts(markdown))
+
+
+def rendered_prose(markdown: str) -> str:
+    """`rendered_text` with code, links and images blanked, so offsets still match it."""
+    return "".join(part.text if part.prose else " " * len(part.text) for part in _rendered_parts(markdown))
