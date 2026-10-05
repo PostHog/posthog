@@ -44,6 +44,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         publishDisabledReason,
         discardDisabledReason,
         showDraftActions,
+        unverifiedEmailSenders,
     } = useValues(workflowLogic)
     const {
         saveWorkflowPartial,
@@ -226,7 +227,13 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             })
                                         }
                                         size="small"
-                                        disabledReason={hasUnsavedChanges ? 'Save changes first' : undefined}
+                                        disabledReason={
+                                            hasUnsavedChanges
+                                                ? 'Save changes first'
+                                                : displayStatus === 'draft' && unverifiedEmailSenders.length > 0
+                                                  ? 'Verify the email sender before you enable this workflow'
+                                                  : undefined
+                                        }
                                         className="transition-colors duration-300 ease-in-out"
                                         data-attr="workflow-launch"
                                     >

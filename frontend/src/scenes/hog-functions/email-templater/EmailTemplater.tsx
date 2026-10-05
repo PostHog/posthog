@@ -1,12 +1,14 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
+import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
 import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCard,
     LemonInputSelect,
@@ -35,7 +37,9 @@ import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { IntegrationType } from '~/types'
 
+import { EmailSetupModal } from 'products/workflows/frontend/Channels/EmailSetup/EmailSetupModal'
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
@@ -44,6 +48,7 @@ import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
+import { getEmailSenderAddress, getUnverifiedEmailSenders } from './unverifiedEmailSenders'
 
 export type EmailEditorMode = 'full' | 'preview'
 
@@ -278,7 +283,9 @@ export function NativeEmailIntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
+    const [senderToVerify, setSenderToVerify] = useState<IntegrationType | null>(null)
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+    const unverifiedSenders = getUnverifiedEmailSenders(value, integrations)
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
         : value?.integrationId
@@ -407,6 +414,31 @@ export function NativeEmailIntegrationChoice({
                     </LemonButton>
                 )}
             </div>
+            {unverifiedSenders.map((integration) => (
+                <LemonBanner
+                    key={integration.id}
+                    type="warning"
+                    className="m-1"
+                    action={{
+                        children: 'Verify sender',
+                        type: 'primary',
+                        onClick: () => {
+                            posthog.capture('workflows verify sender clicked', { source: 'sender_field' })
+                            setSenderToVerify(integration)
+                        },
+                        'data-attr': 'email-from-verify-sender',
+                    }}
+                >
+                    {`${getEmailSenderAddress(integration)} can't send until its domain is verified.`}
+                </LemonBanner>
+            ))}
+            {senderToVerify && (
+                <EmailSetupModal
+                    integration={senderToVerify}
+                    onComplete={() => setSenderToVerify(null)}
+                    onClose={() => setSenderToVerify(null)}
+                />
+            )}
             {overridesVisible && (
                 <>
                     <div className="flex gap-2 items-center border-t">

@@ -183,7 +183,8 @@ class TestHogFlowDraftPublish(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
-    def test_publish_of_incomplete_draft_is_rejected(self):
+    @parameterized.expand([("plain_publish", {}), ("publish_claiming_a_draft_save", {"stage_draft": True})])
+    def test_publish_of_incomplete_draft_is_rejected(self, _name: str, extra_publish_body: dict):
         flow_id = self._create_active_flow()
         incomplete = _webhook_action()
         incomplete["config"]["inputs"] = {}
@@ -197,13 +198,29 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert preview.status_code == 200, preview.json()
         confirm = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"], **extra_publish_body},
         )
         assert confirm.status_code == 400, confirm.json()
         # The failed publish must leave both the live config and the draft untouched.
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.draft is not None
         assert all(a["config"].get("inputs") for a in flow.actions if a["type"] == "function")
+
+    def test_graph_edit_claiming_a_draft_save_validates_strictly_when_it_writes_live(self):
+        flow_id = self._create_active_flow()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {"op": "update_action", "id": "action_1", "patch": {"config": {"inputs": {"url": {"value": ""}}}}}
+                ],
+                "stage_draft": True,
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert HogFlow.objects.get(pk=flow_id).actions[1]["config"]["inputs"]["url"]["value"] == "https://example.com"
 
     def test_discard_bumps_live_stamp_so_stale_draft_saves_get_409(self):
         # Without the bump, a concurrent editor holding the discarded draft's stamp would pass the

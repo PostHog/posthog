@@ -607,14 +607,26 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             config={"email": f"sender@{domain}", "name": "Sender", "domain": domain, "verified": True},
         )
 
-    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None):
+    def _validate_email_from(
+        self,
+        from_value,
+        existing_from=None,
+        get_team=True,
+        cache=None,
+        require_verified_sender=False,
+        live_from=None,
+    ):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         value = {"from": from_value, "to": "a@b.com", "subject": "hi", "text": "hi"}
-        context_extra = {"existing_email_from": existing_from}
+        context_extra = {
+            "existing_email_from": existing_from,
+            "require_verified_email_sender": require_verified_sender,
+            "live_email_from": live_from,
+        }
         if get_team:
             context_extra["get_team"] = lambda: self.team
         if cache is not None:
-            context_extra["email_integration_domain_cache"] = cache
+            context_extra["email_sender_cache"] = cache
         return validate_inputs(inputs_schema, {"email": {"value": value}}, context_extra=context_extra)
 
     @parameterized.expand(
@@ -752,6 +764,69 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         # not resolve has no domain to compare against. Both must not block the save; the runtime
         # still enforces the domain at send time.
         self._validate_email_from({"integrationId": integration_id, "email": "sales@evil.com"}, get_team=get_team)
+
+    def _create_unverified_email_integration(self, email: str = "hello@example.dev") -> Integration:
+        domain = email.split("@")[-1]
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": email, "name": "Pending", "domain": domain, "verified": False},
+        )
+
+    @parameterized.expand(
+        [
+            ("single_sender", False, False),
+            ("rotation_with_one_unverified_sender", True, False),
+            ("replacing_a_live_sender", False, True),
+        ]
+    )
+    def test_unverified_sender_blocks_the_workflow_from_going_live(self, _name, rotation, replaces_live_sender):
+        verified = self._create_email_integration("posthog.com")
+        unverified = self._create_unverified_email_integration()
+        from_value: dict[str, int | list[int]] = {"integrationId": verified.id if rotation else unverified.id}
+        if rotation:
+            from_value["integrationIds"] = [verified.id, unverified.id]
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                from_value,
+                require_verified_sender=True,
+                live_from={"integrationId": verified.id} if replaces_live_sender else None,
+            )
+        assert 'The email sender "hello@example.dev" is not verified yet' in str(ctx.value.detail)
+
+    def test_deleted_sender_blocks_the_workflow_from_going_live(self):
+        deleted = self._create_unverified_email_integration()
+        deleted_id = deleted.id
+        deleted.delete()
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from({"integrationId": deleted_id}, require_verified_sender=True)
+        assert "The email sender no longer exists" in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
+            ("draft", {}),
+            (
+                "fallback_sender_unused_by_a_verified_rotation",
+                {"require_verified_sender": True, "rotation_is_verified": True},
+            ),
+            ("sender_already_live", {"require_verified_sender": True, "already_live": True}),
+        ]
+    )
+    def test_unverified_sender_passes_where_the_check_does_not_apply(self, _name, case):
+        unverified = self._create_unverified_email_integration()
+        from_value: dict[str, int | list[int]] = {"integrationId": unverified.id}
+        if case.get("rotation_is_verified"):
+            verified = self._create_email_integration("posthog.com")
+            from_value["integrationIds"] = [verified.id]
+
+        validated = self._validate_email_from(
+            from_value,
+            require_verified_sender=case.get("require_verified_sender", False),
+            live_from={"integrationId": unverified.id} if case.get("already_live") else None,
+        )
+        assert validated["email"]["value"]["from"]["integrationId"] == unverified.id
 
     @parameterized.expand(
         [

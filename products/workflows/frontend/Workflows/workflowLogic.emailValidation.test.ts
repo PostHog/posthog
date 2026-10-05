@@ -1,7 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { IntegrationType } from '~/types'
 
 import { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
@@ -34,7 +39,7 @@ const makeEmailAction = (fromValue: any): Extract<HogFlowAction, { type: 'functi
     },
 })
 
-const makeWorkflow = (fromValue: any): HogFlow => ({
+const makeWorkflow = (fromValue: any, status: HogFlow['status'] = 'draft'): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Email validation test',
     actions: [
@@ -65,7 +70,7 @@ const makeWorkflow = (fromValue: any): HogFlow => ({
     conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
-    status: 'draft',
+    status,
     team_id: 1,
     trigger: { type: 'event', filters: {} } as HogFlow['trigger'],
     created_at: '2026-05-01T00:00:00.000Z',
@@ -100,6 +105,9 @@ const loadedTemplatesResponse = {
 }
 
 const SENDER_ERROR = 'Choose an email sender, or connect a new one'
+
+const emailSender = (id: number, verified: boolean): IntegrationType =>
+    ({ id, kind: 'email', display_name: `sender-${id}`, config: { verified } }) as IntegrationType
 
 describe('workflowLogic email step "from" validation', () => {
     let logic: ReturnType<typeof workflowLogic.build>
@@ -270,6 +278,89 @@ describe('workflowLogic email step "from" validation', () => {
         // The generic input validator also joins the sub-fields into `errors.email`; it must be
         // stripped so nothing renders under the whole input.
         expect(result?.errors.email).toBeUndefined()
+    })
+
+    const ROTATION = { integrationId: 42, integrationIds: [42, 43] }
+
+    it.each([
+        ['the sender is unverified', { integrationId: 42 }, 'draft', [emailSender(42, false)], [42]],
+        ['one rotation sender is unverified', ROTATION, 'draft', [emailSender(42, true), emailSender(43, false)], [43]],
+        [
+            'only the unused fallback sender is unverified',
+            { integrationId: 42, integrationIds: [43] },
+            'draft',
+            [emailSender(42, false), emailSender(43, true)],
+            [],
+        ],
+        ['the workflow is already live', ROTATION, 'active', [emailSender(42, false)], []],
+        ['every sender is verified', ROTATION, 'draft', [emailSender(42, true), emailSender(43, true)], []],
+    ] as const)(
+        'lists the senders to verify before enabling when %s',
+        async (_name, from, status, senders, expectedIds) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(from, status),
+                    '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+                    '/api/environments/:team_id/integrations': { results: senders },
+                },
+            })
+            initKeaTests()
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+            logic.actions.setWorkflowValue('name', 'Renamed')
+
+            expect(logic.values.unverifiedEmailSenders.map(({ id }) => id)).toEqual(expectedIds)
+            expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.valid).toBe(expectedIds.length === 0)
+            expect(
+                capture.mock.calls.filter(([event]) => event === 'workflows unverified sender warning shown')
+            ).toEqual(
+                expectedIds.length > 0
+                    ? [
+                          [
+                              'workflows unverified sender warning shown',
+                              { workflow_id: WORKFLOW_ID, sender_count: expectedIds.length },
+                          ],
+                      ]
+                    : []
+            )
+        }
+    )
+
+    const PUBLISH_STEP_ERROR =
+        'step \'Send email\': The email sender "hello@example.dev" is not verified yet. Verify its domain under Channels, or choose a verified sender.'
+
+    it.each([
+        ['a step is invalid', { detail: PUBLISH_STEP_ERROR, attr: null }, PUBLISH_STEP_ERROR],
+        [
+            'the confirmation expired',
+            { detail: 'Expired, preview the publish again to get a fresh token.', attr: 'confirm_token' },
+            'Publishing failed. Review the staged changes and try again.',
+        ],
+    ])('explains a failed publish when %s', async (_case, errorBody, expectedToast) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }, 'active'),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/publish/': () => [
+                    400,
+                    { type: 'validation_error', code: 'invalid_input', ...errorBody },
+                ],
+            },
+        })
+        const toastError = jest.spyOn(lemonToast, 'error')
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        await expectLogic(logic, () => logic.actions.confirmPublishDraft('token')).toDispatchActions(['loadWorkflow'])
+
+        expect(toastError).toHaveBeenCalledWith(expectedToast)
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {
