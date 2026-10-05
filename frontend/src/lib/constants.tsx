@@ -369,6 +369,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_EXPORT_NUDGE: 'insight-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported an insight toward a recurring subscription
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
+    INTERNAL_FEEDBACK_WIDGET: 'internal-feedback-widget', // owner: @adamleithp, gates the staff UI feedback bar that posts to Slack
     JEV_CHART_AUTODETECTION: 'jev-chart-autodetection', // owner: #team-data-tools
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LEGACY_OAUTH_RECONNECT_WARNING: 'legacy-oauth-reconnect-warning', // owner: @jabahamondes #team-web-analytics — kill-switch for the retiring-OAuth-app reconnect banner
@@ -427,6 +428,7 @@ export const FEATURE_FLAGS = {
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
+    METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     METRICS_FUNDAMENTALS: 'metrics-fundamentals', // owner: #team-apm (@jonmcwest, @frankh), gates the Fundamentals tab and the explain API behind it, which check the metrics viewer's own reductions
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
@@ -626,7 +628,7 @@ export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
 // The Today rail swaps out the whole navigation, so stories that render the app opt in to it explicitly.
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV
+    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV && flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET
 )
 
 export const INSIGHT_VISUAL_ORDER = {

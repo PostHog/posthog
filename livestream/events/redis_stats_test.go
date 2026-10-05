@@ -82,6 +82,24 @@ func TestAddUser_GetUserCount(t *testing.T) {
 	}
 }
 
+func TestStatsKeepStats_RedisModeKeepsNoLocalStore(t *testing.T) {
+	store, _ := setupMiniredis(t)
+	stats := NewStatsKeeper()
+	stats.RedisStore = store
+
+	statsChan := make(chan CountEvent, 3)
+	statsChan <- CountEvent{Token: "tok", DistinctID: "user-1"}
+	statsChan <- CountEvent{Token: "tok", DistinctID: "user-2"}
+	statsChan <- CountEvent{Token: "tok", DistinctID: "user-1"}
+	close(statsChan)
+	stats.KeepStats(statsChan, time.Hour)
+
+	count, err := store.GetUserCount(context.Background(), "tok")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+	assert.Nil(t, stats.GetExistingStoreForToken("tok"))
+}
+
 func TestAddSession_GetSessionCount(t *testing.T) {
 	tests := []struct {
 		name      string
