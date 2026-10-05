@@ -113,7 +113,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ):
         error = error_class("failed the same way 3 times in a row")
         if served_from_cache:
-            error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
+            error.served_from_query_failure_cache = True
         with (
             patch("posthog.api.query.process_query_model", side_effect=error),
             patch("posthog.api.query.capture_exception") as mock_capture,
