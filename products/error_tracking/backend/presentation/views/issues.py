@@ -330,7 +330,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         request_serializer = ErrorTrackingIssueWriteSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         try:
-            issue = issues_facade.update_issue(
+            update = issues_facade.update_issue(
                 self.team.id,
                 UUID(str(pk)),
                 fields=dict(request_serializer.validated_data),
@@ -339,17 +339,21 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
-        fields = request_serializer.validated_data
-        self._report_issue_change(
-            request,
-            "update",
-            {
-                "issue_id": str(pk),
-                "updated_fields": sorted(fields.keys()),
-                **{key: fields[key] for key in ("status", "severity") if key in fields},
-            },
-        )
-        return Response(ErrorTrackingIssueReadSerializer(issue).data)
+        if update.changed_fields:
+            self._report_issue_change(
+                request,
+                "update",
+                {
+                    "issue_id": str(pk),
+                    "updated_fields": sorted(update.changed_fields),
+                    **{
+                        key: getattr(update.issue, key)
+                        for key in ("status", "severity")
+                        if key in update.changed_fields
+                    },
+                },
+            )
+        return Response(ErrorTrackingIssueReadSerializer(update.issue).data)
 
     @extend_schema(responses={200: ErrorTrackingIssueExistsResponseSerializer})
     @action(methods=["GET"], detail=False)
@@ -364,7 +368,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            merge_result = issues_facade.merge_issues(
+            merge = issues_facade.merge_issues(
                 self.team.id,
                 UUID(str(pk)),
                 ids,
@@ -373,13 +377,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
-        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
+        if merge.result == "stale_issues":
             raise NotFound("Issue not found")
-        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
+        if merge.result == "stale_fingerprints":
             raise ValidationError("Issue fingerprints changed before merge. Please retry.")
-        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.MERGED:
-            self._report_issue_change(request, "merge", {"issue_id": str(pk), "merged_issue_count": len(ids)})
-        return Response({"success": merge_result == issues_facade.ErrorTrackingIssueMergeResult.MERGED})
+        merged = merge.result == "merged"
+        if merged:
+            self._report_issue_change(
+                request, "merge", {"issue_id": str(pk), "merged_issue_count": merge.merged_issue_count}
+            )
+        return Response({"success": merged})
 
     @validated_request(
         request_serializer=ErrorTrackingIssueSplitRequestSerializer,
@@ -413,7 +420,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def assign(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         assignee = request.validated_data["assignee"]
         try:
-            issues_facade.assign_issue(
+            assigned = issues_facade.assign_issue(
                 self.team.id,
                 UUID(str(pk)),
                 assignee,
@@ -424,9 +431,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
         except issues_facade.AssigneeValidationError as err:
             raise ValidationError(str(err))
-        self._report_issue_change(
-            request, "assign", {"issue_id": str(pk), "assignee_type": assignee["type"] if assignee else None}
-        )
+        if assigned:
+            self._report_issue_change(
+                request, "assign", {"issue_id": str(pk), "assignee_type": assignee["type"] if assignee else None}
+            )
         return Response({"success": True})
 
     @extend_schema(
@@ -490,7 +498,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         bulk_action = request.data.get("action")
         bulk_status = request.data.get("status")
         try:
-            issues_facade.bulk_update_issues(
+            changed_issue_count = issues_facade.bulk_update_issues(
                 self.team.id,
                 ids,
                 action=bulk_action,
@@ -503,11 +511,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise ValidationError("Invalid status")
         except issues_facade.AssigneeValidationError as err:
             raise ValidationError(str(err))
-        if bulk_action in ("set_status", "assign"):
+        if changed_issue_count:
             self._report_issue_change(
                 request,
                 f"bulk_{bulk_action}",
-                {"issue_count": len(ids), **({"status": bulk_status} if bulk_action == "set_status" else {})},
+                {
+                    "issue_count": changed_issue_count,
+                    **({"status": bulk_status} if bulk_action == "set_status" else {}),
+                },
             )
         return Response({"success": True})
 
