@@ -40,6 +40,7 @@ CONCURRENCY_TAG = {"saved_query_reads_backfill_concurrency": "saved_query_reads_
 SUBJECT_NAMES_TABLE = "subject_names"
 REFRESH_SUBJECTS_TABLE = "refresh_subjects"
 IDENTIFIER_QUOTE_PATTERN = r"[`\"]"
+LITERAL_OR_COMMENT_PATTERN = r"(?s)'(?:[^'\\]|\\.)*'|--[^\n]*|/\*.*?\*/"
 PARTITION_ID_FORMAT = "%Y%m%d"
 IDENTIFIER_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
 
@@ -130,7 +131,7 @@ VIEW_READS_SQL = _archive_branch_sql(
     read_kind=ReadKind.READ,
     subject_id="viewed_saved_query_id",
     workflow_id="''",
-    queried_names="arrayDistinct(extractAll(replaceRegexpAll(lc_query__query, %(identifier_quote_pattern)s, ''), %(identifier_pattern)s))",
+    queried_names="arrayDistinct(extractAll(replaceRegexpAll(replaceRegexpAll(lc_query__query, %(literal_or_comment_pattern)s, ' '), %(identifier_quote_pattern)s, ''), %(identifier_pattern)s))",
     array_join="ARRAY JOIN log_comment.saved_query_ids::Array(String) AS viewed_saved_query_id",
     extra_filter="",
 )
@@ -196,6 +197,7 @@ def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
         "day_end": day_start + timedelta(days=1),
         "identifier_pattern": IDENTIFIER_PATTERN,
         "identifier_quote_pattern": IDENTIFIER_QUOTE_PATTERN,
+        "literal_or_comment_pattern": LITERAL_OR_COMMENT_PATTERN,
     }
 
 
