@@ -6,6 +6,7 @@ from typing import Any, cast
 from django.db import connection
 from django.db.models import Count
 
+import re2
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
@@ -65,6 +66,10 @@ class _ActionStepPropertiesField(serializers.ListField):
     """
 
     pass
+
+
+_RE2_QUIET = re2.Options()
+_RE2_QUIET.log_errors = False
 
 
 class ActionStepJSONSerializer(serializers.Serializer):
@@ -127,6 +132,24 @@ class ActionStepJSONSerializer(serializers.Serializer):
         allow_null=True,
         help_text="How to match the URL value. Defaults to contains.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        for value_field, matching_field in (
+            ("url", "url_matching"),
+            ("href", "href_matching"),
+            ("text", "text_matching"),
+        ):
+            value = attrs.get(value_field)
+            if attrs.get(matching_field) == "regex" and isinstance(value, str) and value:
+                # ClickHouse compiles these with RE2 at query time; reject patterns RE2
+                # cannot compile so one bad step does not 500 every insight using the action.
+                # log_errors=False keeps RE2 from writing the rejected pattern to stderr.
+                try:
+                    re2.compile(value, options=_RE2_QUIET)
+                except re2.error as err:
+                    raise serializers.ValidationError({value_field: f"Invalid regular expression: '{value}'"}) from err
+        return attrs
 
     def get_selector_regex(self, obj) -> str | None:
         selector_str = obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
