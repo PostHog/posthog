@@ -115,7 +115,7 @@ def semaphore_source(
             name=inputs.schema_name, items=list, primary_keys=[endpoint.primary_key], sort_mode="desc"
         )
 
-    params: dict[str, str | int] = {"project_id": config.project_id}
+    params: dict[str, Any] = {"project_id": config.project_id}
     incremental = inputs.schema_name == "workflows" and inputs.should_use_incremental_field
     if incremental and inputs.db_incremental_field_last_value is not None:
         watermark = parse_datetime_value(inputs.db_incremental_field_last_value)
