@@ -125,10 +125,12 @@ describe('multi-select member pickers', () => {
                 'false'
             )
 
+            await userEvent.type(screen.getByPlaceholderText('Search'), 'Ali')
             await userEvent.click(screen.getByText('Outside'))
             await waitFor(() => expect(screen.queryByLabelText('Members')).not.toBeInTheDocument())
             await userEvent.click(screen.getByText(reopenLabel))
             const reopenedMembers = await screen.findByLabelText('Members')
+            expect(screen.getByPlaceholderText('Search')).toHaveValue('')
             expectListedInOrder(reopenedMembers, 'Alice', 'John')
             expectListedInOrder(reopenedMembers, 'John', 'Rose')
             expect(within(reopenedMembers).getByText('Alice').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
@@ -145,23 +147,18 @@ describe('multi-select member pickers', () => {
         const members = await screen.findByLabelText('Members')
         await within(members).findByText('Chloe')
 
-        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
-        try {
-            for (const name of ['Alice', 'Ben', 'Chloe']) {
-                fireEvent.click(within(members).getByText(name))
-                await act(async () => jest.advanceTimersByTime(720))
-                expect(screen.getAllByText(name)).toHaveLength(1)
-            }
-            expectListedInOrder(members, 'Alice', 'Ben')
-            expectListedInOrder(members, 'Ben', 'Chloe')
-            for (const name of ['Alice', 'Ben', 'Chloe']) {
-                expect(within(members).getByText(name).closest('[role="menuitemcheckbox"]')).toHaveAttribute(
-                    'aria-checked',
-                    'true'
-                )
-            }
-        } finally {
-            jest.useRealTimers()
+        for (const name of ['Alice', 'Ben', 'Chloe']) {
+            await userEvent.click(within(members).getByText(name))
+            expect(screen.getAllByText(name)).toHaveLength(1)
+        }
+        expectListedInOrder(members, 'John', 'Alice')
+        expectListedInOrder(members, 'Alice', 'Ben')
+        expectListedInOrder(members, 'Ben', 'Chloe')
+        for (const name of ['Alice', 'Ben', 'Chloe']) {
+            expect(within(members).getByText(name).closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+                'aria-checked',
+                'true'
+            )
         }
     })
 
@@ -208,6 +205,9 @@ describe('multi-select member pickers', () => {
                 'aria-checked',
                 'false'
             )
+            expect(screen.getByPlaceholderText('Search')).toHaveFocus()
+            // A closing Popover keeps the list mounted for its 50 ms exit, so wait past it before checking.
+            await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
             expect(screen.getByLabelText('Members')).toBeInTheDocument()
         }
     )

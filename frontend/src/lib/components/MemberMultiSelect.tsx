@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
@@ -10,6 +9,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { UserBasicType } from '~/types'
 
 import { MemberSelectMultipleOptions } from './MemberSelectMultipleOptions'
+import { useClearSelectionSideAction } from './useClearSelectionSideAction'
 
 export type MemberMultiSelectProps = {
     defaultLabel?: string
@@ -31,7 +31,6 @@ export function MemberMultiSelect({
     const { meFirstMembers } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
-    const [selectedAtOpen, setSelectedAtOpen] = useState<number[]>([])
 
     const selectedMembersAsUsers = useMemo(() => {
         if (!value || value.length === 0) {
@@ -47,7 +46,6 @@ export function MemberMultiSelect({
     const handleVisibilityChange = (visible: boolean): void => {
         setShowPopover(visible)
         if (visible) {
-            setSelectedAtOpen(value || [])
             ensureAllMembersLoaded()
             setSearch('')
         }
@@ -63,17 +61,7 @@ export function MemberMultiSelect({
 
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
-    const triggerRef = useRef<HTMLButtonElement>(null)
-    const focusTriggerAfterClear = useRef(false)
-
-    // The × unmounts when the selection becomes empty, so the focus falls to the page body.
-    // Move the focus to the trigger so that keyboard and screen reader users keep their place.
-    useEffect(() => {
-        if (selectedCount === 0 && focusTriggerAfterClear.current) {
-            focusTriggerAfterClear.current = false
-            triggerRef.current?.focus()
-        }
-    }, [selectedCount])
+    const { triggerRef, sideAction } = useClearSelectionSideAction(selectedCount > 0, () => _onChange([]))
 
     const buttonLabel = ((): string => {
         if (selectedCount === 0) {
@@ -92,12 +80,12 @@ export function MemberMultiSelect({
             matchWidth={false}
             placement="bottom-start"
             actionable
+            overflowHidden
             onVisibilityChange={handleVisibilityChange}
             overlay={
                 <MemberSelectMultipleOptions
                     value={value || []}
                     onChange={_onChange}
-                    selectedAtOpen={selectedAtOpen}
                     excludedMembers={excludedMembers}
                 />
             }
@@ -110,21 +98,7 @@ export function MemberMultiSelect({
                     size="small"
                     type="secondary"
                     className={buttonClass}
-                    sideAction={
-                        selectedCount > 0
-                            ? {
-                                  icon: <IconX />,
-                                  tooltip: 'Clear selection',
-                                  divider: false,
-                                  'data-attr': 'member-filter-clear-x',
-                                  onClick: (e) => {
-                                      e.stopPropagation()
-                                      focusTriggerAfterClear.current = true
-                                      _onChange([])
-                                  },
-                              }
-                            : null
-                    }
+                    sideAction={sideAction}
                     {...buttonProps}
                 >
                     {buttonLabel}

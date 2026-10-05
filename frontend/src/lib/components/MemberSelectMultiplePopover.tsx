@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
 import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { MemberSelectMultipleOptions } from './MemberSelectMultipleOptions'
+import { useClearSelectionSideAction } from './useClearSelectionSideAction'
 
 export type MemberSelectMultiplePopoverProps = {
     /** Currently selected member user ids. */
@@ -34,21 +33,10 @@ export function MemberSelectMultiplePopover({
 }: MemberSelectMultiplePopoverProps): JSX.Element {
     const { me } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
-    const [selectedAtOpen, setSelectedAtOpen] = useState<number[]>([])
-    const triggerRef = useRef<HTMLButtonElement>(null)
-    const focusTriggerAfterClear = useRef(false)
 
     const hasSelection = value.length > 0
     const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === me?.user.id
-
-    // The × unmounts when the selection becomes empty, so the focus falls to the page body.
-    // Move the focus to the trigger so that keyboard and screen reader users keep their place.
-    useEffect(() => {
-        if (!hasSelection && focusTriggerAfterClear.current) {
-            focusTriggerAfterClear.current = false
-            triggerRef.current?.focus()
-        }
-    }, [hasSelection])
+    const { triggerRef, sideAction } = useClearSelectionSideAction(hasSelection, () => onChange([]))
 
     return (
         <LemonDropdown
@@ -56,14 +44,14 @@ export function MemberSelectMultiplePopover({
             matchWidth={false}
             placement="bottom-end"
             actionable
+            overflowHidden
             onVisibilityChange={(visible) => {
                 if (visible) {
-                    setSelectedAtOpen(value)
                     ensureAllMembersLoaded()
                     setSearch('')
                 }
             }}
-            overlay={<MemberSelectMultipleOptions value={value} onChange={onChange} selectedAtOpen={selectedAtOpen} />}
+            overlay={<MemberSelectMultipleOptions value={value} onChange={onChange} />}
         >
             <LemonButton
                 ref={triggerRef}
@@ -71,21 +59,7 @@ export function MemberSelectMultiplePopover({
                 type="secondary"
                 status={borderless && !hasSelection ? 'alt' : 'default'}
                 active={hasSelection}
-                sideAction={
-                    hasSelection
-                        ? {
-                              icon: <IconX />,
-                              tooltip: 'Clear selection',
-                              divider: false,
-                              'data-attr': 'member-filter-clear-x',
-                              onClick: (e) => {
-                                  e.stopPropagation()
-                                  focusTriggerAfterClear.current = true
-                                  onChange([])
-                              },
-                          }
-                        : null
-                }
+                sideAction={sideAction}
             >
                 {isFilteredToCurrentUser ? `${label} you` : hasSelection ? `${label} (${value.length})` : label}
             </LemonButton>

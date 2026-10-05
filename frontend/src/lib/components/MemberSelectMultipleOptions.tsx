@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -14,8 +14,6 @@ export type MemberSelectMultipleOptionsProps = {
     /** Currently selected member user ids. */
     value: number[]
     onChange: (value: number[]) => void
-    /** Member user ids selected when the dropdown opened. */
-    selectedAtOpen: number[]
     /** Member user ids to leave out of the list. */
     excludedMembers?: number[]
 }
@@ -23,17 +21,21 @@ export type MemberSelectMultipleOptionsProps = {
 export function MemberSelectMultipleOptions({
     value,
     onChange,
-    selectedAtOpen,
     excludedMembers = NO_EXCLUDED_MEMBERS,
 }: MemberSelectMultipleOptionsProps): JSX.Element {
     const { me, selectableMembers, membersLoading, search } = useValues(membersLogic)
     const { setSearch } = useActions(membersLogic)
-    const members = useMemo(() => {
-        const selected = new Set(selectedAtOpen)
-        return [...selectableMembers(excludedMembers, 'id')].sort(
-            (first, second) => Number(selected.has(second.user.id)) - Number(selected.has(first.user.id))
-        )
-    }, [selectableMembers, excludedMembers, selectedAtOpen])
+    const searchInputRef = useRef<HTMLInputElement>(null)
+    // The dropdown unmounts this list when it closes, so each open takes a new snapshot of the selection.
+    const [selectedAtOpen] = useState(() => new Set(value))
+    const members = useMemo(
+        () =>
+            [...selectableMembers(excludedMembers, 'id')].sort(
+                (first, second) =>
+                    Number(selectedAtOpen.has(second.user.id)) - Number(selectedAtOpen.has(first.user.id))
+            ),
+        [selectableMembers, excludedMembers, selectedAtOpen]
+    )
 
     const toggleMember = (userId: number): void => {
         const selected = new Set(value)
@@ -45,18 +47,17 @@ export function MemberSelectMultipleOptions({
         onChange(Array.from(selected))
     }
 
-    const renderRow = (member: (typeof members)[number]): JSX.Element => (
-        <MemberSelectRow
-            key={member.user.uuid}
-            member={member}
-            isYou={member.user.uuid === me?.user.uuid}
-            onClick={() => toggleMember(member.user.id)}
-            checked={value.includes(member.user.id)}
-        />
-    )
     return (
-        <div className="max-w-100 flex flex-col gap-2">
-            <LemonInput type="search" placeholder="Search" autoFocus value={search} onChange={setSearch} fullWidth />
+        <div className="max-w-100 min-h-0 flex flex-col gap-2 p-1">
+            <LemonInput
+                type="search"
+                placeholder="Search"
+                autoFocus
+                value={search}
+                onChange={setSearch}
+                inputRef={searchInputRef}
+                fullWidth
+            />
             <LemonButton
                 data-attr="member-filter-clear-selection"
                 fullWidth
@@ -65,13 +66,26 @@ export function MemberSelectMultipleOptions({
                 type="tertiary"
                 icon={<IconX />}
                 disabledReason={value.length === 0 ? 'No members selected' : undefined}
-                onClick={() => onChange([])}
+                onClick={() => {
+                    onChange([])
+                    // The disabled button renders inside a tooltip, so React replaces the focused node.
+                    // Move the focus to the search box so that keyboard users can pick new members.
+                    searchInputRef.current?.focus()
+                }}
             >
                 Clear selection
             </LemonButton>
-            <div className="max-h-80 overflow-y-auto">
+            <div className="max-h-80 min-h-0 overflow-y-auto">
                 <ul className="flex flex-col gap-px" aria-label="Members">
-                    {members.map(renderRow)}
+                    {members.map((member) => (
+                        <MemberSelectRow
+                            key={member.user.uuid}
+                            member={member}
+                            isYou={member.user.uuid === me?.user.uuid}
+                            onClick={() => toggleMember(member.user.id)}
+                            checked={value.includes(member.user.id)}
+                        />
+                    ))}
                     {membersLoading ? (
                         <li className="p-2 text-secondary italic truncate border-t">Loading...</li>
                     ) : members.length === 0 ? (
