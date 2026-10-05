@@ -15,6 +15,7 @@ import { router } from 'kea-router'
 import posthog, { JsonRecord } from 'posthog-js'
 
 import api from 'lib/api'
+import { isUnauthorizedError } from 'lib/api-error'
 import { describerFor, ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/notificationToasts'
@@ -25,6 +26,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { retryWithBackoff } from 'lib/utils/async'
+import { refreshLiveEventsToken } from 'lib/utils/liveEventsToken'
 import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -811,8 +813,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     () => {
                         const reason = cache.nextStartReason ?? 'visibility_resume'
                         cache.nextStartReason = null
-                        // TEMPORARY: lifecycle tracking for /notifications SSE connection.
-                        // Remove together with livestream_401_debug once root cause is known.
+                        // TEMPORARY: lifecycle tracking for /notifications SSE connection. Kept until
+                        // the token refresh is confirmed to drive livestream_sse_max_errors to near zero.
                         posthog.capture('livestream_sse_startsse_called', {
                             reason,
                             flag_enabled: values.realTimeNotificationsEnabled,
@@ -847,10 +849,12 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         posthog.capture('livestream_sse_connecting', { url, reason })
 
                         void retryWithBackoff(
-                            () =>
-                                connectToNotificationsSSE(
+                            () => {
+                                // Each attempt re-reads the token: a 401 refetch replaces it mid-retry.
+                                const attemptToken = values.currentTeam?.live_events_token ?? token
+                                return connectToNotificationsSSE(
                                     url,
-                                    token,
+                                    attemptToken,
                                     abortController.signal,
                                     (notification) => {
                                         // Transient "edited elsewhere" events ride this stream but are
@@ -884,7 +888,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                             })
                                         },
                                     }
-                                ),
+                                ).catch(async (error) => {
+                                    if (isUnauthorizedError(error)) {
+                                        await refreshLiveEventsToken(attemptToken)
+                                    }
+                                    throw error
+                                })
+                            },
                             {
                                 maxAttempts: SSE_RETRY_ATTEMPTS,
                                 initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
