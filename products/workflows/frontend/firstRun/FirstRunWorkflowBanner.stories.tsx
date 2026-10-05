@@ -8,10 +8,12 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
+
 import welcomeEmailSequence from '../../backend/templates/welcome_email_sequence_template.json'
 import type { HogFlow } from '../Workflows/hogflows/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
-import { SANDBOX_SENDER } from './firstRunStoryFixtures'
+import { EMAIL_REACH, OWN_SENDER, SANDBOX_SENDER, UNVERIFIED_OWN_SENDER } from './firstRunStoryFixtures'
 import { FirstRunWorkflowBanner } from './FirstRunWorkflowBanner'
 import { rememberFirstRunWorkflow } from './firstRunWorkflowStorage'
 import { withFirstRunSender } from './withFirstRunSender'
@@ -34,13 +36,17 @@ function firstRunWorkflow(status: HogFlow['status']): HogFlow {
     } as HogFlow
 }
 
-function workflowWithStatus(status: HogFlow['status']): Parameters<typeof mswDecorator>[0] {
+function workflowWithStatus(
+    status: HogFlow['status'],
+    ownSenders: Partial<IntegrationConfigApi>[] = []
+): Parameters<typeof mswDecorator>[0] {
     return {
         get: {
             '/api/environments/:team_id/hog_flows/:id/': () => [200, firstRunWorkflow(status)],
             '/api/projects/:team_id/hog_flow_templates/': { count: 0, results: [] },
             '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
-            '/api/projects/:team_id/integrations/': toPaginatedResponse([SANDBOX_SENDER]),
+            '/api/projects/:team_id/integrations/': toPaginatedResponse([SANDBOX_SENDER, ...ownSenders]),
+            '/api/projects/:team_id/hog_flows/email_reach/': EMAIL_REACH,
         },
         patch: {
             '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => [
@@ -99,4 +105,17 @@ export const DraftNarrow: Story = {
 export const SendingNarrow: Story = {
     render: () => <NarrowBanner />,
     decorators: [mswDecorator(workflowWithStatus('active'))],
+}
+
+export const DraftWhileDomainVerifies: Story = {
+    decorators: [mswDecorator(workflowWithStatus('draft', [UNVERIFIED_OWN_SENDER]))],
+}
+
+export const DraftWhileDomainVerifiesNarrow: Story = {
+    render: () => <NarrowBanner />,
+    decorators: [mswDecorator(workflowWithStatus('draft', [UNVERIFIED_OWN_SENDER]))],
+}
+
+export const SendingWithVerifiedDomain: Story = {
+    decorators: [mswDecorator(workflowWithStatus('active', [OWN_SENDER]))],
 }

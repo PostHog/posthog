@@ -1,6 +1,6 @@
 import welcomeSequence from '../../backend/templates/welcome_email_sequence_template.json'
 import { HogFlowActionSchema } from '../Workflows/hogflows/steps/types'
-import { withFirstRunSender } from './withFirstRunSender'
+import { firstRunSenderIdOf, withFirstRunSender } from './withFirstRunSender'
 
 describe('withFirstRunSender', () => {
     it.each([false, true])(
@@ -23,6 +23,7 @@ describe('withFirstRunSender', () => {
                 { integrationId: 42 },
                 { integrationId: 42 },
             ])
+            expect(firstRunSenderIdOf(transformed)).toBe(42)
             transformed.forEach((action, index) => {
                 const originalAction = original[index]
                 if (action.type === 'function_email' && originalAction.type === 'function_email') {

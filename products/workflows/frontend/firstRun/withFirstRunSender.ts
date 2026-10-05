@@ -23,3 +23,10 @@ export function withFirstRunSender(actions: HogFlowAction[], sender: Pick<FirstR
             : action
     )
 }
+
+export function firstRunSenderIdOf(actions: HogFlowAction[]): number | null {
+    const firstEmail = actions.find((action) => action.type === 'function_email')
+    return firstEmail?.type === 'function_email'
+        ? (firstEmail.config.inputs.email?.value?.from?.integrationId ?? null)
+        : null
+}

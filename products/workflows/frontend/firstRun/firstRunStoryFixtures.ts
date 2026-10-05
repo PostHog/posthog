@@ -15,7 +15,7 @@ import trialStartedUpgradeNudge from '../../backend/templates/trial_started_upgr
 import unlockingAdvancedFeatures from '../../backend/templates/unlocking_advanced_features.json'
 import unusedFeaturesEducation from '../../backend/templates/unused-features-education.json'
 import welcomeEmailSequence from '../../backend/templates/welcome_email_sequence_template.json'
-import type { HogFlowTemplateApi } from '../generated/api.schemas'
+import type { EmailReachApi, HogFlowTemplateApi } from '../generated/api.schemas'
 
 // The global templates in the order the API lists them, plus one without an email step that the gallery leaves out.
 // The serializer defaults `tags` to an empty list, which some template files leave out.
@@ -46,6 +46,25 @@ export const SANDBOX_SENDER: Partial<IntegrationConfigApi> = {
     display_name: 'Example via PostHog <sandbox@example.com>',
     config: { provider: 'sandbox', verified: true, email: 'sandbox@example.com', name: 'Example via PostHog' },
     created_at: '2026-10-01T00:00:00Z',
+}
+
+export const OWN_SENDER: Partial<IntegrationConfigApi> = {
+    id: 9,
+    kind: 'email',
+    display_name: 'Example <hello@example.com>',
+    config: { provider: 'ses', verified: true, email: 'hello@example.com', name: 'Example', domain: 'example.com' },
+    created_at: '2026-10-02T00:00:00Z',
+}
+
+export const UNVERIFIED_OWN_SENDER: Partial<IntegrationConfigApi> = {
+    ...OWN_SENDER,
+    config: { ...(OWN_SENDER.config as object), verified: false },
+}
+
+export const EMAIL_REACH: EmailReachApi = {
+    verified_member_count: 3,
+    project_email_count: 1240,
+    email_senders: [{ integration_id: 7, provider: 'sandbox', is_verified: true }],
 }
 
 export function projectThatSends(seenEvents: string[]): Parameters<typeof mswDecorator>[0] {

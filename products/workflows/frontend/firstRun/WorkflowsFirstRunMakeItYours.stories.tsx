@@ -13,6 +13,7 @@ import { userEvent } from 'storybook/test'
 import { FIRST_RUN_TEMPLATE_PARAM } from './firstRunGalleryLogic'
 import {
     RE_ENGAGEMENT_ID,
+    EMAIL_REACH,
     SANDBOX_SENDER,
     TRIAL_UPGRADE_NUDGE_ID,
     WELCOME_SEQUENCE_ID,
@@ -49,6 +50,7 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/hog_flow_templates/': toPaginatedResponse(globalTemplates),
                 '/api/projects/:team_id/integrations/': toPaginatedResponse([SANDBOX_SENDER]),
+                '/api/projects/:team_id/hog_flows/email_reach/': EMAIL_REACH,
                 '/api/projects/:team_id/messaging_templates/': EMPTY_PAGINATED_RESPONSE,
             },
             post: {

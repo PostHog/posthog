@@ -9,7 +9,9 @@ import { pluralize } from 'lib/utils/strings'
 import { isEmailAction } from '../Workflows/hogflows/steps/types'
 import type { HogFlow } from '../Workflows/hogflows/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
+import { FirstRunReachLine } from './FirstRunReachLine'
 import { firstRunWorkflowBannerLogic } from './firstRunWorkflowBannerLogic'
+import { firstRunSenderIdOf } from './withFirstRunSender'
 
 function triggerEventOf(workflow: HogFlow): string | null {
     const trigger = workflow.actions.find((action) => action.type === 'trigger')
@@ -58,6 +60,7 @@ export function FirstRunWorkflowBanner(): JSX.Element | null {
                     <span className="font-normal">
                         <WorkflowSummary workflow={originalWorkflow} /> Enable it to start sending.
                     </span>
+                    <FirstRunReachLine senderIntegrationId={firstRunSenderIdOf(originalWorkflow.actions)} />
                 </div>
             </LemonBanner>
         )
@@ -79,6 +82,7 @@ export function FirstRunWorkflowBanner(): JSX.Element | null {
                 <span className="font-normal">
                     <WorkflowSummary workflow={originalWorkflow} /> The Metrics tab shows what it has sent.
                 </span>
+                <FirstRunReachLine senderIntegrationId={firstRunSenderIdOf(originalWorkflow.actions)} />
             </div>
         </LemonBanner>
     )

@@ -5,6 +5,8 @@ import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { TestSendOutcome, firstRunMakeItYoursLogic } from './firstRunMakeItYoursLogic'
+import { FirstRunReachLine } from './FirstRunReachLine'
+import { firstRunReachLogic } from './firstRunReachLogic'
 
 export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.Element {
     const logic = firstRunMakeItYoursLogic({ templateId })
@@ -21,6 +23,8 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
         createError,
     } = useValues(logic)
     const { sendTest, createWorkflow, setEnableWorkflow } = useActions(logic)
+    const senderIntegrationId = firstRunSender?.id ?? null
+    const { reach } = useValues(firstRunReachLogic({ senderIntegrationId }))
 
     return (
         <div className="flex flex-col gap-3" data-attr="first-run-actions">
@@ -68,14 +72,17 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
                 fullWidth
                 data-attr="first-run-enable-switch"
             />
-            <span className="text-xs text-secondary">{enableHelp(enableWorkflow, firstRunSender?.display_name)}</span>
+            <span className="text-xs text-secondary">
+                {enableHelp(enableWorkflow, reach ? undefined : firstRunSender?.display_name)}
+            </span>
+            <FirstRunReachLine senderIntegrationId={senderIntegrationId} />
         </div>
     )
 }
 
 function enableHelp(enableWorkflow: boolean, senderName: string | undefined): string {
-    if (enableWorkflow && senderName) {
-        return `It starts sending right away, from ${senderName}.`
+    if (enableWorkflow) {
+        return senderName ? `It starts sending right away, from ${senderName}.` : 'It starts sending right away.'
     }
     if (senderName) {
         return `It opens as a draft and sends nothing until you enable it. Then it sends from ${senderName}.`
