@@ -184,6 +184,14 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
         Err(self.error.clone())
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -612,6 +620,14 @@ impl storage::PersonLookup for SuccessStorage {
         _team_id: i64,
         _distinct_ids: &[String],
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Ok(Vec::new())
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Ok(Vec::new())
     }
 }
@@ -1103,6 +1119,14 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
         Ok(Vec::new())
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1566,6 +1590,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _team_id: i64,
         _distinct_ids: &[String],
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Ok(Vec::new())
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Ok(Vec::new())
     }
 }
