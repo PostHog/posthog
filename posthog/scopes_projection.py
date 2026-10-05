@@ -1,6 +1,8 @@
-"""Project the MCP server's view of the OAuth scope universe from posthog/scopes.py.
+"""Project the OAuth scope universe from posthog/scopes.py into TypeScript.
 
-Emits two constants into `services/mcp/src/lib/oauth-scopes.generated.ts`:
+Writes the same file to two trees: `services/mcp/src/lib/oauth-scopes.generated.ts`
+for the MCP server and `frontend/src/lib/oauthScopes.generated.ts` for the web app.
+Each carries two constants:
 
 - OAUTH_SCOPES_SUPPORTED (from `get_oauth_scopes_supported()`): the MCP server
   publishes RFC 9728 protected-resource metadata at
@@ -8,11 +10,15 @@ Emits two constants into `services/mcp/src/lib/oauth-scopes.generated.ts`:
   Code) read `scopes_supported` from there and pass every entry to the
   authorization server's `/oauth/authorize`. If the resource list contains a
   scope the AS does not recognize, sign-in fails with `?error=invalid_scope`,
-  so this list must stay a subset of the AS's.
+  so this list must stay a subset of the AS's. The web app's consent screen
+  expands a wildcard grant to the read scopes in this list when the server
+  sends no computed list.
 - OAUTH_SCOPES_HIDDEN: PAT-grantable scopes deliberately excluded from the
   list above (staff-only surfaces like `batch_import_support`). The MCP server
   uses this at runtime to gate tool discovery (`src/lib/staff-only-tools.ts`)
   and in tests to allow tools to require a non-advertised scope on purpose.
+  The web app's scope pickers never show these objects, and scopes.test.ts
+  exempts them from the picker rows and groups every other object needs.
 
 Generating both from `posthog/scopes.py` keeps that module the single
 authority for scope classification; the TS side is a projection of it.
@@ -28,7 +34,10 @@ import runpy
 from pathlib import Path
 
 SCOPES_PY = Path(__file__).resolve().parent / "scopes.py"
-OUTPUT = "services/mcp/src/lib/oauth-scopes.generated.ts"
+OUTPUTS = (
+    "services/mcp/src/lib/oauth-scopes.generated.ts",
+    "frontend/src/lib/oauthScopes.generated.ts",
+)
 
 
 def render_oauth_scopes() -> str:
@@ -70,4 +79,5 @@ def render_oauth_scopes() -> str:
 
 
 def render() -> dict[str, str]:
-    return {OUTPUT: render_oauth_scopes()}
+    output = render_oauth_scopes()
+    return dict.fromkeys(OUTPUTS, output)
