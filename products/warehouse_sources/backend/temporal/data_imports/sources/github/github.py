@@ -63,6 +63,7 @@ FAN_OUT_PARENT_CAP_HITS = Counter(
 _RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 _STARTUP_FAILURE_FIRST_SYNC_LOOKBACK = timedelta(days=1)
+_STARTUP_FAILURE_WINDOW = timedelta(hours=1)
 
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. Every caller —
 # sync, credential validation, webhook management — passes the source's resolved pin; this constant
@@ -1807,6 +1808,10 @@ async def _chain_webhook_items_with_reconciliation(
         yield table
 
 
+def _format_github_time(value: datetime) -> str:
+    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _get_startup_failure_runs(
     personal_access_token: str,
     repository: str,
@@ -1818,28 +1823,33 @@ def _get_startup_failure_runs(
     """Poll the runs that ended in startup_failure since ``created_since``. GitHub sends only the
     `requested` workflow_run webhook (status queued) for such a run and never a `completed` one, so
     without this poll the webhook-fed table keeps the run queued forever. The `status` filter makes
-    GitHub cap the result at 1,000 runs, so the window stays as short as the time since the last sync."""
-    params = {
-        "status": "startup_failure",
-        "created": f">={created_since.strftime('%Y-%m-%dT%H:%M:%SZ')}",
-        "per_page": GITHUB_ENDPOINTS["workflow_runs"].page_size,
-    }
-    url = f"{GITHUB_BASE_URL}/repos/{repository}/actions/runs?{urlencode(params)}"
+    GitHub cap each query at 1,000 runs, so the poll walks the range in one-hour windows."""
+    headers = _get_headers(personal_access_token, "workflow_runs", api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    pages = _iter_pages(
-        url,
-        _get_headers(personal_access_token, "workflow_runs", api_version),
-        "workflow_runs",
-        logger,
-        egress_identity=egress_identity,
-        repository=repository,
-        required_permission=ENDPOINT_REQUIRED_PERMISSION.get("workflow_runs"),
-    )
-    for runs, _page_url in pages:
-        for run in runs:
-            batcher.batch(run)
-            if batcher.should_yield():
-                yield batcher.get_table()
+    window_start = created_since
+    now = _now_utc()
+    while window_start < now:
+        window_end = min(window_start + _STARTUP_FAILURE_WINDOW, now)
+        params = {
+            "status": "startup_failure",
+            "created": f"{_format_github_time(window_start)}..{_format_github_time(window_end)}",
+            "per_page": GITHUB_ENDPOINTS["workflow_runs"].page_size,
+        }
+        pages = _iter_pages(
+            f"{GITHUB_BASE_URL}/repos/{repository}/actions/runs?{urlencode(params)}",
+            headers,
+            "workflow_runs",
+            logger,
+            egress_identity=egress_identity,
+            repository=repository,
+            required_permission=ENDPOINT_REQUIRED_PERMISSION.get("workflow_runs"),
+        )
+        for runs, _page_url in pages:
+            for run in runs:
+                batcher.batch(run)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+        window_start = window_end
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
 
