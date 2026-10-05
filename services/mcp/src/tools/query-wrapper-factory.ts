@@ -59,6 +59,21 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     urlPrefix?: string
 }
 
+const WEB_VITALS_KIND = 'WebVitalsPathBreakdownQuery'
+
+/**
+ * Google's Core Web Vitals band boundaries, the same values the in-product Web
+ * vitals tab uses. The backend query requires `thresholds`, but they are a
+ * property of the metric rather than a choice the caller makes, so an omitted
+ * value is filled from `metric` here instead of failing the call.
+ */
+const WEB_VITALS_THRESHOLDS: Record<string, [number, number]> = {
+    LCP: [2500, 4000],
+    INP: [200, 500],
+    CLS: [0.1, 0.25],
+    FCP: [1800, 3000],
+}
+
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
 
 function hasTestAccountFilterField(schema: ZodObjectAny): schema is z.ZodObject<z.ZodRawShape> {
@@ -182,6 +197,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const query: Record<string, unknown> = {
                 ...queryParams,
                 kind: config.kind,
+            }
+            if (config.kind === WEB_VITALS_KIND && query.thresholds === undefined) {
+                query.thresholds = WEB_VITALS_THRESHOLDS[query.metric as string]
             }
             if (hasTestAccountFilterField(schema) && query[TEST_ACCOUNT_FILTER_FIELD] === undefined) {
                 const project = await context.stateManager.getCachedOrFetchProject().catch(() => undefined)
