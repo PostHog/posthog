@@ -164,6 +164,30 @@ export function generateKafkaPersonUpdateMessage(
     }
 }
 
+/**
+ * The death document for a person whose row Postgres no longer holds: a hard delete
+ * leaves nothing to read back, so only the uuid and the deletion's version remain.
+ * ClickHouse keeps the highest version of the key, and drops a row marked deleted,
+ * so the empty content never reaches a reader.
+ */
+export function generateKafkaPersonDeletionMessage(teamId: number, uuid: string, version: number): PersonMessage {
+    return {
+        output: PERSONS_OUTPUT,
+        value: Buffer.from(
+            JSON.stringify({
+                id: uuid,
+                created_at: castTimestampOrNow(null, TimestampFormat.ClickHouseSecondPrecision),
+                properties: '{}',
+                team_id: teamId,
+                is_identified: 0,
+                is_deleted: 1,
+                version,
+                last_seen_at: null,
+            })
+        ),
+    }
+}
+
 // Very useful for debugging queries
 export function getFinalPostgresQuery(queryString: string, values: any[]): string {
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))

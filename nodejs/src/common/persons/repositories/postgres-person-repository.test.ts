@@ -1032,6 +1032,87 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('person deletion publish queue', () => {
+        let recordingRepository: PostgresPersonRepository
+
+        beforeAll(() => {
+            recordingRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
+                personDeletionPublishQueueEnabled: true,
+            })
+        })
+
+        async function fetchQueueRows(teamId: number) {
+            const { rows } = await postgres.query<{ person_uuid: string; person_version: string; source: string }>(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT person_uuid, person_version, source FROM person_tombstone_publish_queue WHERE team_id = $1',
+                [teamId],
+                'fetchQueueRowsForTest'
+            )
+            return rows
+        }
+
+        // A deletion whose produce is lost leaves the person alive in ClickHouse with no
+        // events, and Postgres no longer holds the row that would name it. The record is
+        // the only thing that survives the crash, so it has to carry the death version.
+        it('records the death version of a deleted person and clears it on demand', async () => {
+            const person = await createTestPerson(team.id, 'doomed')
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2',
+                [team.id, person.id],
+                'dropMappingsForTest'
+            )
+
+            const messages = await recordingRepository.deletePersons([person])
+
+            expect(messages).toHaveLength(1)
+            expect(await fetchQueueRows(team.id)).toEqual([
+                { person_uuid: person.uuid, person_version: String(person.version + 100), source: 'ingestion-merge' },
+            ])
+
+            await recordingRepository.clearPersonDeletionPublishes(team.id, [person.uuid])
+
+            expect(await fetchQueueRows(team.id)).toEqual([])
+        })
+
+        // Claiming a record before its produce had a chance to ack would republish a death
+        // document for every merge, doubling the person traffic ClickHouse takes.
+        it('claims only records past the grace period, and only its own', async () => {
+            const person = await createTestPerson(team.id, 'doomed-too')
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2',
+                [team.id, person.id],
+                'dropMappingsForTest'
+            )
+            await recordingRepository.deletePersons([person])
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `INSERT INTO person_tombstone_publish_queue (team_id, person_uuid, person_version, tombstoned_at)
+                    VALUES ($1, $2, 1, now() - interval '10 minutes')`,
+                [team.id, new UUIDT().toString()],
+                'insertDeletePathRowForTest'
+            )
+
+            expect(await recordingRepository.claimPersonDeletionPublishes(120, 10)).toEqual([])
+
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `UPDATE person_tombstone_publish_queue SET tombstoned_at = now() - interval '10 minutes'
+                    WHERE team_id = $1`,
+                [team.id],
+                'ageQueueRowsForTest'
+            )
+
+            expect(await recordingRepository.claimPersonDeletionPublishes(120, 10)).toEqual([
+                { teamId: team.id, personUuid: person.uuid, personVersion: person.version + 100 },
+            ])
+            // The stamped attempt is the claim: a second republisher must pass it by.
+            expect(await recordingRepository.claimPersonDeletionPublishes(120, 10)).toEqual([])
+        })
+    })
+
     describe('moveDistinctIds()', () => {
         it('should move distinct IDs from source to target person', async () => {
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })

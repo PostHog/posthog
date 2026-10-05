@@ -6,6 +6,7 @@ import { PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import {
     oversizedPersonPropertiesTrimmedCounter,
     personCreateStrandedClaimCounter,
+    personDeletionPublishQueueCounter,
     personJsonFieldSizeHistogram,
     personPropertiesSizeViolationCounter,
 } from '~/common/persons/metrics'
@@ -39,6 +40,7 @@ import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
     PersonClaimedByLifecycleOpError,
+    PersonDeletionPublish,
     PersonDistinctIdMapping,
     PersonMessage,
     PersonPropertiesSizeViolationError,
@@ -79,6 +81,9 @@ function isUuidConstraintViolation(error: unknown): boolean {
     return typeof constraint === 'string' && constraint.includes('uuid')
 }
 
+/** Names this writer's rows in person_tombstone_publish_queue; the delete path leaves its own NULL. */
+const DELETION_PUBLISH_SOURCE = 'ingestion-merge'
+
 function queryTag(base: string, callerTag?: string): string {
     return callerTag ? `${base}:${callerTag}` : base
 }
@@ -102,6 +107,12 @@ export interface PostgresPersonRepositoryOptions {
      * (team_id, uuid) arbiter requires a unique index production does not have yet.
      */
     personCreateClaimTeamAllowlist: string
+    /**
+     * When true, every person deletion records a row in person_tombstone_publish_queue
+     * inside its own transaction, so a ClickHouse tombstone lost with the produce stays
+     * recoverable. The caller clears the row once its produce is acked.
+     */
+    personDeletionPublishQueueEnabled: boolean
 }
 
 const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
@@ -110,6 +121,7 @@ const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
     personPropertiesTrimTargetBytes: DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES,
     personMergeTombstoneTeamAllowlist: '',
     personCreateClaimTeamAllowlist: '',
+    personDeletionPublishQueueEnabled: false,
 }
 
 export class PostgresPersonRepository
@@ -1295,6 +1307,98 @@ export class PostgresPersonRepository
         }
     }
 
+    /**
+     * Records the persons whose ClickHouse death document still has to be produced.
+     * Runs in the caller's transaction, so the record and the Postgres deletion commit
+     * together: a crash in the window between that commit and the produce leaves the
+     * record behind, and the republisher emits the death document the crash lost.
+     */
+    private async enqueueDeletionPublish(
+        teamId: number,
+        tombstones: { uuid: string; version: number }[],
+        tx?: TransactionClient
+    ): Promise<void> {
+        if (!this.options.personDeletionPublishQueueEnabled || tombstones.length === 0) {
+            return
+        }
+        await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            // Keep in sync with the delete path's enqueue in personhog-replica.
+            `INSERT INTO person_tombstone_publish_queue (team_id, person_uuid, person_version, source)
+             SELECT $1, t.person_uuid, t.person_version, $4
+             FROM UNNEST($2::uuid[], $3::bigint[]) AS t(person_uuid, person_version)
+             ON CONFLICT (team_id, person_uuid) DO UPDATE
+             SET person_version = EXCLUDED.person_version,
+                 source = EXCLUDED.source,
+                 tombstoned_at = now(),
+                 attempts = 0,
+                 last_attempt_at = NULL,
+                 last_error = NULL,
+                 given_up_at = NULL
+             WHERE EXCLUDED.person_version > person_tombstone_publish_queue.person_version`,
+            [
+                teamId,
+                tombstones.map((tombstone) => tombstone.uuid),
+                tombstones.map((tombstone) => tombstone.version),
+                DELETION_PUBLISH_SOURCE,
+            ],
+            'enqueueDeletionPublish'
+        )
+        personDeletionPublishQueueCounter.labels({ action: 'enqueued' }).inc(tombstones.length)
+    }
+
+    async clearPersonDeletionPublishes(teamId: number, personUuids: string[]): Promise<void> {
+        if (!this.options.personDeletionPublishQueueEnabled || personUuids.length === 0) {
+            return
+        }
+        const { rowCount } = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            // Person uuids are deterministic, so a revived person can die again under the
+            // same uuid and leave a second record this clear cannot tell from ours. That
+            // needs a revival inside the produce window of this very deletion, and costs
+            // at most the republish of a death document that was already produced.
+            `DELETE FROM person_tombstone_publish_queue
+                WHERE team_id = $1 AND person_uuid = ANY($2::uuid[]) AND source = $3`,
+            [teamId, personUuids, DELETION_PUBLISH_SOURCE],
+            'clearPersonDeletionPublishes'
+        )
+        personDeletionPublishQueueCounter.labels({ action: 'cleared' }).inc(rowCount ?? 0)
+    }
+
+    async claimPersonDeletionPublishes(graceSeconds: number, limit: number): Promise<PersonDeletionPublish[]> {
+        const { rows } = await this.postgres.query<{
+            team_id: number
+            person_uuid: string
+            person_version: string
+        }>(
+            PostgresUse.PERSONS_WRITE,
+            // The attempt stamp is the claim: a row another republisher just took is
+            // outside the cutoff, so concurrent pods split the queue instead of racing.
+            `UPDATE person_tombstone_publish_queue q
+                SET attempts = q.attempts + 1, last_attempt_at = now()
+                FROM (
+                    SELECT team_id, person_uuid
+                    FROM person_tombstone_publish_queue
+                    WHERE source = $1
+                      AND given_up_at IS NULL
+                      AND tombstoned_at < now() - make_interval(secs => $2)
+                      AND (last_attempt_at IS NULL OR last_attempt_at < now() - make_interval(secs => $2))
+                    ORDER BY tombstoned_at
+                    LIMIT $3
+                    FOR UPDATE SKIP LOCKED
+                ) due
+                WHERE q.team_id = due.team_id AND q.person_uuid = due.person_uuid
+                RETURNING q.team_id, q.person_uuid, q.person_version`,
+            [DELETION_PUBLISH_SOURCE, graceSeconds, limit],
+            'claimPersonDeletionPublishes'
+        )
+        return rows.map((row) => ({
+            teamId: row.team_id,
+            personUuid: row.person_uuid,
+            personVersion: Number(row.person_version),
+        }))
+    }
+
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]> {
         if (this.isTombstoneTeam(person.team_id)) {
             return await this.tombstonePersons([person], tx)
@@ -1323,11 +1427,11 @@ export class PostgresPersonRepository
 
         if (rows.length > 0) {
             const [row] = rows
-            kafkaMessages = [
-                // The +100 outranks any version bump that landed between our stale read and the
-                // delete; keep in sync with delete_person in posthog/models/person/util.py.
-                generateKafkaPersonUpdateMessage(person, true, Number(row.version || 0) + 100),
-            ]
+            // The +100 outranks any version bump that landed between our stale read and the
+            // delete; keep in sync with delete_person in posthog/models/person/util.py.
+            const deletedVersion = Number(row.version || 0) + 100
+            await this.enqueueDeletionPublish(person.team_id, [{ uuid: person.uuid, version: deletedVersion }], tx)
+            kafkaMessages = [generateKafkaPersonUpdateMessage(person, true, deletedVersion)]
         }
         return kafkaMessages
     }
@@ -1384,13 +1488,21 @@ export class PostgresPersonRepository
                 throw new PersonTombstoneBlockedError('Live distinct ids still point at the person', teamId)
             }
 
-            return rows.flatMap((row) => {
+            const tombstoned = rows.flatMap((row) => {
                 const person = personById.get(String(row.id))
                 if (!person) {
                     return []
                 }
-                return [generateKafkaPersonUpdateMessage({ ...person, properties: {} }, true, Number(row.version || 0))]
+                return [{ person, version: Number(row.version || 0) }]
             })
+            await this.enqueueDeletionPublish(
+                teamId,
+                tombstoned.map(({ person, version }) => ({ uuid: person.uuid, version })),
+                tx
+            )
+            return tombstoned.map(({ person, version }) =>
+                generateKafkaPersonUpdateMessage({ ...person, properties: {} }, true, version)
+            )
         } catch (error) {
             if (error.code === '40P01') {
                 logger.warn('🔒', 'Deadlock detected — rolling back for the caller to retry.', {
@@ -1439,17 +1551,21 @@ export class PostgresPersonRepository
             throw error
         }
 
-        return rows.flatMap((row) => {
+        // The +100 outranks any version bump that landed between our stale read and the
+        // delete; keep in sync with delete_person in posthog/models/person/util.py.
+        const deleted = rows.flatMap((row) => {
             const person = personById.get(String(row.id))
             if (!person) {
                 return []
             }
-            return [
-                // The +100 outranks any version bump that landed between our stale read and the
-                // delete; keep in sync with delete_person in posthog/models/person/util.py.
-                generateKafkaPersonUpdateMessage(person, true, Number(row.version || 0) + 100),
-            ]
+            return [{ person, version: Number(row.version || 0) + 100 }]
         })
+        await this.enqueueDeletionPublish(
+            teamId,
+            deleted.map(({ person, version }) => ({ uuid: person.uuid, version })),
+            tx
+        )
+        return deleted.map(({ person, version }) => generateKafkaPersonUpdateMessage(person, true, version))
     }
 
     async claimLifecycleMarks(

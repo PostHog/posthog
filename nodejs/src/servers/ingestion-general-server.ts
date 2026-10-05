@@ -224,6 +224,7 @@ export class IngestionGeneralServer implements NodeServer {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
             personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
             personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
+            personDeletionPublishQueueEnabled: this.config.PERSON_DELETION_PUBLISH_QUEUE_ENABLED,
         })
         const personRepository = buildPersonRepository(
             personhogClient,

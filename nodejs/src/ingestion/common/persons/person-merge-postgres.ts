@@ -268,6 +268,30 @@ export class PostgresPersonMerge {
         return { kafkaAck }
     }
 
+    /**
+     * Drops the deletion's publish-queue records once the death documents are on the
+     * wire. The records exist to survive a crash in this window, so a record left
+     * behind costs only a republished death document and never fails the merge.
+     */
+    private clearDeletionPublishes(kafkaAck: Promise<void>, deleted: InternalPerson[]): Promise<void> {
+        if (deleted.length === 0) {
+            return kafkaAck
+        }
+        return kafkaAck.then(() =>
+            this.store
+                .clearPersonDeletionPublishes(
+                    this.teamId,
+                    deleted.map((person) => person.uuid)
+                )
+                .catch((error) => {
+                    logger.warn('⚠️', 'Failed to clear person deletion publish records', {
+                        team_id: this.teamId,
+                        error: String(error),
+                    })
+                })
+        )
+    }
+
     private async produceMessages(messages: PersonMessage[]): Promise<void> {
         await Promise.all(
             messages.map((msg) =>
@@ -719,7 +743,7 @@ export class PostgresPersonMerge {
 
         // The bootstrap's produce, when there was one, joins the fold's own
         // ack so the caller observes every message this merge produced.
-        const foldAck = this.produceMessages(kafkaMessages)
+        const foldAck = this.clearDeletionPublishes(this.produceMessages(kafkaMessages), mergeSources)
         const { kafkaAck: reemitAck } = await this.reemitSatisfiedMappings(noopSourceDistinctIds)
         const kafkaAck = this.bootstrapAck
             ? joinAcks(this.bootstrapAck, foldAck, reemitAck)
@@ -972,7 +996,7 @@ export class PostgresPersonMerge {
             // producePersonMergeEvent is best-effort and never throws; the call-site catch is a safety
             // net that swallows an escaped rejection so a broken never-throws contract can't reach the
             // unhandledRejection handler and stop the service.
-            const kafkaAck = this.produceMessages(kafkaMessages)
+            const kafkaAck = this.clearDeletionPublishes(this.produceMessages(kafkaMessages), [currentSourcePerson])
             void this.producePersonMergeEvent(currentSourcePerson, mergedPerson).catch(() => {})
             return mergeSuccess(mergedPerson, kafkaAck, true)
         } catch (error) {

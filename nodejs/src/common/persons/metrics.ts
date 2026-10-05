@@ -250,3 +250,12 @@ export const personJsonFieldSizeHistogram = new Histogram({
     labelNames: ['operation', 'field'], // operation: createPerson, updatePerson; field: properties, properties_last_updated_at, properties_last_operation
     buckets: [100, 500, 1024, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576], // 100B, 500B, 1KB, 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB, 512KB, 1MB
 })
+
+export const personDeletionPublishQueueCounter = new Counter({
+    name: 'person_deletion_publish_queue_total',
+    help: 'Person deletions recorded in, republished from, or cleared out of person_tombstone_publish_queue',
+    // enqueued: recorded with the Postgres deletion
+    // cleared: the deletion's produce was acked, so the record is gone
+    // republished: the record outlived its grace period and the death document was produced again
+    labelNames: ['action'],
+})
