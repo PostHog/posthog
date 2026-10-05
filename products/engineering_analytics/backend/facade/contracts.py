@@ -481,6 +481,52 @@ class WorkflowJob:
     steps: list[WorkflowJobStep] = field(default_factory=list)
 
 
+class JobLogBadgeKind(LabeledStrEnum):
+    CACHE = "cache", "Cache"
+    MIGRATIONS = "migrations", "Migrations"
+
+
+class JobLogBadgeState(LabeledStrEnum):
+    HIT = "hit", "Cache hit"
+    PARTIAL = "partial", "Older cache"
+    MISS = "miss", "Cache miss"
+    FAILED = "failed", "Cache restore failed"
+    NONE = "none", "No migrations"
+    APPLIED = "applied", "Migrations applied"
+
+
+@dataclass(frozen=True)
+class JobLogBadge:
+    """One thing a job's log says happened, with how often. ``detail`` names each occurrence
+    (a cache key, a migration), capped, and may hold fewer entries than ``count``."""
+
+    kind: JobLogBadgeKind
+    state: JobLogBadgeState
+    count: int
+    detail: list[str]
+
+
+@dataclass(frozen=True)
+class JobStepLogBadges:
+    number: int
+    badges: list[JobLogBadge]
+
+
+@dataclass(frozen=True)
+class JobLogInsights:
+    """What one job's log says it did with caches and migrations.
+
+    ``log_read`` is False when there is no log to read: a Depot CI job, an unknown job, or a failed
+    fetch. ``attributed_to_steps`` is False when the log's step markers did not match the job's steps,
+    and then ``steps`` is empty and ``job`` alone carries the badges.
+    """
+
+    log_read: bool
+    attributed_to_steps: bool
+    job: list[JobLogBadge]
+    steps: list[JobStepLogBadges]
+
+
 @dataclass(frozen=True)
 class WorkflowRunnerCost:
     """One runner tier's share of a workflow's CI spend — for the single-workflow "where the spend

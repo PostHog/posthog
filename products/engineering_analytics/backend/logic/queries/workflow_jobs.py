@@ -42,6 +42,7 @@ _SELECT = """
         ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id, steps
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id = {run_id} AND ({ci_engine} IS NULL OR ci_engine = {ci_engine})
+        AND ({job_id} IS NULL OR id = {job_id})
     ORDER BY started_at ASC, id ASC
     LIMIT 1000000
 """
@@ -73,6 +74,7 @@ def query_workflow_jobs(
         placeholders={
             "run_id": ast.Constant(value=run_id),
             "ci_engine": ast.Constant(value=ci_engine.value if ci_engine is not None else None),
+            "job_id": ast.Constant(value=None),
         },
     )
     rows = list(response.results or [])
@@ -90,6 +92,28 @@ def query_workflow_jobs(
     if target_attempt is not None:
         rows = [row for row in rows if row[2] is not None and int(row[2]) == target_attempt]
     return [_to_job(row) for row in rows]
+
+
+def query_workflow_job(
+    *, curated: CuratedGitHubSource, run_id: int, job_id: int, ci_engine: CIEngine | None = None
+) -> WorkflowJob | None:
+    """One job of a run, whichever attempt it belongs to, or None when the source has no such job."""
+    jobs_source = curated.jobs_source(include_steps=True)
+    if jobs_source is None:
+        return None
+    response = curated.run(
+        _SELECT.replace("__JOBS_SOURCE__", jobs_source),
+        query_type="engineering_analytics.workflow_job",
+        placeholders={
+            "run_id": ast.Constant(value=run_id),
+            "ci_engine": ast.Constant(value=ci_engine.value if ci_engine is not None else None),
+            "job_id": ast.Constant(value=job_id),
+        },
+    )
+    rows = list(response.results or [])
+    if len(rows) > 1:
+        raise ValueError("Ambiguous job_id; specify ci_engine.")
+    return _to_job(rows[0]) if rows else None
 
 
 def _latest_run_attempt(*, curated: CuratedGitHubSource, run_id: int, ci_engine: CIEngine | None) -> int | None:

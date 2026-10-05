@@ -1,12 +1,19 @@
 """Payloads for workflow/run/job-scoped reads: health, activity, jobs, costs, and master state."""
 
+from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     CostPerMergeBucket,
     CurrentBranchHealth,
     DeliveryPipeline,
     DeliveryStageTiming,
+    JobLogBadge,
+    JobLogBadgeKind,
+    JobLogBadgeState,
+    JobLogInsights,
+    JobStepLogBadges,
     MasterFailureGroup,
     OpenToMergeBucket,
     PassRateBucket,
@@ -183,6 +190,75 @@ class WorkflowJobSerializer(DataclassSerializer):
                 "help_text": "Estimated cost in USD from runner tier + elapsed time; null when the tier is "
                 "unknown or the job hasn't finished.",
                 "allow_null": True,
+            },
+        }
+
+
+class JobLogInsightsQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="'owner/name' repository the job ran in.")
+    run_id = serializers.IntegerField(help_text="Workflow run id the job belongs to.")
+    job_id = serializers.IntegerField(help_text="Job id to read the log of; a row id from workflow_jobs.")
+    ci_engine = serializers.ChoiceField(
+        choices=CIEngine.choices,
+        required=False,
+        help_text="CI engine. Required when job_id exists in both engines. Only GitHub Actions job logs are read.",
+    )
+    source_id = serializers.UUIDField(
+        required=False,
+        help_text="Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.",
+    )
+
+
+class JobLogBadgeSerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=JobLogBadgeKind.choices, help_text="What the badge is about: a dependency cache, or migrations."
+    )
+    state = serializers.ChoiceField(
+        choices=JobLogBadgeState.choices,
+        help_text="What happened. For a cache: 'hit' (exact key restored), 'partial' (an older cache restored from a "
+        "restore key), 'miss' (nothing restored), 'failed' (the restore itself failed). For migrations: 'none' "
+        "(nothing to apply) or 'applied'.",
+    )
+
+    class Meta:
+        dataclass = JobLogBadge
+        extra_kwargs = {
+            "count": {"help_text": "How many times the log reports this outcome."},
+            "detail": {
+                "help_text": "What each occurrence was about: a cache key or a migration name. Capped, so it can "
+                "hold fewer entries than `count`.",
+            },
+        }
+
+
+class JobStepLogBadgesSerializer(DataclassSerializer):
+    badges = JobLogBadgeSerializer(many=True, help_text="What the log says this step did.")
+
+    class Meta:
+        dataclass = JobStepLogBadges
+        extra_kwargs = {
+            "number": {"help_text": "The step's number in the job, matching `number` of the job's steps."},
+        }
+
+
+class JobLogInsightsSerializer(DataclassSerializer):
+    job = JobLogBadgeSerializer(many=True, help_text="Every badge found in the log, for the job as a whole.")
+    steps = JobStepLogBadgesSerializer(
+        many=True,
+        help_text="The same badges per step. Only steps with a badge are listed. Empty when `attributed_to_steps` "
+        "is false.",
+    )
+
+    class Meta:
+        dataclass = JobLogInsights
+        extra_kwargs = {
+            "log_read": {
+                "help_text": "False when no log was read: a Depot CI job, a job the source does not hold, a log "
+                "GitHub no longer keeps, or a failed fetch. Empty badges then mean 'unknown', not 'nothing found'.",
+            },
+            "attributed_to_steps": {
+                "help_text": "False when the log's step markers did not line up with the job's steps, so the "
+                "badges are reported for the job only.",
             },
         }
 

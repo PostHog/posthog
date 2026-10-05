@@ -36,6 +36,9 @@ from products.engineering_analytics.backend.logic.friction import (
 from products.engineering_analytics.backend.logic.github_teams import (
     build_github_team_roster as build_github_team_roster,
 )
+from products.engineering_analytics.backend.logic.job_log_insights import (
+    build_job_log_insights as build_job_log_insights,
+)
 from products.engineering_analytics.backend.logic.pull_requests import (
     build_attention_pull_requests as build_attention_pull_requests,
     build_author_workflow_costs as build_author_workflow_costs,

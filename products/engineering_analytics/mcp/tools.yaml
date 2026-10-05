@@ -149,6 +149,9 @@ tools:
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates
         enabled: false
+    engineering-analytics-job-log-insights:
+        operation: engineering_analytics_job_log_insights
+        enabled: false
     engineering-analytics-master-failures:
         operation: engineering_analytics_master_failures
         enabled: false

@@ -7,10 +7,14 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
+
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import CIEngine
 from products.engineering_analytics.backend.presentation.serializers.workflows import (
     CurrentBranchHealthSerializer,
+    JobLogInsightsQuerySerializer,
+    JobLogInsightsSerializer,
     MasterFailureGroupSerializer,
     RepoOverviewSerializer,
     RunFailureLogsSerializer,
@@ -55,6 +59,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         "workflow_run_activity",
         "workflow_runner_costs",
         "workflow_jobs",
+        "job_log_insights",
         "repo_overview",
         "current_branch_health",
         "repo_run_activity",
@@ -366,6 +371,40 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid source_id")
         return Response(WorkflowJobSerializer(instance=jobs, many=True).data)
+
+    @validated_request(
+        query_serializer=JobLogInsightsQuerySerializer,
+        operation_id="engineering_analytics_job_log_insights",
+        responses={
+            200: OpenApiResponse(response=JobLogInsightsSerializer),
+            400: OpenApiResponse(
+                description="Missing or invalid repo, run_id, job_id, ci_engine or source_id, or an ambiguous job_id."
+            ),
+        },
+        description=(
+            "What one GitHub Actions job's log says it did: cache restores (hit, older cache, miss, restore failed) "
+            "and migrations applied, for the job and per step. Reads the log from GitHub on demand. Only a completed "
+            "job's answer is cached. `log_read` is false, never an error, when there is no log to read: a Depot CI "
+            "job, a job the source does not hold, an expired log, or a failed fetch."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def job_log_insights(self, request: ValidatedRequest, **kwargs) -> Response:
+        query = request.validated_query_data
+        source_id = query.get("source_id")
+        try:
+            insights = api.get_job_log_insights(
+                team=self.team,
+                repo=query["repo"],
+                run_id=query["run_id"],
+                job_id=query["job_id"],
+                ci_engine=CIEngine(query["ci_engine"]) if query.get("ci_engine") else None,
+                source_id=str(source_id) if source_id else None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(JobLogInsightsSerializer(instance=insights).data)
 
     @extend_schema(
         operation_id="engineering_analytics_repo_overview",
