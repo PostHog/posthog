@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.models import User
+from posthog.models import Organization, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import (
@@ -46,6 +46,29 @@ def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> Non
         raise PermissionDenied(
             "Your API key or OAuth token can only issue a project secret API key with scopes it has. "
             f"Use a key or token that has these scopes: {', '.join(missing)}."
+        )
+
+
+def _enforce_caller_may_grant_billing_read(request: Request, organization: Organization, scopes: Iterable[str]) -> None:
+    """A key with billing:read reads its project's usage and share of the organization's spend. Only
+    someone with full access to the organization's billing may grant it."""
+    if "billing:read" not in scopes:
+        return
+    try:
+        from ee.billing.grants import (  # noqa: PLC0415 — ee is absent from the open-source build
+            BillingEntitlement,
+            effective_billing_grants,
+        )
+    except ImportError:
+        raise PermissionDenied("The billing:read scope needs PostHog's enterprise billing, which this instance lacks.")
+    user = request.user if isinstance(request.user, User) else None
+    grants = effective_billing_grants(
+        organization=organization, user=user, authenticator=getattr(request, "successful_authenticator", None)
+    )
+    if BillingEntitlement.FULL_ACCESS.value not in grants.entitlements:
+        raise PermissionDenied(
+            "Only someone with full access to the organization's billing can give a project secret API key "
+            "the billing:read scope."
         )
 
 
@@ -120,7 +143,9 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
         # An update may keep or remove a scope the caller lacks, because only an added scope widens the key.
         existing = set(self.instance.scopes or []) if self.instance is not None else set()
-        _enforce_caller_holds_scopes(self.context["request"], [scope for scope in scopes if scope not in existing])
+        added = [scope for scope in scopes if scope not in existing]
+        _enforce_caller_holds_scopes(self.context["request"], added)
+        _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
         return scopes
 
     def _llm_gateway_grantable(self) -> bool:
@@ -225,6 +250,8 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
         _enforce_caller_holds_scopes(request, instance.scopes or [])
+        # Rolling hands back a usable secret, so it needs what granting the scopes needs.
+        _enforce_caller_may_grant_billing_read(request, self.team.organization, instance.scopes or [])
         serializer = cast(ProjectSecretAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)

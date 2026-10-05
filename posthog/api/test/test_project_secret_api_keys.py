@@ -1,3 +1,5 @@
+import sys
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -155,6 +157,52 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         else:
             assert "LLM gateway scope is not available" in response.json()["detail"]
         mock_feature_enabled.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("granted_with_full_billing_access", False, True, 201),
+            ("refused_without_full_billing_access", True, True, 403),
+            ("refused_without_enterprise_billing", False, False, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_create_billing_read_scope_needs_full_billing_access(
+        self, _name, owner_only_billing, ee_available, expected_status, mock_owner_only
+    ):
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+        # None in sys.modules makes the import raise ImportError, as in the open-source build.
+        without_ee = {} if ee_available else {"ee.billing.grants": None}
+
+        with patch.dict(sys.modules, without_ee):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/project_secret_api_keys",
+                {"label": "billing key", "scopes": ["billing:read"]},
+            )
+
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("rolled_with_full_billing_access", False, 200),
+            ("refused_without_full_billing_access", True, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_roll_billing_read_key_needs_full_billing_access(
+        self, _name, owner_only_billing, expected_status, mock_owner_only
+    ):
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="owner's billing key", secure_value="sha256$owner", scopes=["billing:read"]
+        )
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == expected_status, response.json()
+        key.refresh_from_db()
+        assert (key.secure_value != "sha256$owner") == (expected_status == 200)
 
     @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
     def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(self, mock_feature_enabled):
