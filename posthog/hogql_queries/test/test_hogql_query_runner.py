@@ -573,9 +573,13 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
         runner.is_query_service = is_query_service
         legacy_teams = {self.team.pk} if legacy_team else {self.team.pk + 1}
+        timeout = ClickHouseQueryTimeOut()
+        query_scan = {"rows_read": 41_200, "duration_ms": 10_000, "killed": True, "analysis_requested": True}
+        timeout.cache_key = "cache_key_1"  # type: ignore[attr-defined]
+        timeout.query_scan = query_scan  # type: ignore[attr-defined]
         with (
             patch("posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST", legacy_teams),
-            patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query", side_effect=ClickHouseQueryTimeOut()),
+            patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query", side_effect=timeout),
             patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed,
             patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception,
             self.assertRaises(ClickHouseQueryTimeOut) as ctx,
@@ -584,6 +588,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert type(ctx.exception) is expected_error
         assert ctx.exception.status_code == (400 if expected_error is QueryServiceTimeBudgetExceeded else 504)
+        # The API error body reads the scan off the raised error.
+        assert getattr(ctx.exception, "cache_key", None) == "cache_key_1"
+        assert getattr(ctx.exception, "query_scan", None) == query_scan
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
