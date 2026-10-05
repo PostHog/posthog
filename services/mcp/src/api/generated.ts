@@ -84649,6 +84649,12 @@ export namespace Schemas {
     }
 
     /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    export type ProjectCreateRequestConversationsSettings = { [key: string]: unknown } | null;
+
+    /**
      * A project and its settings, including the settings that live on its passthrough Team.
      *
      * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
@@ -85414,7 +85420,11 @@ export namespace Schemas {
          * @nullable
          */
       conversations_enabled?: boolean | null;
-      conversations_settings?: unknown;
+      /**
+         * Settings for Conversations. Must be a JSON object or null.
+         * @nullable
+         */
+      conversations_settings?: ProjectCreateRequestConversationsSettings;
       logs_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;

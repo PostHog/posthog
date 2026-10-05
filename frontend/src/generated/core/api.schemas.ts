@@ -673,6 +673,12 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 }
 
 /**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type ProjectCreateRequestApiConversationsSettings = { [key: string]: unknown } | null
+
+/**
  * * `30d` - 30 Days
  * * `90d` - 90 Days
  * * `1y` - 1 Year
@@ -2516,7 +2522,11 @@ export interface ProjectCreateRequestApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: ProjectCreateRequestApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -2570,6 +2580,12 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
+
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type ProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
 
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
