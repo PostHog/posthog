@@ -81,8 +81,8 @@ APIScopeObject = Literal[
     "interactive_run",
     "internal_run",
     "legal_document",
-    "link",
-    "live_debugger",
+    "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
+    "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "llm_analytics",
     "ai_observability_clusters",
     "llm_gateway",
@@ -117,6 +117,7 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "scout_experiment_internal",
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
@@ -130,13 +131,14 @@ APIScopeObject = Literal[
     "tagger",
     "ticket",
     "task",
+    "today",
     "toolbar",
     "tracing",
     "field_note",
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
+    "user_interview",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
@@ -197,6 +199,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # MCP Store uses it to deny the human/member control plane and force the
         # agent through its own explicit gateway grants.
         "mcp_builtin_agent",
+        "scout_experiment_internal",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.

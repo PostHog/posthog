@@ -17,7 +17,7 @@ import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
-import { substituteVariables } from './playgroundTemplating'
+import { extractVariablesFromTexts, getVariableValue, substituteVariables } from './playgroundTemplating'
 
 interface ToolCallChunk {
     id?: string
@@ -331,6 +331,16 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 return
             }
 
+            // Count only the prompts actually submitted; a skipped panel's variables are not sent,
+            // so they belong in neither the warning nor the event.
+            const runVariables = extractVariablesFromTexts(
+                runnablePrompts.flatMap(({ prompt, messagesToSend }) => [
+                    prompt.systemPrompt,
+                    ...messagesToSend.map((m) => m.content),
+                ])
+            )
+            const runUnfilledVariables = runVariables.filter((name) => !getVariableValue(values.variableValues, name))
+
             posthog.capture('llma playground prompt submitted', {
                 prompt_count: runnablePrompts.length,
                 models: runnablePrompts.map(({ prompt }) => prompt.model),
@@ -339,7 +349,18 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     (sum, { messagesToSend }) => sum + messagesToSend.length,
                     0
                 ),
+                variable_count: runVariables.length,
+                unfilled_variable_count: runUnfilledVariables.length,
             })
+
+            if (runUnfilledVariables.length > 0) {
+                const names = runUnfilledVariables.map((name) => `{{${name}}}`).join(', ')
+                const suffix =
+                    runUnfilledVariables.length === 1
+                        ? 'The placeholder is sent as written.'
+                        : 'The placeholders are sent as written.'
+                lemonToast.warning(`No value for ${names}. ${suffix}`)
+            }
 
             const abortController = new AbortController()
             currentAbortController = abortController

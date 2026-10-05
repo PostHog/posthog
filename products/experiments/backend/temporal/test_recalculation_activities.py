@@ -394,9 +394,13 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # trigger, expect_reuse: only a metric-scoped change reuses the prior completed window.
+            # trigger, expect_reuse: only metric-scoped triggers reuse the prior completed window.
             (ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE, True),
+            (ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY, True),
+            (ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN, True),
             (ExperimentMetricsRecalculation.Trigger.EXPERIMENT_CONFIG_CHANGE, False),
+            (ExperimentMetricsRecalculation.Trigger.COLD_RUN, False),
+            (ExperimentMetricsRecalculation.Trigger.SCHEDULED, False),
             (ExperimentMetricsRecalculation.Trigger.MANUAL, False),
             (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH, False),
         ]
@@ -666,7 +670,8 @@ class TestCalculateActivity(BaseTest):
         assert result.error_step == "discovery"
         recalc.refresh_from_db()
         assert len(recalc.metric_errors) == 1
-        assert "m1" in recalc.metric_errors
+        assert recalc.metric_errors["m1"]["error_type"] == "validation_error"
+        assert recalc.metric_errors["m1"]["retriable"] is False
 
     def test_bad_metric_type_fails_at_calculation(self):
         # An unknown metric_type is unschedulable, so the calc lookup fails the metric permanently
@@ -793,6 +798,31 @@ class TestCalculateActivity(BaseTest):
         assert result.success is True
         recalc.refresh_from_db()
         assert recalc.metric_retries == {}
+
+    @parameterized.expand(
+        [
+            # A transient error that used its final attempt: a heal or manual retry can still succeed.
+            ("exhausted_transient", RuntimeError("transient blip"), "server_error", True),
+            # Permanent errors stop on the first attempt and need a config or data change first.
+            ("validation", ValidationError("bad hogql"), "validation_error", False),
+            ("value_error", ValueError("bad metric"), "server_error", False),
+        ]
+    )
+    def test_terminal_failure_records_error_type_and_retriability(
+        self, name: str, exc: Exception, expected_error_type: str, expected_retriable: bool
+    ):
+        exp = self._experiment(flag_key=f"calc-terminal-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+            with pytest.raises(Exception):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+
+        recalc.refresh_from_db()
+        entry = recalc.metric_errors["m1"]
+        assert entry["error_type"] == expected_error_type
+        assert entry["retriable"] is expected_retriable
 
     def test_terminal_failure_clears_retry_state(self):
         # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside

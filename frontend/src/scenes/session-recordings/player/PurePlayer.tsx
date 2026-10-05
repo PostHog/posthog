@@ -373,7 +373,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                     Learn more
                                                 </Link>
                                             </p>
-                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                            <LemonButton
+                                                data-attr="player-error-retry-load"
+                                                type="secondary"
+                                                onClick={loadSnapshots}
+                                            >
                                                 Reload
                                             </LemonButton>
                                         </>
@@ -385,7 +389,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                 This recording hasn't been fully ingested yet. It should be ready to
                                                 watch in a few minutes.
                                             </p>
-                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                            <LemonButton
+                                                data-attr="player-error-retry-load-still-working"
+                                                type="secondary"
+                                                onClick={loadSnapshots}
+                                            >
                                                 Reload
                                             </LemonButton>
                                         </>

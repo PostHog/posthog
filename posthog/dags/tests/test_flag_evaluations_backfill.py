@@ -182,25 +182,30 @@ def seed_flag_evaluation(cluster: ClickhouseCluster, now: datetime, event: Sourc
 
 
 def seed_kafka_path_row(
-    cluster: ClickhouseCluster, now: datetime, age: timedelta = timedelta(0), partition: int = 0
+    cluster: ClickhouseCluster,
+    now: datetime,
+    age: timedelta = timedelta(0),
+    partition: int = 0,
+    consumer_delay: timedelta = timedelta(0),
 ) -> None:
     # The lag check skips rows whose inserted_at equals their timestamp, because the backfill copies
     # rows that way. A Kafka row arrives after its event, so its inserted_at is later.
-    inserted_at = now - age
+    kafka_time = now - age
     row = (
         KAFKA_PATH_ROW.team_id,
         KAFKA_PATH_ROW.distinct_id,
         uuid5(NAMESPACE_URL, KAFKA_PATH_ROW.distinct_id),
         KAFKA_PATH_ROW.uuid,
-        inserted_at - timedelta(seconds=1),
-        inserted_at,
+        kafka_time - timedelta(seconds=1),
+        kafka_time + consumer_delay,
+        kafka_time,
         partition,
     )
 
     def insert(client: Client) -> None:
         client.execute(
             """INSERT INTO writable_flag_evaluations
-            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _partition)
+            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _timestamp, _partition)
             VALUES""",
             [row],
         )
@@ -258,10 +263,11 @@ def shard_backfill(
     *,
     instance: dagster.DagsterInstance | None = None,
     run_id: str = "backfill-run",
+    cluster: MagicMock | None = None,
 ) -> ShardBackfill:
     # The cluster is a mock, so the default config turns off the parts wait, which queries it.
     return ShardBackfill(
-        cluster=MagicMock(),
+        cluster=cluster or MagicMock(),
         shard_num=1,
         config=config or FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
         instance=instance or dagster.DagsterInstance.ephemeral(),
@@ -453,7 +459,7 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
     yesterday = datetime.now(UTC).date() - timedelta(days=1)
 
     with (
-        patch.object(ShardBackfill, "check_disk_headroom"),
+        patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
         patch.object(ShardBackfill, "check_consumer_lag"),
         patch.object(ShardBackfill, "copy_day", return_value=0) as copy_day,
     ):
@@ -464,6 +470,36 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
             backfill.run([yesterday])
 
     assert copy_day.called is not stops
+
+
+@pytest.mark.parametrize(
+    "rereads, finished_during_disk_wait",
+    [
+        pytest.param([[]], 1, id="first_disk_wait"),
+        pytest.param([["replica-1"], []], 2, id="disk_wait_after_the_reread"),
+    ],
+)
+def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
+    rereads: list[list[str]], finished_during_disk_wait: int
+) -> None:
+    instance = dagster.DagsterInstance.ephemeral()
+    disk_waits = 0
+
+    def finish_a_deletes_run() -> None:
+        nonlocal disk_waits
+        disk_waits += 1
+        if disk_waits == finished_during_disk_wait:
+            instance.create_run_for_job(job_def=deletes_job, status=dagster.DagsterRunStatus.SUCCESS)
+
+    with (
+        patch.object(ShardBackfill, "wait_for_disk_headroom", side_effect=finish_a_deletes_run),
+        patch.object(ShardBackfill, "_hosts_moving_parts", side_effect=rereads),
+        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "copy_day", return_value=5),
+    ):
+        totals = shard_backfill(instance=instance).run([datetime.now(UTC).date() - timedelta(days=1)])
+
+    assert totals == ShardBackfillTotals(days=1, rows=5)
 
 
 # The earliest day the TTL keeps is 2025-12-11 on 2026-03-10, and 2025-12-12 on 2026-03-11.
@@ -510,7 +546,7 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
 
         with (
             patch.object(ShardBackfill, "wait_for_parts_to_merge", side_effect=patched("wait_for_parts_to_merge")),
-            patch.object(ShardBackfill, "check_disk_headroom"),
+            patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
             patch.object(ShardBackfill, "check_consumer_lag"),
             patch.object(ShardBackfill, "copy_day", side_effect=patched("copy_day")) as copy_day,
         ):
@@ -522,28 +558,56 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "overrides, kafka_path_row_ages",
+    "overrides, kafka_path_row_ages, consumer_delay",
     [
-        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], id="free_space_below_the_floor"),
+        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], timedelta(0), id="free_space_below_the_floor"),
         pytest.param(
-            {"max_consumer_lag_seconds": 3600}, [timedelta(hours=2)], id="kafka_path_behind_by_more_than_the_limit"
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(0),
+            id="kafka_path_behind_by_more_than_the_limit",
         ),
-        pytest.param({}, [timedelta(0), timedelta(days=2)], id="one_kafka_partition_silent_for_over_a_day"),
-        pytest.param({}, [timedelta(days=8)], id="kafka_path_silent_for_the_whole_lookback"),
+        pytest.param(
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(hours=2),
+            id="kafka_path_writing_a_backlog_older_than_the_limit",
+        ),
+        pytest.param(
+            {}, [timedelta(0), timedelta(days=2)], timedelta(0), id="one_kafka_partition_silent_for_over_a_day"
+        ),
+        pytest.param({}, [timedelta(days=8)], timedelta(0), id="kafka_path_silent_for_the_whole_lookback"),
     ],
 )
 def test_backfill_fails_without_copying_when_a_safety_check_fails(
-    cluster: ClickhouseCluster, overrides: dict[str, Any], kafka_path_row_ages: list[timedelta]
+    cluster: ClickhouseCluster,
+    overrides: dict[str, Any],
+    kafka_path_row_ages: list[timedelta],
+    consumer_delay: timedelta,
 ) -> None:
     now = datetime.now(UTC)
     seed_source_events(cluster, now, [INSIDE_RECENT])
     for partition, age in enumerate(kafka_path_row_ages):
-        seed_kafka_path_row(cluster, now, age=age, partition=partition)
+        seed_kafka_path_row(cluster, now, age=age, partition=partition, consumer_delay=consumer_delay)
 
     result = run_backfill(cluster, **overrides)
 
     assert not result.success
     assert stored_rows(cluster) == Counter()
+
+
+BELOW_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
+]
+ABOVE_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=4750, total_bytes=8000),
+]
+UNDER_THE_FLOOR = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=100, total_bytes=8000),
+]
 
 
 @pytest.mark.parametrize(
@@ -558,15 +622,7 @@ def test_backfill_fails_without_copying_when_a_safety_check_fails(
             False,
             id="hot_volume_keeps_its_move_reserve",
         ),
-        pytest.param(
-            [
-                PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
-                PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
-            ],
-            4950,
-            True,
-            id="hot_volume_below_its_move_line",
-        ),
+        pytest.param(BELOW_MOVE_LINE, 4950, True, id="hot_volume_below_its_move_line"),
         pytest.param(
             [PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000)],
             50,
@@ -581,6 +637,73 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
     headroom = disk_headroom(disks)
 
     assert (headroom.usable_bytes, headroom.below_move_line) == (usable_bytes, below_move_line)
+
+
+# The job reads the disks on each poll of the disk wait, and once more after the wait for squash and deletes runs.
+@pytest.mark.parametrize(
+    "readings, overrides, sleeps, failure",
+    [
+        pytest.param([BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE], {}, 1, None, id="mover_frees_the_disk"),
+        pytest.param([BELOW_MOVE_LINE], {"min_free_bytes": 10_000}, 0, "under the floor", id="under_the_floor"),
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE],
+            {},
+            0,
+            None,
+            id="mover_frees_the_disk_after_the_blocking_wait",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
+            {"disk_check_max_wait_seconds": 0},
+            0,
+            "still moving parts",
+            id="disk_still_full_after_the_blocking_wait",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
+            {"disk_check_max_wait_seconds": 120},
+            2,
+            "still moving parts",
+            id="disk_wait_runs_out_after_polling",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, UNDER_THE_FLOOR],
+            {},
+            0,
+            "under the floor",
+            id="disk_under_the_floor_after_the_blocking_wait",
+        ),
+    ],
+)
+def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
+    readings: list[list[PolicyDisk]], overrides: dict[str, Any], sleeps: int, failure: str | None
+) -> None:
+    host = MagicMock()
+    host.connection_info.host = "replica-1"
+    cluster = MagicMock()
+    cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
+    backfill = shard_backfill(
+        FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, "max_unmerged_parts": 0, **overrides}), cluster=cluster
+    )
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
+    clock = [0.0]
+
+    def advance_clock(seconds: float) -> None:
+        clock[0] += seconds
+
+    with (
+        patch("posthog.dags.flag_evaluations_backfill.time.monotonic", side_effect=lambda: clock[0]),
+        patch("posthog.dags.flag_evaluations_backfill.time.sleep", side_effect=advance_clock) as sleep,
+        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
+    ):
+        if failure is None:
+            backfill.run([yesterday])
+        else:
+            with pytest.raises(dagster.Failure, match=failure):
+                backfill.run([yesterday])
+
+    assert (sleep.call_count, copy_day.called) == (sleeps, failure is None)
 
 
 @pytest.mark.parametrize(

@@ -110,19 +110,21 @@ export function GithubReposSetting(): JSX.Element {
                     </LemonSnack>
                 ))}
             </div>
-            <GitHubRepositoryCombobox
-                integrationId={connection.integration_id}
-                value=""
-                onChange={(fullName) => {
-                    if (fullName) {
-                        addRepo(fullName)
-                    }
-                }}
-                disabled={saving || atCap}
-                disabledReason={atCap ? `You can select up to ${MAX_GITHUB_REPOS} repositories` : undefined}
-                placeholder="Add a repository"
-            />
-            <div>
+            <div className="flex flex-wrap items-center gap-2">
+                <GitHubRepositoryCombobox
+                    integrationId={connection.integration_id}
+                    value=""
+                    onChange={(fullName) => {
+                        if (fullName) {
+                            addRepo(fullName)
+                        }
+                    }}
+                    repositoryFilter={(repository) => !draftRepos.includes(repository.full_name.toLowerCase())}
+                    loadAll
+                    disabled={saving || atCap}
+                    disabledReason={atCap ? `You can select up to ${MAX_GITHUB_REPOS} repositories` : undefined}
+                    placeholder="Add a repository"
+                />
                 <LemonButton
                     type="primary"
                     size="small"
