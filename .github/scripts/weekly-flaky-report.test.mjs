@@ -11,6 +11,7 @@ import {
     enrichRunnerCandidates,
     fetchCandidatePools,
     fetchTrunkQuarantined,
+    loadQuarantineFile,
     flakyTestsUrl,
     quarantineStatusFor,
     REPORT_RUNNERS,
@@ -43,11 +44,11 @@ describe('weekly flaky report', () => {
                     quarantined_failed_run_count: 0,
                     failed_run_count: 4,
                     failed_pr_count: 3,
+                    same_commit_recovery_run_count: 2,
                 },
             ],
             () => ({ owner: 'team-devex', repoPath: 'posthog/test/test_example.py' }),
             () => ({
-                runsRescued: 2,
                 evidence: [
                     { runId: 10, jobId: 20 },
                     { runId: 11, jobId: 21 },
@@ -60,7 +61,7 @@ describe('weekly flaky report', () => {
         assert.ok(table)
         assert.deepEqual(
             table.rows[0].map((tableCell) => tableCell.text),
-            ['test', 'runner', 'owner', 'quarantined', 'PRs', 'rescued', 'fails', 'logs']
+            ['test', 'runner', 'owner', 'quarantine', 'PRs', 'failed runs', 'recovered runs', 'logs']
         )
         // The edit-workflow context block may still render when Actions env vars are set;
         // only the action footer has to be gone.
@@ -87,6 +88,8 @@ describe('weekly flaky report', () => {
         assert.deepEqual(rows[0][1], { type: 'raw_text', text: 'pytest' })
         assert.deepEqual(rows[0][3], { type: 'raw_text', text: '-' })
         assert.deepEqual(rows[0][4], { type: 'raw_text', text: '3' })
+        assert.deepEqual(rows[0][5], { type: 'raw_text', text: '4' })
+        assert.deepEqual(rows[0][6], { type: 'raw_text', text: '2' })
         assert.deepEqual(rows[0][7], {
             type: 'rich_text',
             elements: [
@@ -227,34 +230,41 @@ describe('weekly flaky report', () => {
             classification: 'confirmed_flake',
             same_commit_recovery_run_count: 1,
         }
-        const fileQuarantined = {
+        const xfailOnly = {
             ...common,
-            selector: 'quarantined.py::test_quarantined',
             classification: 'quarantined',
             failed_run_count: 0,
             failed_pr_count: 0,
             quarantined_failed_run_count: 2,
         }
+        const fileQuarantined = { ...xfailOnly, selector: 'quarantined.py::test_quarantined' }
+        const expectedFailure = { ...xfailOnly, selector: 'expected.py::test_marked_xfail_by_its_author' }
         const master = { ...common, selector: 'master.py::test_master', master_failed_run_count: 1 }
-        const getEnrichment = async () => () => ({ runsRescued: 0, evidence: [] })
+        const getEnrichment = async () => () => ({ evidence: [] })
         const candidatePools = await fetchCandidatePools(['pytest'], onMasterResolver, async () => ({
-            items: [...plainRegressions, trunked, confirmed, fileQuarantined, master],
+            items: [...plainRegressions, trunked, confirmed, fileQuarantined, expectedFailure, master],
         }))
         const [{ candidates }] = await buildRunnerReports(
             candidatePools,
             getEnrichment,
-            async () => (item) => (item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null)
+            async () => (item) => (item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null),
+            () => (item) => (item.selector === fileQuarantined.selector ? { expires: '2026-08-01' } : null)
         )
 
         assert.deepEqual(
-            candidates.map((candidate) => candidate.selector),
-            [trunked.selector, confirmed.selector, fileQuarantined.selector]
+            candidates.map((candidate) => [candidate.selector, candidate.failed_run_count]),
+            [
+                [confirmed.selector, 6],
+                [trunked.selector, 6],
+                [fileQuarantined.selector, 2],
+            ]
         )
 
         const [{ candidates: candidatesWithoutTrunk }] = await buildRunnerReports(
             [{ runner: 'pytest', candidates: [plainRegressions[0]] }],
             getEnrichment,
-            async () => null
+            async () => null,
+            () => () => null
         )
         assert.deepEqual(candidatesWithoutTrunk, [plainRegressions[0]])
     })
@@ -266,18 +276,21 @@ describe('weekly flaky report', () => {
                 runner,
                 selector: `${runner}-${index}`,
                 failed_run_count: index === 10 ? 20 : 5,
+                same_commit_recovery_run_count: index === 11 ? 3 : 1,
             })),
         }))
-        const runnerReports = await buildRunnerReports(candidatePools, async () => (item) => ({
-            runsRescued: item.selector.endsWith('-11') ? 1 : 0,
-            evidence: [],
-        }))
+        const runnerReports = await buildRunnerReports(
+            candidatePools,
+            async () => () => ({ evidence: [] }),
+            async () => null,
+            () => () => null
+        )
 
         for (const { runner, candidates } of runnerReports) {
             assert.equal(candidates.length, 10)
             assert.deepEqual(
                 candidates.map((candidate) => candidate.selector),
-                [`${runner}-11`, `${runner}-10`, ...Array.from({ length: 8 }, (_, index) => `${runner}-${index}`)]
+                [`${runner}-10`, `${runner}-11`, ...Array.from({ length: 8 }, (_, index) => `${runner}-${index}`)]
             )
         }
         assert.deepEqual(
@@ -319,6 +332,7 @@ describe('weekly flaky report', () => {
             classification: 'confirmed_flake',
             quarantined_failed_run_count: 0,
             failed_run_count: 3,
+            same_commit_recovery_run_count: 1,
         }
         const extrasFor = await enrichRunnerCandidates('jest', [item], async () => {
             enrichmentRequested = true
@@ -332,7 +346,6 @@ describe('weekly flaky report', () => {
 
         assert.equal(enrichmentRequested, false)
         assert.deepEqual(row[1], { type: 'raw_text', text: 'Jest' })
-        assert.deepEqual(row[5], { type: 'raw_text', text: '-' })
         assert.deepEqual(row[7], { type: 'raw_text', text: '-' })
     })
 
@@ -389,6 +402,10 @@ describe('weekly flaky report', () => {
                         'products/example/backend/tests/test_migration.py::MigrationTest::test_backfill',
                         '2026-07-29T09:14:22.000Z',
                     ],
+                    [
+                        'products/example/backend/tests/test_migration.py::MigrationTest::test_backfill',
+                        '2026-07-31T11:00:00.000Z',
+                    ],
                 ],
             }),
             true
@@ -411,6 +428,17 @@ describe('weekly flaky report', () => {
             quarantined_failed_run_count: 3,
             failed_run_count: 4,
         }
+        const fileFor = loadQuarantineFile('pytest', {
+            read: () =>
+                JSON.stringify({
+                    entries: [
+                        { id: quarantineFile.selector, runner: 'pytest', expires: '2026-07-20' },
+                        { id: unparked.selector, runner: 'pytest', expires: '2026-07-14' },
+                        { id: 'plain.py::test_plain', runner: 'jest', expires: '2026-07-20' },
+                    ],
+                }),
+            now: new Date('2026-07-15T00:00:00Z'),
+        })
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
         const undated = { runner: 'pytest', selector: 'undated.py::test_undated', failed_run_count: 2 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
@@ -426,13 +454,13 @@ describe('weekly flaky report', () => {
             tableRows(
                 items,
                 () => ({ owner: 'team-devex', repoPath: null }),
-                () => ({ runsRescued: null, evidence: [] }),
-                quarantineStatusFor(trunkFor, masksCi)
+                () => ({ evidence: [] }),
+                quarantineStatusFor(trunkFor, fileFor, masksCi)
             ).map((row) => row[3].text)
 
-        assert.deepEqual(cells(true), ['file', '-', '2026-07-13', 'yes', '-'])
+        assert.deepEqual(cells(true), ['until 2026-07-20', '-', 'since 2026-07-13', 'yes', '-'])
         // Masking off leaves Trunk's failure reddening CI, so the date would overclaim.
-        assert.deepEqual(cells(false), ['file', '-', 'flagged', 'flagged', '-'])
+        assert.deepEqual(cells(false), ['until 2026-07-20', '-', 'flagged', 'flagged', '-'])
     })
 
     it('keeps a Trunk-quarantined test in the report and counts suppressed cluster members', async () => {
@@ -461,25 +489,27 @@ describe('weekly flaky report', () => {
         }
         const [{ candidates, statusFor }] = await buildRunnerReports(
             [{ runner: 'pytest', candidates: [...clustered, trunked] }],
-            async () => () => ({ runsRescued: null, evidence: [] }),
+            async () => () => ({ evidence: [] }),
             async () => (item) =>
-                item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
+                item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null,
+            () => (item) => (item.classification === 'quarantined' ? { expires: '2026-08-01' } : null)
         )
 
+        // The two file-quarantined members failed 3 runs each as xfail, and those runs count.
         assert.deepEqual(
             candidates.map((candidate) => [candidate.selector, candidate.failed_run_count]),
             [
+                ['shared.py', 12],
                 ['masked.py::test_masked', 9],
-                ['shared.py', 6],
             ]
         )
-        assert.equal(statusFor(candidates[1]), `2/${CLUSTER_MIN_TESTS}`)
+        assert.equal(statusFor(candidates[0]), `2/${CLUSTER_MIN_TESTS}`)
         // Truthy either way TRUNK_* masking resolves, so this holds without pinning the env.
         assert.ok(statusFor(trunked))
         const [clusterRow] = tableRows(
-            [candidates[1]],
+            [candidates[0]],
             () => ({ owner: 'team-devex', repoPath: null }),
-            () => ({ runsRescued: null, evidence: [] }),
+            () => ({ evidence: [] }),
             statusFor
         )
         // The cluster PR count is a floor over overlapping member sets, never an exact count.
