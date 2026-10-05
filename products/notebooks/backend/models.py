@@ -53,6 +53,10 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Meta:
         unique_together = ("team", "short_id")
         db_table = "posthog_notebook"
+        indexes = [
+            # Legacy `/notebooks/<short_id>` links resolve the notebook's team without a team filter.
+            models.Index(fields=["short_id"], name="notebook_short_id_idx"),
+        ]
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
