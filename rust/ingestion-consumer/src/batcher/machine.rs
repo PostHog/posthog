@@ -467,16 +467,21 @@ impl Work {
     }
 
     fn place(&mut self, now: Instant, pool: &WorkerPool, step: &mut Step) {
+        // Requests carry disjoint keys, so their send order does not matter
+        // for per-key order. A request that no candidate can take must not
+        // hold back the requests behind it.
+        let mut retry = std::mem::take(&mut self.unplaced);
+        let mut still_unplaced = VecDeque::new();
         loop {
-            let request = match self.unplaced.pop_front() {
+            let request = match retry.pop_front() {
                 Some(request) => request,
                 None => {
                     if self.assigner.free_slots(&pool.healthy) == 0 {
-                        return;
+                        break;
                     }
                     match self.packer.take_ready(now, 1).pop() {
                         Some(request) => request,
-                        None => return,
+                        None => break,
                     }
                 }
             };
@@ -488,8 +493,8 @@ impl Work {
                 &pool.candidates
             };
             let Some(worker) = self.assigner.assign(candidates, request.message_count) else {
-                self.unplaced.push_front(request);
-                return;
+                still_unplaced.push_back(request);
+                continue;
             };
             let id = self
                 .in_flight
@@ -501,6 +506,7 @@ impl Work {
                 runs: request.runs,
             });
         }
+        self.unplaced = still_unplaced;
     }
 
     fn finish(&mut self, now: Instant, step: &mut Step) -> Result<(), String> {
@@ -763,6 +769,37 @@ mod tests {
         let (_, step) = machine.on_wakeup(now + FAULT_DELAY, &workers);
         assert_eq!(step.sends.len(), 1, "the retries pack into one request");
         assert!(step.sends[0].class.replay);
+    }
+
+    #[test]
+    fn a_replay_is_sent_past_a_fresh_request_that_no_candidate_can_take() {
+        let now = Instant::now();
+        let machine = machine(config(100, Duration::ZERO, 4), now);
+        let (machine, step) = machine.on_groups(now, &pool(&["w"]), 0, vec![run("b", &[2])]);
+        let request = step.sends[0].request;
+        let (machine, _) = machine.on_request_failed(
+            now,
+            &pool(&["w"]),
+            request,
+            FailureCause::Busy,
+            vec![message("b", 0, 2)],
+        );
+
+        let outside_the_slice = WorkerPool {
+            healthy: pool(&["w"]).healthy,
+            candidates: Vec::new(),
+        };
+        let (machine, step) = machine.on_groups(now, &outside_the_slice, 0, vec![run("a", &[1])]);
+        assert!(
+            step.sends.is_empty(),
+            "a fresh request routes only within the slice"
+        );
+
+        let retry = now + Duration::from_millis(20);
+        let (_, step) = machine.on_wakeup(retry, &outside_the_slice);
+        assert_eq!(step.sends.len(), 1);
+        assert!(step.sends[0].class.replay);
+        assert_eq!(shape(&step.sends[0]), vec![("b", vec![2])]);
     }
 
     #[test]
