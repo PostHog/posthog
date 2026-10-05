@@ -85,7 +85,9 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_UI_APPS_TOKEN=sTMFPsFhdP1Ssg
 
     deploy:
         name: Trigger MCP deployment
