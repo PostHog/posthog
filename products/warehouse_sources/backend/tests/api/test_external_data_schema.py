@@ -3376,8 +3376,15 @@ class TestUpdateExternalDataSchema:
         assert response.status_code == 200, response.content
         assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
 
-    def test_sync_turned_on_without_a_schedule_as_a_repair_ends_resumes_the_table(
-        self, team, user, client: HttpClient, temporal
+    @pytest.mark.parametrize(
+        "reset_left_to_capture, runs_after",
+        [
+            pytest.param(False, True, id="resumes_the_table"),
+            pytest.param(True, False, id="keeps_a_reset_left_to_capture_paused"),
+        ],
+    )
+    def test_sync_turned_on_without_a_schedule_as_a_repair_ends(
+        self, team, user, client: HttpClient, temporal, reset_left_to_capture, runs_after
     ):
         client.force_login(user)
         schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
@@ -3389,7 +3396,7 @@ class TestUpdateExternalDataSchema:
 
         service = "products.data_warehouse.backend.logic.data_load.service"
         with (
-            self._patch_cdc_edit(),
+            self._patch_cdc_edit(queued_batches=reset_left_to_capture),
             mock.patch(f"{service}.create_schedule", side_effect=create_as_the_repair_ends),
         ):
             response = client.patch(
@@ -3399,7 +3406,7 @@ class TestUpdateExternalDataSchema:
             )
 
         assert response.status_code == 200, response.content
-        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is (not runs_after)
 
     @staticmethod
     def _clear_broken_markers(schema: ExternalDataSchema) -> None:
@@ -3432,14 +3439,18 @@ class TestUpdateExternalDataSchema:
         return schema
 
     @staticmethod
-    def _patch_cdc_edit() -> contextlib.ExitStack:
+    def _patch_cdc_edit(queued_batches: bool = False) -> contextlib.ExitStack:
         stack = contextlib.ExitStack()
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
         data_imports = "products.warehouse_sources.backend.temporal.data_imports"
+        facade = "products.data_warehouse.backend.facade.api"
         stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
         stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
+        stack.enter_context(mock.patch(f"{facade}.trigger_cdc_extraction_schedule", return_value=True))
         stack.enter_context(mock.patch(f"{data_imports}.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"))
-        stack.enter_context(mock.patch(f"{data_imports}.cdc.source_manager.has_queued_batches", return_value=False))
+        stack.enter_context(
+            mock.patch(f"{data_imports}.cdc.source_manager.has_queued_batches", return_value=queued_batches)
+        )
         return stack
 
     def test_update_schema_sync_time_of_day_when_previously_not_set(self, team, user, client: HttpClient, temporal):
