@@ -1,6 +1,6 @@
 import json
 
-from django.http import Http404, HttpResponseRedirect, JsonResponse
+from django.http import HttpResponseRedirect, JsonResponse
 from django.views.decorators.http import require_http_methods
 
 import posthoganalytics
@@ -64,8 +64,10 @@ def loginas_user(request, user_id):
 @require_http_methods(["POST"])
 def upgrade_impersonation(request):
     """Upgrade from read-only to read-write impersonation"""
-    if not is_impersonated_session(request) or not is_read_only_impersonation(request):
-        raise Http404()
+    if not is_impersonated_session(request):
+        return JsonResponse({"error": "This session is no longer impersonating a user"}, status=400)
+    if not is_read_only_impersonation(request):
+        return JsonResponse({"error": "This impersonation session is already read-write"}, status=400)
 
     try:
         data = json.loads(request.body)
