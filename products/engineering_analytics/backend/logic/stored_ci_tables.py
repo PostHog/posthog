@@ -6,6 +6,8 @@ team, so a query that could name them would read past the per-table warehouse ac
 access of its reader before it reads them.
 """
 
+from typing import ClassVar
+
 from pydantic import Field
 
 from posthog.hogql.constants import HogQLQuerySettings
@@ -51,12 +53,20 @@ _STORAGE_FIELDS: dict[str, FieldOrTable] = {
 
 
 class _EngineeringAnalyticsCIPrecomputedTable(Table):
+    table_name: ClassVar[str]
     top_level_settings: HogQLQuerySettings | None = Field(
         default_factory=lambda: HogQLQuerySettings(load_balancing="in_order")
     )
 
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return self.table_name
+
+    def to_printed_hogql(self) -> str:
+        return self.table_name
+
 
 class EngineeringAnalyticsCIRunsPrecomputedTable(_EngineeringAnalyticsCIPrecomputedTable):
+    table_name: ClassVar[str] = CI_RUNS_TABLE_BASE_NAME
     description: str = (
         "Internal precomputed table of CI workflow runs, one row per run, stored from external "
         "data-warehouse tables into native ClickHouse for Engineering analytics."
@@ -92,14 +102,9 @@ class EngineeringAnalyticsCIRunsPrecomputedTable(_EngineeringAnalyticsCIPrecompu
         **_STORAGE_FIELDS,
     }
 
-    def to_printed_clickhouse(self, context: HogQLContext) -> str:
-        return CI_RUNS_TABLE_BASE_NAME
-
-    def to_printed_hogql(self) -> str:
-        return CI_RUNS_TABLE_BASE_NAME
-
 
 class EngineeringAnalyticsCIJobsPrecomputedTable(_EngineeringAnalyticsCIPrecomputedTable):
+    table_name: ClassVar[str] = CI_JOBS_TABLE_BASE_NAME
     description: str = (
         "Internal precomputed table of CI job attempts with their estimated cost, one row per attempt, "
         "stored from external data-warehouse tables into native ClickHouse for Engineering analytics."
@@ -140,12 +145,6 @@ class EngineeringAnalyticsCIJobsPrecomputedTable(_EngineeringAnalyticsCIPrecompu
         "estimated_cost_usd": FloatDatabaseField(name="estimated_cost_usd", nullable=True),
         **_STORAGE_FIELDS,
     }
-
-    def to_printed_clickhouse(self, context: HogQLContext) -> str:
-        return CI_JOBS_TABLE_BASE_NAME
-
-    def to_printed_hogql(self) -> str:
-        return CI_JOBS_TABLE_BASE_NAME
 
 
 def add_stored_ci_tables(database: Database) -> None:

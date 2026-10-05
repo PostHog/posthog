@@ -300,10 +300,6 @@ def _refresh(team: Team) -> bool:
 _READ_GRACE_SECONDS = 40 * 60
 
 
-def _floor_day(floor: str) -> datetime:
-    return datetime.strptime(floor, "%Y-%m-%d").replace(tzinfo=UTC)
-
-
 class StoredCiReader:
     """The stored rows of one repository of one source, as subqueries for the reads of one request.
 
@@ -367,8 +363,11 @@ class StoredCiReader:
 
     def _stored(self, stored: StoredRows, floor: str, *, reach: timedelta = timedelta(0)) -> str | None:
         """A predicate for the stored rows of this repository from ``reach`` before the floor, or None
-        when a day in that span is not stored."""
-        since = _floor_day(floor) - reach
+        when a day in that span is not stored or the floor is not a date."""
+        try:
+            since = datetime.strptime(floor, "%Y-%m-%d").replace(tzinfo=UTC) - reach
+        except ValueError:
+            return None
         key = (stored.table, since)
         with self._lock:
             if key not in self._days:
@@ -381,5 +380,7 @@ class StoredCiReader:
                     stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
                 )
                 job_ids = ", ".join(f"'{UUID(str(job_id))}'" for job_id in result.job_ids)
-                self._days[key] = f"job_id IN ({job_ids}) AND {self._identity}" if result.ready else None
+                # A floor after today spans no day, so the check is ready with no job.
+                servable = result.ready and bool(job_ids)
+                self._days[key] = f"job_id IN ({job_ids}) AND {self._identity}" if servable else None
             return self._days[key]
