@@ -447,7 +447,8 @@ describe('weekly flaky report', () => {
             read: () =>
                 JSON.stringify({
                     entries: [
-                        { id: quarantineFile.selector, runner: 'pytest', expires: '2026-07-20' },
+                        // A file-level entry covers every test in the file.
+                        { id: 'file.py', runner: 'pytest', expires: '2026-07-20' },
                         { id: unparked.selector, runner: 'pytest', expires: '2026-07-14' },
                         { id: 'plain.py::test_plain', runner: 'jest', expires: '2026-07-20' },
                     ],
@@ -473,9 +474,9 @@ describe('weekly flaky report', () => {
                 quarantineStatusFor(trunkFor, fileFor, masksCi)
             ).map((row) => row[3].text)
 
-        assert.deepEqual(cells(true), ['until 2026-07-20', '-', 'since 2026-07-13', 'yes', '-'])
+        assert.deepEqual(cells(true), ['until 2026-07-20', 'expired 2026-07-14', 'since 2026-07-13', 'yes', '-'])
         // Masking off leaves Trunk's failure reddening CI, so the date would overclaim.
-        assert.deepEqual(cells(false), ['until 2026-07-20', '-', 'flagged', 'flagged', '-'])
+        assert.deepEqual(cells(false), ['until 2026-07-20', 'expired 2026-07-14', 'flagged', 'flagged', '-'])
     })
 
     it('keeps a Trunk-quarantined test in the report and counts suppressed cluster members', async () => {
@@ -510,25 +511,27 @@ describe('weekly flaky report', () => {
             () => (item) => (item.classification === 'quarantined' ? { expires: '2026-08-01' } : null)
         )
 
-        // The two file-quarantined members failed 3 runs each as xfail, and those runs count.
+        // A file-quarantined member failed 3 runs as xfail. Members share runs, so the cluster
+        // reports the largest member count and not the sum.
         assert.deepEqual(
             candidates.map((candidate) => [candidate.selector, candidate.failed_run_count]),
             [
-                ['shared.py', 12],
                 ['masked.py::test_masked', 9],
+                ['shared.py', 3],
             ]
         )
-        assert.equal(statusFor(candidates[0]), `2/${CLUSTER_MIN_TESTS}`)
+        assert.equal(statusFor(candidates[1]), `2/${CLUSTER_MIN_TESTS}`)
         // Truthy either way TRUNK_* masking resolves, so this holds without pinning the env.
         assert.ok(statusFor(trunked))
         const [clusterRow] = tableRows(
-            [candidates[0]],
+            [candidates[1]],
             () => ({ owner: 'team-devex', repoPath: null }),
             () => ({ evidence: [] }),
             statusFor
         )
-        // The cluster PR count is a floor over overlapping member sets, never an exact count.
+        // The cluster counts are floors over overlapping member sets, never exact counts.
         assert.deepEqual(clusterRow[4], { type: 'raw_text', text: '1+' })
+        assert.deepEqual(clusterRow[5], { type: 'raw_text', text: '3+' })
     })
 
     it('groups shadow digests by owning team and drops teams it cannot route', () => {

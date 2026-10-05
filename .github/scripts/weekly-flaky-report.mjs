@@ -45,6 +45,7 @@ const TRUNK_TABLE = process.env.TRUNK_QUARANTINE_TABLE || 'trunkio.quarantinedte
 // A HogQL query without a LIMIT returns 100 rows, which is fewer than Trunk quarantines. A page
 // that comes back full may be cut short, and a partial list reads as "not quarantined".
 const QUERY_ROW_LIMIT = 50000
+const REPORT_WINDOW_DAYS = 7
 const TOP_N = 10
 const CANDIDATE_POOL = 40
 const CLUSTER_MIN_TESTS = 5
@@ -178,7 +179,11 @@ async function enrich(items, runHogql = hogql) {
             WHERE f.timestamp >= now() - INTERVAL 7 DAY
                 AND lower(f.repo) = lower({repository})
                 AND f.test_id IN {selectors}
-                AND f.run_id IN (SELECT id FROM ${RUNS_TABLE})
+                AND (f.ci_engine = 'github_actions' OR f.ci_engine IS NULL)
+                AND f.run_id IN (
+                    SELECT id FROM ${RUNS_TABLE}
+                    WHERE created_at >= toString(toDate(now() - INTERVAL 30 DAY))
+                )
             GROUP BY f.test_id
             LIMIT ${QUERY_ROW_LIMIT}`,
             { repository: GITHUB_REPOSITORY, selectors }
@@ -265,14 +270,19 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
         console.warn(`Trunk quarantine lookup returned a full page — reporting without Trunk state`)
         return null
     }
-    const byVariant = new Map()
+    // Trunk keeps one row per variant of a test (one per browser, for example), and the oldest row
+    // is when masking began.
+    const oldestByNodeid = new Map()
     for (const [nodeid, quarantinedAt] of rows) {
+        const known = oldestByNodeid.get(nodeid)
+        if (!oldestByNodeid.has(nodeid) || (quarantinedAt && (!known || quarantinedAt < known))) {
+            oldestByNodeid.set(nodeid, quarantinedAt)
+        }
+    }
+    const byVariant = new Map()
+    for (const [nodeid, quarantinedAt] of oldestByNodeid) {
         for (const variant of selectorVariants(nodeid)) {
-            // Trunk keeps one row per variant of a test, and the oldest row is when masking began.
-            const known = byVariant.get(variant)?.quarantinedAt
-            if (!known || (quarantinedAt && quarantinedAt < known)) {
-                byVariant.set(variant, { quarantinedAt })
-            }
+            byVariant.set(variant, { quarantinedAt })
         }
     }
     return (item) =>
@@ -281,29 +291,46 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
             .find(Boolean) || null
 }
 
-// The entries of the repository quarantine file that are still active, keyed like the Trunk lookup.
-// An entry is active through its `expires` date; after that date CI fails on the entry itself.
+// Mirrors `selector_matches` in tools/hogli-commands/hogli_commands/quarantine/core.py: an entry
+// covers a test, a class, a file, a directory, or a whole product.
+function quarantineEntryCovers(entryId, selector) {
+    if (entryId.startsWith('product:')) {
+        return selector.startsWith(`products/${entryId.slice('product:'.length).replaceAll('-', '_')}/`)
+    }
+    const id = entryId.replace(/\/+$/, '')
+    return selector === id || ['/', '::', '[', ' '].some((boundary) => selector.startsWith(`${id}${boundary}`))
+}
+
+// Which entry of the repository quarantine file covered a test during the report window. An entry
+// suppresses the test through its `expires` date and is inert after it, so an entry that expired
+// inside the window still explains the xfailed runs before that date.
+//
+// Returns null when the file cannot be read. No entry then means "unknown", not "not quarantined".
 function loadQuarantineFile(runner, { read = () => readFileSync(QUARANTINE_FILE, 'utf8'), now = new Date() } = {}) {
-    let entries = []
+    let entries
     try {
-        entries = JSON.parse(read()).entries || []
+        entries = JSON.parse(read()).entries
+        if (!Array.isArray(entries)) {
+            throw new Error('`entries` is not a list')
+        }
     } catch (err) {
         console.warn(`${QUARANTINE_FILE} is unreadable — reporting without file quarantines: ${err.message}`)
+        return null
     }
     const today = now.toISOString().slice(0, 10)
-    const byVariant = new Map()
-    for (const entry of entries) {
-        if ((entry.runner || 'pytest') !== runner || !entry.id || !entry.expires || entry.expires < today) {
-            continue
-        }
-        for (const variant of selectorVariants(entry.id)) {
-            byVariant.set(variant, { expires: entry.expires })
-        }
+    const windowStart = new Date(now.getTime() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const inWindow = entries.filter(
+        (entry) => (entry.runner || 'pytest') === runner && entry.id && entry.expires && entry.expires >= windowStart
+    )
+    return (item) => {
+        // The longest matching selector wins, as it does when CI applies the file.
+        const covering = inWindow
+            .filter((entry) =>
+                selectorVariants(item.selector).some((variant) => quarantineEntryCovers(entry.id, variant))
+            )
+            .sort((left, right) => right.id.length - left.id.length)[0]
+        return covering ? { expires: covering.expires, active: covering.expires >= today } : null
     }
-    return (item) =>
-        selectorVariants(item.selector)
-            .map((variant) => byVariant.get(variant))
-            .find(Boolean) || null
 }
 
 // One question for both systems: is this failure suppressed, and for how long? Suppressed tests
@@ -318,9 +345,9 @@ function quarantineStatusFor(trunkFor, fileFor = () => null, masksCi = TRUNK_MAS
         if (item.cluster_size) {
             return item.quarantined_member_count ? `${item.quarantined_member_count}/${item.cluster_size}` : null
         }
-        const fileEntry = fileFor(item)
+        const fileEntry = fileFor?.(item)
         if (fileEntry) {
-            return `until ${fileEntry.expires}`
+            return `${fileEntry.active ? 'until' : 'expired'} ${fileEntry.expires}`
         }
         const trunk = trunkFor?.(item)
         if (!trunk) {
@@ -338,6 +365,9 @@ function quarantineStatusFor(trunkFor, fileFor = () => null, masksCi = TRUNK_MAS
 // fails, so its xfailed runs are failures. Without an entry the xfail marker is the author's, and a
 // test that only ever xfailed did what its author expects.
 function countFileQuarantinedRuns(runner, items, fileFor) {
+    if (!fileFor) {
+        return items
+    }
     const kept = []
     const expected = []
     for (const item of items) {
@@ -381,12 +411,10 @@ function collapseClusters(items, statusFor) {
                     const status = statusFor(item)
                     return status && status !== 'flagged'
                 }).length,
-                failed_run_count: group.reduce((sum, item) => sum + item.failed_run_count, 0),
-                same_commit_recovery_run_count: group.reduce(
-                    (sum, item) => sum + item.same_commit_recovery_run_count,
-                    0
-                ),
-                // Members' PR sets can overlap, so the max is the provable floor rather than a sum.
+                // Members fail in the same runs and on the same PRs, so the max is the provable floor
+                // rather than a sum.
+                failed_run_count: Math.max(...group.map((item) => item.failed_run_count)),
+                same_commit_recovery_run_count: Math.max(...group.map((item) => item.same_commit_recovery_run_count)),
                 failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),
                 quarantined_failed_run_count: 0,
             })
@@ -397,17 +425,17 @@ function collapseClusters(items, statusFor) {
     return collapsed
 }
 
-// A cluster's PR count is the max over members whose PR sets can overlap, so it is a
-// floor on the distinct PRs hit; the trailing + keeps it from reading as exact.
-function prCountCell(item) {
-    if (item.failed_pr_count == null) {
+// A cluster's count is a floor over members whose runs and PRs can overlap; the trailing + keeps
+// it from reading as exact.
+function countCell(item, count) {
+    if (count == null) {
         return '-'
     }
-    return item.cluster_size ? `${item.failed_pr_count}+` : String(item.failed_pr_count)
+    return item.cluster_size ? `${count}+` : String(count)
 }
 
 // Ranked on the endpoint's own counts, so the order and the numbers a reader sees agree.
-function rankReportCandidates(items) {
+function rankByReportedCounts(items) {
     return items
         .map((item, index) => ({ item, index }))
         .sort(
@@ -416,8 +444,17 @@ function rankReportCandidates(items) {
                 right.item.same_commit_recovery_run_count - left.item.same_commit_recovery_run_count ||
                 left.index - right.index
         )
-        .slice(0, TOP_N)
         .map(({ item }) => item)
+}
+
+// Failures with no recovery prove no flake. A quarantine is the other proof that a test is known
+// to fail, so those stay. The endpoint classification cannot decide this, because it also reads an
+// xfail marker that the test author wrote as a quarantine.
+function isKnownFlake(item, trunkFor, fileFor) {
+    if (item.same_commit_recovery_run_count > 0 || trunkFor(item)) {
+        return true
+    }
+    return fileFor ? Boolean(fileFor(item)) : item.quarantined_failed_run_count > 0
 }
 
 async function buildRunnerReports(
@@ -431,13 +468,15 @@ async function buildRunnerReports(
             const trunkFor = await getTrunk(runner)
             const fileFor = getQuarantineFile(runner)
             const statusFor = quarantineStatusFor(trunkFor, fileFor)
-            const candidatesWithTrunkStatus = trunkFor
-                ? candidates.filter((item) => item.classification !== 'suspected_regression' || trunkFor(item))
+            const knownFlakes = trunkFor
+                ? candidates.filter((item) => isKnownFlake(item, trunkFor, fileFor))
                 : candidates
-            const counted = countFileQuarantinedRuns(runner, candidatesWithTrunkStatus, fileFor)
+            // The endpoint ranks an xfailed run below a failed one, so the pool is cut after the
+            // file-quarantined runs are counted.
+            const counted = rankByReportedCounts(countFileQuarantinedRuns(runner, knownFlakes, fileFor))
             const queue = collapseClusters(counted.slice(0, CANDIDATE_POOL), statusFor)
             const extrasFor = await getEnrichment(runner, queue)
-            return { runner, candidates: rankReportCandidates(queue), extrasFor, statusFor }
+            return { runner, candidates: rankByReportedCounts(queue).slice(0, TOP_N), extrasFor, statusFor }
         })
     )
 }
@@ -461,9 +500,9 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
             cell(RUNNER_LABELS[item.runner] || item.runner),
             cell(owner.replace(/^team-/, '')),
             cell(statusFor(item) || '-'),
-            cell(prCountCell(item)),
-            cell(String(item.failed_run_count)),
-            cell(String(item.same_commit_recovery_run_count)),
+            cell(countCell(item, item.failed_pr_count)),
+            cell(countCell(item, item.failed_run_count)),
+            cell(countCell(item, item.same_commit_recovery_run_count)),
             logLinks.length > 0 ? linkedCell(logLinks) : cell('-'),
         ]
     })
@@ -524,7 +563,8 @@ const COLUMN_LEGEND = {
             text: [
                 '*Failed runs* counts each CI run where the test failed, including runs that a quarantine kept green.',
                 '*Recovered runs* counts each run where the same commit failed and passed the test.',
-                '*Quarantine* shows when masking started (since) or when it ends (until). A quarantine hides the failure, so the test still needs a fix.',
+                '*Quarantine* shows when masking started (since), when it ends (until), or when it ended (expired). A quarantine hides the failure, so the test still needs a fix.',
+                'A count with a + covers several tests in one file and is a minimum.',
             ].join(' '),
         },
     ],
