@@ -67,7 +67,7 @@ def mercado_pago_source(
 ) -> SourceResponse:
     path = schema_for_resource(ENDPOINTS, inputs.schema_name)
     resume = manager.load_state() if manager.can_resume() else None
-    params: dict[str, str] = {}
+    params: dict[str, Any] = {}
     begin_date: str | None = None
     end_date: str | None = None
     if inputs.schema_name == "payments":
