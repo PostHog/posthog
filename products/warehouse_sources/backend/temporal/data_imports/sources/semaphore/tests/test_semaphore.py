@@ -17,6 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SemaphoreSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.semaphore import SemaphoreResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.settings import (
+    AUTH_ERROR,
+    NOT_FOUND_ERROR,
+    PERMISSION_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.semaphore.source import SemaphoreSource
 
 BASE_URL = "https://example.semaphoreci.com/api/v1alpha/"
@@ -161,24 +166,28 @@ def test_resume_skips_saved_pages(
         manager.save_state.assert_called_once_with(SemaphoreResumeConfig(completed=True))
 
 
-@pytest.mark.parametrize("status", [401, 403, 404])
+@pytest.mark.parametrize(
+    ("status", "expected_message"),
+    [(401, AUTH_ERROR), (403, PERMISSION_ERROR), (404, NOT_FOUND_ERROR)],
+)
 def test_auth_errors_are_actionable_and_non_retryable(
     config: SemaphoreSourceConfig,
     inputs: SourceInputs,
     manager: MagicMock,
     status: int,
+    expected_message: str,
 ) -> None:
     source = SemaphoreSource()
     with patch(SEND, return_value=response({}, status)) as send:
         valid, message = source.validate_credentials(config, 1)
     assert valid is False
-    assert message and "Check" in message
+    assert message == expected_message
     send.assert_called_once()
     with patch(SEND, return_value=response({}, status)) as send:
         result = source.source_for_pipeline(config, manager, inputs)
         with pytest.raises(HTTPError) as error:
             list(cast(Iterable[Any], result.items()))
-    assert any(pattern in str(error.value) for pattern in source.get_non_retryable_errors())
+    assert f"{status} Client Error" in str(error.value)
     assert TOKEN not in str(error.value)
     send.assert_called_once()
 
