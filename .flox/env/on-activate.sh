@@ -224,6 +224,14 @@ export GOMODCACHE="$GOPATH/pkg/mod"
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
 export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 
+# On macOS, uv installs managed interpreters in ~/Library/Application Support/uv when that
+# legacy dir exists, and in ~/.local/share/uv otherwise. bin/dev-sandbox hides parts of
+# $HOME, so sandboxed and unsandboxed uv can pick different dirs, and the venv then links
+# to whichever interpreter built it last. Pin one dir so that every uv run agrees.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export UV_PYTHON_INSTALL_DIR="$HOME/.local/share/uv/python"
+fi
+
 # In `flox activate -- <cmd>` mode, Flox does not source [profile], so the uv venv
 # is not on PATH. Add it here so non-interactive commands can find hogli and
 # Python tooling.
