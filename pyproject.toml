@@ -738,6 +738,25 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
+    # TODO: batch_exports presentation wave — the moved viewsets, serializers and destination
+    # test helpers still reach in-product internals directly. Thin each one to parse -> facade
+    # -> serialize and delete each entry. backend:contract-check stays off until this list is
+    # empty. Only delete entries here: a new import from these views goes through the facade.
+    "products.batch_exports.backend.presentation.views.batch_export -> products.batch_exports.backend.filters",
+    "products.batch_exports.backend.presentation.views.batch_export -> products.batch_exports.backend.hogql_source",
+    "products.batch_exports.backend.presentation.views.batch_export -> products.batch_exports.backend.models.batch_export",
+    "products.batch_exports.backend.presentation.views.batch_export -> products.batch_exports.backend.service",
+    "products.batch_exports.backend.presentation.views.batch_export -> products.batch_exports.backend.temporal.destinations.constants",
+    "products.batch_exports.backend.presentation.views.batch_export -> products.batch_exports.backend.temporal.sql.events",
+    "products.batch_exports.backend.presentation.views.destination_tests.bigquery -> products.batch_exports.backend.temporal.destinations.bigquery_batch_export",
+    "products.batch_exports.backend.presentation.views.destination_tests.databricks -> products.batch_exports.backend.temporal.destinations.databricks_batch_export",
+    "products.batch_exports.backend.presentation.views.destination_tests.s3 -> products.batch_exports.backend.temporal.destinations.s3_batch_export",
+    "products.batch_exports.backend.presentation.views.destination_tests.snowflake -> products.batch_exports.backend.temporal.destinations.snowflake_batch_export",
+    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.hogql_source",
+    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.models.batch_export",
+    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
+    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
+    "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
@@ -761,8 +780,6 @@ ignore_imports = [
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
     "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
     "products.approvals.backend.routes -> products.approvals.backend.api",
-    "products.batch_exports.backend.routes -> products.batch_exports.backend.api.batch_export",
-    "products.batch_exports.backend.routes -> products.batch_exports.backend.api.file_download",
     "products.business_knowledge.backend.routes -> products.business_knowledge.backend.api",
     "products.cdp.backend.routes -> products.cdp.backend.api.hog_function",
     "products.cdp.backend.routes -> products.cdp.backend.api.hog_function_template",
