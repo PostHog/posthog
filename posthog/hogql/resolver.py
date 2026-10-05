@@ -38,7 +38,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
-from posthog.hogql.functions.prompt_jev import PromptJevCall
+from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
@@ -57,6 +57,7 @@ from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     lookup_field_by_name,
     lookup_table_by_name,
+    lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
 )
@@ -2004,12 +2005,12 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if node.name.lower() == "jev":
+        if is_decision_call(node.name):
             spec = PromptJevCall.parse(node)
             node = clone_expr(node, clear_types=True)
             node.args[0] = self.visit(spec.input)
             node.type = ast.CallType(
-                name="jev",
+                name=node.name.lower(),
                 arg_types=[],
                 return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
             )
@@ -2444,6 +2445,13 @@ class Resolver(CloningVisitor):
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
+        # The number of leading chain segments that name the table or field found above.
+        qualifier_length = 1
+        if not type:
+            nested_match = lookup_table_by_nested_name(scope, node)
+            if nested_match:
+                type, qualifier_length = nested_match
+
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
@@ -2525,9 +2533,9 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         field_name = str(node.chain[-1])
         loop_type = type
-        chain_to_parse = node.chain[1:]
+        chain_to_parse = node.chain[qualifier_length:]
         previous_types = []
-        resolved_chain: list[str] = [str(node.chain[0])]
+        resolved_chain: list[str] = [str(segment) for segment in node.chain[:qualifier_length]]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse

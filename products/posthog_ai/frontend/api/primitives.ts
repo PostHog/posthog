@@ -51,6 +51,8 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 // atoms); `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
+export type { ThreadSkin } from '../components/quill/quillThreadContext'
+export { useThreadSkin } from '../hooks/useThreadSkin'
 export type { TurnTrailer } from '../utils/turnTrailers'
 export { TurnFeedbackActions } from '../components/TurnFeedbackActions'
 export { MessageTemplate } from '../messages/MessageTemplate'
@@ -67,11 +69,11 @@ export {
     ActivityDetails,
     ActivityHeader,
     ActivityStatusIcon,
-    ActivitySubsteps,
     ActivityToggleSection,
     ShimmeringContent,
 } from '../components/ActivityPrimitives'
-export type { ActivityStatus } from '../components/ActivityPrimitives'
+export { ActivitySubsteps } from '../components/ActivitySubsteps'
+export type { ActivityStatus } from '../components/activityTypes'
 export { RunActivity } from '../components/RunActivity'
 export { RunAlertActivity } from '../components/RunAlertActivity'
 

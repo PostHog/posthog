@@ -583,6 +583,11 @@ export const SignalReportBillingExemptReasonEnumApi = {
  */
 export type ReportRankingApiScores = { [key: string]: number }
 
+/**
+ * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+ */
+export type ReportRankingApiLifts = { [key: string]: number }
+
 export interface ReportRankingApi {
     /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
     served_key: string
@@ -596,6 +601,8 @@ export interface ReportRankingApi {
     scored_at: string
     /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
     scores: ReportRankingApiScores
+    /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
+    lifts: ReportRankingApiLifts
     /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
     readable_heads: string[]
 }
@@ -606,6 +613,8 @@ export interface SignalReportListApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -823,6 +832,8 @@ export interface SignalReportApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -2681,7 +2692,7 @@ export interface PaginatedSignalReportArtefactListApi {
 export interface SignalReportArtefactLogCreateApi {
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
-    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -2805,6 +2816,40 @@ export interface CheckComparisonApi {
 }
 
 /**
+ * How to draw this measurement; copied from a referenced metric.
+ */
+export type MetricThresholdConfigApiMetricKind =
+    | (typeof MetricThresholdConfigApiMetricKind)[keyof typeof MetricThresholdConfigApiMetricKind]
+    | null
+
+export const MetricThresholdConfigApiMetricKind = {
+    AffectedUsers: 'affected_users',
+    AffectedSessions: 'affected_sessions',
+    Occurrences: 'occurrences',
+    ConversionRate: 'conversion_rate',
+    ErrorRate: 'error_rate',
+    Duration: 'duration',
+    Revenue: 'revenue',
+    Custom: 'custom',
+} as const
+
+/**
+ * How to format measured values; copied from a referenced metric.
+ */
+export type MetricThresholdConfigApiValueFormat =
+    | (typeof MetricThresholdConfigApiValueFormat)[keyof typeof MetricThresholdConfigApiValueFormat]
+    | null
+
+export const MetricThresholdConfigApiValueFormat = {
+    Number: 'number',
+    Count: 'count',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Duration: 'duration',
+    Currency: 'currency',
+} as const
+
+/**
  * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
  */
 export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
@@ -2832,6 +2877,12 @@ export interface MetricThresholdConfigApi {
     comparison: CheckComparisonApi
     /** The value observed when the check was written, recorded on each result for context. */
     baseline_value?: number | null
+    /** How to draw this measurement; copied from a referenced metric. */
+    metric_kind?: MetricThresholdConfigApiMetricKind
+    /** How to format measured values; copied from a referenced metric. */
+    value_format?: MetricThresholdConfigApiValueFormat
+    /** Optional value suffix. */
+    unit?: string | null
 }
 
 /**
@@ -2907,10 +2958,12 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
+    /** @nullable */
+    readonly approved_at: string | null
     /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
     /**
-     * How long after the report resolves a `pending` check waits before its first run. Null on a check that named its own `next_run_at`.
+     * Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.
      * @nullable
      */
     readonly soak_minutes: number | null
@@ -2953,6 +3006,21 @@ export interface PaginatedSignalReportCheckListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportCheckApi[]
+}
+
+export interface SignalReportCheckReplacementApi {
+    /**
+     * Label for the new metric check.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why this check is better.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** Metric threshold configuration, including a bounded query and comparison. */
+    config: MetricThresholdConfigApi
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -3026,6 +3094,13 @@ export interface SignalReportBulkStateResponseApi {
     failed_count: number
     /** Number of requested ids not visible to the caller. */
     not_found_count: number
+}
+
+export interface SignalReportsForYouResponseApi {
+    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+    results: SignalReportListApi[]
+    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+    count: number
 }
 
 /**
@@ -3246,8 +3321,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 9
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 10
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -3566,8 +3641,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 9
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 10
      */
     readonly write_scopes: readonly string[]
     /**
@@ -3688,8 +3763,8 @@ export interface SignalScoutConfigCreateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 9
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 10
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -3829,10 +3904,15 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 9
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 10
      */
     write_scopes?: string[]
+    /**
+     * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
+     * @maxLength 64
+     */
+    suggestion_id?: string
 }
 
 /**
@@ -3862,6 +3942,742 @@ export interface SignalScoutManualRunApi {
     workflow_id: string
     /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
     started: boolean
+}
+
+export interface ScoutTrialLaunchApi {
+    /** Unique launch ID. Reuse it only when retrying this exact request. */
+    launch_id: string
+    /** Saved starting context from a previous launch in this comparison. */
+    context_id?: string
+    /**
+     * Operator label for this variant.
+     * @maxLength 100
+     */
+    variant?: string
+    /**
+     * Replacement skill body for this run. Supporting files and tool permissions stay pinned.
+     * @maxLength 100000
+     */
+    skill_body?: string
+    /**
+     * Model identifier for this run.
+     * @maxLength 200
+     */
+    model?: string
+    /**
+     * Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.
+     * @maxLength 20
+     */
+    reasoning_effort?: string
+    /**
+     * Common investigation note, saved before applying any variant overrides.
+     * @maxLength 1000
+     */
+    note?: string
+}
+
+export interface ScoutTrialStartedApi {
+    /** Retry-stable launch identity. */
+    launch_id: string
+    /** Starting context to reuse across variants and repetitions. */
+    context_id: string
+    /** Workflow dispatch identity. */
+    workflow_id: string
+    /** Resolved model identifier. */
+    model: string
+    /** Resolved reasoning effort. */
+    reasoning_effort: string
+    /** Operator label for this variant. */
+    variant: string
+}
+
+export interface ScoutTrialComparisonVariantRequestApi {
+    /** Stable variant identity within this comparison. */
+    id: string
+    /**
+     * Variant name shown in the report.
+     * @maxLength 100
+     */
+    label: string
+    /**
+     * Stable run IDs for this variant's repeats.
+     * @minItems 1
+     * @maxItems 20
+     */
+    launch_ids: string[]
+    /**
+     * Scout model to run.
+     * @maxLength 200
+     */
+    model: string
+    /**
+     * Reasoning effort supported by this model.
+     * @maxLength 20
+     */
+    reasoning_effort: string
+    /**
+     * Replacement scout instructions. Omit to use the saved source instructions.
+     * @maxLength 100000
+     */
+    skill_body?: string
+}
+
+export interface ScoutTrialComparisonRequestApi {
+    /** Stable comparison ID. Reuse for an exact request retry. */
+    comparison_id: string
+    /** Variant used as the comparison baseline. */
+    baseline_variant_id: string
+    /** Up to 20 variants, each with up to 20 scout runs. */
+    variants: ScoutTrialComparisonVariantRequestApi[]
+    /**
+     * Shared investigation note.
+     * @maxLength 1000
+     */
+    note?: string
+    /**
+     * Source version shown in the editor. Refuse a new trial if the instructions changed since setup.
+     * @minimum 1
+     */
+    expected_skill_version?: number
+}
+
+export interface ScoutTrialComparisonVariantApi {
+    /** Variant identity. */
+    id: string
+    /** Saved variant name. */
+    label: string
+    /** Scout runs in this variant. */
+    launch_ids: string[]
+    /** Saved scout model. */
+    model: string
+    /** Saved reasoning effort. */
+    reasoning_effort: string
+    /** Hash of the saved scout instructions. */
+    skill_body_sha256: string
+}
+
+/**
+ * * `not_started` - not_started
+ * * `starting` - starting
+ * * `running` - running
+ * * `judging` - judging
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `unknown` - unknown
+ */
+export type ScoutTrialComparisonStatusEnumApi =
+    (typeof ScoutTrialComparisonStatusEnumApi)[keyof typeof ScoutTrialComparisonStatusEnumApi]
+
+export const ScoutTrialComparisonStatusEnumApi = {
+    NotStarted: 'not_started',
+    Starting: 'starting',
+    Running: 'running',
+    Judging: 'judging',
+    Completed: 'completed',
+    Failed: 'failed',
+    Unknown: 'unknown',
+} as const
+
+export interface ScoutTrialEvaluationVariantApi {
+    /** Stable identity for this variant, independent of its display label. */
+    id: string
+    /**
+     * Name shown in the comparison report.
+     * @maxLength 100
+     */
+    label: string
+    /**
+     * Trial launches forming this variant's repeats.
+     * @minItems 1
+     * @maxItems 20
+     */
+    launch_ids: string[]
+}
+
+/**
+ * * `saved` - Saved
+ */
+export type TrialRubricSourceEnumApi = (typeof TrialRubricSourceEnumApi)[keyof typeof TrialRubricSourceEnumApi]
+
+export const TrialRubricSourceEnumApi = {
+    Saved: 'saved',
+} as const
+
+export interface ScoutTrialEvaluationRequestApi {
+    /** Stable evaluation identity. Reuse for retries of this exact request. */
+    evaluation_id: string
+    /** Variant to use as the baseline for descriptive differences. */
+    baseline_variant_id: string
+    /** Up to 20 variant groups, each with up to 20 trial runs. */
+    variants: ScoutTrialEvaluationVariantApi[]
+    /** Judge every run against the scout's saved rubric, frozen when the trial starts.
+     *
+     * * `saved` - Saved */
+    rubric_source: TrialRubricSourceEnumApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `unknown` - Unknown
+ * * `not_started` - Not Started
+ */
+export type TrialEvaluationStatusEnumApi =
+    (typeof TrialEvaluationStatusEnumApi)[keyof typeof TrialEvaluationStatusEnumApi]
+
+export const TrialEvaluationStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Unknown: 'unknown',
+    NotStarted: 'not_started',
+} as const
+
+export type TrialComparisonOutcomeStatusEnumApi =
+    (typeof TrialComparisonOutcomeStatusEnumApi)[keyof typeof TrialComparisonOutcomeStatusEnumApi]
+
+export const TrialComparisonOutcomeStatusEnumApi = {
+    Winner: 'winner',
+    Tie: 'tie',
+    Inconclusive: 'inconclusive',
+} as const
+
+export interface TrialComparisonOutcomeApi {
+    status: TrialComparisonOutcomeStatusEnumApi
+    variant_ids?: string[]
+    summary: string
+}
+
+export type ScoutRubricReportChannelApi = (typeof ScoutRubricReportChannelApi)[keyof typeof ScoutRubricReportChannelApi]
+
+export const ScoutRubricReportChannelApi = {
+    None: 'none',
+    Emit: 'emit',
+    Edit: 'edit',
+    Both: 'both',
+} as const
+
+export interface ScoutRubricReferenceTextApi {
+    path: string
+    content_type: string
+    content: string
+}
+
+export interface ScoutRubricReferenceLimitsApi {
+    /** @minimum 0 */
+    omitted_files: number
+    truncated_files: string[]
+}
+
+export interface ScoutRubricReferenceContextApi {
+    schema_version?: 1
+    skill_id: string
+    skill_name: string
+    skill_version: number
+    description: string
+    instructions: string
+    instructions_truncated: boolean
+    report_channel: ScoutRubricReportChannelApi
+    report_disposition_instructions: string
+    reference_files: string[]
+    reference_files_truncated: boolean
+    reference_texts: ScoutRubricReferenceTextApi[]
+    reference_limits: ScoutRubricReferenceLimitsApi
+}
+
+export interface TrialEvaluationCriterionApi {
+    id: string
+    title: string
+    description: string
+    pass_condition: string
+    applicability: string
+}
+
+export interface TrialCriterionAggregateApi {
+    criterion_id: string
+    passed: number
+    failed: number
+    unknown: number
+    not_applicable: number
+    pass_rate: number | null
+    coverage: number | null
+    baseline_delta?: number | null
+}
+
+export interface TrialVariantAggregateApi {
+    variant_id: string
+    label: string
+    is_baseline: boolean
+    total_runs: number
+    judged_runs: number
+    excluded_runs: number
+    judge_errors: number
+    score: number | null
+    coverage: number | null
+    baseline_delta?: number | null
+    criteria: TrialCriterionAggregateApi[]
+}
+
+export type TrialRunJudgmentStatusEnumApi =
+    (typeof TrialRunJudgmentStatusEnumApi)[keyof typeof TrialRunJudgmentStatusEnumApi]
+
+export const TrialRunJudgmentStatusEnumApi = {
+    Judged: 'judged',
+    Excluded: 'excluded',
+    JudgeError: 'judge_error',
+} as const
+
+export type TrialCriterionVerdictVerdictEnumApi =
+    (typeof TrialCriterionVerdictVerdictEnumApi)[keyof typeof TrialCriterionVerdictVerdictEnumApi]
+
+export const TrialCriterionVerdictVerdictEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Unknown: 'unknown',
+    NotApplicable: 'not_applicable',
+} as const
+
+/**
+ * * `high` - high
+ * * `medium` - medium
+ * * `low` - low
+ */
+export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
+
+export const ConfidenceTierEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+export interface TrialCriterionEvidenceApi {
+    /** @maxLength 100 */
+    source_id: string
+    /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+    quote: string
+}
+
+export interface TrialCriterionVerdictApi {
+    /** @maxLength 100 */
+    criterion_id: string
+    verdict: TrialCriterionVerdictVerdictEnumApi
+    /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+    reason: string
+    confidence: ConfidenceTierEnumApi
+    /** @maxItems 6 */
+    evidence: TrialCriterionEvidenceApi[]
+}
+
+export interface TrialRunJudgmentApi {
+    launch_id: string
+    variant_id: string
+    status: TrialRunJudgmentStatusEnumApi
+    score?: number | null
+    coverage?: number | null
+    summary: string
+    criteria?: TrialCriterionVerdictApi[]
+    error?: string | null
+    input_tokens?: number | null
+    output_tokens?: number | null
+}
+
+/**
+ * * `claude` - claude
+ * * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+export type TrialEvidenceSourceKindEnumApi =
+    (typeof TrialEvidenceSourceKindEnumApi)[keyof typeof TrialEvidenceSourceKindEnumApi]
+
+export const TrialEvidenceSourceKindEnumApi = {
+    Instructions: 'instructions',
+    Context: 'context',
+    Summary: 'summary',
+    Report: 'report',
+    Memory: 'memory',
+    Trace: 'trace',
+} as const
+
+export interface TrialEvidenceFileApi {
+    /**
+     * @minLength 1
+     * @maxLength 100
+     */
+    id: string
+    kind: TrialEvidenceSourceKindEnumApi
+    /**
+     * @maxLength 120
+     * @pattern ^[a-z0-9][a-z0-9_-]*\.(txt|jsonl)$
+     */
+    filename: string
+    /** @pattern ^[0-9a-f]{64}$ */
+    sha256: string
+    /** @minimum 0 */
+    size_bytes: number
+}
+
+export interface TrialEvidenceSourceApi {
+    id: string
+    kind: TrialEvidenceSourceKindEnumApi
+    text: string
+}
+
+export interface TrialRunEvidenceApi {
+    launch_id: string
+    variant_id: string
+    run_id: string | null
+    task_id: string | null
+    task_run_id: string | null
+    execution_status: string
+    exclusion_reason?: string | null
+    model: string
+    runtime_adapter: RuntimeAdapterEnumApi
+    service_tier?: string | null
+    reasoning_effort: string
+    skill_body_sha256: string
+    input_tokens?: number | null
+    output_tokens?: number | null
+    files?: TrialEvidenceFileApi[]
+    sources?: TrialEvidenceSourceApi[]
+    limitations?: string[]
+}
+
+export interface TrialComparisonReportApi {
+    version?: 1
+    evaluation_id: string
+    context_id: string
+    created_at: string
+    completed_at: string
+    summary: string
+    outcome?: TrialComparisonOutcomeApi | null
+    rubric_source: 'saved'
+    rubric_revision: number
+    rubric_reference_context?: ScoutRubricReferenceContextApi | null
+    rubric_reference_generation_id?: string | null
+    criteria: TrialEvaluationCriterionApi[]
+    baseline_variant_id: string
+    judge_model: string
+    judge_prompt_version: string
+    variants: TrialVariantAggregateApi[]
+    runs: TrialRunJudgmentApi[]
+    evidence: TrialRunEvidenceApi[]
+    limitations: string[]
+}
+
+export interface ScoutTrialEvaluationApi {
+    /** Immutable request for exact retries, including saved variant labels. */
+    request: ScoutTrialEvaluationRequestApi
+    /** Stable identity for this saved evaluation. */
+    evaluation_id: string
+    /** Starting context shared by every evaluated run. */
+    context_id: string
+    /** Evaluation workflow status.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `unknown` - Unknown
+     * * `not_started` - Not Started */
+    status: TrialEvaluationStatusEnumApi
+    /**
+     * Sanitized execution error, separate from quality verdicts.
+     * @nullable
+     */
+    error: string | null
+    /** Saved comparison scores and their supporting evidence. */
+    report: TrialComparisonReportApi | null
+}
+
+export interface ScoutTrialComparisonApi {
+    /** Comparison and automatic evaluation identity. */
+    comparison_id: string
+    /** Source scout configuration. */
+    config_id: string
+    /** Frozen starting context shared by every run. */
+    context_id: string
+    /** Time the comparison was saved. */
+    created_at: string
+    /** Baseline variant identity. */
+    baseline_variant_id: string
+    /** Reviewed rubric revision frozen before the runs started. */
+    rubric_revision: number
+    /** Saved variant groups and runtime settings. */
+    variants: ScoutTrialComparisonVariantApi[]
+    /** Comparison lifecycle, including automatic judging.
+     *
+     * * `not_started` - not_started
+     * * `starting` - starting
+     * * `running` - running
+     * * `judging` - judging
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `unknown` - unknown */
+    status: ScoutTrialComparisonStatusEnumApi
+    /**
+     * Sanitized comparison error, if any.
+     * @nullable
+     */
+    error: string | null
+    /** Saved evaluation and report when available. */
+    evaluation: ScoutTrialEvaluationApi | null
+}
+
+export interface ScoutTrialComparisonHistoryApi {
+    /** This operator's most recent saved comparisons. */
+    results: ScoutTrialComparisonApi[]
+    /** Whether more comparisons exist than the requested limit. */
+    has_more: boolean
+}
+
+export interface ScoutTrialComparisonQueryApi {
+    /** Saved comparison identity. */
+    comparison_id: string
+}
+
+export interface ScoutTrialHistoryItemApi {
+    /** Launch identity for result retrieval. */
+    launch_id: string
+    /** Saved starting context shared by comparison runs. */
+    context_id: string
+    /** Operator label for this variant. */
+    variant: string
+    /** Requested model identifier. */
+    model: string
+    /** Requested reasoning effort. */
+    reasoning_effort: string
+    /** Current underlying task execution status. */
+    status: string
+    /** Task execution creation time. */
+    started_at: string
+    /**
+     * Task execution completion time.
+     * @nullable
+     */
+    completed_at: string | null
+    /** Scout run identity. */
+    run_id: string
+    /** Task identity for existing log and cancellation tools. */
+    task_id: string
+    /** Task execution identity for logs. */
+    task_run_id: string
+}
+
+export interface ScoutTrialHistoryApi {
+    /** Recent private runs started by this operator. */
+    results: ScoutTrialHistoryItemApi[]
+    /** Whether additional recent runs exceed the requested limit. */
+    has_more: boolean
+}
+
+/**
+ * `SignalScratchpad` projection used by `search-memory` and `remember`.
+ */
+export interface ScratchpadEntryApi {
+    /** Agent-chosen semantic key, unique per team. */
+    key: string
+    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
+    content: string
+    /**
+     * ISO-8601 creation timestamp.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * ISO-8601 last-write timestamp.
+     * @nullable
+     */
+    updated_at: string | null
+    /**
+     * ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.
+     * @nullable
+     */
+    expires_at?: string | null
+    /**
+     * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
+     * @nullable
+     */
+    created_by_run_id: string | null
+    /**
+     * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
+     * @nullable
+     */
+    created_by_skill?: string | null
+    /**
+     * Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.
+     * @nullable
+     */
+    created_by_run_url?: string | null
+}
+
+/**
+ * Private memory replacements and deleted keys for this run.
+ */
+export type ScoutTrialResultApiMemory = { [key: string]: ScratchpadEntryApi | null }
+
+export interface JsonValueApi {}
+
+export type TrialReportApiDocument = { [key: string]: JsonValueApi }
+
+export type TrialReportApiPayload = { [key: string]: JsonValueApi }
+
+export type TrialReportApiEditsItem = { [key: string]: JsonValueApi }
+
+export type TrialReportApiOperatorMetadata = { [key: string]: JsonValueApi }
+
+export type TrialReportApiEvidenceItem = { [key: string]: JsonValueApi }
+
+export type TrialReportApiArtefactsItem = { [key: string]: JsonValueApi }
+
+export interface TrialReportApi {
+    id: string
+    source_report_id?: string | null
+    document: TrialReportApiDocument
+    payload?: TrialReportApiPayload
+    edits?: TrialReportApiEditsItem[]
+    operator_metadata?: TrialReportApiOperatorMetadata
+    evidence?: TrialReportApiEvidenceItem[]
+    artefacts?: TrialReportApiArtefactsItem[]
+    content_revision_count?: number
+    corroboration_count?: number
+}
+
+export interface ScoutTrialResultApi {
+    /** Launch identity. */
+    launch_id: string
+    /** Saved starting context identity. */
+    context_id: string
+    /** Resolved model identifier. */
+    model: string
+    /** Resolved reasoning effort. */
+    reasoning_effort: string
+    /** Hash of the skill body delivered to this run. */
+    skill_body_sha256: string
+    /**
+     * Private object-storage result reference, when exported.
+     * @nullable
+     */
+    result_key: string | null
+    /**
+     * Whether the durable export needs a retry; inline results remain available.
+     * @nullable
+     */
+    export_error: string | null
+    /**
+     * Execution start time.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * Execution completion time.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * Scout run identity once the sandbox is prepared.
+     * @nullable
+     */
+    run_id: string | null
+    /**
+     * Task identity for existing log and cancellation tools.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Task execution identity for logs and usage.
+     * @nullable
+     */
+    task_run_id: string | null
+    /** Execution status, or pending while the workflow prepares the run. */
+    status: string
+    /**
+     * Underlying task status; cancel an active task if its workflow failed.
+     * @nullable
+     */
+    task_status: string | null
+    /**
+     * Setup or workflow failure, including failures before a task was created.
+     * @nullable
+     */
+    error: string | null
+    /** Scout close-out summary. */
+    summary: string
+    /**
+     * Why this execution cannot be used for comparison.
+     * @nullable
+     */
+    invalid_reason: string | null
+    /** Privately captured report creations and edits. */
+    reports: TrialReportApi[]
+    /** Private memory replacements and deleted keys for this run. */
+    memory: ScoutTrialResultApiMemory
+    /**
+     * Attributed model cost when available; null means unknown.
+     * @nullable
+     */
+    cost_usd: number | null
+    /**
+     * Input tokens reported by the agent runtime.
+     * @nullable
+     */
+    input_tokens: number | null
+    /**
+     * Output tokens reported by the agent runtime.
+     * @nullable
+     */
+    output_tokens: number | null
+}
+
+export interface ScoutTrialModelChoiceApi {
+    /** Model identifier supported by the scout harness and this account. */
+    model: string
+    /** Reasoning efforts supported by this model. */
+    reasoning_efforts: string[]
+}
+
+export interface ScoutTrialSetupApi {
+    /** Source scout configuration. */
+    config_id: string
+    /** Source scout skill name. */
+    skill_name: string
+    /** Source skill version shown in the comparison editor. */
+    skill_version: number
+    /** Source skill body before applying variant changes. */
+    skill_body: string
+    /** Whether deployment and source scout checks permit a comparison. */
+    ready: boolean
+    /**
+     * Why a comparison cannot start yet.
+     * @nullable
+     */
+    blocked_reason: string | null
+    /**
+     * Resolved source model before variant overrides.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Resolved source effort; null requires an explicit selection before launching.
+     * @nullable
+     */
+    reasoning_effort: string | null
+    /** Available models and their supported efforts. */
+    models: ScoutTrialModelChoiceApi[]
 }
 
 /**
@@ -4826,6 +5642,75 @@ export const ScoutRubricGenerationStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * * `none` - None
+ * * `emit` - Emit
+ * * `edit` - Edit
+ * * `both` - Both
+ */
+export type ScoutRubricReportChannelEnumApi =
+    (typeof ScoutRubricReportChannelEnumApi)[keyof typeof ScoutRubricReportChannelEnumApi]
+
+export const ScoutRubricReportChannelEnumApi = {
+    None: 'none',
+    Emit: 'emit',
+    Edit: 'edit',
+    Both: 'both',
+} as const
+
+export interface ScoutRubricReferenceTextDocumentApi {
+    /** Path of the reference supplied to the generator. */
+    path: string
+    /** Content type of the supplied reference. */
+    content_type: string
+    /** Exact reference text supplied to the generator. */
+    content: string
+}
+
+export interface ScoutRubricReferenceLimitsDocumentApi {
+    /**
+     * Number of reference files not supplied.
+     * @minimum 0
+     */
+    omitted_files: number
+    /** Reference paths whose supplied content was truncated. */
+    truncated_files: string[]
+}
+
+export interface ScoutRubricReferenceContextDocumentApi {
+    /** Version of the saved reference-context format. */
+    schema_version: number
+    /** Exact skill record used for generation. */
+    skill_id: string
+    /** Name of the skill used for generation. */
+    skill_name: string
+    /** Skill version used for generation. */
+    skill_version: number
+    /** Scout description supplied to the generator. */
+    description: string
+    /** Exact instructions supplied to the generator. */
+    instructions: string
+    /** Whether the supplied instructions were truncated. */
+    instructions_truncated: boolean
+    /** Report capabilities used to select the source rules.
+     *
+     * * `none` - None
+     * * `emit` - Emit
+     * * `edit` - Edit
+     * * `both` - Both */
+    report_channel: ScoutRubricReportChannelEnumApi
+    /** Exact report-disposition rules supplied to the generator. */
+    report_disposition_instructions: string
+    /** Reference-file inventory supplied to the generator. */
+    reference_files: string[]
+    /** Whether the reference-file inventory was truncated. */
+    reference_files_truncated: boolean
+    /** Reference texts supplied to the generator. */
+    reference_texts: ScoutRubricReferenceTextDocumentApi[]
+    /** Limits on the supplied reference texts. */
+    reference_limits: ScoutRubricReferenceLimitsDocumentApi
+}
+
 export interface ScoutRubricGenerationApi {
     /** Identifier for this generation attempt. */
     id: string
@@ -4867,6 +5752,8 @@ export interface ScoutRubricGenerationApi {
     suggestions: ScoutRubricCriterionApi[]
     /** Investigation summary and limitations. */
     summary: string
+    /** Immutable governing source captured for this generation. */
+    readonly reference_context: ScoutRubricReferenceContextDocumentApi | null
 }
 
 export interface ScoutRubricDocumentApi {
@@ -4883,6 +5770,13 @@ export interface ScoutRubricDocumentApi {
     criteria: ScoutRubricCriterionApi[]
     /** Latest background generation, if any. */
     generation: ScoutRubricGenerationApi | null
+    /** Governing source explicitly adopted for the saved rubric. */
+    readonly reference_context: ScoutRubricReferenceContextDocumentApi | null
+    /**
+     * Generation whose governing source was adopted for the saved rubric.
+     * @nullable
+     */
+    readonly reference_generation_id: string | null
 }
 
 export interface ScoutRubricSaveApi {
@@ -4893,6 +5787,11 @@ export interface ScoutRubricSaveApi {
     revision: number
     /** Complete set of criteria to save. */
     criteria: ScoutRubricCriterionApi[]
+    /**
+     * Use this completed generation's governing source for the whole saved rubric. Omit to keep its source.
+     * @nullable
+     */
+    adopt_generation_id?: string | null
 }
 
 export interface ScoutRubricGenerateApi {
@@ -5297,35 +6196,6 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
-    /**
-     * Proposed threshold after release. Informational only; does not schedule a check.
-     * @nullable
-     */
-    goal_value?: number | null
-    /** Whether success means at most or at least goal_value.
-     *
-     * * `at_most` - at_most
-     * * `at_least` - at_least */
-    goal_direction?: GoalDirectionEnumApi | null
-    /** Whether the goal compares with the whole query window or each chart bucket.
-     *
-     * * `whole_window` - whole_window
-     * * `per_interval` - per_interval */
-    goal_grain?: GoalGrainEnumApi
-    /**
-     * Suggested days after release before assessing impact, not a monitoring schedule.
-     * @minimum 1
-     * @maximum 30
-     * @nullable
-     */
-    decision_window_days?: number | null
-    /**
-     * Optional number of qualifying observations before assessing impact.
-     * @minimum 1
-     * @maximum 1000
-     * @nullable
-     */
-    minimum_data_points?: number | null
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
@@ -5367,6 +6237,19 @@ export interface ReportLinkWriteApi {
      */
     reason?: string
 }
+
+/**
+ * * `immediately_actionable` - immediately_actionable
+ * * `requires_human_input` - requires_human_input
+ * * `not_actionable` - not_actionable
+ */
+export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
+
+export const ActionabilityEnumApi = {
+    ImmediatelyActionable: 'immediately_actionable',
+    RequiresHumanInput: 'requires_human_input',
+    NotActionable: 'not_actionable',
+} as const
 
 /**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
@@ -5434,8 +6317,44 @@ export interface EditReportRequestApi {
      * @maxItems 10
      */
     links?: ReportLinkWriteApi[]
-    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
+    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
     supersedes_implementation?: boolean
+    /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
+     *
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable */
+    actionability?: ActionabilityEnumApi | null
+    /**
+     * 2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.
+     * @nullable
+     */
+    actionability_explanation?: string | null
+    /**
+     * Whether the issue is already handled: fixed, or with a fix in flight. Part of the actionability decision, so it requires `actionability` and `actionability_explanation` too; omitted means false. Set it when a fix lands or starts, so autostart does not open a duplicate PR.
+     * @nullable
+     */
+    already_addressed?: boolean | null
+    /** Optional new priority (`P0`-`P4`), for when the issue escalated or eased. Replaces the report's priority and re-runs autostart, which needs a priority to open a draft PR. Requires `priority_explanation`.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority?: AutonomyPriorityEnumApi | null
+    /**
+     * 2-3 sentence justification for `priority`. Required when `priority` is set.
+     * @nullable
+     */
+    priority_explanation?: string | null
+}
+
+export interface EditReportWarningApi {
+    /** The request field the edit did not apply. */
+    field: string
+    /** Why the field was not applied. The rest of the edit landed. */
+    message: string
 }
 
 export interface EditReportResponseApi {
@@ -5479,6 +6398,10 @@ export interface EditReportResponseApi {
     content_revision_count: number
     /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
     supersedes_implementation: boolean
+    /** Which work decisions the edit replaced (`actionability`, `priority`). Empty when you set none, or re-sent the decisions the report already held. */
+    decision_fields_set: string[]
+    /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
+    warnings: EditReportWarningApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean
 }
@@ -5544,19 +6467,6 @@ export interface ScoutEmissionReportLinkApi {
     /** The inbox report this finding linked to, or null if none could be resolved. */
     report: LinkedSignalReportApi | null
 }
-
-/**
- * * `immediately_actionable` - immediately_actionable
- * * `requires_human_input` - requires_human_input
- * * `not_actionable` - not_actionable
- */
-export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
-
-export const ActionabilityEnumApi = {
-    ImmediatelyActionable: 'immediately_actionable',
-    RequiresHumanInput: 'requires_human_input',
-    NotActionable: 'not_actionable',
-} as const
 
 /**
  * Request body for `emit-report`. Run attribution is taken from the URL path.
@@ -6103,46 +7013,6 @@ export interface ScoutRunTokenCostsApi {
 }
 
 /**
- * `SignalScratchpad` projection used by `search-memory` and `remember`.
- */
-export interface ScratchpadEntryApi {
-    /** Agent-chosen semantic key, unique per team. */
-    key: string
-    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
-    content: string
-    /**
-     * ISO-8601 creation timestamp.
-     * @nullable
-     */
-    created_at: string | null
-    /**
-     * ISO-8601 last-write timestamp.
-     * @nullable
-     */
-    updated_at: string | null
-    /**
-     * ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.
-     * @nullable
-     */
-    expires_at?: string | null
-    /**
-     * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
-     * @nullable
-     */
-    created_by_run_id: string | null
-    /**
-     * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
-     * @nullable
-     */
-    created_by_skill?: string | null
-    /**
-     * Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.
-     * @nullable
-     */
-    created_by_run_url?: string | null
-}
-
-/**
  * Request body for `remember`.
  */
 export interface RememberRequestApi {
@@ -6216,19 +7086,6 @@ export interface ScoutSuggestionProposedConfigApi {
     /** Whether the suggested scout should write to the inbox (false = dry run). */
     emit: boolean
 }
-
-/**
- * * `high` - high
- * * `medium` - medium
- * * `low` - low
- */
-export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
-
-export const ConfidenceTierEnumApi = {
-    High: 'high',
-    Medium: 'medium',
-    Low: 'low',
-} as const
 
 export interface ScoutSuggestionItemApi {
     /** Stable id of this suggestion within the batch; use it to dismiss. */
@@ -6595,6 +7452,10 @@ export type SignalsReportsListParams = {
      */
     count_only?: boolean
     /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string
+    /**
      * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean
@@ -6615,7 +7476,7 @@ export type SignalsReportsListParams = {
      */
     offset?: number
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
      */
     ordering?: string
     /**
@@ -6777,6 +7638,15 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
     }
 }
 
+export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * How many of the top reports to return, 1 to 20. Defaults to 5.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+}
+
 export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
@@ -6795,6 +7665,52 @@ export type SignalsScoutConfigListParams = {
      * @minLength 1
      */
     tags?: string
+}
+
+export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type SignalsScoutConfigTrialComparisonRetrieveParams = {
+    /**
+     * Saved comparison identity.
+     */
+    comparison_id: string
+}
+
+export type SignalsScoutConfigTrialEvaluationRetrieveParams = {
+    /**
+     * Saved evaluation identity to inspect without starting a judge.
+     */
+    evaluation_id: string
+}
+
+export type SignalsScoutConfigTrialHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type SignalsScoutConfigTrialResultParams = {
+    /**
+     * Launch identity returned by the trial action.
+     */
+    launch_id: string
+}
+
+export type SignalsScoutConfigTrialSetupParams = {
+    /**
+     * Saved comparison context to inspect instead of the current source skill.
+     */
+    context_id?: string
 }
 
 export type SignalsScoutConfigSyncParams = {

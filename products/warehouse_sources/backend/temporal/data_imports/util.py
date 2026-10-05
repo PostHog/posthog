@@ -25,6 +25,10 @@ from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    note_post_load_phase,
+    post_load_phase,
+)
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import (
     QueryFolderPointerHistory,
     query_folder_slot_names,
@@ -242,10 +246,6 @@ def with_internal_db_retries(fn: Callable[P, T]) -> Callable[P, T]:
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
 
-# Per-schema rollout flag for the fixed a/b query folder pair below. Off (or unevaluable) means the
-# timestamped-folder path, so a bad rollout is undone by turning the flag off.
-DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG = "data-warehouse-double-buffered-query-folders"
-
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
 # fragmented table in core/delta/maintenance.py, before vacuum even starts - which can outlive a
@@ -428,9 +428,11 @@ async def prepare_s3_files_for_querying(
         # fresh folder, either because double buffering is off or because no slot is safe to touch yet.
         standby_files: Optional[dict[str, str]] = None
         if double_buffer and use_timestamped_folders:
-            standby = await _pick_standby_slot(
-                s3, s3_folder_for_job, normalized_table_name, existing_queryable_folder, pointer_history, _log
-            )
+            with post_load_phase("list_standby"):
+                standby = await _pick_standby_slot(
+                    s3, s3_folder_for_job, normalized_table_name, existing_queryable_folder, pointer_history, _log
+                )
+                note_post_load_phase(standby_files=len(standby[1]) if standby is not None else None)
             if standby is not None:
                 s3_folder_for_querying, standby_files = standby
                 s3_path_for_querying = f"{s3_folder_for_job}/{s3_folder_for_querying}"
@@ -538,7 +540,9 @@ async def prepare_s3_files_for_querying(
             files_to_copy = pending_copies()
             await _log(f"Copying {len(files_to_copy)} of {len(file_uris)} files to {s3_path_for_querying}")
             try:
-                await asyncio.gather(*[copy_file(file) for file in files_to_copy])
+                with post_load_phase("copy_files"):
+                    note_post_load_phase(files_copied=len(files_to_copy), live_files=len(file_uris))
+                    await asyncio.gather(*[copy_file(file) for file in files_to_copy])
                 break
             except FileNotFoundError as e:
                 if refresh_file_uris is None or attempt >= _COPY_FILES_MAX_ATTEMPTS:
@@ -601,7 +605,9 @@ async def prepare_s3_files_for_querying(
             stale_files = [uri for relative, uri in standby_files.items() if relative not in live_relative_paths]
             if stale_files:
                 await _log(f"Removing {len(stale_files)} files no longer live from {s3_path_for_querying}")
-                await _delete_stale_standby_files(s3, stale_files, _log)
+                with post_load_phase("remove_stale_files"):
+                    note_post_load_phase(files_removed=len(stale_files))
+                    await _delete_stale_standby_files(s3, stale_files, _log)
 
         # Delete existing files after copying new ones
         if delete_existing and files_to_delete:
@@ -639,7 +645,9 @@ async def prepare_s3_files_for_querying(
                             # throw away a load that has already landed.
                             return
 
-            await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
+            with post_load_phase("delete_old_folders"):
+                note_post_load_phase(folders_deleted=len(files_to_delete))
+                await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
 
         await _log(f"Returning S3 folder for querying: {s3_folder_for_querying}")
 

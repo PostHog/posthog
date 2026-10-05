@@ -387,6 +387,10 @@ because its tasks carry `origin_product=REVIEW_HOG` (see `SELF_DRIVING_ORIGIN_PR
 the app is resolved inside the Tasks provisioning activity. Same image and resources as any other run — the split
 only separates the fleet's Modal cost from user-driven runs.
 
+ReviewHog owns each session's lifecycle.
+Tasks with `origin_product=review_hog` do not expose the agent's `finish` tool, because it marks the TaskRun terminal and tears down the sandbox before the caller can validate the final JSON or send another validation turn.
+The agent returns JSON at the end of each turn; the caller validates it and ends the session when its work is complete.
+
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
 1. Does **not** own concurrency — the caller bounds it: each fan-out child workflow wraps its per-unit sandbox
@@ -411,7 +415,7 @@ only separates the fleet's Modal cost from user-driven runs.
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
 
 The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
-rest — **OpenAI Codex `gpt-6-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
+rest — **OpenAI Codex `gpt-6.1-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
 report's **review tier**. The pins are per **report**, not per process: each `ReviewReport` persists a **review
 arm** (adapter / model / effort / permission mode) plus the tier it was chosen from (`review_tier`, and for agent
 PRs the Signals priority that placed it there, `review_signal_priority`), decided once at report creation and kept
@@ -503,7 +507,7 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits
   `POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,REASONING_EFFORT}` env prefixed onto the agent launch command.
 
-**`@posthog/agent` — where they are consumed + applied** (`products/desktop/packages/agent` in this repo). The sandbox
+**`@posthog/agent` — where they are consumed + applied** (`packages/agent/packages/agent` in this repo). The sandbox
 image (`products/tasks/backend/sandbox/images/Dockerfile.sandbox-base`) installs the _published_ package by default, so
 an agent-side fix reaches reviews only once it is published and the image rebuilt; set
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` to build the local package into the image instead.
@@ -515,7 +519,7 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
   `{ mode, settings: { model, reasoning_effort } }` as the per-turn `collaborationMode` (codex applies a provided
   collaboration mode as is and ignores the turn's `effort` param when one is sent, so the pinned effort has to ride
   along here or every turn runs at the model's default effort — this is the line that applies a tier's effort to
-  `gpt-6-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
+  `gpt-6.1-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
   adapter). Startup validation (`bin.ts` + `isSupportedReasoningEffort`) checks the model/effort combo against the
   registry, but **not** that the gateway actually serves the model. The sandbox reviewer path has no allow-list fallback:
   `_doInitializeSession` → `createAcpConnection` passes the pinned `model` straight to codex (no `gatewayModels`, so
@@ -708,7 +712,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   Existing automation routing and its configuration remain separate from the flag.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`reviewhog` **label** on a `PostHog/posthog` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
+`reviewhog` **label** on a `PostHog/posthog` or `PostHog/ai-gateway` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving and resolve-only variants; the configured internal project also shows
 **Flash**, which pins resolution off), an **inbox** trigger (a
@@ -747,6 +751,13 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
 list — every 10s while a run is in progress or freshly triggered, every 30s otherwise, paused on hidden
 tabs with an immediate refresh on tab return — and a poll response that shows a run finishing also
 refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsLogic`).
+
+An active review stays visible while its report or working artefacts have activity within `IN_PROGRESS_STALE_AFTER` (30 minutes).
+Long-running chunking, selection, review, deduplication, and validation activities also refresh `ReviewReport.updated_at` every minute, so an agent can keep working without producing an artefact during that window.
+Each refresh is scoped to the team, report, active status, and reviewed commit.
+These refreshes stop when the activity exits, and stale reviews still expire after the same quiet window.
+Temporal heartbeats continue independently of the database refresh.
+The list selects running candidates by their latest report update, so newer stale runs cannot push a live run off the page.
 
 ---
 

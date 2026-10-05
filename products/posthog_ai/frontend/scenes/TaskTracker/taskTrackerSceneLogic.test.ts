@@ -2,7 +2,9 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
@@ -10,15 +12,17 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
@@ -431,6 +435,69 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.newTaskData.description).toBe('')
     })
 
+    describe('task defaults', () => {
+        const useTaskDefaultsMocks = (): void => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/tasks/@me/config/': {
+                        ...myConfigResponse(null),
+                        task_defaults: { start_in_plan_mode: true, auto_publish_cloud_runs: true },
+                    },
+                },
+            })
+        }
+
+        it.each([
+            ['on', true, 'plan', true],
+            ['off', false, 'auto', undefined],
+        ])(
+            'applies the stored defaults to a new task with today-rail-nav %s',
+            async (_state, flagOn, expectedMode, expectedAutoPublish) => {
+                useTaskDefaultsMocks()
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn,
+                })
+                logic.mount()
+                await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+                logic.actions.setNewTaskData({ description: 'do the thing' })
+                logic.actions.submitNewTask()
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(runBody?.initial_permission_mode).toBe(expectedMode)
+                expect(runBody?.auto_publish).toBe(expectedAutoPublish)
+                expect(createBody?.auto_publish).toBe(expectedAutoPublish)
+            }
+        )
+
+        it.each([
+            ['a picked mode', 'default' as const, 'default'],
+            ['a model change alone', null, 'plan'],
+        ])('sends the right mode after %s', async (_case, pickedMode, expectedMode) => {
+            useTaskDefaultsMocks()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.mount()
+            logic.actions.setNewTaskData({
+                description: 'do the thing',
+                model: 'claude-opus-5-5',
+                permissionMode: 'auto',
+            })
+            if (pickedMode) {
+                logic.actions.pickPermissionMode(pickedMode)
+            }
+            await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+            logic.actions.submitNewTask()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(runBody?.initial_permission_mode).toBe(expectedMode)
+        })
+    })
+
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
     // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
     // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
@@ -691,6 +758,37 @@ describe('taskTrackerSceneLogic', () => {
         expect(runBody?.initial_permission_mode).not.toBeUndefined()
         // The one-off pick resets after submit, back to "use default".
         expect(logic.values.newTaskData.model).toBeNull()
+    })
+
+    it('bills a codex default to the saved chatgpt plan when the task submits before the defaults load', async () => {
+        const flag = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse({
+                    runtime_adapter: 'codex',
+                    model: 'gpt-5',
+                    reasoning_effort: 'high',
+                    source: 'user',
+                }),
+                '/api/users/@me/integrations/codex/': { status: 'connected' },
+            },
+        })
+        const billing = codexBillingLogic()
+        billing.mount()
+        billing.actions.setPreferredCodexModelAccess(ModelAccessEnumApi.OwnSubscription)
+        logic.mount()
+
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody).toMatchObject({
+            runtime_adapter: 'codex',
+            model: 'gpt-5',
+            codex_model_access: ModelAccessEnumApi.OwnSubscription,
+        })
+        billing.unmount()
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the

@@ -58,6 +58,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.run_mode import run_mode
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.stable_chunks import persist_stable_chunks_choice, stable_chunks_for_request
 
@@ -513,6 +514,9 @@ def _build_template_context(
     if settings.STRIPE_PUBLIC_KEY:
         context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
 
+    if settings.ORIGIN_TRIAL_TOKENS:
+        context["origin_trial_tokens"] = settings.ORIGIN_TRIAL_TOKENS
+
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
@@ -573,6 +577,7 @@ def _build_template_context(
             posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
         ),
         "anonymous": not request.user or not request.user.is_authenticated,
+        "run_mode": run_mode().value,
     }
 
     posthog_bootstrap: dict[str, Any] = {}

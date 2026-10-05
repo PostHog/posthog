@@ -228,6 +228,19 @@ describe('sceneLogic', () => {
         expect(router.values.hashParams).toEqual(hash)
     })
 
+    it('redirects a copied event link to the activity list filtered to its uuid and event name', async () => {
+        const uuid = '0190a4c2-0000-7000-8000-000000000001'
+        router.actions.push(urls.event(uuid, '2026-01-01T00:00:00.000Z', '$feature_flag_called'))
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.activity(ActivityTab.ExploreEvents)
+        )
+        expect(router.values.hashParams.q.source).toMatchObject({
+            event: '$feature_flag_called',
+            properties: [{ key: `uuid = '${uuid}'` }],
+        })
+    })
+
     it.each([
         ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
         [

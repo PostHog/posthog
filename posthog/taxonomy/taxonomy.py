@@ -65,6 +65,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "epik",  # pinterest
     "qclid",  # quora
     "sccid",  # snapchat
+    "oppref",  # openai ads
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -569,7 +570,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflows_email_bounced": {
             "label": "Workflow email bounced",
-            "description": "Fires when a workflow email bounces.",
+            "description": 'Fires when a workflow email bounces. The `$bounce_type` property holds `hard` when the address will never accept mail (it is also added to the suppression list), `soft` when the failure is temporary such as a full mailbox, and `unknown` when the provider could not tell. `$bounce_sub_type` holds the provider\'s own reason, such as "MailboxFull". Bounces recorded before these properties shipped carry neither.',
         },
         "$workflows_email_blocked": {
             "label": "Workflow email marked as spam",
@@ -2063,6 +2064,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "sccid": {
             "label": "sccid",
             "description": "Snapchat Click ID",
+        },
+        "oppref": {
+            "label": "oppref",
+            "description": "OpenAI Ads Click ID",
         },
         "irclid": {
             "label": "irclid",

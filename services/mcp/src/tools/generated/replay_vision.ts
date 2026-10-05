@@ -389,12 +389,13 @@ const visionObservationsGet = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/replay/${result.session_id}`),
-            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A summarizer's `model_output.chapters` breaks the recording into ordered parts; each chapter's `start_ms` seeks the same way.\n"
         )
     },
 })
@@ -550,6 +551,7 @@ const visionObservationsRetrieve = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })
@@ -928,6 +930,9 @@ const visionScannersCreate = (): ToolBase<
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
         }
+        if (params.goal !== undefined) {
+            body['goal'] = params.goal
+        }
         if (params.creation_method !== undefined) {
             body['creation_method'] = params.creation_method
         }
@@ -968,7 +973,7 @@ const visionScannersCreate = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/replay-vision/${result.id}`),
-            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down turns into a config recommendation they can review, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
+            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down, ideally with a short note, teaches the scanner, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
         )
     },
 })
@@ -1349,12 +1354,13 @@ const visionScannersObservationsGet = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/replay/${result.session_id}`),
-            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+            "`_posthogUrl` opens the recording this observation analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A summarizer's `model_output.chapters` breaks the recording into ordered parts; each chapter's `start_ms` seeks the same way.\n"
         )
     },
 })
@@ -1394,6 +1400,7 @@ const visionScannersObservationsList = (): ToolBase<
                     status: params.status,
                     tags: params.tags,
                     triggered_by: params.triggered_by,
+                    variant: params.variant,
                     verdict: params.verdict,
                 },
             })
@@ -1411,7 +1418,7 @@ const visionScannersObservationsList = (): ToolBase<
                         },
                         '/replay'
                     ),
-                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and it is what `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
+                    "Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the person's verdict on whether the scanner was right, and the scanner learns from it, so ask them for it and record what they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating is team-wide, and a scanner's output can repeat text from the recording it analysed.\n"
                 ),
                 ['id', 'session_id', 'status', 'summary_line', 'created_at', 'scanner_id', '_posthogUrl']
             )
@@ -1451,121 +1458,14 @@ const visionScannersObservationsStats = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })
         return withAgentNote(
             result,
-            "When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so a prompt suggestion has little to learn from. Say so, and ask the person to rate a few results before you call `vision-scanners-prompt-suggestions-generate`. Record their verdicts with `vision-observations-label-create` rather than supplying your own. Testing a suggestion is not available over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.\n"
+            'When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so it has little to learn from. Say so, and ask the person to rate a few results. Record their verdicts with `vision-observations-label-create` rather than supplying your own.\n'
         )
-    },
-})
-
-const VisionScannersPromptSuggestionsApplySchema = () => {
-    const VisionScannersPromptSuggestionsApplyCreateBody = orvalSchemas.VisionScannersPromptSuggestionsApplyCreateBody()
-    const VisionScannersPromptSuggestionsApplyCreateParams =
-        orvalSchemas.VisionScannersPromptSuggestionsApplyCreateParams()
-    return VisionScannersPromptSuggestionsApplyCreateParams.omit({ project_id: true }).extend(
-        VisionScannersPromptSuggestionsApplyCreateBody.shape
-    )
-}
-
-const visionScannersPromptSuggestionsApply = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsApplySchema>,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-apply',
-    schema: VisionScannersPromptSuggestionsApplySchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsApplySchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
-        const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/${encodeURIComponent(String(params.id))}/apply/`,
-            body,
-        })
-        return result
-    },
-})
-
-const VisionScannersPromptSuggestionsCurrentSchema = () => {
-    const VisionScannersPromptSuggestionsCurrentRetrieveParams =
-        orvalSchemas.VisionScannersPromptSuggestionsCurrentRetrieveParams()
-    return VisionScannersPromptSuggestionsCurrentRetrieveParams.omit({ project_id: true })
-}
-
-const visionScannersPromptSuggestionsCurrent = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsCurrentSchema>,
-    Schemas.CurrentPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-current',
-    schema: VisionScannersPromptSuggestionsCurrentSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsCurrentSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CurrentPromptSuggestion>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/current/`,
-        })
-        return result
-    },
-})
-
-const VisionScannersPromptSuggestionsDismissSchema = () => {
-    const VisionScannersPromptSuggestionsDismissCreateParams =
-        orvalSchemas.VisionScannersPromptSuggestionsDismissCreateParams()
-    return VisionScannersPromptSuggestionsDismissCreateParams.omit({ project_id: true })
-}
-
-const visionScannersPromptSuggestionsDismiss = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsDismissSchema>,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-dismiss',
-    schema: VisionScannersPromptSuggestionsDismissSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsDismissSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/${encodeURIComponent(String(params.id))}/dismiss/`,
-        })
-        return result
-    },
-})
-
-const VisionScannersPromptSuggestionsGenerateSchema = () => {
-    const VisionScannersPromptSuggestionsGenerateCreateParams =
-        orvalSchemas.VisionScannersPromptSuggestionsGenerateCreateParams()
-    return VisionScannersPromptSuggestionsGenerateCreateParams.omit({ project_id: true })
-}
-
-const visionScannersPromptSuggestionsGenerate = (): ToolBase<
-    ReturnType<typeof VisionScannersPromptSuggestionsGenerateSchema>,
-    Schemas.ReplayScannerPromptSuggestion
-> => ({
-    name: 'vision-scanners-prompt-suggestions-generate',
-    schema: VisionScannersPromptSuggestionsGenerateSchema(),
-    handler: async (
-        context: Context,
-        params: z.infer<ReturnType<typeof VisionScannersPromptSuggestionsGenerateSchema>>
-    ) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReplayScannerPromptSuggestion>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/prompt_suggestions/generate/`,
-        })
-        return result
     },
 })
 
@@ -1787,6 +1687,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
         }
+        if (params.goal !== undefined) {
+            body['goal'] = params.goal
+        }
         if (params.creation_method !== undefined) {
             body['creation_method'] = params.creation_method
         }
@@ -1915,10 +1818,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-observations-get': visionScannersObservationsGet,
     'vision-scanners-observations-list': visionScannersObservationsList,
     'vision-scanners-observations-stats': visionScannersObservationsStats,
-    'vision-scanners-prompt-suggestions-apply': visionScannersPromptSuggestionsApply,
-    'vision-scanners-prompt-suggestions-current': visionScannersPromptSuggestionsCurrent,
-    'vision-scanners-prompt-suggestions-dismiss': visionScannersPromptSuggestionsDismiss,
-    'vision-scanners-prompt-suggestions-generate': visionScannersPromptSuggestionsGenerate,
     'vision-scanners-scan-session': visionScannersScanSession,
     'vision-scanners-scan-sessions': visionScannersScanSessions,
     'vision-scanners-scout-reports-get': visionScannersScoutReportsGet,
