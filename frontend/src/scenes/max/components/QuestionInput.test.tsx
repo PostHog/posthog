@@ -112,6 +112,31 @@ describe('QuestionInput', () => {
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
     })
 
+    it.each([
+        { device: 'desktop', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', submits: true },
+        {
+            device: 'phone',
+            userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36',
+            submits: false,
+        },
+    ])('handles Enter on $device', async ({ userAgent, submits }) => {
+        jest.spyOn(navigator, 'userAgent', 'get').mockReturnValue(userAgent)
+        const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
+        const input = screen.getByRole('textbox') as HTMLTextAreaElement
+
+        fireEvent.change(input, { target: { value: 'first line' } })
+        await waitFor(() => expect(input.value).toBe('first line'))
+
+        // fireEvent returns false when a handler calls preventDefault, which blocks the native newline.
+        expect(fireEvent.keyDown(input, { key: 'Enter' })).toBe(!submits)
+        if (submits) {
+            expect(askMaxSpy).toHaveBeenCalledWith('first line')
+        } else {
+            expect(askMaxSpy).not.toHaveBeenCalled()
+            expect(input.value).toBe('first line')
+        }
+    })
+
     describe('message length limit', () => {
         const sendButton = (): HTMLElement | null => document.querySelector('[data-attr="max-send-message"]')
 
