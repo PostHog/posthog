@@ -1,7 +1,7 @@
 """Find and repair persons whose ClickHouse rows disagree with the persons database.
 
 The persons database, read through personhog, is the source of truth. Scans only read. A repair
-republishes the Postgres state of a person to ClickHouse. When ClickHouse
+republishes the Postgres state of a person and its distinct ids to ClickHouse. When ClickHouse
 holds a version at or above the Postgres one, the repair first raises the Postgres version above
 it, so the published row wins and the next ingestion update still outranks it.
 """
@@ -25,21 +25,30 @@ from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
 from posthog.models.person.sql import INSERT_PERSON_SQL
 from posthog.models.person.util import (
+    _batched_get_distinct_ids_for_persons,
     _batched_get_persons_by_uuids,
     _person_row,
+    create_person_distinct_id,
     get_person_tombstones,
     get_persons_by_uuids,
 )
 from posthog.personhog_client.client import personhog_call, require_personhog_client
-from posthog.personhog_client.proto import ReadOptions, SetPersonVersionFloorRequest
+from posthog.personhog_client.proto import (
+    ReadOptions,
+    SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest,
+)
 
 PersonDivergenceKind = Literal["hidden", "swept", "stale", "behind", "absent"]
+MappingDivergenceKind = Literal["hidden", "other_person", "absent"]
 RepairOutcome = Literal[
     "would_repair",
     "repaired",
     "skipped_not_divergent",
     "skipped_not_live",
     "skipped_tombstoned",
+    "skipped_owner_changed",
+    "skipped_mapping_gone",
     "skipped_reread_lagging",
     "skipped_stale",
 ]
@@ -59,11 +68,13 @@ _STALE_SETTINGS = {
     "max_bytes_before_external_group_by": 20_000_000_000,
 }
 _REPAIR_PERSON_READ_SETTINGS = {"apply_deleted_mask": 0, "max_execution_time": 60, "max_memory_usage": 4_000_000_000}
+_REPAIR_MAPPING_READ_SETTINGS = {"max_execution_time": 60, "max_memory_usage": 4_000_000_000}
 
 # A scan reads only these fields, which keeps person properties out of the RPC payloads.
 _VERSION_ONLY_READ_OPTIONS = ReadOptions(field_mask=["id", "uuid", "team_id", "version"])
 
 _REPAIR_CHUNK_SIZE = 100
+_MAPPING_QUERY_CHUNK_SIZE = 1_000
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
 # Confirmed produce results are dropped this often, so a long repair does not hold one per published row.
 _DELIVERY_PRUNE_EVERY = 1_000
@@ -100,9 +111,12 @@ class PersonRef:
 
 @frozen
 class RepairAction:
+    """One person row (``distinct_id`` is None) or one of its mappings, with what the repair did to it."""
+
     team_id: int
     person_uuid: str
-    kind: PersonDivergenceKind | None
+    distinct_id: str | None
+    kind: PersonDivergenceKind | MappingDivergenceKind | None
     pg_version: int | None
     ch_max_version: int | None
     target_version: int | None
@@ -114,6 +128,7 @@ class RepairSummary:
     applied: bool
     persons: int
     person_outcomes: dict[RepairOutcome, int]
+    mapping_outcomes: dict[RepairOutcome, int]
     # Published rows that Kafka did not confirm: the delivery failed, or it was still queued at the deadline.
     undelivered: int
 
@@ -383,6 +398,22 @@ class _ChPersonState:
 
 
 @frozen
+class _ChMappingState:
+    max_version: int
+    winner_deleted: bool
+    winner_person_uuid: str
+
+
+@frozen
+class _MappingPlan:
+    distinct_id: str
+    kind: MappingDivergenceKind | None
+    pg_version: int
+    ch_max_version: int | None
+    target_version: int
+
+
+@frozen
 class _PersonPlan:
     team_id: int
     person_uuid: str
@@ -390,6 +421,7 @@ class _PersonPlan:
     kind: PersonDivergenceKind | None
     ch_max_version: int | None
     target_version: int | None
+    mappings: list[_MappingPlan]
 
 
 _PERSON_STATE_SQL = """
@@ -402,6 +434,13 @@ SELECT
 FROM person
 WHERE team_id = %(team_id)s AND id IN %(person_uuids)s
 GROUP BY id
+"""
+
+_MAPPING_STATE_SQL = """
+SELECT distinct_id, max(version), argMax(is_deleted, version), toString(argMax(person_id, version))
+FROM person_distinct_id2
+WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+GROUP BY distinct_id
 """
 
 
@@ -418,6 +457,16 @@ def _person_kind(pg_version: int, state: _ChPersonState | None) -> PersonDiverge
         return "stale"
     if state.visible_max_version < pg_version:
         return "behind"
+    return None
+
+
+def _mapping_kind(person_uuid: str, state: _ChMappingState | None) -> MappingDivergenceKind | None:
+    if state is None:
+        return "absent"
+    if state.winner_deleted:
+        return "hidden"
+    if state.winner_person_uuid != person_uuid:
+        return "other_person"
     return None
 
 
@@ -439,9 +488,32 @@ def _ch_person_states(team_id: int, person_uuids: list[str]) -> dict[str, _ChPer
     }
 
 
+def _ch_mapping_states(team_id: int, distinct_ids: list[str]) -> dict[str, _ChMappingState]:
+    states: dict[str, _ChMappingState] = {}
+    for chunk in _chunks(distinct_ids, _MAPPING_QUERY_CHUNK_SIZE):
+        rows = _ch(_MAPPING_STATE_SQL, {"team_id": team_id, "distinct_ids": list(chunk)}, _REPAIR_MAPPING_READ_SETTINGS)
+        for distinct_id, max_version, winner_deleted, winner_person_uuid in rows:
+            states[distinct_id] = _ChMappingState(
+                max_version=int(max_version),
+                winner_deleted=bool(winner_deleted),
+                winner_person_uuid=winner_person_uuid,
+            )
+    return states
+
+
 def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
     live = {str(p.uuid): p for p in get_persons_by_uuids(team_id, list(person_uuids), distinct_id_limit=0)}
     person_states = _ch_person_states(team_id, list(live)) if live else {}
+    distinct_ids_by_person = (
+        personhog_call(
+            "person_divergence_repair_distinct_ids",
+            lambda: _batched_get_distinct_ids_for_persons(team_id, [p.pk for p in live.values()]),
+        )
+        if live
+        else {}
+    )
+    all_distinct_ids = [d.id for dids in distinct_ids_by_person.values() for d in dids]
+    mapping_states = _ch_mapping_states(team_id, all_distinct_ids) if all_distinct_ids else {}
 
     plans: list[_PersonPlan] = []
     for person_uuid in person_uuids:
@@ -455,12 +527,26 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
                     kind=None,
                     ch_max_version=None,
                     target_version=None,
+                    mappings=[],
                 )
             )
             continue
         pg_version = int(person.version or 0)
         state = person_states.get(person_uuid)
         ch_max_version = state.max_version if state is not None else None
+        mappings = []
+        for mapping in distinct_ids_by_person.get(person.pk, []):
+            mapping_state = mapping_states.get(mapping.id)
+            mapping_ch_max = mapping_state.max_version if mapping_state is not None else None
+            mappings.append(
+                _MappingPlan(
+                    distinct_id=mapping.id,
+                    kind=_mapping_kind(person_uuid, mapping_state),
+                    pg_version=mapping.version,
+                    ch_max_version=mapping_ch_max,
+                    target_version=_target_version(mapping.version, mapping_ch_max),
+                )
+            )
         plans.append(
             _PersonPlan(
                 team_id=team_id,
@@ -469,6 +555,7 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
                 kind=_person_kind(pg_version, state),
                 ch_max_version=ch_max_version,
                 target_version=_target_version(pg_version, ch_max_version),
+                mappings=mappings,
             )
         )
     return plans
@@ -483,14 +570,41 @@ def _raise_person_version_floor(team_id: int, person_id: int, min_version: int) 
     )
 
 
+def _raise_mapping_version_floor(team_id: int, distinct_id: str, min_version: int) -> str | None:
+    """Raise the mapping's version on the primary and return the uuid of the person it maps to there."""
+    response = personhog_call(
+        "person_divergence_set_person_distinct_id_version_floor",
+        lambda: require_personhog_client().set_person_distinct_id_version_floor(
+            SetPersonDistinctIdVersionFloorRequest(team_id=team_id, distinct_id=distinct_id, min_version=min_version)
+        ),
+    )
+    if not response.HasField("person"):
+        return None
+    return str(UUID(response.person.uuid))
+
+
 def _person_action(plan: _PersonPlan, outcome: RepairOutcome) -> RepairAction:
     return RepairAction(
         team_id=plan.team_id,
         person_uuid=plan.person_uuid,
+        distinct_id=None,
         kind=plan.kind,
         pg_version=int(plan.person.version or 0) if plan.person is not None else None,
         ch_max_version=plan.ch_max_version,
         target_version=plan.target_version if plan.kind is not None else None,
+        outcome=outcome,
+    )
+
+
+def _mapping_action(plan: _PersonPlan, mapping: _MappingPlan, outcome: RepairOutcome) -> RepairAction:
+    return RepairAction(
+        team_id=plan.team_id,
+        person_uuid=plan.person_uuid,
+        distinct_id=mapping.distinct_id,
+        kind=mapping.kind,
+        pg_version=mapping.pg_version,
+        ch_max_version=mapping.ch_max_version,
+        target_version=mapping.target_version if mapping.kind is not None else None,
         outcome=outcome,
     )
 
@@ -524,18 +638,41 @@ def _execute_plan(
     if person is None:
         return [_person_action(plan, "skipped_not_live")]
     if plan.kind == "stale" and not include_stale:
-        return [_person_action(plan, "skipped_stale")]
+        return [
+            _person_action(plan, "skipped_stale"),
+            *(
+                _mapping_action(plan, m, "skipped_not_divergent" if m.kind is None else "skipped_stale")
+                for m in plan.mappings
+            ),
+        ]
 
+    divergent_mappings = [m for m in plan.mappings if m.kind is not None]
+    mapping_actions = [_mapping_action(plan, m, "skipped_not_divergent") for m in plan.mappings if m.kind is None]
     if not apply:
         person_outcome: RepairOutcome = "would_repair" if plan.kind is not None else "skipped_not_divergent"
         return [
             _person_action(plan, person_outcome),
+            *mapping_actions,
+            *(_mapping_action(plan, m, "would_repair") for m in divergent_mappings),
         ]
 
     pg_version = int(person.version or 0)
     if plan.kind is not None and plan.target_version is not None and plan.target_version > pg_version:
         before_write()
         _raise_person_version_floor(plan.team_id, person.pk, plan.target_version)
+
+    # The floor RPC reads the primary, so its answer is the owner check: the replica list that
+    # produced this mapping can be behind a merge that moved it to another person.
+    owned: list[_MappingPlan] = []
+    for mapping in divergent_mappings:
+        before_write()
+        owner = _raise_mapping_version_floor(plan.team_id, mapping.distinct_id, mapping.target_version)
+        if owner is None:
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
+        elif owner != plan.person_uuid:
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_owner_changed"))
+        else:
+            owned.append(mapping)
 
     # Re-read after the raise so the published properties are the ones Postgres holds at the
     # published version, including any ingestion update that landed after the first read.
@@ -544,10 +681,12 @@ def _execute_plan(
         found = get_persons_by_uuids(plan.team_id, [plan.person_uuid], distinct_id_limit=0)
         reread = found[0] if found else None
 
-    if plan.kind is not None and _tombstoned_uuids(plan.team_id, [plan.person_uuid]):
-        person_outcome = "skipped_tombstoned"
+    if (plan.kind is not None or owned) and _tombstoned_uuids(plan.team_id, [plan.person_uuid]):
+        person_outcome = "skipped_tombstoned" if plan.kind is not None else "skipped_not_divergent"
         return [
             _person_action(plan, person_outcome),
+            *mapping_actions,
+            *(_mapping_action(plan, m, "skipped_tombstoned") for m in owned),
         ]
 
     if plan.kind is None:
@@ -561,7 +700,18 @@ def _execute_plan(
         published(_publish_person(plan.team_id, reread))
         person_outcome = "repaired"
 
-    return [_person_action(plan, person_outcome)]
+    for mapping in owned:
+        published(
+            create_person_distinct_id(
+                team_id=plan.team_id,
+                distinct_id=mapping.distinct_id,
+                person_id=plan.person_uuid,
+                version=mapping.target_version,
+                is_deleted=False,
+            )
+        )
+        mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
+    return [_person_action(plan, person_outcome), *mapping_actions]
 
 
 @frozen(frozen=False)
@@ -620,17 +770,17 @@ def repair_persons(
     on_action: Callable[[RepairAction], None],
     log: Callable[[str], None],
 ) -> RepairSummary:
-    """Republish the Postgres state of each target person where ClickHouse disagrees.
+    """Republish the Postgres state of each target person and its mappings where ClickHouse disagrees.
 
     Without ``apply`` nothing is written and every planned action is reported as ``would_repair``.
     A person that is in sync with Postgres is left untouched. A rerun is safe: every write is
     guarded by a version floor, and a person whose earlier publish never landed is still divergent.
     ``max_writes_per_second`` paces every version-floor write on the persons primary, one per
-    divergent person.
+    divergent person or distinct id, so a person with many distinct ids cannot burst past it.
 
-    A stale person is skipped unless ``include_stale`` is set, because its repair replaces the
-    ClickHouse properties with the Postgres ones for good, and a team waiting for a restore from
-    its ClickHouse rows needs the ClickHouse ones.
+    A stale person is skipped with its mappings unless ``include_stale`` is set, because its repair
+    replaces the ClickHouse properties with the Postgres ones for good, and a team waiting for a
+    restore from its ClickHouse rows needs the ClickHouse ones.
     """
     if max_writes_per_second is not None and max_writes_per_second <= 0:
         raise ValueError("max_writes_per_second must be above 0")
@@ -639,6 +789,7 @@ def repair_persons(
         by_team[target.team_id].append(target.person_uuid)
 
     person_outcomes: Counter[RepairOutcome] = Counter()
+    mapping_outcomes: Counter[RepairOutcome] = Counter()
     processed = 0
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
@@ -654,7 +805,7 @@ def repair_persons(
                         before_write=pacer.before_write,
                         published=deliveries.track,
                     ):
-                        person_outcomes[action.outcome] += 1
+                        (person_outcomes if action.distinct_id is None else mapping_outcomes)[action.outcome] += 1
                         on_action(action)
                     processed += 1
             log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")
@@ -667,5 +818,6 @@ def repair_persons(
         applied=apply,
         persons=processed,
         person_outcomes=dict(person_outcomes),
+        mapping_outcomes=dict(mapping_outcomes),
         undelivered=undelivered,
     )
