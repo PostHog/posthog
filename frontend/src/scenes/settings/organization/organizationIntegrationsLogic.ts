@@ -37,6 +37,7 @@ export interface organizationIntegrationsLogicValues {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -56,6 +57,7 @@ export interface organizationIntegrationsLogicValues {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         )[]
@@ -113,6 +115,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -132,6 +135,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[],
@@ -171,6 +175,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -190,6 +195,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[]
@@ -227,6 +233,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -246,6 +253,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
             )[]

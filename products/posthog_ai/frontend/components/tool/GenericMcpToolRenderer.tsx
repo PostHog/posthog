@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, type ReactNode } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
@@ -7,8 +7,20 @@ import { formatInput, getContentText, stripCodeFences } from './toolContentUtils
 import { ToolBody, ToolBodySection, ToolOutput } from './ToolOutput'
 import type { ToolRendererProps } from './toolRegistry'
 
+// ACP tool-call kinds, used as the row label when a harness sends no title and no tool name.
+const KIND_LABELS: Record<string, string> = {
+    read: 'Read',
+    edit: 'Edit',
+    delete: 'Delete',
+    move: 'Move',
+    search: 'Search',
+    execute: 'Run command',
+    think: 'Think',
+    fetch: 'Web search',
+}
+
 export interface McpToolPresentation {
-    title: string
+    title: ReactNode
     /** Collapsible input/output accordion body. */
     body: JSX.Element | undefined
 }
@@ -35,17 +47,27 @@ export function getMcpToolPresentation(
         stripCodeFences(getContentText(message.content)) ||
         (message.rawOutput !== undefined ? formatInput(message.rawOutput) : '')
 
-    // Plain neutral title text, matching the built-in tool cards (e.g. "Read N lines"). A single text
-    // node is also one flex item, so the header's `inline-flex` wrapper keeps the spaces intact.
-    const title = isPostHogExec
+    const titleText = isPostHogExec
         ? `Call ${toolLabel}`
         : isMcp
           ? `Call ${serverName} – ${toolLabel} (MCP)`
-          : message.title || displayName || toolLabel
+          : message.title || displayName || toolLabel || (message.kind && KIND_LABELS[message.kind]) || ''
+    // The PostHog MCP asks the agent for a one-sentence `context` on every call. It is the only
+    // harness-independent description of intent, so it reads better in the row than the command.
+    const context = typeof message.rawInput.context === 'string' ? message.rawInput.context.trim() : ''
+    const title = (
+        <>
+            <span className={message.kind === 'execute' ? 'font-mono text-xs' : undefined}>{titleText}</span>
+            {context && <span className="text-muted font-normal"> · {context}</span>}
+        </>
+    )
 
     const formattedInput = hasInput ? formatInput(inputForPreview) : ''
+    // Some harnesses put a shell command only in `title`, which the row truncates.
+    const command = !hasInput && !isMcp && message.kind === 'execute' ? message.title || '' : ''
+    const outputText = output || (message.status === 'failed' ? 'No output captured' : '')
     const body =
-        formattedInput || output ? (
+        formattedInput || command || outputText ? (
             <ToolBody>
                 {formattedInput && (
                     <ToolBodySection>
@@ -53,10 +75,16 @@ export function getMcpToolPresentation(
                         <ToolOutput>{formattedInput}</ToolOutput>
                     </ToolBodySection>
                 )}
-                {output && (
-                    <ToolBodySection divided={!!formattedInput}>
+                {command && (
+                    <ToolBodySection>
+                        <div className="text-muted mb-1">Command</div>
+                        <ToolOutput>{command}</ToolOutput>
+                    </ToolBodySection>
+                )}
+                {outputText && (
+                    <ToolBodySection divided={!!formattedInput || !!command}>
                         <div className="text-muted mb-1">Output</div>
-                        <ToolOutput>{output}</ToolOutput>
+                        <ToolOutput>{outputText}</ToolOutput>
                     </ToolBodySection>
                 )}
             </ToolBody>

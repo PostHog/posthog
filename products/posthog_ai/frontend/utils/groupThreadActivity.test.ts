@@ -1,5 +1,5 @@
 import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
-import { activityWindow, groupConsecutiveTools, groupThreadActivity } from './groupThreadActivity'
+import { activityWindow, groupConsecutiveTools, groupThreadActivity, groupToolRuns } from './groupThreadActivity'
 
 describe('thread activity grouping', () => {
     const tool = (id: string, startedAt = 1000): ThreadItem => ({
@@ -37,6 +37,62 @@ describe('thread activity grouping', () => {
         expect(result.flatMap((item) => (item.type === 'activity_group' ? item.items : [item]))).toEqual(items)
         expect(result[1]).toMatchObject({ startedAt: 1000, endedAt: 1300 })
         expect(groupThreadActivity([...items, tool('last', 3200)], new Set(['chart'])).at(-1)?.id).toBe('activity-next')
+    })
+
+    it('folds tool runs like PostHog Desktop, keeping plans, lone calls and the final chart of a closed run visible', () => {
+        const calls = new Map<string, ToolInvocation>()
+        const call = (id: string, status: ToolInvocation['status'] = 'completed'): ThreadItem => {
+            calls.set(id, {
+                toolCallId: id,
+                rawServerName: 'posthog',
+                rawToolName: 'exec',
+                input: {},
+                status,
+                contentBlocks: [],
+            })
+            return tool(id)
+        }
+        const thought = (id: string): ThreadItem => ({ id, type: 'assistant_thought', text: 'Checking' })
+        const prose = (id: string): ThreadItem => ({ id, type: 'assistant_message', text: 'Found it' })
+        const items: ThreadItem[] = [
+            { id: 'human', type: 'human_message', text: 'Why did signups drop?' },
+            { id: 'setup', type: 'status', status: 'setup_hooks' },
+            { id: 'init', type: 'status', status: 'sdk_initialization' },
+            thought('plan'),
+            call('read'),
+            thought('between'),
+            call('grep'),
+            prose('first-answer'),
+            call('lone'),
+            thought('after-lone'),
+            call('plan-card'),
+            call('schema'),
+            call('chart'),
+            prose('chart-answer'),
+            { id: 'end', type: 'turn_separator' },
+            call('live-chart'),
+        ]
+        const options = { pinnedToolIds: new Set(['plan-card']), widgetToolIds: new Set(['chart', 'live-chart']) }
+        const result = groupToolRuns(items, calls, { ...options, settled: false })
+        expect(result.map((item) => item.id)).toEqual([
+            'human',
+            'init',
+            'activity-read',
+            'first-answer',
+            'lone',
+            'after-lone',
+            'plan-card',
+            'schema',
+            'chart',
+            'chart-answer',
+            'end',
+            'activity-live-chart',
+        ])
+        expect(result[2]).toMatchObject({ items: [thought('plan'), tool('read'), thought('between'), tool('grep')] })
+        expect(result.flatMap((item) => (item.type === 'activity_group' ? item.items : [item]))).toEqual(
+            items.filter((item) => item.id !== 'setup')
+        )
+        expect(groupToolRuns(items, calls, { ...options, settled: true }).at(-1)?.id).toBe('live-chart')
     })
 
     it('does not invent a duration when part of the group has no recorded start', () => {
@@ -85,17 +141,13 @@ describe('thread activity grouping', () => {
         expect(groups.flat()).toEqual(items)
     })
 
-    it.each([0, 1, 10, 11, 300])('makes every item reachable in bounded pages for %i activities', (count) => {
+    it.each([0, 1, 10, 11, 300])('shows every one of %i activities with at most one click', (count) => {
         const items = Array.from({ length: count }, (_, i) => i)
-        const collapsed = activityWindow(items, null)
+        const collapsed = activityWindow(items, false)
         expect(collapsed.first.length + collapsed.last.length).toBeLessThanOrEqual(10)
-        const seen = [...collapsed.first]
-        for (let page = 0; page < collapsed.pageCount; page++) {
-            const window = activityWindow(items, page)
-            expect(window.first.length + window.middle.length + window.last.length).toBeLessThanOrEqual(15)
-            seen.push(...window.middle)
-        }
-        seen.push(...collapsed.last)
-        expect(seen).toEqual(items)
+        expect(collapsed.middle).toEqual([])
+        expect(collapsed.hiddenCount).toBe(count > 10 ? count - 5 : 0)
+        const open = activityWindow(items, true)
+        expect([...open.first, ...open.middle, ...open.last]).toEqual(items)
     })
 })

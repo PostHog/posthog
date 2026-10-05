@@ -11,14 +11,17 @@ from django.test import SimpleTestCase
 import pandas as pd
 from parameterized import parameterized
 
+from posthog.api.capture import CaptureInternalResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
 
+from products.autoresearch.backend.dataset.labeling import ROLLING_SCORE_LIMIT
 from products.autoresearch.backend.inference import sandbox as sandbox_inference
 from products.autoresearch.backend.inference.sandbox import (
     _FEATURE_COLUMNS_JSON,
     _FILE_BEGIN,
     _FILE_END,
+    InferenceRows,
     SandboxInferenceError,
     SandboxScoreResult,
     _between_sentinels,
@@ -34,8 +37,9 @@ from products.autoresearch.backend.inference.sandbox import (
     materialize_training_data,
     score_via_sandbox,
 )
-from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
-from products.autoresearch.backend.query import HogQLResult
+from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
+from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
+from products.autoresearch.backend.query import BATCH_QUERY, INTERACTIVE_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, BundleNotFound
 from products.tasks.backend.facade.sandbox import ExecutionResult
@@ -141,39 +145,101 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
 
     def test_training_data_splits_folds_and_extracts_feature_cols(self):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=_TRAINING_ROWS):
+        with (
+            patch.object(
+                sandbox_inference,
+                "run_hogql",
+                side_effect=[
+                    HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
+                    HogQLResult(columns=list(_TRAINING_ROWS[0]), rows=[list(r.values()) for r in _TRAINING_ROWS]),
+                    HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
+                ],
+            ) as run_hogql,
+        ):
             data = materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
+        sample_query, features_query, count_query = (call.kwargs["query"] for call in run_hogql.call_args_list)
+        # Training runs inside a web request, so it keeps the interactive limit.
+        assert all(call.kwargs["query_context"] == INTERACTIVE_QUERY for call in run_hogql.call_args_list)
+        assert all("now()" not in query.query for query in (sample_query, features_query, count_query))
+        assert sample_query.values["anchor_ts"] == features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
         assert data.feature_cols == ["events_total", "pageviews"]
         assert [r["distinct_id"] for r in data.train_rows] == ["p1", "p2"]
         assert [r["distinct_id"] for r in data.holdout_rows] == ["p3"]
 
     @parameterized.expand(
         [
-            ("duplicate_person", [{"distinct_id": "p1", "__label": 1, "__fold": 1}] * 2),
-            ("no_label_match", [{"distinct_id": "p1", "__label": None, "__fold": None}]),
+            ("duplicate_person", [{"distinct_id": "p1", "__label": 1, "__fold": 1}] * 2, 1),
+            ("no_label_match", [{"distinct_id": "p1", "__label": None, "__fold": None}], 1),
+            ("dropped_anchor", [{"distinct_id": "p1", "__label": 1, "__fold": 1}], 2),
         ]
     )
-    def test_training_data_rejects_rows_that_do_not_key_one_labeled_person(self, _name, rows):
+    def test_training_data_rejects_rows_that_do_not_key_every_labeled_anchor_once(self, _name, rows, anchors):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=rows):
+        with (
+            patch.object(sandbox_inference, "count_training_anchors", return_value=anchors),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=rows),
+        ):
             with self.assertRaises(SandboxInferenceError):
                 materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
     def test_score_data_is_inference_only_no_labels(self):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=_SCORE_ROWS) as run:
-            score_rows = _materialize_score_data(
-                team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}"
+        with (
+            patch.object(sandbox_inference, "count_inference_anchors", return_value=len(_SCORE_ROWS)) as count,
+            patch.object(sandbox_inference, "_materialize_rows", return_value=_SCORE_ROWS) as run,
+        ):
+            score_data = _materialize_score_data(
+                team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}", query_context=BATCH_QUERY
             )
 
         # exactly one query (inference anchors only) — no training/holdout materialization
         assert run.call_count == 1
-        assert [r["distinct_id"] for r in score_rows] == ["s1", "s2"]
+        assert run.call_args.kwargs["query_context"] == count.call_args.kwargs["query_context"] == BATCH_QUERY
+        assert [r["distinct_id"] for r in score_data.rows] == ["s1", "s2"]
+        assert score_data.eligible == 2
 
-    def test_score_data_rejects_duplicate_persons(self):
+    @parameterized.expand(
+        [
+            ("rolling_subset_scores", ROLLING_SCORE_LIMIT, False),
+            ("rolling_subset_that_drops_a_person", ROLLING_SCORE_LIMIT - 1, True),
+        ]
+    )
+    def test_score_data_above_the_cap_takes_a_rolling_subset(self, _name, n_rows, expect_raise):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=[_SCORE_ROWS[0]] * 2):
+        rows = [{"distinct_id": f"p{i}", "events_total": 1} for i in range(n_rows)]
+        eligible = sandbox_inference._MATERIALIZE_ROW_LIMIT * 5
+        with (
+            patch.object(sandbox_inference, "count_inference_anchors", return_value=eligible),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=rows) as run,
+        ):
+            if expect_raise:
+                with self.assertRaises(SandboxInferenceError):
+                    _materialize_score_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
+                return
+            score_data = _materialize_score_data(
+                team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}"
+            )
+
+        assert len(score_data.rows) == ROLLING_SCORE_LIMIT
+        assert score_data.eligible == eligible
+        assert f"LIMIT {ROLLING_SCORE_LIMIT}" in run.call_args.kwargs["sql"]
+        assert run.call_args.kwargs["values"]["rolling_pipeline_id"] == str(pipeline.pk)
+
+    @parameterized.expand(
+        [
+            ("duplicate_persons", [_SCORE_ROWS[0]] * 2, 1),
+            ("dropped_anchor", [_SCORE_ROWS[0]], 2),
+        ]
+    )
+    def test_score_data_rejects_rows_that_do_not_key_every_anchor_once(self, _name, rows, anchor_count):
+        # A dropped anchor is invisible in the rows themselves: an inner join in features.sql
+        # returns only valid-looking rows, and the person it lost is never scored again.
+        pipeline = self._pipeline()
+        with (
+            patch.object(sandbox_inference, "count_inference_anchors", return_value=anchor_count),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=rows),
+        ):
             with self.assertRaises(SandboxInferenceError):
                 _materialize_score_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
@@ -428,7 +494,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             patch.object(sandbox_inference, "read_artifact", return_value=fitted_columns),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=_SCORE_ROWS, eligible=2)
+            ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
@@ -507,7 +575,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=[]) as materialize,
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=[], eligible=0)
+            ) as materialize,
         ):
             with self.assertRaises(SandboxInferenceError):
                 score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
@@ -519,8 +589,8 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
                 score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
             materialize.assert_not_called()
 
-            with self.assertRaises(SandboxInferenceError):  # no rows, after materialization ran as the user
-                score_via_sandbox(team=self.team, pipeline=pipeline, model=model, user=self.user)
+            result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model, user=self.user)
+        assert result.scored_rows == []  # materialization ran, as the explicit user
         assert materialize.call_args.kwargs["user"] == self.user
 
     def test_predict_failure_raises_and_destroys_sandbox(self):
@@ -530,7 +600,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=_SCORE_ROWS, eligible=2)
+            ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             with self.assertRaises(SandboxInferenceError) as ctx:
@@ -545,7 +617,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=_SCORE_ROWS, eligible=2)
+            ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             with self.assertRaises(SandboxInferenceError):
@@ -553,19 +627,23 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         assert not fake.ran("predict.py")
         assert fake.destroyed is True
 
-    def test_empty_score_rows_raises_before_sandbox(self):
+    def test_empty_population_completes_with_no_rows_and_no_sandbox(self):
+        # A population that matches nobody is a real zero; the recipe path completes it too.
         pipeline, model = self._pipeline_and_model()
+        model.holdout_score = 0.61
+        model.save(update_fields=["holdout_score"])
         create_mock = MagicMock()
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=[]),
+            patch.object(sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=[], eligible=0)),
             patch.object(sandbox_inference.Sandbox, "create", create_mock),
         ):
-            with self.assertRaises(SandboxInferenceError):
-                score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
-        create_mock.assert_not_called()  # cheap guard fires before paying for a sandbox
+            result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
+        assert result.scored_rows == []
+        assert result.holdout_auc == 0.61
+        create_mock.assert_not_called()
 
     def test_fit_champion_model_trains_smoke_tests_predict_and_persists(self):
         pipeline, model = self._pipeline_and_model()
@@ -628,3 +706,67 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
                 fit_champion_model(team=self.team, pipeline=pipeline, prefix=model.artifact_prefix)
         write_model.assert_not_called()
         assert fake.destroyed is True
+
+
+class TestInferenceRouting(TeamScopedTestMixin, BaseTest):
+    def _pipeline_and_bundle_model(self):
+        pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="routing",
+            target_event="downloaded_file",
+            horizon_days=7,
+            output_person_property="predicted_p_download",
+        )
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            recipe_hash="fixture",
+            model_recipe={},
+            artifact_prefix="tasks/autoresearch/team_1/pipeline_x/run_y",
+        )
+        return pipeline, model
+
+    def test_bundle_model_routes_to_sandbox_and_records_metrics(self):
+        pipeline, model = self._pipeline_and_bundle_model()
+        sandbox_result = SandboxScoreResult(
+            scored_rows=[{"distinct_id": "s1", "p_y": 0.8}, {"distinct_id": "s2", "p_y": 0.2}],
+            holdout_auc=0.71,
+            n_train=2,
+            n_features=2,
+            rows_eligible=2,
+        )
+        emit = MagicMock(
+            side_effect=lambda **kwargs: CaptureInternalResult(
+                status_code=200, ok=[e["event_uuid"] for e in kwargs["events"]]
+            )
+        )
+        with (
+            patch(
+                "products.autoresearch.backend.inference.scoring.score_via_sandbox", return_value=sandbox_result
+            ) as score,
+            patch("products.autoresearch.backend.inference.scoring._resolve_distinct_ids", return_value={}),
+            patch("products.autoresearch.backend.inference.scoring.capture_batch_internal", emit),
+        ):
+            run = run_inference_for_pipeline(pipeline=pipeline, model=model, query_context=BATCH_QUERY)
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.rows_scored == 2
+        assert run.metrics["sandbox"] is True
+        assert score.call_args.kwargs["query_context"] == BATCH_QUERY
+        assert run.metrics["holdout_auc"] == 0.71
+        assert emit.call_count == 1
+        assert len(emit.call_args.kwargs["events"]) == 2
+
+    def test_sandbox_failure_marks_run_failed_with_error(self):
+        pipeline, model = self._pipeline_and_bundle_model()
+        with patch(
+            "products.autoresearch.backend.inference.scoring.score_via_sandbox",
+            side_effect=SandboxInferenceError("train.py failed"),
+        ):
+            with self.assertRaises(SandboxInferenceError):
+                run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
+        assert run.status == AutoresearchRun.Status.FAILED
+        assert "train.py failed" in run.error

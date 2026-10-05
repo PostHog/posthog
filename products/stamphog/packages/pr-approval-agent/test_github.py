@@ -1,6 +1,7 @@
 """Tests for GitHub review normalization used by the PR approval agent."""
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 import github
 from github import (
     CommitProvenance,
+    _git_diff_files,
     _normalize_discussion_for_prompt,
     _normalize_reviews_for_prompt,
     _reaction_emoji,
@@ -15,6 +17,7 @@ from github import (
     ensure_commits,
     is_bot_author,
     parse_provenance_trailers,
+    write_pr_diff,
 )
 
 
@@ -131,6 +134,54 @@ def test_ensure_commits_fetches_missing_head_and_base(
     )
 
     assert fetched == expected_fetches
+
+
+def _git(cwd: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+def test_shallow_checkout_diffs_from_the_given_merge_base(tmp_path: Path) -> None:
+    # The hosted sandbox holds only the PR head and the merge base, each at depth 1, so git cannot
+    # compute base...head there. With the merge base given, the file list and the diff text must
+    # match what a full-history checkout reports for base...head.
+    origin = tmp_path / "origin"
+    _git(tmp_path, "init", "--quiet", "-b", "main", str(origin))
+    _git(origin, "config", "user.name", "t")
+    _git(origin, "config", "user.email", "t@example.com")
+    (origin / "kept.py").write_text("old\n")
+    (origin / "gone.py").write_text("bye\n")
+    _git(origin, "add", ".")
+    _git(origin, "commit", "--quiet", "-m", "root")
+    merge_base = _git(origin, "rev-parse", "HEAD")
+    _git(origin, "checkout", "--quiet", "-b", "feature")
+    (origin / "kept.py").write_text("new\n")
+    (origin / "gone.py").unlink()
+    (origin / "added.py").write_text("hi\n")
+    _git(origin, "add", "--all")
+    _git(origin, "commit", "--quiet", "-m", "feature")
+    head = _git(origin, "rev-parse", "HEAD")
+    _git(origin, "checkout", "--quiet", "main")
+    (origin / "base_only.py").write_text("drift\n")
+    _git(origin, "add", ".")
+    _git(origin, "commit", "--quiet", "-m", "base drift")
+    base_tip = _git(origin, "rev-parse", "HEAD")
+
+    shallow = tmp_path / "shallow"
+    _git(tmp_path, "init", "--quiet", str(shallow))
+    for sha in (head, merge_base):
+        _git(shallow, "fetch", "--quiet", "--depth=1", f"file://{origin}", sha)
+    _git(shallow, "-c", "advice.detachedHead=false", "checkout", "--quiet", head)
+
+    expected = _git_diff_files(base_tip, head, origin)
+    assert {f["filename"]: f["status"] for f in expected} == {"added.py": "A", "gone.py": "D", "kept.py": "M"}
+    assert _git_diff_files(base_tip, head, shallow, merge_base) == expected
+    with pytest.raises(RuntimeError):
+        _git_diff_files(base_tip, head, shallow)
+
+    full_diff = write_pr_diff(base_tip, head, origin)
+    shallow_diff = write_pr_diff(base_tip, head, shallow, merge_base)
+    assert shallow_diff.read_text() == full_diff.read_text()
 
 
 @pytest.mark.parametrize(

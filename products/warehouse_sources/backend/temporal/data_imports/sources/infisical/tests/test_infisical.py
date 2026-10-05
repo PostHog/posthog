@@ -21,8 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
     InfisicalResumeConfig,
     _format_incremental_value,
     _get_audit_log_rows,
+    _get_fan_out_rows,
     _get_offset_paginated_rows,
-    _get_project_fan_out_rows,
     _parse_retry_after,
     _retry_wait,
     get_rows,
@@ -283,19 +283,22 @@ class TestProjectMembershipsFanOut:
             "/api/v1/projects/p3/memberships",
         ]
 
-    def test_non_permission_error_fails_the_sync(self):
+    @pytest.mark.parametrize("status_code", [400, 403])
+    def test_fails_the_sync_when_no_project_is_readable(self, status_code):
+        # A 403 on every project means the identity lacks the permission outright, so an empty
+        # full refresh must not be reported as a success.
         projects = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}]})
-        bad_request = _response(status_code=400)
+        error = _response(status_code=status_code)
         with pytest.raises(requests.HTTPError):
-            _run_get_rows([_login_response(), projects, bad_request], "project_memberships")
+            _run_get_rows([_login_response(), projects, error], "project_memberships")
 
     def test_fan_out_is_capped(self):
         # base_url is customer-controlled: a host returning far more projects than any real org
         # (still under the byte cap) would fan one sync out into a request per project and hold
-        # the worker. The fan-out must stop at MAX_FAN_OUT_PROJECTS.
+        # the worker. The fan-out must stop at MAX_FAN_OUT_PARENTS.
         projects = _response(json_data={"projects": [{"id": f"p{i}", "orgId": "org-123"} for i in range(3)]})
         membership = _response(json_data={"memberships": [{"id": "m1", "projectId": "p0"}]})
-        with mock.patch.object(infisical_module, "MAX_FAN_OUT_PROJECTS", 2):
+        with mock.patch.object(infisical_module, "MAX_FAN_OUT_PARENTS", 2):
             _rows, session, _manager = _run_get_rows(
                 [_login_response(), projects, membership, membership], "project_memberships"
             )
@@ -322,11 +325,81 @@ class TestProjectMembershipsFanOut:
             mock.patch.object(infisical_module.time, "monotonic", lambda: next(clock)),
             pytest.raises(InfisicalFanOutBudgetExceededError),
         ):
-            list(_get_project_fan_out_rows(client, config, "org-123", mock.MagicMock()))
+            list(_get_fan_out_rows(client, config, "org-123", mock.MagicMock()))
 
         # Aborted mid-fan-out: not every project was fetched.
         membership_calls = [c for c in client.get.call_args_list if "memberships" in c.args[0]]
         assert 0 < len(membership_calls) < 5
+
+
+class TestGroupMembersFanOut:
+    def test_paginates_each_group_and_stamps_group_id(self):
+        groups = _response(json_data=[{"id": "g1", "orgId": "org-123"}, {"id": "g2", "orgId": "other-org"}])
+        page1 = _response(
+            json_data={"members": [{"id": "u1", "type": "user"}, {"id": "i1", "type": "machineIdentity"}]}
+        )
+        page2 = _response(json_data={"members": [{"id": "u2", "type": "user"}]})
+        with mock.patch.object(INFISICAL_ENDPOINTS["group_members"], "page_limit", 2):
+            rows, session, _manager = _run_get_rows([_login_response(), groups, page1, page2], "group_members")
+
+        # Member rows don't carry their group, so without the stamp the composite key collapses
+        # across groups.
+        assert [(r["groupId"], r["id"]) for r in rows] == [("g1", "u1"), ("g1", "i1"), ("g1", "u2")]
+        urls = _get_urls(session)
+        # The other org's group is never fetched.
+        assert [urlparse(u).path for u in urls] == ["/api/v1/groups", *["/api/v1/groups/g1/members"] * 2]
+        assert [_query(u)["offset"] for u in urls[1:]] == [["0"], ["2"]]
+
+
+class TestProjectTypeScopedFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, project_type, path, data_key",
+        [
+            ("secret_scanning_findings", "secret-scanning", "/api/v2/secret-scanning/findings", "findings"),
+            ("secret_syncs", "secret-manager", "/api/v1/secret-syncs", "secretSyncs"),
+        ],
+    )
+    def test_only_matching_projects_are_queried_by_project_id(self, endpoint, project_type, path, data_key):
+        # These endpoints reject other project types with a 400, which would fail the sync.
+        projects = _response(
+            json_data={
+                "projects": [
+                    {"id": "p1", "orgId": "org-123", "type": "cert-manager"},
+                    {"id": "p2", "orgId": "org-123", "type": project_type},
+                ]
+            }
+        )
+        children = _response(json_data={data_key: [{"id": "c1", "projectId": "p2"}]})
+        rows, session, _manager = _run_get_rows([_login_response(), projects, children], endpoint)
+
+        assert [r["id"] for r in rows] == ["c1"]
+        child_url = _get_urls(session)[1]
+        assert urlparse(child_url).path == path
+        assert _query(child_url) == {"projectId": ["p2"]}
+
+
+class TestProjectEnvironmentsFanOut:
+    def test_fetches_each_embedded_environment_of_the_org_projects(self):
+        projects = _response(
+            json_data={
+                "projects": [
+                    {"id": "p1", "orgId": "org-123", "environments": [{"id": "e1"}, {"id": "e2"}]},
+                    {"id": "p2", "orgId": "other-org", "environments": [{"id": "e3"}]},
+                    {"id": "p3", "orgId": "org-123", "environments": []},
+                ]
+            }
+        )
+        env1 = _response(json_data={"environment": {"id": "e1", "slug": "dev", "projectId": "p1"}})
+        env2 = _response(status_code=404)
+        rows, session, _manager = _run_get_rows([_login_response(), projects, env1, env2], "project_environments")
+
+        # A single-object body becomes one row; an environment deleted mid-sync is skipped.
+        assert rows == [{"id": "e1", "slug": "dev", "projectId": "p1"}]
+        assert [urlparse(u).path for u in _get_urls(session)] == [
+            "/api/v1/projects",
+            "/api/v1/projects/p1/environments/e1",
+            "/api/v1/projects/p1/environments/e2",
+        ]
 
 
 class TestOrgScoping:
@@ -337,6 +410,17 @@ class TestOrgScoping:
         page = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}, {"id": "p2", "orgId": "other-org"}]})
         rows, _session, _manager = _run_get_rows([_login_response(), page], "projects")
         assert [r["id"] for r in rows] == ["p1"]
+
+    @pytest.mark.parametrize(
+        "endpoint, body",
+        [
+            ("organization_roles", {"roles": [{"id": "r1", "orgId": "org-123"}, {"id": "r2", "orgId": "other-org"}]}),
+            ("groups", [{"id": "r1", "orgId": "org-123"}, {"id": "r2", "orgId": "other-org"}]),
+        ],
+    )
+    def test_token_scoped_tables_exclude_other_orgs(self, endpoint, body):
+        rows, _session, _manager = _run_get_rows([_login_response(), _response(json_data=body)], endpoint)
+        assert [r["id"] for r in rows] == ["r1"]
 
     def test_project_memberships_fan_out_skips_other_orgs(self):
         projects = _response(
@@ -623,12 +707,18 @@ class TestValidateCredentials:
         result, _session = self._run([_response(status_code=status_code)])
         assert result == (False, INVALID_CREDENTIALS_ERROR)
 
-    def test_scoped_probe_success(self):
-        result, session = self._run(
-            [_login_response(), _response(json_data={"auditLogs": []})], schema_name="audit_logs"
-        )
+    @pytest.mark.parametrize(
+        "schema_name, body, expected_path",
+        [
+            ("audit_logs", {"auditLogs": []}, "/api/v1/organization/audit-logs"),
+            # Fan-out tables probe the parent list, never a path with unfilled placeholders.
+            ("project_environments", {"projects": []}, "/api/v1/projects"),
+        ],
+    )
+    def test_scoped_probe_success(self, schema_name, body, expected_path):
+        result, session = self._run([_login_response(), _response(json_data=body)], schema_name=schema_name)
         assert result == (True, None)
-        assert "/api/v1/organization/audit-logs" in _get_urls(session)[0]
+        assert urlparse(_get_urls(session)[0]).path == expected_path
 
     def test_scoped_probe_403_names_the_table(self):
         result, _session = self._run([_login_response(), _response(status_code=403)], schema_name="audit_logs")

@@ -231,3 +231,133 @@ def LOG_ENTRIES_V3_TABLE_MV_SQL():
         from_table=f"kafka_{LOG_ENTRIES_TABLE}_v3",
         database=CLICKHOUSE_DATABASE,
     )
+
+
+# aux cluster migration (log_entries -> aux, S3-tiered)
+#
+# `log_entries_data` on the aux cluster is the go-forward store for log_entries: hot days on
+# local disk, days older than LOG_ENTRIES_AUX_HOT_DAYS on the `cold` (S3) volume, 90 day delete.
+# It is fed by a dedicated Kafka consumer (kafka_log_entries_aux + log_entries_aux_mv ->
+# writable_log_entries_aux) that runs alongside the main-cluster consumer during the dual-write
+# phase. `log_entries_distributed` is the reader over the aux data, present on both the aux and
+# main clusters; the read cutover swaps it with `log_entries` in a follow-up migration.
+#
+# The S3 storage policy only exists on deployed cloud clusters, so the tiering clauses are
+# resolved per run mode and omitted locally.
+
+LOG_ENTRIES_DATA_TABLE = "log_entries_data"
+LOG_ENTRIES_AUX_DISTRIBUTED_TABLE = "log_entries_distributed"
+LOG_ENTRIES_AUX_WRITABLE_TABLE = "writable_log_entries_aux"
+KAFKA_LOG_ENTRIES_AUX_TABLE = "kafka_log_entries_aux"
+LOG_ENTRIES_AUX_MV = "log_entries_aux_mv"
+LOG_ENTRIES_AUX_HOT_DAYS = 7
+
+
+def _log_entries_data_ttl() -> str:
+    from posthog.run_mode import run_mode
+
+    if run_mode().is_deployed_cloud:
+        return (
+            f"TTL toDate(timestamp) + INTERVAL {LOG_ENTRIES_AUX_HOT_DAYS} DAY TO VOLUME 'cold', "
+            f"toDate(timestamp) + INTERVAL {LOG_ENTRIES_TTL_DAYS} DAY DELETE"
+        )
+    return f"TTL toDate(timestamp) + INTERVAL {LOG_ENTRIES_TTL_DAYS} DAY DELETE"
+
+
+def _log_entries_data_settings() -> str:
+    from posthog.run_mode import run_mode
+
+    base = "index_granularity = 1024, ttl_only_drop_parts = 1"
+    if run_mode().is_deployed_cloud:
+        return base + ", storage_policy = 's3_tiered'"
+    return base
+
+
+def LOG_ENTRIES_DATA_TABLE_SQL():
+    return (
+        LOG_ENTRIES_TABLE_BASE_SQL
+        + """PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+{ttl_period}
+SETTINGS {table_settings}
+"""
+    ).format(
+        table_name=LOG_ENTRIES_DATA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        extra_fields=KAFKA_COLUMNS,
+        engine=LOG_ENTRIES_TABLE_ENGINE(LOG_ENTRIES_DATA_TABLE),
+        ttl_period=_log_entries_data_ttl(),
+        table_settings=_log_entries_data_settings(),
+    )
+
+
+def _log_entries_aux_distributed_engine():
+    from django.conf import settings
+
+    return Distributed(data_table=LOG_ENTRIES_DATA_TABLE, cluster=settings.CLICKHOUSE_AUX_CLUSTER)
+
+
+def LOG_ENTRIES_AUX_DISTRIBUTED_TABLE_SQL():
+    return LOG_ENTRIES_TABLE_BASE_SQL.format(
+        table_name=LOG_ENTRIES_AUX_DISTRIBUTED_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        extra_fields=KAFKA_COLUMNS,
+        engine=_log_entries_aux_distributed_engine(),
+    )
+
+
+def LOG_ENTRIES_AUX_WRITABLE_TABLE_SQL():
+    return LOG_ENTRIES_TABLE_BASE_SQL.format(
+        table_name=LOG_ENTRIES_AUX_WRITABLE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        extra_fields=KAFKA_COLUMNS,
+        engine=_log_entries_aux_distributed_engine(),
+    )
+
+
+def KAFKA_LOG_ENTRIES_AUX_TABLE_SQL():
+    from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_LOG_ENTRIES_AUX, kafka_num_consumers
+
+    return (
+        LOG_ENTRIES_TABLE_BASE_SQL
+        + """
+    SETTINGS kafka_skip_broken_messages = 100,
+             kafka_num_consumers = {num_consumers},
+             kafka_thread_per_consumer = 1,
+             kafka_poll_timeout_ms = 10000,
+             kafka_max_block_size = 100000
+    """
+    ).format(
+        num_consumers=kafka_num_consumers(1),
+        table_name=KAFKA_LOG_ENTRIES_AUX_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_LOG_ENTRIES,
+            group=CONSUMER_GROUP_LOG_ENTRIES_AUX,
+            named_collection=CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def LOG_ENTRIES_AUX_MV_SQL():
+    return """
+    CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+    TO {database}.{to_table}
+    AS SELECT
+    team_id,
+    log_source,
+    log_source_id,
+    instance_id,
+    timestamp,
+    level,
+    message,
+    _timestamp,
+    _offset
+    FROM {database}.{from_table}
+    WHERE toDate(timestamp) <= today()
+    """.format(
+        mv_name=LOG_ENTRIES_AUX_MV,
+        to_table=LOG_ENTRIES_AUX_WRITABLE_TABLE,
+        from_table=KAFKA_LOG_ENTRIES_AUX_TABLE,
+        database=CLICKHOUSE_DATABASE,
+    )

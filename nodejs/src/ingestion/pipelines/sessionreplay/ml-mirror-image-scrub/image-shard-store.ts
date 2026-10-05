@@ -1,17 +1,27 @@
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'node:crypto'
+import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
+import { MlDatasetBuckets } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
+import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 export interface ScrubbedImage {
-    pseudoTeam: string
+    sessionMonth?: string
+    /** From the reference, so an image sits in the dataset of the session that collected it. */
+    datasetVersion?: 2 | 3
+    teamId?: string
+    pseudoTeam?: string
     hash: string
     bytes: Buffer
 }
 
 export interface ScrubbedUrlImage {
+    teamId?: string
+    sessionMonth?: string
+    datasetVersion?: 2 | 3
     hash: string
     bytes: Buffer
     sourcePartition: number
@@ -21,14 +31,14 @@ export interface ScrubbedUrlImage {
 export type UrlImageWriteOutcome = 'created' | 'already_exists'
 
 interface IndexRow {
-    pseudoTeam: string
+    teamId?: string
+    pseudoTeam?: string
     hash: string
     shard: string
     offset: number
     length: number
 }
 
-const INDEX_FORMAT_VERSION = 1
 const URL_SOURCE_PARTITION_METADATA = 'source-partition'
 const URL_SOURCE_OFFSET_METADATA = 'source-offset'
 const URL_WRITE_MAX_ATTEMPTS = 8
@@ -44,21 +54,22 @@ const S3_WRITE_RETRY_BUDGET_MS = 45_000
 const S3_WRITE_RETRY_BASE_MS = 100
 const S3_WRITE_RETRY_MAX_BACKOFF_MS = 2_000
 
-const INDEX_SCHEMA = new ParquetSchema({
+const INDEX_FIELDS = {
     format_version: { type: 'INT64', compression: 'SNAPPY' },
-    pseudo_team: { type: 'UTF8', compression: 'SNAPPY' },
     hash: { type: 'UTF8', compression: 'SNAPPY' },
     shard: { type: 'UTF8', compression: 'SNAPPY' },
     offset: { type: 'INT64', compression: 'SNAPPY' },
     length: { type: 'INT64', compression: 'SNAPPY' },
-})
+} as const
+const LEGACY_INDEX_SCHEMA = new ParquetSchema({ ...INDEX_FIELDS, pseudo_team: { type: 'UTF8', compression: 'SNAPPY' } })
+const INDEX_SCHEMA = new ParquetSchema({ ...INDEX_FIELDS, team_id: { type: 'UTF8', compression: 'SNAPPY' } })
 
-function indexRowsToParquet(rows: IndexRow[]): Promise<Buffer> {
+function indexRowsToParquet(rows: IndexRow[], rawTeamIds: boolean): Promise<Buffer> {
     return parquetRecordsToBuffer(
-        INDEX_SCHEMA,
+        rawTeamIds ? INDEX_SCHEMA : LEGACY_INDEX_SCHEMA,
         rows.map((r) => ({
-            format_version: BigInt(INDEX_FORMAT_VERSION),
-            pseudo_team: r.pseudoTeam,
+            format_version: BigInt(rawTeamIds ? 2 : 1),
+            ...(rawTeamIds ? { team_id: r.teamId } : { pseudo_team: r.pseudoTeam }),
             hash: r.hash,
             shard: r.shard,
             offset: BigInt(r.offset),
@@ -68,12 +79,13 @@ function indexRowsToParquet(rows: IndexRow[]): Promise<Buffer> {
 }
 
 export class ImageShardStore {
+    private readonly publishLookup = pLimit(8)
     private seq = 0
     private readonly nodeId: string
 
     constructor(
         private readonly s3: S3Client,
-        private readonly bucket: string,
+        private readonly buckets: MlDatasetBuckets,
         private readonly prefix: string,
         private readonly writeTimeoutMs: number,
         nodeId?: string,
@@ -82,6 +94,10 @@ export class ImageShardStore {
             new Promise((resolve) => setTimeout(resolve, ms).unref())
     ) {
         this.nodeId = nodeId || process.env.HOSTNAME || randomUUID().slice(0, 8)
+    }
+
+    private datasetOf(datasetVersion: 2 | 3 | undefined): 'v2' | 'v3' {
+        return datasetVersion === 3 ? 'v3' : 'v2'
     }
 
     /**
@@ -95,16 +111,23 @@ export class ImageShardStore {
      * repeated request writes the same bytes to the same key, or reports the conflict that
      * writeUrlImage already reads as a result. Retrying is therefore safe for all three commands.
      */
-    private async send(command: PutObjectCommand | DeleteObjectCommand): Promise<void> {
+    private async send(command: PutObjectCommand | DeleteObjectCommand, deadlineMs = Infinity): Promise<void> {
         const startedAtMs = performance.now()
         for (let attempt = 1; ; attempt++) {
+            const remainingMs = deadlineMs - performance.now()
+            if (remainingMs <= 0) {
+                throw new Error('Image lookup upload budget exhausted')
+            }
             const controller = new AbortController()
             let timedOut = false
             let failure: unknown
-            const timer = setTimeout(() => {
-                timedOut = true
-                controller.abort()
-            }, this.writeTimeoutMs)
+            const timer = setTimeout(
+                () => {
+                    timedOut = true
+                    controller.abort()
+                },
+                Math.min(this.writeTimeoutMs, remainingMs)
+            )
             try {
                 await this.s3.send(command, { abortSignal: controller.signal })
                 return
@@ -115,6 +138,7 @@ export class ImageShardStore {
             }
             if (
                 attempt >= S3_WRITE_MAX_ATTEMPTS ||
+                performance.now() >= deadlineMs ||
                 performance.now() - startedAtMs >= S3_WRITE_RETRY_BUDGET_MS ||
                 !(timedOut || isTransientS3Failure(failure))
             ) {
@@ -133,49 +157,126 @@ export class ImageShardStore {
         }
     }
 
-    public async writeShard(images: ScrubbedImage[]): Promise<{ shard: string; bytes: number }> {
+    public async writeShard(
+        images: ScrubbedImage[],
+        encryptionKey?: MlDataKey
+    ): Promise<{ shard: string; bytes: number }> {
+        const rawTeamIds = images[0]?.teamId !== undefined
+        if (
+            images.some((image) => (image.teamId !== undefined) !== rawTeamIds || !(image.teamId ?? image.pseudoTeam))
+        ) {
+            throw new Error('Inline image shards must use one team ID format')
+        }
+        if (
+            images.some(
+                (image) =>
+                    image.sessionMonth !== undefined &&
+                    (!encryptionKey ||
+                        encryptionKey.identity.sessionId ||
+                        image.teamId !== String(encryptionKey.identity.teamId) ||
+                        image.sessionMonth !== encryptionKey.identity.sessionMonth)
+            )
+        ) {
+            throw new Error('Image shard encryption ownership mismatch')
+        }
+        const sessionMonth = images[0]?.sessionMonth
+        if (
+            encryptionKey &&
+            (!sessionMonth ||
+                !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(sessionMonth) ||
+                images.some((image) => image.sessionMonth !== sessionMonth))
+        ) {
+            throw new Error('Image shards require one valid session month')
+        }
+        if (encryptionKey && images.some((image) => image.datasetVersion !== images[0].datasetVersion)) {
+            throw new Error('Image shards require one dataset version')
+        }
+        const dataset = this.datasetOf(encryptionKey ? images[0]?.datasetVersion : undefined)
+        const bucket = this.buckets[dataset]
+        const prefix = encryptionKey
+            ? `${this.prefix}/${dataset}/${sessionMonth}/${encryptionKey.identity.teamId}`
+            : rawTeamIds
+              ? `${this.prefix}/v2`
+              : this.prefix
         this.seq += 1
         const stamp = `${this.nodeId}-${Date.now()}-${this.seq}`
-        const shardKey = `${this.prefix}/shards/${stamp}.bin`
+        const shardKey = `${prefix}/shards/${stamp}.bin`
 
         const rows: IndexRow[] = []
         const parts: Buffer[] = []
         let offset = 0
         for (const img of images) {
-            rows.push({ pseudoTeam: img.pseudoTeam, hash: img.hash, shard: shardKey, offset, length: img.bytes.length })
+            rows.push({
+                teamId: img.teamId,
+                pseudoTeam: img.pseudoTeam,
+                hash: img.hash,
+                shard: shardKey,
+                offset,
+                length: img.bytes.length,
+            })
             parts.push(img.bytes)
             offset += img.bytes.length
         }
         const shardBody = Buffer.concat(parts, offset)
-        const indexBody = await indexRowsToParquet(rows)
+        const indexBody = await indexRowsToParquet(rows, rawTeamIds)
 
         // Shard before index: an index pointing at a missing shard breaks reads; a dangling shard only wastes storage.
         await this.send(
             new PutObjectCommand({
-                Bucket: this.bucket,
+                Bucket: bucket,
                 Key: shardKey,
-                Body: shardBody,
+                Body: encryptionKey
+                    ? encryptEnvelope(encryptionKey, 'image-shard', shardBody, { ref: shardKey, codec: 'none' })
+                    : shardBody,
                 ContentType: 'application/octet-stream',
             })
         )
         try {
             await this.send(
                 new PutObjectCommand({
-                    Bucket: this.bucket,
-                    Key: `${this.prefix}/index/${stamp}.parquet`,
-                    Body: indexBody,
-                    ContentType: 'application/vnd.apache.parquet',
+                    Bucket: bucket,
+                    Key: `${prefix}/index/${stamp}.${encryptionKey ? 'encrypted' : 'parquet'}`,
+                    Body: encryptionKey
+                        ? encryptEnvelope(encryptionKey, 'image-index', indexBody, { ref: shardKey, codec: 'none' })
+                        : indexBody,
+                    ContentType: encryptionKey ? 'application/octet-stream' : 'application/vnd.apache.parquet',
                 })
             )
         } catch (e) {
             // Reclaim the orphaned shard so a repeatedly-failing index write doesn't leak a fresh blob per replay.
-            await this.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: shardKey })).catch(() => {})
+            await this.send(new DeleteObjectCommand({ Bucket: bucket, Key: shardKey })).catch(() => {})
             throw e
+        }
+        if (encryptionKey) {
+            const lookupDeadlineMs = performance.now() + S3_WRITE_RETRY_BUDGET_MS
+            await Promise.all(
+                rows.map((row) =>
+                    this.publishLookup(async () => {
+                        const lookupKey = `${prefix}/lookup/${row.hash}.encrypted`
+                        await this.send(
+                            new PutObjectCommand({
+                                Bucket: bucket,
+                                Key: lookupKey,
+                                Body: encryptEnvelope(
+                                    encryptionKey,
+                                    'image-location',
+                                    Buffer.from(
+                                        JSON.stringify({ shard: shardKey, offset: row.offset, length: row.length })
+                                    ),
+                                    { ref: lookupKey, codec: 'none' }
+                                ),
+                                ContentType: 'application/octet-stream',
+                            }),
+                            lookupDeadlineMs
+                        )
+                    })
+                )
+            )
         }
         return { shard: shardKey, bytes: offset }
     }
 
-    public async writeUrlImage(image: ScrubbedUrlImage): Promise<UrlImageWriteOutcome> {
+    public async writeUrlImage(image: ScrubbedUrlImage, encryptionKey?: MlDataKey): Promise<UrlImageWriteOutcome> {
         if (
             !Number.isSafeInteger(image.sourcePartition) ||
             image.sourcePartition < 0 ||
@@ -184,14 +285,32 @@ export class ImageShardStore {
         ) {
             throw new Error('URL image source position must contain non-negative safe integers')
         }
-        const key = `${this.prefix}/url/${image.hash}`
+        if (
+            image.sessionMonth !== undefined &&
+            (!encryptionKey ||
+                encryptionKey.identity.sessionId ||
+                image.teamId !== String(encryptionKey.identity.teamId) ||
+                image.sessionMonth !== encryptionKey.identity.sessionMonth)
+        ) {
+            throw new Error('URL image encryption ownership mismatch')
+        }
+        if (encryptionKey && (!image.sessionMonth || !/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(image.sessionMonth))) {
+            throw new Error('URL images require a valid session month')
+        }
+        const dataset = this.datasetOf(encryptionKey ? image.datasetVersion : undefined)
+        const bucket = this.buckets[dataset]
+        const key = encryptionKey
+            ? `${this.prefix}/${dataset}/${image.sessionMonth}/${encryptionKey.identity.teamId}/url/${image.hash}`
+            : `${this.prefix}/url/${image.hash}`
         for (let attempt = 0; attempt < URL_WRITE_MAX_ATTEMPTS; attempt++) {
             try {
                 await this.send(
                     new PutObjectCommand({
-                        Bucket: this.bucket,
+                        Bucket: bucket,
                         Key: key,
-                        Body: image.bytes,
+                        Body: encryptionKey
+                            ? encryptEnvelope(encryptionKey, 'image-url', image.bytes, { ref: key, codec: 'none' })
+                            : image.bytes,
                         ContentType: 'application/octet-stream',
                         Metadata: {
                             [URL_SOURCE_PARTITION_METADATA]: String(image.sourcePartition),

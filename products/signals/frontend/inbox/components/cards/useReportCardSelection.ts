@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useSelector, useValues } from 'kea'
 import { MouseEvent, PointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 import { captureInboxSelectionModeEntered, InboxSelectionEntryMethod } from '../../inboxAnalytics'
@@ -12,7 +12,7 @@ import {
 
 export interface ReportCardSelection {
     isSelected: boolean
-    /** True once anything is selected: every card then shows its checkbox and toggles on click. */
+    /** True once anything is selected: every card then toggles on a plain click. */
     selectionMode: boolean
     /** Set while a hold is running, so the card suppresses text selection under the finger. */
     isHolding: boolean
@@ -22,8 +22,7 @@ export interface ReportCardSelection {
     toggle: (method: InboxSelectionEntryMethod) => void
     /**
      * Handlers for the wrapper around the card body. The click is handled in the capture phase,
-     * because the body is a `Link` that answers a Cmd-click itself and never calls a handler
-     * passed to it.
+     * so selection can stop navigation before the body's `Link` handles the click.
      */
     cardHandlers: {
         onClickCapture: (event: MouseEvent) => void
@@ -36,13 +35,19 @@ export interface ReportCardSelection {
 }
 
 /**
- * Multi-select gestures for one report row: press and hold, Cmd / Ctrl-click, shift-range, and the
+ * Multi-select gestures for one report row: press and hold, shift-range, and the
  * gutter checkbox. The selection itself lives in `inboxBulkActionsLogic`; this hook only turns
  * pointer events into its actions, and it does nothing at all on a row the list marks unselectable.
  */
 export function useReportCardSelection(reportId: string, enabled: boolean): ReportCardSelection {
-    const { selectedReportIds, hasSelection, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
+    const { hasSelection, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
     const { toggleReportSelection, selectRange } = useActions(inboxBulkActionsLogic)
+    // Only this row's own flag, not the id list: reading the list subscribed every card to every
+    // other card's selection, so picking one row repainted the whole inbox. The booleans above
+    // stay subscribed because they really do change what every row does on a click.
+    const isReportSelected: boolean = useSelector((state) =>
+        inboxBulkActionsLogic.selectors.selectedReportIds(state).includes(reportId)
+    )
     const selectionDisabled = isDismissing || isResolving
 
     const holdTimerRef = useRef<number | null>(null)
@@ -79,7 +84,7 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
             // A touch that never produces a click would otherwise leave the suppression armed for
             // the next press.
             suppressClickRef.current = false
-            // Only the primary button holds; a modifier click is already a selection of its own.
+            // Only the primary button holds; modified clicks have separate actions.
             if (
                 !enabled ||
                 selectionDisabled ||
@@ -119,7 +124,7 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
 
     const onClick = useCallback(
         (event: MouseEvent): void => {
-            if (!enabled) {
+            if (!enabled || event.metaKey || event.ctrlKey || event.button !== 0) {
                 return
             }
             if (suppressClickRef.current) {
@@ -137,13 +142,8 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
                 }
                 return
             }
-            // A modifier click on a link nested in the row, such as the scout's name, belongs to
-            // that link: Cmd or Ctrl opens it in a new tab. The link cannot keep the click for
-            // itself here, because a capture handler runs before the target's own handlers.
-            if (
-                (event.shiftKey || event.metaKey || event.ctrlKey) &&
-                isNestedControlClick(event.target, event.currentTarget)
-            ) {
+            // A shift-click on a nested link belongs to that link, not the row's selection.
+            if (event.shiftKey && isNestedControlClick(event.target, event.currentTarget)) {
                 return
             }
             const intent = resolveReportCardClickIntent(event, hasSelection)
@@ -162,13 +162,13 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
                 selectRange(reportId)
                 return
             }
-            toggle('meta_click')
+            toggleReportSelection(reportId)
         },
-        [enabled, hasSelection, reportId, selectRange, selectionDisabled, toggle]
+        [enabled, hasSelection, reportId, selectRange, selectionDisabled, toggleReportSelection]
     )
 
     return {
-        isSelected: enabled && selectedReportIds.includes(reportId),
+        isSelected: enabled && isReportSelected,
         selectionMode: enabled && hasSelection,
         isHolding,
         selectionDisabled,

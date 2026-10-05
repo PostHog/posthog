@@ -1,26 +1,30 @@
 import json
 import asyncio
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, JsonValue
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.tasks.backend.facade import agents as agents_facade
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
+    AgentTurnFailed,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     TurnPollResult,
     TurnPollTimeout,
+    _create_task_and_trigger,
     _extract_agent_error,
     create_task_and_trigger,
     poll_for_turn,
@@ -29,7 +33,7 @@ from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner impor
     _EMPTY_TURN_RETRY_NUDGE,
     MultiTurnSession,
 )
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_error_line,
@@ -39,6 +43,7 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _cost_less_usage_update_line,
     _end_turn_line,
     _progress_line,
+    _structured_output_line,
     _tool_call_line,
     _usage_update_line,
     _user_message_line,
@@ -49,6 +54,10 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 class _Resp(BaseModel):
     value: str
+
+
+class _DefaultedResp(BaseModel):
+    values: list[str] = Field(default_factory=list)
 
 
 class TestPollForTurnEmptyEndTurn:
@@ -76,6 +85,21 @@ class TestPollForTurnEmptyEndTurn:
         # instead of re-streaming already-printed lines.
         assert exc_info.value.total_lines == len(turn_1) + len(turn_2_empty)
         assert exc_info.value.printed_lines >= 0
+
+    @pytest.mark.asyncio
+    async def test_structured_output_tool_call_is_the_turn_message(self):
+        turn_1 = [_structured_output_line({"word": "alpha"}), _end_turn_line()]
+        turn_2 = [_user_message_line("next"), _structured_output_line({"word": "beta", "count": 2}), _end_turn_line()]
+        log = "\n".join(turn_1 + turn_2)
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+        ):
+            turn = await poll_for_turn(FakeTaskRun(), skip_lines=len(turn_1))
+
+        assert json.loads(turn.last_message) == {"word": "beta", "count": 2}
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):
@@ -857,8 +881,17 @@ class TestPollForTurnTerminalDrain:
             with pytest.raises(RuntimeError, match="terminal status"):
                 await poll_for_turn(fake_task_run, skip_lines=skip)
 
+    @parameterized.expand(
+        [
+            ("no_cancel", None),
+            ("cancel_without_reason", {}),
+            ("cancel_for_other_reason", {"_meta": {"interruptReason": "user_cancelled"}}),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_terminal_status_recovers_mid_turn_agent_message(self):
+    async def test_terminal_status_recovers_mid_turn_agent_message(
+        self, _name: str, cancellation: dict[str, JsonValue] | None
+    ) -> None:
         """The original commit's intent must still hold: when the agent emitted an
         agent_message earlier in *this* turn but the workflow then hit terminal status
         without `end_turn`, the drain recovers that message. Verified with skip_lines>0
@@ -870,6 +903,10 @@ class TestPollForTurnTerminalDrain:
             _agent_message_line("turn-2-partial-answer"),
             _usage_update_line(0),  # cursor has advanced past the agent_message by now
         ]
+        if cancellation is not None:
+            turn_2_recoverable.append(
+                json.dumps({"notification": {"result": {"stopReason": "cancelled", **cancellation}}})
+            )
 
         log = "\n".join(turn_1 + turn_2_recoverable)
         skip = len(turn_1)
@@ -971,19 +1008,23 @@ class TestExtractAgentError:
 
 class TestPollForTurnSurfacesAgentError:
     """On a FAILED terminal status, the drain must surface the agent's classified error
-    (category + raw message) on both TaskRun.error_message and the raised RuntimeError
-    that Temporal records — never the opaque 'Activity task failed' wrapper."""
+    (category + raw message) on TaskRun.error_message, on the raised exception's message that
+    Temporal records — never the opaque 'Activity task failed' wrapper — and as typed fields on
+    the exception, so a caller separates a retryable provider outage from a scout defect without
+    matching the message text."""
 
     @parameterized.expand(
         [
-            ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
-            ("upstream_connection_error", "API Error: Connection error"),
-            ("upstream_stream_terminated", "API Error: terminated"),
-            ("agent_error", "Unhandled exception in agent loop"),
+            ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
+            ("upstream_connection_error", "API Error: Connection error", True),
+            ("upstream_stream_terminated", "API Error: terminated", True),
+            ("upstream_timeout", "API Error: Request timed out", True),
+            ("task_spend_limit", "This agent run reached its spend limit", False),
+            ("agent_error", "Unhandled exception in agent loop", False),
         ]
     )
     @pytest.mark.asyncio
-    async def test_surfaces_classified_error(self, category, message):
+    async def test_surfaces_classified_error(self, category, message, retryable_upstream):
         turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
         # Turn 2 died with a classified error and no agent_message / end_turn.
         turn_2 = [_user_message_line("followup"), _usage_update_line(0), _agent_error_line(message, category=category)]
@@ -1003,7 +1044,7 @@ class TestPollForTurnSurfacesAgentError:
                 new=persist,
             ),
         ):
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(AgentTurnFailed) as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=skip)
 
         expected = f"{category}: {message}"
@@ -1012,6 +1053,9 @@ class TestPollForTurnSurfacesAgentError:
         assert "Activity task failed" not in str(exc_info.value)
         # The same classified error is persisted onto TaskRun.error_message.
         persist.assert_awaited_once_with(str(fake_task_run.id), expected)
+        assert exc_info.value.category == category
+        assert exc_info.value.agent_message == message
+        assert exc_info.value.retryable_upstream is retryable_upstream
 
     @pytest.mark.asyncio
     async def test_acceptance_provider_failure_429(self):
@@ -1058,12 +1102,14 @@ class TestPollForTurnSurfacesAgentError:
                 new=persist,
             ),
         ):
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(AgentTurnFailed) as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=0)
 
         # No category prefix — the raw message is persisted and surfaced.
         persist.assert_awaited_once_with(str(fake_task_run.id), "API Error: 429 rate_limit_error")
         assert "API Error: 429 rate_limit_error" in str(exc_info.value)
+        assert exc_info.value.category is None
+        assert exc_info.value.retryable_upstream is False
 
     @pytest.mark.asyncio
     async def test_missing_structured_error_keeps_generic_behavior(self):
@@ -1087,6 +1133,8 @@ class TestPollForTurnSurfacesAgentError:
                 await poll_for_turn(fake_task_run, skip_lines=0)
 
         assert "Activity task failed" in str(exc_info.value)
+        # No agent classification to carry, so the generic failure stays untyped.
+        assert not isinstance(exc_info.value, AgentTurnFailed)
         persist.assert_not_awaited()
         assert fake_task_run.error_message == "Activity task failed"
 
@@ -1250,6 +1298,59 @@ class TestMultiTurnSessionRetry:
         # Offsets advanced past the recovered turn.
         assert session.log_lines_seen == 8
 
+    @parameterized.expand(
+        [
+            ("without_partial_text", False, False),
+            ("with_partial_text", True, False),
+            ("first_visible_in_terminal_drain", True, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_budget_stop_fails_without_retrying_or_returning_partial_text(
+        self, _name: str, partial_text: bool, stop_visible_in_drain: bool
+    ) -> None:
+        previous_turn = [_agent_message_line("previous response"), _end_turn_line()]
+        current_turn = [_user_message_line("followup question")]
+        if partial_text:
+            current_turn.append(_agent_message_line("unfinished response"))
+        stopped_log = "\n".join(
+            [
+                *previous_turn,
+                *current_turn,
+                json.dumps(
+                    {
+                        "notification": {
+                            "result": {"stopReason": "cancelled", "_meta": {"interruptReason": "budget_exhausted"}}
+                        }
+                    }
+                ),
+            ]
+        )
+        visible_logs = iter(["\n".join(previous_turn + current_turn)] if stop_visible_in_drain else [])
+
+        def read_log(*_args: object, **_kwargs: object) -> str:
+            return next(visible_logs, stopped_log)
+
+        session = self._make_session()
+        session.log_lines_seen = len(previous_turn)
+        session.printed_lines = len(previous_turn)
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=read_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 1),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 1),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun(status="failed")),
+        ):
+            with pytest.raises(AgentTurnFailed) as exc_info:
+                await session.send_followup_raw("followup question")
+
+        assert exc_info.value.category == "task_spend_limit"
+        assert exc_info.value.retryable_upstream is False
+        assert isinstance(session._workflow_handle, AsyncMock)
+        followup_calls = [call for call in session._workflow_handle.signal.await_args_list if len(call.args) >= 2]
+        assert len(followup_calls) == 1
+        assert followup_calls[0].args[1] == "followup question"
+
     @pytest.mark.asyncio
     async def test_advances_offsets_from_error_before_retrying(self):
         """Regression: the retry must poll from the updated tail. Otherwise it would
@@ -1389,6 +1490,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         [
             ("env-uuid-abc", "read_only", "env-uuid-abc", "read_only"),
             (None, None, None, "full"),
+            (None, [], None, []),
         ],
     )
     async def test_forwards_sandbox_env_and_scopes(self, ctx_env, ctx_scopes, expected_env, expected_scopes):
@@ -1401,8 +1503,8 @@ class TestCreateTaskAndTriggerForwardsContext:
             posthog_mcp_scopes=ctx_scopes,
         )
 
-        mock_task = MagicMock()
-        mock_task.latest_run = MagicMock()
+        mock_task = MagicMock(id=uuid4(), team_id=team.id)
+        mock_task.latest_run = MagicMock(id=uuid4())
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
@@ -1427,8 +1529,8 @@ class TestCreateTaskAndTriggerForwardsContext:
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
 
-        mock_task = MagicMock()
-        mock_task.latest_run = MagicMock()
+        mock_task = MagicMock(id=uuid4(), team_id=team.id)
+        mock_task.latest_run = MagicMock(id=uuid4())
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
@@ -1438,16 +1540,101 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert mock_create.call_args.kwargs[stamp] == value
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(("runtime", "expected_pending_message"), [("acp", None), ("pi", "prompt")])
-    async def test_pi_runtime_seeds_the_initial_prompt(self, runtime, expected_pending_message):
+    @pytest.mark.parametrize(
+        ("runtime", "expected_pending_message", "workflow_id_prefix"),
+        [("acp", None, None), ("pi", "prompt", "eval")],
+    )
+    @pytest.mark.parametrize("queries", [[{"kind": "InsightVizNode"}], [None], [None, {"kind": "invalid"}]])
+    async def test_public_run_preserves_runtime_and_can_poll(
+        self,
+        runtime: str,
+        expected_pending_message: str | None,
+        workflow_id_prefix: str | None,
+        queries: list[dict[str, object]],
+    ) -> None:
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, runtime=runtime)
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
-            _, task_run = await create_task_and_trigger("prompt", context)
+            task_run = await agents_facade.create_task_and_trigger(
+                "prompt", context, workflow_id_prefix=workflow_id_prefix, analytics_query_context=queries
+            )
 
-        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
+        assert persisted.state.get("analytics_query_context") == (
+            [query for query in queries if query is not None] or None
+        )
         assert persisted.state.get("pending_user_message") == expected_pending_message
+        assert task_run.workflow_id == TaskRun.get_workflow_id(persisted.task_id, persisted.id, workflow_id_prefix)
+
+        log = "\n".join([_agent_message_line("done"), _end_turn_line()])
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log) as read_log,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            turn = await agents_facade.poll_for_turn(task_run, max_poll_seconds=10)
+
+        assert turn.last_message == "done"
+        assert turn.full_log == log
+        read_log.assert_called_once_with(persisted.log_url, missing_ok=True)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("fail_initialization", [False, True])
+    async def test_initialization_commits_with_task_before_dispatch(self, fail_initialization: bool) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+        dispatched_states: list[dict[str, object]] = []
+
+        def initialize(run_id: UUID) -> dict[str, JsonValue]:
+            assert TaskRun.objects.filter(id=run_id).exists()
+            if fail_initialization:
+                raise ValueError("Initialization failed")
+            return {"private_ready": True}
+
+        def observe_dispatch(*args: object, **kwargs: object) -> None:
+            dispatched_states.append(TaskRun.objects.get(id=str(kwargs["run_id"])).state)
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch.execute_after_commit",
+                new=transaction.on_commit,
+            ),
+            patch(
+                "products.tasks.backend.temporal.client.execute_task_processing_workflow", side_effect=observe_dispatch
+            ) as dispatch,
+        ):
+            if fail_initialization:
+                with pytest.raises(ValueError, match="Initialization failed"):
+                    await _create_task_and_trigger(
+                        "prompt", context, origin_key="trial-example", before_task_dispatch=initialize
+                    )
+            else:
+                task, run = await _create_task_and_trigger(
+                    "prompt", context, origin_key="trial-example", before_task_dispatch=initialize
+                )
+                assert task.origin_key == "trial-example"
+                assert run.state["private_ready"] is True
+
+        persisted_tasks = await sync_to_async(Task.objects.filter(team=team).count)()
+        persisted_runs = await sync_to_async(TaskRun.objects.filter(team=team).count)()
+        assert persisted_tasks == persisted_runs == (0 if fail_initialization else 1)
+        if fail_initialization:
+            dispatch.assert_not_called()
+            assert dispatched_states == []
+        else:
+            assert dispatched_states[0]["private_ready"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
+    async def test_marks_a_schema_run_as_ended_by_the_caller(self, output_schema, expected_flag):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            task_run = await agents_facade.create_task_and_trigger("prompt", context, output_schema=output_schema)
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
+        assert persisted.state.get("caller_ends_run") is expected_flag
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1475,8 +1662,8 @@ class TestCreateTaskAndTriggerForwardsContext:
             initial_permission_mode=initial_permission_mode,
         )
 
-        mock_task = MagicMock()
-        mock_task.latest_run = MagicMock()
+        mock_task = MagicMock(id=uuid4(), team_id=team.id)
+        mock_task.latest_run = MagicMock(id=uuid4())
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
@@ -1490,6 +1677,21 @@ class TestCreateTaskAndTriggerForwardsContext:
             kwargs["reasoning_effort"],
             kwargs["initial_permission_mode"],
         ) == (model, runtime_adapter, reasoning_effort, initial_permission_mode)
+
+
+@parameterized.expand(
+    [
+        ("required_field", '{"value": "ok"}', _Resp, _Resp(value="ok")),
+        # Every field has a default, so the envelope would validate as an empty answer.
+        ("all_fields_defaulted", '{"values": ["ok"]}', _DefaultedResp, _DefaultedResp(values=["ok"])),
+    ]
+)
+def test_parse_and_validate_reads_past_an_earlier_object(_name, answer, model, expected):
+    # A turn that ran a tool holds the tool's envelope before the answer. The first object used to
+    # win, so validation failed on the envelope instead of reading the answer at the end.
+    text = f'{{"type": "error", "message": "query failed"}}\nHere is the answer:\n{answer}'
+
+    assert MultiTurnSession._parse_and_validate(text, model, label="initial turn") == expected
 
 
 class TestMultiTurnSessionStartFallback:
@@ -1585,6 +1787,52 @@ class TestMultiTurnSessionStartFallback:
 
         fallback.assert_not_called()
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
+
+    @parameterized.expand(
+        [
+            ("retry_recovers", json.dumps({"value": "ok"}), _Resp(value="ok")),
+            ("retry_still_prose", "still prose", None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_json_retry_prompt_asks_once_on_the_same_session(self, _name, retry_reply, expected):
+        session = self._fake_session()
+        followup_mock = AsyncMock(return_value=retry_reply)
+        session.send_followup_raw = followup_mock  # type: ignore[method-assign]
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            if expected is None:
+                with pytest.raises(ValueError):
+                    await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON")
+            else:
+                _, parsed = await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON"
+                )
+                assert parsed == expected
+
+        followup_mock.assert_awaited_once()
+        assert followup_mock.await_args is not None
+        assert followup_mock.await_args.args[0] == "JSON"
+        if expected is None:
+            assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+        else:
+            session.end.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_failed_json_retry_turn_never_salvages(self):
+        # A retry turn that times out is an execution failure, so the fallback must not turn it into a result.
+        session = self._fake_session()
+        session.send_followup_raw = AsyncMock(side_effect=RuntimeError("poll timed out"))  # type: ignore[method-assign]
+        fallback = MagicMock()
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            with pytest.raises(RuntimeError):
+                await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON", fallback_from_text=fallback
+                )
+
+        fallback.assert_not_called()
+        assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
 
 
 class TestPollForTurnConnectionDrop:

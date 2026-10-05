@@ -12,22 +12,6 @@ Skills are reusable agent workflows stored in PostHog following the [Agent Skill
 
 PostHog is the primary store for team-shared skills — always use the PostHog MCP skill tools to manage them.
 
-## Reading skills through MCP cli mode
-
-When the MCP exposes the `learn` command, use it for progressive-disclosure reads across both sources:
-
-```text
-learn skills
-learn -s "retention runbook"
-learn project:team-retention
-learn project:team-retention "references/query guide.md" -s weekly
-learn project:team-retention "references/query guide.md" --lines 20:60
-```
-
-`project:` identifies skills in the current project's Skills store. `posthog:` identifies skills bundled and published by PostHog. Global search checks both and returns PostHog results first. Quote a file path when it contains spaces.
-
-Use the skill tools below for writes, version management, and MCP clients that do not expose `learn`.
-
 ## Available tools
 
 | Tool                        | Purpose                                                    |
@@ -64,6 +48,8 @@ posthog:skill-list
 
 `skill-list` returns only name + description — never the body. Use descriptions to decide which skill to fetch. The whole point of descriptions is that you can pick the right skill without loading any bodies.
 
+When the user names the skill, skip `skill-list` and call `skill-get` directly.
+
 ## Loading and using a skill
 
 ### Step 1 — Fetch the skill by name
@@ -76,7 +62,7 @@ posthog:skill-get
 The response contains:
 
 - `body` — the full SKILL.md instructions (read these like system instructions for the task)
-- `license`, `compatibility`, `allowed_tools`, `metadata` — spec fields
+- `license`, `compatibility`, `allowed_tools`, `metadata` — spec fields (see `allowed_tools` below)
 - `files[]` — manifest of bundled files (path + content_type only, not content)
 
 ### Step 2 — Follow the body
@@ -102,6 +88,7 @@ Follow the [Agent Skills specification](https://agentskills.io/specification) wh
 - **`description`** — explain what it does AND when to use it. Include keywords agents will search for. This is the only thing visible at discovery time — make it count.
 - **`body`** — keep under ~500 lines. Move detailed reference material, SQL, scripts, and long examples into bundled `files` so the body stays scannable.
 - **Files** — use `scripts/` for executable code, `references/` for docs, `assets/` for templates/data. Agents pull these on demand via `skill-file-get`, so splitting keeps context lean.
+- **`allowed_tools`** — the tools the skill asks to use. A harness that reads the skill from a file (zip export, git marketplace, a `content=full` bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default `content=stub` bundle, ignores the list until the user approves that grant, so do not rely on it to widen access.
 
 Bundled files are optional and can be included in a single create call:
 
@@ -187,11 +174,11 @@ Non-targeted files carry forward unchanged. `file_edits` cannot add, remove, or 
 
 The file-path parameter has two names depending on where it sits in the request, so don't guess:
 
-- **`file_path`** — `skill-file-get` and `skill-file-delete` (the path is part of the URL).
+- **`file_path`** — `skill-file-get` and `skill-file-delete` (the path is part of the URL). Both also accept `path`, so a manifest entry copied straight across works.
 - **`path`** — `skill-file-create`, plus the `files=[{path, …}]` array and `file_edits=[{path, …}]` (body fields on a file object).
 - **`old_path` / `new_path`** — `skill-file-rename`.
 
-Passing `path` to file-get produces a `/files/undefined/` 404. When in doubt, check the tool's input schema.
+When in doubt, check the tool's input schema.
 
 ### Adding, removing, or renaming a file
 
@@ -292,5 +279,10 @@ The bridge is intentionally minimal — it just routes to the MCP tools. The rea
 - **Always prefer PostHog MCP** for skill storage and retrieval
 - Only fall back to local files when PostHog MCP is unavailable
 - When asked to "save", "store", or "remember" a workflow, runbook, or multi-step procedure, store it as a PostHog skill
-- When asked to use a skill by name, use `learn project:<name>` in MCP cli mode and `skill-get` in tools mode
-- When a skill references bundled files in its body, pull them with `learn project:<name> <path>` or `skill-file-get` only when needed — don't preload
+- When asked to use a skill by name, fetch it with `skill-get`
+- When a skill references bundled files in its body, pull them with `skill-file-get` only when needed — don't preload
+
+## Related skills
+
+- `working-with-skills` — before you write to a skill, and for patterns on what to use skills for (project hubs, catalogs, runbooks, handovers)
+- `authoring-scouts` — to turn a skill into a scout that runs on a schedule

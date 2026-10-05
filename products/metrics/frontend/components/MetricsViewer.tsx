@@ -21,6 +21,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { MetricsDisplayType } from '~/queries/schema/schema-general'
@@ -29,29 +30,28 @@ import { AccessControlLevel, AccessControlResourceType, DateMappingOption } from
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
+import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
+import { MetricsPanel } from '../panels/MetricsPanel'
+import { METRICS_PANELS } from '../panels/registry'
 import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
 import { MetricsChartSettings } from './MetricsChartSettings'
 import { MetricsClauseRow } from './MetricsClauseRow'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
+import { MetricsIntervalPicker } from './MetricsIntervalPicker'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
-import { MetricsSeriesChart } from './MetricsSeriesChart'
 import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { LIVE_REFRESH_MS, MAX_CLAUSES, metricsViewerLogic, sanitizeFormulaInput } from './metricsViewerLogic'
 
-// `stat` is in the schema but has no renderer yet, so the picker doesn't offer it.
-const DISPLAY_TYPE_OPTIONS: { value: MetricsDisplayType; label: string }[] = [
-    { value: 'line', label: 'Line' },
-    { value: 'area', label: 'Area' },
-    { value: 'bar', label: 'Bar' },
-]
+const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
+const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table', 'heatmap']
 
 // Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
-const DATE_OPTIONS: DateMappingOption[] = [
+export const METRICS_DATE_OPTIONS: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
         key: 'Last 5 minutes',
@@ -100,6 +100,7 @@ export const MetricsViewer = (): JSX.Element => {
         metricName,
         dateFrom,
         dateTo,
+        interval,
         chartSeries,
         anomalyBadge,
         liveRefresh,
@@ -112,10 +113,13 @@ export const MetricsViewer = (): JSX.Element => {
         hasResults,
         displayType,
         metricsDisplay,
+        heatmapEligible,
+        histogramQueryNode,
     } = useValues(logic)
     const {
         setDateFrom,
         setDateTo,
+        setInterval,
         setLiveRefresh,
         addClause,
         fetchQueryResults,
@@ -128,9 +132,35 @@ export const MetricsViewer = (): JSX.Element => {
         setDisplayType,
     } = useActions(logic)
     const { traceExemplars, errorSpikes, showErrorSpikes } = useValues(metricsSamplesLogic)
+    const { timezone } = useValues(teamLogic)
     const { toggleShowErrorSpikes } = useActions(metricsSamplesLogic)
     // Staff-only PoC gate, layered on top of the wider metrics alpha flag.
     const errorOverlaysEnabled = useFeatureFlag('METRICS_ERROR_OVERLAYS')
+    // Grafana-style scalar/categorical panels. Flag-gated; the registry describes each panel.
+    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
+
+    // Gate on the result shape, not the clause edits: a formula result is ungrouped even
+    // when its input clauses group, and a clause without a metric name never runs.
+    const resultIsGrouped = chartSeries.some((s) => Object.keys(s.labels).length > 0)
+    // The heatmap saves a MetricsHistogramQuery, but insight alerts only support MetricsQuery,
+    // so alert creation would save a query the alerts page cannot validate.
+    const isHeatmap = displayType === 'heatmap' && histogramQueryNode !== null
+    const displayTypeOptions = useMemo(() => {
+        const types = dashboardPanelsEnabled ? [...BASE_DISPLAY_TYPES, ...PANEL_DISPLAY_TYPES] : BASE_DISPLAY_TYPES
+        return types.map((value) => {
+            const def = METRICS_PANELS[value]
+            const disabledReason = def.needsGroupBy
+                ? !resultIsGrouped
+                    ? 'Add a group-by to use this panel'
+                    : undefined
+                : def.needsHistogram
+                  ? !heatmapEligible
+                      ? 'Pick a single histogram metric (no formula) to use this panel'
+                      : undefined
+                  : undefined
+            return { value, label: def.label, disabledReason }
+        })
+    }, [dashboardPanelsEnabled, resultIsGrouped, heatmapEligible])
     const { exemplarDotClicked } = useActions(metricsUsageTrackingLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
@@ -156,7 +186,7 @@ export const MetricsViewer = (): JSX.Element => {
             ? []
             : traceExemplars.map((exemplar) => ({
                   timeMs: dayjs(exemplar.timestamp).valueOf(),
-                  tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).format('D MMM HH:mm:ss')}. Click to view the trace.`,
+                  tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).tz(timezone).format('D MMM HH:mm:ss')}. Click to view the trace.`,
                   onClick: () => {
                       exemplarDotClicked(!!exemplar.spanId)
                       router.actions.push(
@@ -174,7 +204,7 @@ export const MetricsViewer = (): JSX.Element => {
                 : errorSpikes.map((spike) => ({
                       timeMs: dayjs(spike.detected_at).valueOf(),
                       color: 'danger',
-                      tooltipLabel: `Error spike at ${dayjs(spike.detected_at).format('D MMM HH:mm:ss')}: ${spike.issue_name ?? 'Untitled issue'}. Click to view the issue.`,
+                      tooltipLabel: `Error spike at ${dayjs(spike.detected_at).tz(timezone).format('D MMM HH:mm:ss')}: ${spike.issue_name ?? 'Untitled issue'}. Click to view the issue.`,
                       onClick: () => {
                           router.actions.push(urls.errorTrackingIssue(spike.issue_id, { timestamp: spike.detected_at }))
                       },
@@ -187,6 +217,7 @@ export const MetricsViewer = (): JSX.Element => {
         errorSpikes,
         errorOverlaysEnabled,
         errorTrackingDisabledReason,
+        timezone,
     ])
 
     // Refetch the chart whenever the effective query changes — the fingerprints are
@@ -195,7 +226,7 @@ export const MetricsViewer = (): JSX.Element => {
     // The loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
-    }, [queryFingerprint, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [queryFingerprint, dateFrom, dateTo, timezone]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Characterize the recent window against the rest, so the chart carries a "vs baseline"
     // badge without the user having to eyeball the shape. The loader suppresses the badge
@@ -206,7 +237,7 @@ export const MetricsViewer = (): JSX.Element => {
         } else {
             clearAnomaly()
         }
-    }, [anomalyFingerprint, dateFrom, dateTo, hasMetricName]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [anomalyFingerprint, dateFrom, dateTo, hasMetricName, timezone]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const showFormulaInput = viewerClauses.length > 1 || formula !== ''
 
@@ -249,7 +280,7 @@ export const MetricsViewer = (): JSX.Element => {
                             size="small"
                             dateFrom={dateFrom}
                             dateTo={dateTo}
-                            dateOptions={DATE_OPTIONS}
+                            dateOptions={METRICS_DATE_OPTIONS}
                             onChange={(changedDateFrom, changedDateTo) => {
                                 setDateFrom(changedDateFrom)
                                 setDateTo(changedDateTo)
@@ -258,6 +289,11 @@ export const MetricsViewer = (): JSX.Element => {
                             allowFixedRangeWithTime
                             allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
                             use24HourFormat
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                        <MetricsIntervalPicker
+                            value={interval}
+                            onChange={setInterval}
                             disabledReason={metricsViewerDisabledReason}
                         />
                         <LemonSwitch
@@ -289,7 +325,7 @@ export const MetricsViewer = (): JSX.Element => {
                         <LemonSelect
                             size="small"
                             value={displayType}
-                            options={DISPLAY_TYPE_OPTIONS}
+                            options={displayTypeOptions}
                             onChange={setDisplayType}
                             data-attr="metrics-viewer-display-type"
                             disabledReason={metricsViewerDisabledReason}
@@ -318,7 +354,12 @@ export const MetricsViewer = (): JSX.Element => {
                             loading={savedInsightLoading}
                             tooltip="Get notified when this metric crosses a threshold (uses insight alerts)"
                             disabledReason={
-                                insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)
+                                insightEditorDisabledReason ??
+                                (!hasMetricName
+                                    ? 'Pick a metric first'
+                                    : isHeatmap
+                                      ? 'Alerts are not supported for the heatmap display'
+                                      : undefined)
                             }
                             data-attr="metrics-viewer-create-alert"
                         >
@@ -371,6 +412,13 @@ export const MetricsViewer = (): JSX.Element => {
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
                                 Pick a metric to see its time series.
                             </div>
+                        ) : isHeatmap && histogramQueryNode ? (
+                            // The heatmap runs its own histogram query, so it mounts the histogram
+                            // node rather than consuming the time-series result the other panels share.
+                            // It comes before the error/loading branches: the shared time-series
+                            // request still runs for the samples panel, and its failure must not
+                            // mask an independently loaded histogram.
+                            <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
                         ) : queryError ? (
                             <div className="h-full flex items-center justify-center">
                                 <LemonBanner type="error" className="max-w-md">
@@ -378,7 +426,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 </LemonBanner>
                             </div>
                         ) : hasResults ? (
-                            <MetricsSeriesChart
+                            <MetricsPanel
                                 series={chartSeries}
                                 fallbackName={formula || metricName || 'metric'}
                                 display={metricsDisplay}
@@ -389,7 +437,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 No data for this metric in the selected range.
                             </div>
                         ) : null}
-                        {queryLoading && <SpinnerOverlay />}
+                        {queryLoading && !isHeatmap && <SpinnerOverlay />}
                     </div>
                 </div>
                 {hasMetricName && (
@@ -408,7 +456,7 @@ export const MetricsViewer = (): JSX.Element => {
 // Committed on blur/Enter (mirroring TrendsFormula) so a half-typed formula doesn't fire
 // a query per keystroke. Input is lowercased — clause aliases are lowercase and the
 // backend parser is case-sensitive.
-const MetricsFormulaInput = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
+export const MetricsFormulaInput = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
     const { formula } = useValues(metricsViewerLogic)
     const { setFormula } = useActions(metricsViewerLogic)
     const [draft, setDraft] = useState(formula)

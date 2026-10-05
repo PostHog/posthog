@@ -30,9 +30,15 @@ import { useAppliedTicketFilters } from '../TicketAppliedFilters/appliedTicketFi
 
 export function TicketFiltersDropdown(): JSX.Element {
     const appliedCount = useAppliedTicketFilters().length
+    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
-        <LemonDropdown closeOnClickInside={false} placement="bottom-start" overlay={<TicketFiltersDropdownOverlay />}>
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-start"
+            overlay={<TicketFiltersDropdownOverlay />}
+            onVisibilityChange={(open) => open && loadTagsIfNeeded()}
+        >
             <LemonButton
                 type="secondary"
                 size="small"

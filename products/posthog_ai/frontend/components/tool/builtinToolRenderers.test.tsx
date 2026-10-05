@@ -268,4 +268,57 @@ describe('builtin tool renderers', () => {
         expect(screen.getByText('Call read-data-schema')).toBeInTheDocument()
         expect(screen.queryByText(/\(MCP\)/)).not.toBeInTheDocument()
     })
+
+    it('opens a failed shell call that carried no input or output to its full command and a placeholder', () => {
+        const command = '/bin/bash -lc "echo \'== hogvm package ==\'; rg -n name common/hogvm/package.json"'
+        render(
+            <GenericMcpToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    resolvedKey: '',
+                    rawServerName: 'posthog',
+                    kind: 'execute',
+                    title: command,
+                    status: 'failed',
+                })}
+            />
+        )
+        expect(screen.getByText('Failed')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button'))
+        expect(screen.getAllByText(command)).toHaveLength(2)
+        expect(screen.getByText('No output captured')).toBeInTheDocument()
+    })
+
+    it('shows the exec context sentence next to the tool name', () => {
+        render(
+            <GenericMcpToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    resolvedKey: 'execute-sql',
+                    rawServerName: 'posthog',
+                    rawToolName: 'exec',
+                    innerToolName: 'execute-sql',
+                    rawInput: { command: 'call execute-sql {}', context: "Count yesterday's pageviews." },
+                })}
+            />
+        )
+        expect(screen.getByText('Call execute-sql')).toBeInTheDocument()
+        expect(screen.getByText("· Count yesterday's pageviews.")).toBeInTheDocument()
+        expect(screen.queryByText('Completed')).not.toBeInTheDocument()
+    })
+
+    it('labels a title-less call by its ACP kind', () => {
+        render(
+            <GenericMcpToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    resolvedKey: '',
+                    rawServerName: 'posthog',
+                    kind: 'fetch',
+                    status: 'in_progress',
+                })}
+            />
+        )
+        expect(screen.getByText('Web search')).toBeInTheDocument()
+    })
 })

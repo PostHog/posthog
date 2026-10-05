@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { HeatmapAreaPoint } from 'lib/components/heatmaps/types'
+import { HeatmapAreaPoint, HeatmapJsData } from 'lib/components/heatmaps/types'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
@@ -106,7 +106,7 @@ export function HeatmapCanvas({
         heightOverride,
         heatmapFixedPositionMode,
         filteredHeatmapElements,
-        windowWidthOverride,
+        analysisWidth,
     } = useValues(heatmapDataLogic({ context, exportToken }))
     const { setSelectedArea } = useActions(heatmapDataLogic({ context, exportToken }))
 
@@ -114,6 +114,7 @@ export function HeatmapCanvas({
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
     const isToolbar = context === 'toolbar'
     const { innerRef, scrollYRef } = useScrollSync(isToolbar)
+    const renderScale = widthOverride && analysisWidth > 0 ? widthOverride / analysisWidth : 1
     const [hasValueUnderMouse, setHasValueUnderMouse] = useState(false)
 
     const heatmapJSColorGradient = useMemo((): Record<string, string> => {
@@ -131,8 +132,22 @@ export function HeatmapCanvas({
         }
     }, [heatmapColorPalette])
 
-    const heatmapJsDataRef = useRef(heatmapJsData)
-    heatmapJsDataRef.current = heatmapJsData
+    const renderedHeatmapJsData = useMemo(
+        (): HeatmapJsData =>
+            renderScale === 1
+                ? heatmapJsData
+                : {
+                      ...heatmapJsData,
+                      data: heatmapJsData.data.map((point) => ({
+                          ...point,
+                          x: Math.round(point.x * renderScale),
+                          y: Math.round(point.y * renderScale),
+                      })),
+                  },
+        [heatmapJsData, renderScale]
+    )
+    const heatmapJsDataRef = useRef(renderedHeatmapJsData)
+    heatmapJsDataRef.current = renderedHeatmapJsData
     const heatmapJSColorGradientRef = useRef(heatmapJSColorGradient)
     heatmapJSColorGradientRef.current = heatmapJSColorGradient
 
@@ -142,15 +157,16 @@ export function HeatmapCanvas({
             const clickX = e.clientX - rect.left
             const clickY = isToolbar ? e.clientY - rect.top + scrollYRef.current : e.clientY - rect.top
 
-            const width = windowWidthOverride ?? windowWidth
+            const renderedWidth = analysisWidth * renderScale
 
             // Find all elements within CLICK_RADIUS_PX of the click
             const nearbyElements: HeatmapAreaPoint[] = []
             let totalCount = 0
 
             for (const element of filteredHeatmapElements) {
-                const visualX = element.xPercentage * width
-                const distance = Math.sqrt(Math.pow(clickX - visualX, 2) + Math.pow(clickY - element.y, 2))
+                const visualX = element.xPercentage * renderedWidth
+                const visualY = element.y * renderScale
+                const distance = Math.sqrt(Math.pow(clickX - visualX, 2) + Math.pow(clickY - visualY, 2))
 
                 if (distance <= CLICK_RADIUS_PX) {
                     nearbyElements.push({
@@ -171,7 +187,7 @@ export function HeatmapCanvas({
                 })
             }
         },
-        [filteredHeatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
+        [filteredHeatmapElements, analysisWidth, renderScale, setSelectedArea, isToolbar, scrollYRef]
     )
 
     const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
@@ -195,11 +211,11 @@ export function HeatmapCanvas({
 
     useEffect(() => {
         try {
-            heatmapsJsRef.current?.setData(heatmapJsData)
+            heatmapsJsRef.current?.setData(renderedHeatmapJsData)
         } catch (e) {
             console.error('error setting data', e)
         }
-    }, [heatmapJsData])
+    }, [renderedHeatmapJsData])
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {

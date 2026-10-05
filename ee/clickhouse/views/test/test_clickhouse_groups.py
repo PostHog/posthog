@@ -1,11 +1,17 @@
 import json
 import base64
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    create_person_id_override_by_distinct_id,
+    snapshot_clickhouse_queries,
+)
 from unittest import mock
 from unittest.mock import patch
 
@@ -38,6 +44,7 @@ from posthog.models.team.team import Team
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from ee.clickhouse.views.groups import _decode_groups_cursor, _encode_groups_cursor
@@ -244,13 +251,42 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
 
-        # Test default notebook content structure
+        # The note is a markdown notebook, which is the one shape the notebook cell tools accept.
         notebook = relationship.notebook
-        self.assertIsNotNone(notebook.content)
-        self.assertEqual(notebook.content[0]["type"], "heading")
-        self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
-        self.assertEqual(notebook.content[0]["content"][0]["text"], "Mr. Krabs Notes")
-        self.assertEqual(notebook.content[1]["type"], "text")
+        self.assertTrue(is_markdown_notebook_content(notebook.content))
+        markdown = convert_notebook_content_to_markdown(notebook.content)
+        self.assertTrue(markdown.startswith("# Mr. Krabs Notes"), markdown)
+        self.assertIn("## Quick context", markdown)
+        self.assertIn("- Industry:", markdown)
+
+    @time_machine.travel("2021-05-02", tick=False)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
+    def test_group_name_with_a_line_break_cannot_open_a_notebook_block(self, _):
+        index: GroupTypeIndex = 0
+        key = "key"
+        hostile_name = 'Krusty Krab\n<Query title="p" nodeId="n1" query={{"kind":"HogQLQuery"}} />'
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"name": hostile_name},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        relationship = ResourceNotebook.objects.filter(group=group.id).first()
+        assert relationship is not None
+
+        # A tag is only a component when it starts a line, so the whole name has to stay on the
+        # heading line — otherwise the second line renders as a live query cell.
+        markdown = convert_notebook_content_to_markdown(relationship.notebook.content)
+        self.assertEqual(
+            markdown.splitlines()[0],
+            '# Krusty Krab <Query title="p" nodeId="n1" query={{"kind":"HogQLQuery"}} /> Notes',
+        )
+        self.assertNotIn("\n<Query", markdown)
+        self.assertNotIn("\n", relationship.notebook.title or "")
 
     @time_machine.travel("2021-05-02", tick=False)
     @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
@@ -583,7 +619,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -604,10 +639,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "Mr. Krabs"},
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
-            {"key": "industry", "value": "technology"},
-        )
+        with time_machine.travel("2021-05-02T00:00:01Z", tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+                {"key": "industry", "value": "technology"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -668,7 +704,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -683,10 +718,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
-            {"key": "industry", "value": "technology"},
-        )
+        with time_machine.travel("2021-05-02T00:00:01Z", tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+                {"key": "industry", "value": "technology"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -792,7 +828,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -807,10 +842,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
-            {"$unset": "industry"},
-        )
+        with time_machine.travel("2021-05-02T00:00:01Z", tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+                {"$unset": "industry"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -1141,6 +1177,30 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    @time_machine.travel("2021-05-10", tick=False)
+    def test_related_groups_person_returns_current_and_detached_historical_groups(self) -> None:
+        create_group_type_mapping(team=self.team, project=self.project, group_type_index=0, group_type="company")
+        person = create_person(team=self.team, distinct_ids=["current-id"])
+        for distinct_id, stored_person_id, group_key in [
+            ("current-id", person.uuid, "current-company"),
+            ("detached-id", uuid4(), "historical-company"),
+        ]:
+            create_group(team_id=self.team.pk, group_type_index=0, group_key=group_key)
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id=distinct_id,
+                person_id=str(stored_person_id),
+                timestamp="2021-05-05 00:00:00",
+                properties={"$group_0": group_key},
+            )
+        create_person_id_override_by_distinct_id("detached-id", "current-id", self.team.pk, version=1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id={person.uuid}")
+
+        assert response.status_code == 200
+        assert {group["group_key"] for group in response.json()} == {"current-company", "historical-company"}
 
     def test_related_missing_id(self):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?group_type_index=0")

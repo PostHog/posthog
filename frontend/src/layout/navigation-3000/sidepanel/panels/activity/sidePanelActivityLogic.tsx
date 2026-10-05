@@ -207,6 +207,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         return values.allActivityResponse
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get<PaginatedResponse<ActivityLogItem>>(values.allActivityResponse.next)
 
                     response.results = [...values.allActivityResponse.results, ...response.results]

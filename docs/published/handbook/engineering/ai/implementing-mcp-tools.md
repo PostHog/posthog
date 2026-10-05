@@ -18,7 +18,7 @@ see [Writing skills](/handbook/engineering/ai/writing-skills).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
+# 2. Configure the YAML – enable tools, add descriptions, and annotations for PATCH/POST/PUT
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. For read/list tools backed by PostHog database rows, add a HogQL system table
@@ -28,7 +28,15 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 # 4. Generate handlers and schemas
 hogli build:openapi
 
-# 5. Merge to master – CI builds and distributes automatically
+# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
+# A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
+# true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
+
+# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+pnpm --filter=@posthog/mcp run generate:ui-apps
+
+# 7. Merge to master – CI builds and distributes automatically
 ```
 
 ## Tool design principles
@@ -52,30 +60,26 @@ Agents compose these primitives into higher-level workflows.
 The reasoning: agents are better at composing simple tools than navigating complex ones,
 and simple tools are reusable across many workflows.
 
-## Two MCP server versions
+For lookup tools, return an explicit normal result when absence is an expected answer (for example,
+checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
+server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
-Clients must support two main capabilities: MCPs and skills.
-MCP support is widespread; however, skills support is still very early
-and mostly coding agents support them.
-To mitigate this, the MCP server ships two versions controlled via the
-`x-posthog-mcp-version: <version_number>` header.
+## SQL-first data retrieval
 
-### Legacy MCP (v1)
-
-For clients that don't support skills.
-Exposes the full set of CRUD tools with simple instructions (list, read, create, update, delete).
-
-Primarily oriented toward vibe-coding web tools.
-
-### SQL-first MCP for clients supporting skills (v2)
-
-v2 instructs the agent to read data through a unified HogQL interface
+The MCP server instructs the agent to read data through a unified HogQL interface
 (list and get tools are generally excluded),
 which unlocks flexibility in data retrieval, search, and manipulation.
 Additionally, the consumer has access to a skill that provides schema references and example patterns,
 giving it richer context about PostHog's data model.
 
+Here, "SQL-first" describes entity retrieval, not a preference for every analytics task.
+Choose typed queries or SQL from the required calculation and output, as described in [query selection guidance](./writing-skills.md#query-selection-guidance).
+
 Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
+
+### Knowledge source checks
+
+When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
 ## Claude web and desktop exec schema budget
 
@@ -102,6 +106,8 @@ A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not ena
 
 Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
 Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so stateless and session-holding clients behave the same.
+Unknown learning topics and empty search queries return recovery instructions.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
 
@@ -130,10 +136,28 @@ aggregates data that is not represented as a team-scoped PostHog table,
 or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
 For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
+For proxy endpoints that can fail because of either user permissions or request scope,
+return distinct API-visible error details. Agents should stop on true authorization
+failures, but they can often recover from a bad project/team filter if the response says
+the requested scope is unavailable.
+
+The billing usage/spend proxy also returns recognized field-validation failures as
+standard DRF validation errors (`type`, `code`, `attr`, `detail`). It keeps known
+codes and public request fields, replaces upstream messages with controlled text,
+and masks unrecognized failures. The shared MCP client handles these errors without
+a billing-specific tool wrapper.
+
+The billing usage/spend tools accept `usage_types` as an array of strings.
+Their field description lists the accepted identifiers from `ee/billing/billing_types.py`, through the generated API schema.
+The MCP client JSON-encodes the array for the HTTP API.
+When both dates are omitted, the shared billing request serializer defaults usage/spend reads to the last 30 complete UTC days, ending yesterday.
+Explicit date ranges are unchanged; a start date without an end date still ends today.
+This also applies to the organization usage/spend time-series endpoints and CSV exports.
+The billing overview, usage, and spend tools do not need a rollout flag.
+API scopes and billing access checks still apply.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
-
-Use `mcp_version: 1/2` to control availability of retrieval tools in v2 of the MCP.
 
 Example from the codebase:
 
@@ -236,7 +260,8 @@ Product teams own their definitions and control which operations are exposed as 
        --output ../../products/your_product/mcp/tools.yaml
    ```
 
-2. **Configure** the YAML – enable tools, add scopes, annotations, and descriptions.
+2. **Configure** the YAML – enable tools and add descriptions.
+   Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -269,20 +294,19 @@ Product teams own their definitions and control which operations are exposed as 
      domain-action: # e.g. feature-flags-list, experiments-create
        operation: your_product_endpoint_list # must match an OpenAPI operationId
        enabled: true # false excludes from generation
-       # --- required when enabled: ---
-       scopes: # API scopes
+       # --- optional: ---
+       scopes: # defaults to the scopes the API requires; a list that misses one warns
          - your_product:read
-       annotations:
+       annotations: # defaults for GET and DELETE; required for PATCH, POST and PUT
          readOnly: true
          destructive: false
          idempotent: true
-       # --- optional: ---
-       mcp_version: 2 # 2 for create/update/delete operations or not available through SQL for retrieval, 1 for read/list if available via HogQL
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
+       category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
        response: # filter response fields (applied per-item on list endpoints)
@@ -309,7 +333,17 @@ Product teams own their definitions and control which operations are exposed as 
          action_label: Short action label # optional, defaults to tool title
    ```
 
+   For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
+   The MCP tool then requires the field, even when the generated PATCH body marks it optional.
+
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
+   `detail_args` keys against the tool's input schema snapshot, so a wrong argument
+   name fails generation instead of silently dropping the argument at runtime.
+   See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
+   A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
    #### Custom input schemas
 
@@ -329,6 +363,35 @@ Product teams own their definitions and control which operations are exposed as 
    while keeping the rest of the Orval-derived schema.
    The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
+
+   #### Hooks for custom request logic
+
+   The two overrides above reshape a generated tool's schema.
+   Neither can change what happens around the request.
+   `validators` runs as a synchronous `superRefine`, so it cannot await anything;
+   `inject_body` supplies static values; `rename_params` only renames.
+
+   When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
+   The value is a module path relative to `src/tools/`, without the extension:
+
+   ```yaml
+   update-feature-flag:
+     operation: feature_flags_partial_update
+     enabled: true
+     hooks: featureFlags/updateFeatureFlagHooks
+   ```
+
+   The module default-exports an object with any of these functions, written `export default { beforeRequest } satisfies ToolHooks<Params>` so a misspelled name fails typecheck:
+
+   - `beforeRequest(context, params)` returns the params the request should use.
+   - `afterResponse(context, params, result)` returns the result to send to the client.
+   - `onError(context, params, error)` returns a result that handles the error, or rethrows it.
+
+   Codegen wraps the generated handler with them, so the name, schema and metadata stay generated.
+   A `beforeRequest` that throws stops the request, and `onError` does not see that error.
+   `hooks` cannot be combined with `confirmed_action`.
+   `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
+   Do not shadow a generated tool with a hand-written tool of the same name.
 
    #### Typed-confirm paradigm for destructive tools
 
@@ -391,8 +454,50 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 ## Testing
 
+The `query-llm-trace` and `query-llm-traces-list` wrappers bound the complete response to 80,000 characters for full detail and 60,000 characters for summary detail.
+The limit includes the echoed query, warnings, and serialization of the MCP text content blocks, in either TOON or JSON output.
+Summary previews use a 600-character budget per value.
+These character budgets reduce response size but do not guarantee a token count; client limits and tokenization vary, so clients may still truncate responses or save them to a file.
+Both modes can omit events, and large echoed filters or warnings can also be shortened.
+Omission markers direct the agent to narrow the query or open the complete trace in PostHog.
+
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.
+
+### Structured data for native tool widgets
+
+For the `posthog_ai` consumer, tool responses carry the handler's returned data in
+`_meta["com.posthog.mcp/app_data"]`, including tools without an MCP UI resource.
+This applies to direct calls and calls through `exec`. The metadata excludes the
+internal formatted-results override. The model receives the formatted text in `content`;
+an explicit JSON output request still controls that text independently of widget data.
+These responses omit the duplicate `structuredContent`. MCP tool spans exclude the
+app-data metadata for this consumer while retaining model-visible output.
+
+The agent forwards the MCP result through ACP's `rawOutput`. Claude and Codex adapters
+preserve its metadata in live updates and history. When rebuilding a Claude model
+transcript from ACP logs, the agent removes MCP result metadata before applying the
+resume context budget. Metadata is available to widgets without becoming model input.
+If widget metadata makes a task event exceed the transport size limit, the agent
+removes that metadata and retries the size check. Text and status still reach the
+client when the remaining event fits; events that remain oversized are dropped.
+
+Native widgets read app data, existing `structuredContent`, or a direct result object.
+They never decode TOON or JSON from result text.
+The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
+The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
+The widget renders it through the shared Query component in a `DataVisualizationNode`.
+The Query component fetches the results for this visualization.
+All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.
+Failed calls and missing or malformed widget data also use that fallback.
+The web client resolves tool identity from ACP `_meta.posthog`, with legacy
+`_meta.claudeCode` support. Non-exec MCP tools retain their qualified metadata names
+to avoid collisions with built-in renderers. It retains `rawOutput` from both live updates and completed
+`tool_call` frames in history.
+
+Deploy MCP and agent transport support before deploying a frontend that requires
+structured widget data. Verify both live calls and history replay, and inspect the
+next model request to confirm that app metadata is absent.
 
 ## Serializer best practices
 
@@ -449,6 +554,14 @@ Runtime access still comes from the viewset's `scope_object`,
 `scope_object_read_actions`, `scope_object_write_actions`,
 and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
 Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
+
+### MCP-only endpoints
+
+An endpoint that is in the public schema becomes a REST contract: it shows up in Swagger, Redoc and the API docs, and people build on it.
+To generate MCP tools and frontend types for an endpoint without that contract, mark it with `@extend_schema(extensions={"x-internal": True})`.
+The codegen build (`hogli build:openapi`, which sets `OPENAPI_INCLUDE_INTERNAL=1`) keeps the operation.
+The served `/api/schema/` drops it, the same way `@extend_schema(exclude=True)` does.
+The marker only controls schema inclusion. The endpoint stays reachable, and auth and scopes still apply.
 
 ## HogQL query schemas (WIP)
 

@@ -1,9 +1,16 @@
 import type { SignalReport } from "@posthog/shared/types";
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
+import { useInboxReportReadStore } from "@posthog/ui/features/inbox/stores/inboxReportReadStore";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  readerUuid: "reader-1",
   copyLink: vi.fn(),
   createPr: vi.fn(),
   createPrOptions: undefined as
@@ -20,6 +27,25 @@ const mocks = vi.hoisted(() => ({
   reportTasks: undefined as
     | { purpose: string; task: { latest_run?: { status?: string } } }[]
     | undefined,
+}));
+
+const readClient = vi.hoisted(() => ({
+  getReportReadState: vi.fn(async () => false),
+  getReportReadStates: vi.fn(async (ids: string[], read: boolean) =>
+    Object.fromEntries(ids.map((id) => [id, read])),
+  ),
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@posthog/ui/features/auth/authClient")
+  >()),
+  useOptionalAuthenticatedClient: () => readClient,
+}));
+
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  AUTH_SCOPED_QUERY_META: {},
+  useCurrentUser: () => ({ data: { uuid: mocks.readerUuid } }),
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportResolveAction", () => ({
@@ -109,10 +135,15 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 }
 
 function openMenu(report: SignalReport): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
-    <InboxReportContextMenu report={report}>
-      <div>{report.title}</div>
-    </InboxReportContextMenu>,
+    <QueryClientProvider client={queryClient}>
+      <InboxReportContextMenu report={report}>
+        <div>{report.title}</div>
+      </InboxReportContextMenu>
+    </QueryClientProvider>,
   );
   fireEvent.contextMenu(screen.getByText(report.title ?? ""));
 }
@@ -125,6 +156,16 @@ const LINK_ITEMS = ["Copy link"];
 
 describe("InboxReportContextMenu", () => {
   beforeEach(() => {
+    mocks.readerUuid = "reader-1";
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        status: "authenticated",
+        cloudRegion: "us",
+        currentProjectId: 1,
+      },
+    });
+    useInboxReportReadStore.setState({ readByKey: {}, hasHydrated: true });
     vi.clearAllMocks();
     mocks.trackerSurface = undefined;
     mocks.createPrOptions = undefined;
@@ -160,7 +201,11 @@ describe("InboxReportContextMenu", () => {
     "offers the right actions when a report is $name",
     ({ report, actions }) => {
       openMenu(report);
-      expect(menuItemText()).toEqual([...actions, ...LINK_ITEMS]);
+      expect(menuItemText()).toEqual([
+        "Mark as read",
+        ...actions,
+        ...LINK_ITEMS,
+      ]);
     },
   );
 
@@ -170,11 +215,54 @@ describe("InboxReportContextMenu", () => {
       status: "suppressed",
       refund: { id: "refund-1", reason: "other" },
     }),
-  ])("keeps the native context menu for terminal report %#", (report) => {
+  ])(
+    "offers read controls without state changes for terminal report %#",
+    (report) => {
+      openMenu(report);
+      expect(menuItemText()).toEqual(["Mark as read", ...LINK_ITEMS]);
+    },
+  );
+
+  it("marks a report read and unread without dismissing or resolving it", async () => {
+    const user = userEvent.setup();
+    const report = makeReport();
+    const key = JSON.stringify(["us:1", "reader-1", report.id]);
     openMenu(report);
-    expect(menuItemText()).toEqual([]);
-    expect(mocks.actionHooksMounted).toBe(0);
+    await user.click(screen.getByRole("menuitem", { name: "Mark as read" }));
+    expect(useInboxReportReadStore.getState().readByKey[key]).toBe(true);
+    fireEvent.contextMenu(screen.getByText(report.title ?? ""));
+    await user.click(screen.getByRole("menuitem", { name: "Mark as unread" }));
+    expect(useInboxReportReadStore.getState().readByKey[key]).toBe(false);
+    expect(mocks.dismissWithReason).not.toHaveBeenCalled();
+    expect(mocks.resolveWithReason).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { readerUuid: "reader-2", projectId: 1 },
+    { readerUuid: "reader-1", projectId: 2 },
+  ])(
+    "keeps read state separate for $readerUuid in project $projectId",
+    ({ readerUuid, projectId }) => {
+      const report = makeReport();
+      useInboxReportReadStore
+        .getState()
+        .setRead(JSON.stringify(["us:1", "reader-1", report.id]), true);
+      mocks.readerUuid = readerUuid;
+      useAuthStore.setState({
+        authState: {
+          ...useAuthStore.getState().authState,
+          currentProjectId: projectId,
+        },
+      });
+      openMenu(report);
+      expect(
+        screen.getByRole("menuitem", { name: "Mark as read" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("menuitem", { name: "Mark as unread" }),
+      ).not.toBeInTheDocument();
+    },
+  );
 
   it("applies resolve and dismiss reasons directly", async () => {
     const user = userEvent.setup();

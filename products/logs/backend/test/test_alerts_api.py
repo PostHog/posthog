@@ -21,7 +21,6 @@ from posthog.models.user import User
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
-from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
@@ -876,7 +875,7 @@ class TestLogsAlertAPI(APIBaseTest):
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_create_webhook_destination_creates_one_hog_function_per_event_kind(
         self, signal_reload_hog_functions, alert_reload_hog_functions
@@ -900,6 +899,8 @@ class TestLogsAlertAPI(APIBaseTest):
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
             assert hf.template_id == "template-webhook"
+            # A destination with no creator is unattributable in the activity log.
+            assert hf.created_by_id == self.user.id
             inputs = hf.inputs or {}
             assert inputs["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
@@ -1038,7 +1039,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     def test_delete_destination_removes_hog_functions(self, reload_hog_functions):
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -2133,10 +2134,20 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         )
         self._checkpoint_patcher.start()
         self.addCleanup(self._checkpoint_patcher.stop)
+        # Pin the shard offset to 0 so evaluator NCAs align with the simulator's
+        # canonical-grid bucket boundaries. Without this, the evaluator advances NCAs
+        # onto the team's shard offset (e.g. :02/:07 instead of :00/:05) and the
+        # simulator's :00/:05 bucket evaluations disagree on event timing.
+        self._shard_patcher = patch(
+            "products.logs.backend.temporal.activities.compute_shard_offset_seconds",
+            return_value=0,
+        )
+        self._shard_patcher.start()
+        self.addCleanup(self._shard_patcher.stop)
         # A None return would read as "enqueue failed" and roll back every
         # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
-            "products.alerts.backend.destinations.produce_internal_event",
+            "products.logs.backend.temporal.activities.produce_alert_internal_event",
             return_value=MagicMock(),
         )
         self._kafka_patcher.start()
@@ -2178,17 +2189,6 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
             "state": AlertState.NOT_FIRING.value,
         }
         defaults.update(overrides)
-        # Pin the test alert to shard 0 so its evaluator NCAs align with the
-        # simulator's canonical-grid bucket boundaries. Without this, the
-        # evaluator advances NCAs onto the alert's shard offset (e.g. :02/:07
-        # instead of :00/:05) and the simulator's :00/:05 bucket evaluations
-        # disagree on event timing.
-        cadence = int(defaults["check_interval_minutes"])
-        while True:
-            candidate = uuid4()
-            if compute_shard_offset_seconds(candidate, cadence) == 0:
-                defaults["id"] = candidate
-                break
         return LogsAlertConfiguration.objects.create(**defaults)
 
     def _drive_evaluator(

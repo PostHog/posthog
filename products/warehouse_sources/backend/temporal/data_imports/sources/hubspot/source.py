@@ -2,16 +2,14 @@ from typing import cast
 
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -80,7 +78,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HUBSPOT,
+            name=ExternalDataSourceType.HUBSPOT,
             category=DataWarehouseSourceCategory.CRM,
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             iconPath="/static/services/hubspot.png",
@@ -175,6 +173,10 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             # documented rate-limit wording so this self-recovering condition doesn't get tracked
             # as noise once Temporal's activity retry picks it back up.
             "You have reached your rate limit.",
+            # auth.hubspot_refresh_access_token also raises this verbatim (same retry budget as
+            # above) while HubSpot migrates a portal between data centers; the portal becomes
+            # reachable again once the migration finishes, so it's self-recovering rather than a bug.
+            "Migration in progress",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options

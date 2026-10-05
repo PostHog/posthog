@@ -45,7 +45,7 @@ def api_client(user):
             return_value=(True, None),
         ),
         mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_source.bulk_create_external_data_job_schedules",
+            "products.warehouse_sources.backend.presentation.views.external_data_source.base.bulk_create_external_data_job_schedules",
             return_value=[],
         ) as mock_sync_workflow,
         mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
@@ -92,7 +92,7 @@ def run_data_import_workflow(mock_stripe_client):
         )
 
         with (
-            mock.patch.object(DeltaMaintenance, "compact_table"),
+            mock.patch.object(DeltaMaintenance, "run_scheduled"),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
             ),

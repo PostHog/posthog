@@ -68,6 +68,15 @@ MAX_EVENT_TYPES = 200
 # `severities` is required too, and every severity is wanted for an event history.
 EVENT_SEVERITIES = "INFO,WARN,ERROR"
 
+# `anomalies` pages with `pageSize`/`pageNumber` and documents no default page size, so the
+# stream always sends one and walks pages until one comes back short — relying on an omitted
+# param to return everything would silently drop rows if the Controller applies its own default.
+ANOMALIES_PAGE_SIZE = 500
+
+# Pages one time window may fetch before the stream gives up on it, so a window holding an
+# unexpectedly large number of anomalies cannot loop a worker indefinitely.
+MAX_PAGES_PER_TIME_WINDOW = 64
+
 # `/metrics` returns only the immediate children of a path, so browsing the tree costs one
 # request per folder. The hierarchy is unbounded (a folder per tier, node and business
 # transaction), so bound both how deep the walk goes and what it may spend per application.
@@ -111,6 +120,12 @@ class AppdynamicsEndpointConfig:
     """Events requests carry the required `event-types` list configured on the source."""
     is_metric_tree: bool = False
     """Walk the metric hierarchy folder by folder instead of reading one list response."""
+    uses_epoch_time_params: bool = False
+    """Window bounds ride as bare epoch-ms `startTime`/`endTime` instead of the `time-range-type` triple."""
+    data_selector: str | None = None
+    """Key holding the row list, for endpoints that wrap it in an object instead of returning an array."""
+    page_size: int | None = None
+    """Page rows with `pageSize`/`pageNumber` instead of reading a whole window in one response."""
     result_cap: int | None = None
     """Rows the endpoint returns per request at most. A window at the cap is bisected."""
     extra_params: dict[str, Any] = field(default_factory=dict)
@@ -148,6 +163,16 @@ APPDYNAMICS_ENDPOINTS: dict[str, AppdynamicsEndpointConfig] = {
         primary_keys=["application_id", "id"],
         fan_out_over_applications=True,
     ),
+    "backends": AppdynamicsEndpointConfig(
+        name="backends",
+        path="/controller/rest/applications/{application_id}/backends",
+        primary_keys=["application_id", "id"],
+        fan_out_over_applications=True,
+        description=(
+            "Backends (remote services, databases and message queues) that each application's "
+            "tiers and business transactions call."
+        ),
+    ),
     "health_rule_violations": AppdynamicsEndpointConfig(
         name="health_rule_violations",
         path="/controller/rest/applications/{application_id}/problems/healthrule-violations",
@@ -161,6 +186,28 @@ APPDYNAMICS_ENDPOINTS: dict[str, AppdynamicsEndpointConfig] = {
             "Health rule violations are synced by their start time. Status changes to previously "
             "synced violations (e.g. a violation resolving) are only picked up on a full refresh. "
             "Only syncs the last 30 days on initial sync."
+        ),
+    ),
+    "anomalies": AppdynamicsEndpointConfig(
+        name="anomalies",
+        path="/controller/anomaly/rest/api/v1/applications/{application_id}/anomalies",
+        primary_keys=["application_id", "id"],
+        fan_out_over_applications=True,
+        time_windowed=True,
+        uses_epoch_time_params=True,
+        sends_output_json_param=False,
+        data_selector="violationListItem",
+        page_size=ANOMALIES_PAGE_SIZE,
+        incremental_fields=time_window_incremental_fields("startTime"),
+        extra_params={"fetchSuspectedCause": "false"},
+        default_lookback_days=30,
+        window_chunk_days=7,
+        description=(
+            "Anomaly detection violations, the machine-learning counterpart to health rule "
+            "violations, synced by their start time. Suspected causes are not synced. Status "
+            "changes to previously synced anomalies are only picked up on a full refresh. "
+            "Only syncs the last 30 days on initial sync. Requires anomaly detection to be "
+            "enabled on the controller."
         ),
     ),
     "metric_data": AppdynamicsEndpointConfig(
@@ -232,6 +279,15 @@ APPDYNAMICS_ENDPOINTS: dict[str, AppdynamicsEndpointConfig] = {
             "Metric paths available in each application's metric browser, one row per folder "
             "or metric. Use a path from here in the source's metric paths setting to sync its "
             "time series into metric_data."
+        ),
+    ),
+    "database_servers": AppdynamicsEndpointConfig(
+        name="database_servers",
+        path="/controller/rest/databases/servers",
+        primary_keys=["id"],
+        description=(
+            "Database servers monitored by AppDynamics Database Visibility. Joins to the "
+            "database backends that applications call."
         ),
     ),
 }

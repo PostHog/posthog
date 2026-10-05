@@ -1,12 +1,16 @@
+import { INBOX_ACTIONABLE_REPORT_STATUS_FILTER } from "@posthog/core/inbox/reportFiltering";
+import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { render, screen } from "@testing-library/react";
+import { render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
+  implementationStates: new Map<string, ReportImplementationState>(),
+  implementationStatesLoading: false,
   setupStatusLoading: false,
   setupConfigured: true,
   navigateToSettings: vi.fn(),
@@ -26,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   fetchNextPage: vi.fn(),
   pagedStatus: null as string | null,
+  pagedCount: 400,
+  totalCount: null as number | null,
   allReportsOptions: [] as {
     applySourceFilter?: boolean;
     applySearchFilter?: boolean;
@@ -37,6 +43,16 @@ const mocks = vi.hoisted(() => ({
     withPullRequestCount?: boolean;
   }[],
 }));
+
+vi.mock(
+  "@posthog/ui/features/inbox/hooks/useReportImplementationStates",
+  () => ({
+    useReportImplementationStates: () => ({
+      states: mocks.implementationStates,
+      isLoading: mocks.implementationStatesLoading,
+    }),
+  }),
+);
 
 vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
   useTriageFocusEnabled: () => mocks.triageFocusEnabled,
@@ -81,7 +97,9 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
       scopedReports: reports,
       allReports:
         options.statusFilter === mocks.pagedStatus
-          ? Array.from({ length: 400 }, () => reports[0]).filter(Boolean)
+          ? Array.from({ length: mocks.pagedCount }, () => reports[0]).filter(
+              Boolean,
+            )
           : reports,
       isLoading: false,
       isPending: false,
@@ -91,7 +109,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
       fetchNextPage: mocks.fetchNextPage,
       refetch: vi.fn(),
       searchQuery: options.applySearchFilter === false ? "" : mocks.searchQuery,
-      totalCount: reports.length,
+      totalCount: mocks.totalCount ?? reports.length,
       scope: "entire_project",
       isSuccess: true,
       sourceProductFilter: [],
@@ -178,7 +196,7 @@ vi.mock("@posthog/ui/features/inbox/components/ReportTriageFocus", () => ({
     onExit: () => void;
   }) => {
     mocks.triageProps = props;
-    return null;
+    return <div data-testid="triage-focus" />;
   },
 }));
 
@@ -190,6 +208,12 @@ vi.mock("@posthog/ui/features/inbox/components/InboxScopeSelect", () => ({
   InboxScopeSelect: () => null,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
+  useChannelsLayout: () => false,
+}));
+
+import { useInboxSectionedReports } from "../hooks/useInboxSectionedReports";
+import { InboxTriagePane } from "./InboxTriagePane";
 import { ReportsInboxView } from "./ReportsInboxView";
 
 function archivedReport(id: string, title: string): SignalReport {
@@ -219,6 +243,8 @@ describe("ReportsInboxView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.activeReports = [];
+    mocks.implementationStates = new Map();
+    mocks.implementationStatesLoading = false;
     mocks.setupStatusLoading = false;
     mocks.setupConfigured = true;
     mocks.searchQuery = "checkout";
@@ -227,6 +253,8 @@ describe("ReportsInboxView", () => {
     mocks.locationState = {};
     mocks.allReportsOptions = [];
     mocks.pagedStatus = null;
+    mocks.pagedCount = 400;
+    mocks.totalCount = null;
     useInboxSignalsFilterStore.setState({
       searchQuery: "checkout",
       sourceProductFilter: [],
@@ -371,7 +399,7 @@ describe("ReportsInboxView", () => {
     ).toBe(true);
   });
 
-  it("returns to the same report in triage mode", () => {
+  it("resumes triage on the report it opened", () => {
     mocks.activeReports = [
       {
         ...activeReport("merge-report", "Merge report"),
@@ -385,11 +413,89 @@ describe("ReportsInboxView", () => {
       inboxTriageOrigin: { reportId: "second-report" },
     };
 
-    render(<ReportsInboxView />);
+    render(<InboxTriagePane />);
 
     expect(mocks.triageProps?.initialReportId).toBe("second-report");
     expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
       "second-report",
     ]);
+  });
+  it("does not count unloaded reports as triage decisions", () => {
+    mocks.activeReports = [activeReport("working", "Working report")];
+    mocks.implementationStates = new Map([["working", "working"]]);
+    mocks.totalCount = 600;
+    const { result } = renderHook(() =>
+      useInboxSectionedReports({ autoPage: false }),
+    );
+    expect(result.current.triageReportCount).toBe(0);
+    expect(result.current.triageReports).toEqual([]);
+    expect(result.current.reportCount).toBeGreaterThan(0);
+  });
+
+  it("keeps working reports in the list but only decisions in triage", () => {
+    mocks.activeReports = [
+      activeReport("working", "Working report"),
+      activeReport("failed", "Failed report"),
+    ];
+    mocks.implementationStates = new Map([
+      ["working", "working"],
+      ["failed", "failed"],
+    ]);
+    const list = render(<ReportsInboxView />);
+    expect(screen.getByText("Working report")).toBeInTheDocument();
+    expect(screen.getByText("Failed report")).toBeInTheDocument();
+    list.unmount();
+    render(<InboxTriagePane />);
+    expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
+      "failed",
+    ]);
+  });
+
+  it("keeps triage on screen while task state reloads", () => {
+    mocks.activeReports = [
+      activeReport("first", "First report"),
+      activeReport("second", "Second report"),
+    ];
+    mocks.searchQuery = "";
+    mocks.triageFocusEnabled = true;
+
+    const pane = render(<InboxTriagePane />);
+    expect(screen.getByTestId("triage-focus")).toBeInTheDocument();
+
+    // Create PR puts a task on the report it hands off, which reloads task
+    // state for the whole queue.
+    mocks.implementationStatesLoading = true;
+    pane.rerender(<InboxTriagePane />);
+
+    expect(screen.getByTestId("triage-focus")).toBeInTheDocument();
+    expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
+  it("waits for task state before triage runs out of reports", () => {
+    mocks.activeReports = [activeReport("working", "Working report")];
+    mocks.implementationStates = new Map([["working", "working"]]);
+    mocks.implementationStatesLoading = true;
+    mocks.searchQuery = "";
+    mocks.triageFocusEnabled = true;
+
+    render(<InboxTriagePane />);
+
+    expect(screen.queryByTestId("triage-focus")).toBeNull();
+  });
+
+  it("waits for the next decision page before triage runs out of reports", () => {
+    mocks.activeReports = [activeReport("working", "Working report")];
+    mocks.implementationStates = new Map([["working", "working"]]);
+    mocks.searchQuery = "";
+    mocks.triageFocusEnabled = true;
+    mocks.pagedStatus = INBOX_ACTIONABLE_REPORT_STATUS_FILTER;
+    mocks.pagedCount = 50;
+
+    render(<InboxTriagePane />);
+
+    expect(mocks.triageProps).toBeNull();
   });
 });

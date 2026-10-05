@@ -1,16 +1,23 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import Organization, Team
-from posthog.models.user import User
-from posthog.temporal.oauth import PosthogMcpScopes
+from django.utils import timezone
 
+from posthog.models import OAuthAccessToken, Organization, Team
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
+
+from products.signals.backend.models import SignalScoutRun
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import (
     INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     MCPBuiltInAgentKey,
     Task,
+    TaskRun,
 )
 from products.tasks.backend.temporal.oauth import (
     INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS,
@@ -211,11 +218,28 @@ def test_two_runs_on_one_auto_started_task_get_different_signals_budgets(
         internal=True,
     )
 
-    create_oauth_access_token_for_run(task, {"ai_stage": "implementation", "mode": "background"})
+    first = TaskRun.objects.create(task=task, team=team, state={"ai_stage": "implementation", "mode": "background"})
+    token = OAuthAccessToken.objects.create(
+        user=creator,
+        token="token",
+        expires=timezone.now() + timedelta(hours=1),
+        scope="task:read",
+        sandbox_task_id=task.id,
+    )
+    create_oauth_access_token_for_run(task, first.state, run_id=first.id)
     assert "include_interactive_run_scope" not in mock_create.call_args.kwargs
-
-    create_oauth_access_token_for_run(task, {"mode": "interactive"})
+    first.refresh_from_db()
+    assert first.state["sandbox_oauth_token_ids"] == [str(token.id)]
+    second = task.create_run(extra_state={"resume_from_run_id": str(first.id), "mode": "interactive"})
+    assert "sandbox_oauth_token_ids" not in second.state
+    token.token = "second-token"
+    token.pk = None
+    token.save()
+    mock_create.return_value = "second-token"
+    create_oauth_access_token_for_run(task, second.state, run_id=second.id)
     assert mock_create.call_args.kwargs["include_interactive_run_scope"] is True
+    second.refresh_from_db()
+    assert second.state["sandbox_oauth_token_ids"] == [str(token.id)]
 
 
 def test_oauth_token_can_disable_task_creator_fallback() -> None:
@@ -349,6 +373,62 @@ def test_run_token_rejects_previous_task_owner(mock_create: MagicMock) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "trial_origin,bridge,requested,allowed",
+    [
+        (False, True, "signals_scout_experiment", False),
+        (False, False, ["scout_experiment_internal:read"], False),
+        (True, False, "full", False),
+        (True, True, "full", True),
+    ],
+)
+@patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_private_scout_token_requires_trusted_task_and_cannot_be_widened(
+    mock_create: MagicMock,
+    mock_enforcement: MagicMock,
+    test_task: Task,
+    trial_origin: bool,
+    bridge: bool,
+    requested: PosthogMcpScopes,
+    allowed: bool,
+) -> None:
+    if trial_origin:
+        test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+        test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
+        test_task.save(update_fields=["origin_product", "origin_key"])
+    task_run = test_task.create_run(extra_state={"scout_trial": {"version": 1}})
+    if bridge:
+        SignalScoutRun.objects.for_team(test_task.team_id).create(
+            team_id=test_task.team_id,
+            task_run=task_run,
+            skill_name="signals-scout-fixture",
+            skill_version=1,
+            metadata={"scout_trial": {"version": 1}},
+        )
+
+    if not allowed:
+        with pytest.raises(TaskInvalidStateError, match="no trusted execution context"):
+            create_oauth_access_token_for_run(test_task, task_run.state, scopes=requested)
+        mock_create.assert_not_called()
+        return
+
+    assert create_oauth_access_token_for_run(test_task, task_run.state, scopes=requested) == "token"
+
+    granted = mock_create.call_args.kwargs["scopes"]
+    assert granted == "signals_scout_experiment"
+    assert mock_create.call_args.kwargs["sandbox_task_id"] == test_task.id
+    resolved = set(resolve_scopes(granted))
+    assert "llm_gateway:read" not in resolved
+    assert {
+        "scout_experiment_internal:read",
+        "signal_scratchpad_internal:write",
+        "signal_scout_report:write",
+    } <= resolved
+    assert not {"dashboard:write", "notebook:write", "task:write"} & resolved
+
+
+@pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_loop_run_fails_closed_when_owner_is_not_a_current_org_member(mock_create: MagicMock) -> None:
     from posthog.models import Organization, Team
@@ -414,6 +494,35 @@ def test_loop_fired_run_excludes_loop_write_scope(mock_create: MagicMock) -> Non
     assert "task:read" in kwargs["scopes"]
 
 
+@pytest.mark.parametrize("adapter", ["claude", "codex"])
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_subscription_run_withholds_the_gateway_scope(mock_create: MagicMock, adapter: str) -> None:
+    task = MagicMock(
+        id="task-id",
+        created_by=MagicMock(),
+        team_id=123,
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+
+    create_oauth_access_token(task, run_state={f"{adapter}_model_access": "own-subscription"})
+
+    assert mock_create.call_args.kwargs["withhold_scopes"] == ["llm_gateway:read"]
+
+
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_gateway_billed_run_keeps_the_gateway_scope(mock_create: MagicMock) -> None:
+    task = MagicMock(
+        id="task-id",
+        created_by=MagicMock(),
+        team_id=123,
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+
+    create_oauth_access_token(task, run_state={"codex_model_access": "posthog-gateway"})
+
+    assert "withhold_scopes" not in mock_create.call_args.kwargs
+
+
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_non_loop_run_keeps_loop_write_scope(mock_create: MagicMock) -> None:
     task = MagicMock(
@@ -472,7 +581,6 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
     mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: PosthogMcpScopes
 ) -> None:
     from posthog.models.organization import OrganizationMembership
-    from posthog.temporal.oauth import resolve_scopes
 
     organization = Organization.objects.create(name="wf-scope-org")
     team = Team.objects.create(organization=organization, name="wf-scope-team")
@@ -490,6 +598,77 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
     # workflow's snapshot, and a narrow request is never widened to the snapshot.
     assert granted <= set(resolve_scopes(requested, include_internal_scopes=True))
     assert granted <= set(resolve_scopes(snapshot, include_internal_scopes=True))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("origin_product", "state", "requested", "granted"),
+    [
+        (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, {"pending_dispatch": {"posthog_mcp_scopes": []}}, None, []),
+        (Task.OriginProduct.SPACE_SETUP, {"pending_dispatch": {"posthog_mcp_scopes": "full"}}, None, "full"),
+        (
+            Task.OriginProduct.SPACE_SETUP,
+            {"pending_dispatch": {"posthog_mcp_scopes": ["canvas:write", "task:read"]}},
+            None,
+            ["canvas:write", "task:read"],
+        ),
+        (
+            Task.OriginProduct.SPACE_SETUP,
+            {"pending_dispatch": {"posthog_mcp_scopes": "not-a-preset"}},
+            None,
+            "read_only",
+        ),
+        (
+            Task.OriginProduct.SPACE_SETUP,
+            {"pending_dispatch": {"posthog_mcp_scopes": ["canvas:write", None]}},
+            None,
+            "read_only",
+        ),
+        (
+            Task.OriginProduct.SPACE_SETUP,
+            {"pending_dispatch": {"posthog_mcp_scopes": "full"}},
+            "read_only",
+            "read_only",
+        ),
+        # No recorded dispatch: the run-source policy dispatch itself applies.
+        (Task.OriginProduct.USER_CREATED, {}, None, "full"),
+        (Task.OriginProduct.USER_CREATED, {"run_source": "agent"}, None, "read_only"),
+        (Task.OriginProduct.LOOP, {}, None, "read_only"),
+        (Task.OriginProduct.SIGNALS_SCOUT, {}, None, "signals_scout_reports"),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_research"}},
+            None,
+            [*resolve_scopes("signals_research"), "task:write"],
+        ),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_research"}},
+            "signals_research",
+            "signals_research",
+        ),
+    ],
+)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_run_token_defaults_to_the_dispatched_scopes(
+    mock_create: MagicMock,
+    origin_product: str,
+    state: dict,
+    requested: PosthogMcpScopes | None,
+    granted: PosthogMcpScopes,
+) -> None:
+    organization = Organization.objects.create(name="dispatch-scope-org")
+    team = Team.objects.create(organization=organization, name="dispatch-scope-team")
+    owner = User.objects.create(email="dispatch-scope-owner@example.com")
+    OrganizationMembership.objects.create(organization=organization, user=owner)
+    task = Task.objects.create(team=team, title="Run", created_by=owner, origin_product=origin_product)
+
+    if requested is None:
+        create_oauth_access_token_for_run(task, state)
+    else:
+        create_oauth_access_token_for_run(task, state, scopes=requested)
+
+    assert mock_create.call_args.kwargs["scopes"] == granted
 
 
 @pytest.mark.django_db

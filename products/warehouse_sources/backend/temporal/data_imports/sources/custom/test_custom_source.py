@@ -122,16 +122,25 @@ class TestValidateManifest(SimpleTestCase):
             validate_manifest(manifest)
         assert expected_substring in str(ctx.exception)
 
-    def test_empty_required_strings_give_plain_message(self):
-        # Empty required fields used to surface pydantic's raw "String should have at
-        # least 1 character" with positional paths; assert the friendlier, JSON-mirroring form.
-        manifest = {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]}
+    @parameterized.expand(
+        [
+            (
+                {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]},
+                "These required fields are empty: base URL, table 1 name, table 1 path. Fill them in, then try again.",
+            ),
+            (
+                {
+                    "client": {"base_url": "https://x"},
+                    "resources": [{"name": "users", "endpoint": {"path": "/users"}}, {"name": "", "endpoint": {}}],
+                },
+                "resources[1].name: must not be empty; resources[1].endpoint.path: Field required",
+            ),
+        ]
+    )
+    def test_empty_required_strings_give_plain_message(self, manifest, expected_message):
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
-        message = str(ctx.exception)
-        assert "client.base_url: must not be empty" in message
-        assert "resources[0].name: must not be empty" in message
-        assert "resources[0].endpoint.path: must not be empty" in message
+        assert str(ctx.exception) == expected_message
 
     def test_rejects_duplicate_resource_names(self):
         manifest = _minimal_manifest()
@@ -323,6 +332,22 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert not ok
         assert "Remove the HTTP method" in (err or "")
+
+    @parameterized.expand(
+        [
+            ("leading", '"https://api.example.com/v1'),
+            ("wrapped", '"https://api.example.com/v1"'),
+            ("single", "'https://api.example.com/v1'"),
+        ]
+    )
+    def test_rejects_base_url_with_quote_marks(self, _name: str, base_url: str):
+        # A quote kept from a copied code sample used to surface an unhelpful "missing a hostname"
+        # that echoed the pasted value back — the message must name the quote instead.
+        manifest = _minimal_manifest(base_url=base_url)
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "Remove the quote marks" in (err or "")
+        assert base_url not in (err or "")
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch(

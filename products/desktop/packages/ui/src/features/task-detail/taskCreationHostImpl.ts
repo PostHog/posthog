@@ -24,7 +24,11 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import { expandTildePath, type Workspace } from "@posthog/shared";
+import {
+  type ExecutionMode,
+  expandTildePath,
+  type Workspace,
+} from "@posthog/shared";
 import { injectable } from "inversify";
 import { track } from "../../shell/analytics";
 import { getAuthenticatedClient } from "../auth/authClientImperative";
@@ -163,6 +167,7 @@ export class TrpcTaskCreationHost implements ITaskCreationHost {
     runtimeAdapter?: string | null;
     model?: string | null;
     reasoningEffort?: string | null;
+    permissionMode?: ExecutionMode | null;
     sandboxEnvironmentId?: string | null;
     customImageId?: string | null;
   }): { taskId: string; runId: string } | null {

@@ -10,6 +10,7 @@ objects, not data, per the wiring pattern. Heavy by import, so it lives here rat
 
 from products.tasks.backend.constants import EVAL_INTERACTION_ORIGIN, MCP_EXEC_SKILLS_FEATURE_FLAG
 from products.tasks.backend.logic.services.custom_prompt_internals import (
+    AgentTurnFailed,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
@@ -18,7 +19,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     TurnPollTimeout,
     create_task_and_trigger,
     extract_json_from_text,
-    poll_for_turn,
+    poll_for_agent_task as poll_for_turn,
 )
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
@@ -47,6 +48,7 @@ __all__ = [
     "EVAL_INTERACTION_ORIGIN",
     "MCP_EXEC_SKILLS_FEATURE_FLAG",
     "ENV_LOCAL_SKILLS_HOST_PATH",
+    "AgentTurnFailed",
     "CustomPromptSandboxContext",
     "EmptyAgentTurnError",
     "LocalSkillsCache",

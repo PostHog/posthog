@@ -4,21 +4,10 @@ import {
   buildProviderModelGroups,
   type CloudTaskConfigOption,
   type CloudTaskConfigSelectGroup,
-  DEEPSEEK_MODEL_FLAG,
   type GatewayModel,
-  GLM_MODEL_FLAG,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
-  isDeepseekModelId,
-  isGlm53FlashModelId,
-  isGlm53ModelId,
-  isGlmModelId,
-  isModalModelId,
   isRestrictedModelOption,
-  KIMI_MODEL_FLAG,
 } from "@posthog/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useFeatureFlag } from "posthog-react-native";
 import { useMemo } from "react";
 import { useAuthStore } from "@/features/auth";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
@@ -35,11 +24,6 @@ export function useCloudTaskConfigOptions(
   currentValue?: string,
 ) {
   const oauthAccessToken = useAuthStore((state) => state.oauthAccessToken);
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
-  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
-  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
-  const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
-  const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const query = useQuery({
     queryKey: cloudTaskConfigOptionKeys.models(),
     queryFn: () => getPostHogApiClient().getCloudTaskGatewayModels(),
@@ -49,30 +33,10 @@ export function useCloudTaskConfigOptions(
   const models = query.data ?? emptyModels;
   const hasLiveConfig = query.data !== undefined;
 
-  const visibleModels = useMemo(
-    () =>
-      models.filter(
-        (model) =>
-          !(!glm53Enabled && isGlm53ModelId(model.id)) &&
-          !(!glm53FlashEnabled && isGlm53FlashModelId(model.id)) &&
-          !(
-            !glmEnabled &&
-            isGlmModelId(model.id) &&
-            !isGlm53ModelId(model.id) &&
-            !isGlm53FlashModelId(model.id)
-          ) &&
-          !(!deepseekEnabled && isDeepseekModelId(model.id)) &&
-          !(!kimiEnabled && isModalModelId(model.id)),
-      ),
-    [
-      models,
-      glmEnabled,
-      glm53Enabled,
-      glm53FlashEnabled,
-      deepseekEnabled,
-      kimiEnabled,
-    ],
-  );
+  // The gateway listing is already scoped to the caller: it drops a model behind a rollout
+  // flag the caller does not hold. A second gate here reads flags this app cannot see the
+  // catalog for, which is how it hid models the gateway was serving.
+  const visibleModels = models;
 
   const configOptions = useMemo(
     () =>

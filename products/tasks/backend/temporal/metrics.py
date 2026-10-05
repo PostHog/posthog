@@ -38,6 +38,60 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     3_600_000.0,
 ]
 
+TASKS_SDK_LATENCY_HISTOGRAM_METRICS = (
+    "temporal_activity_execution_latency",
+    "temporal_activity_schedule_to_start_latency",
+    "temporal_workflow_task_execution_latency",
+)
+TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS = [
+    1.0,
+    10.0,
+    20.0,
+    50.0,
+    100.0,
+    200.0,
+    250.0,
+    500.0,
+    1_000.0,
+    2_500.0,
+    5_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+    90_000.0,
+    120_000.0,
+    180_000.0,
+    300_000.0,
+    600_000.0,
+    1_000_000.0,
+]
+
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS = ("tasks_modal_launch_preparation_latency",)
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS = [
+    100.0,
+    250.0,
+    500.0,
+    750.0,
+    1_000.0,
+    1_500.0,
+    2_000.0,
+    2_500.0,
+    3_000.0,
+    4_000.0,
+    5_000.0,
+    6_000.0,
+    8_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+]
+
 TASKS_RUN_TOKENS_HISTOGRAM_METRICS = ("tasks_run_total_tokens",)
 TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     10_000.0,
@@ -66,6 +120,9 @@ TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
     128.0,
     256.0,
 ]
+
+TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_memory_peak_ratio",)
+TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
 
 _RUN_TOKEN_KINDS = {
     "input": "input_tokens",
@@ -132,10 +189,14 @@ def _model_label(value: str | None) -> str:
     return normalized if runtime_adapter_for(normalized) else "other"
 
 
-def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool) -> str:
+def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool, from_import_run: bool = False) -> str:
     if same_run_resume:
         return "same_run_and_snapshot" if using_modal_snapshot else "same_run"
-    return "snapshot_only" if using_modal_snapshot else "neither"
+    if using_modal_snapshot:
+        return "snapshot_only"
+    # An import run never had a sandbox, so there is no working tree to lose: the successor
+    # starts from the transcript alone by design, not because a snapshot went missing.
+    return "imported_transcript" if from_import_run else "neither"
 
 
 def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
@@ -144,7 +205,8 @@ def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
             "tasks_process_resume_mode",
             "Resuming process-task runs by the resume state available at provision time. "
             "same_run labels identify a restart of the current run. neither means no snapshot "
-            "or same-run state accompanied the resume, so the prior working tree could not be restored.",
+            "or same-run state accompanied the resume, so the prior working tree could not be restored. "
+            "imported_transcript means the resumed run only held an imported transcript and had no tree.",
         ).add(1)
     except Exception:
         pass
@@ -286,6 +348,58 @@ def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
         pass
 
 
+def increment_memory_watchdog_events(event: str, count: int) -> None:
+    if count <= 0:
+        return
+    try:
+        _metric_meter({"event": event}).create_counter(
+            "tasks_sandbox_memory_watchdog_events",
+            "Sandbox memory watchdog events read at teardown",
+        ).add(count)
+    except Exception:
+        pass
+
+
+def increment_memory_watchdog_teardown(status: str) -> None:
+    try:
+        _metric_meter({"status": status}).create_counter(
+            "tasks_sandbox_memory_watchdog_teardown",
+            "Sandbox memory watchdog heartbeat status at teardown",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_memory_peak_ratio(ratio: float) -> None:
+    try:
+        _metric_meter().create_histogram_float(
+            "tasks_sandbox_memory_peak_ratio",
+            "Peak sandbox memory use as a fraction of the limit, read at teardown",
+        ).record(ratio)
+    except Exception:
+        pass
+
+
+def increment_tool_call_only_heartbeat() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_tool_call_only_heartbeat",
+            "Run keep-alives carried only by an unfinished tool call through a long event silence",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_sandbox_process_killed_notification() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_sandbox_process_killed_notifications",
+            "Sandbox memory watchdog kills relayed from the agent server to the run",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def increment_pr_babysit_decision(decision: str) -> None:
     try:
         meter = workflow.metric_meter().with_additional_attributes({"decision": decision})
@@ -394,6 +508,25 @@ def record_agent_server_step_ms(
         ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
         pass
+
+
+def record_agent_server_boot_phases_ms(
+    boot_phases_ms: Mapping[str, int],
+    boot_path: str,
+    *,
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    for phase, duration_ms in boot_phases_ms.items():
+        record_agent_server_step_ms(
+            f"agent_server_phase_{phase}",
+            duration_ms,
+            boot_path,
+            used_snapshot=used_snapshot,
+            origin_product=origin_product,
+            runtime=runtime,
+        )
 
 
 def increment_agent_server_readiness_retry(

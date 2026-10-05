@@ -1,17 +1,31 @@
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.schema import (
+    CacheMissResponse,
+    QueryStatus,
+    QueryStatusResponse,
+    WebGoalsQueryResponse,
+    WebOverviewQueryResponse,
+    WebStatsTableQueryResponse,
+)
 
 from posthog.models import Team
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
 from products.web_analytics.backend.weekly_digest import (
+    _default_overview,
     _format_duration,
     auto_select_project_for_user,
     build_team_digest,
@@ -22,6 +36,72 @@ from products.web_analytics.backend.weekly_digest import (
 )
 
 QUERY_TIMESTAMP = "2025-01-29"
+
+DIGEST_QUERY_CASES = [
+    (get_overview_for_team, "WebOverviewQueryRunner", WebOverviewQueryResponse, _default_overview()),
+    (get_top_pages, "WebStatsTableQueryRunner", WebStatsTableQueryResponse, []),
+    (get_top_sources, "WebStatsTableQueryRunner", WebStatsTableQueryResponse, []),
+    (get_goals_for_team, "WebGoalsQueryRunner", WebGoalsQueryResponse, []),
+]
+
+
+class TestDigestQueryFailures(SimpleTestCase):
+    @parameterized.expand(DIGEST_QUERY_CASES)
+    def test_query_exceptions_are_not_zero_traffic(
+        self, query: Callable[..., object], runner_name: str, *_: object
+    ) -> None:
+        with patch(f"products.web_analytics.backend.weekly_digest.{runner_name}") as runner:
+            runner.return_value.run.side_effect = TimeoutError("Query timed out")
+            with self.assertRaises(TimeoutError):
+                query(Team(pk=1))
+
+    @parameterized.expand(DIGEST_QUERY_CASES)
+    def test_empty_results_are_distinct_from_failed_or_missing_results(
+        self, query: Callable[..., object], runner_name: str, response_type: type, expected_empty: object
+    ) -> None:
+        with patch(f"products.web_analytics.backend.weekly_digest.{runner_name}") as runner:
+            for response in [
+                CacheMissResponse(),
+                QueryStatusResponse(query_status=QueryStatus(id="pending-query", team_id=1, complete=False)),
+                response_type(results=[], error="Query failed"),
+            ]:
+                with self.subTest(response=type(response).__name__):
+                    runner.return_value.run.return_value = response
+                    with self.assertRaises(ValueError):
+                        query(Team(pk=1))
+
+            runner.return_value.run.return_value = response_type(results=[])
+            assert query(Team(pk=1)) == expected_empty
+
+    def test_no_configured_actions_is_a_valid_empty_goals_section(self) -> None:
+        with patch("products.web_analytics.backend.weekly_digest.WebGoalsQueryRunner") as runner:
+            runner.return_value.run.side_effect = NoActionsError()
+            assert get_goals_for_team(Team(pk=1)) == []
+
+    def test_an_incomplete_section_stops_digest_construction(self) -> None:
+        with (
+            patch("products.web_analytics.backend.weekly_digest.get_overview_for_team", return_value={}),
+            patch("products.web_analytics.backend.weekly_digest.get_top_pages", side_effect=TimeoutError),
+        ):
+            with self.assertRaises(TimeoutError):
+                build_team_digest(Team(pk=1))
+
+    def test_a_failed_session_check_keeps_the_digest(self) -> None:
+        with (
+            patch(
+                "products.web_analytics.backend.weekly_digest.get_overview_for_team", return_value=_default_overview()
+            ),
+            patch("products.web_analytics.backend.weekly_digest.get_top_pages", return_value=[]),
+            patch("products.web_analytics.backend.weekly_digest.get_top_sources", return_value=[]),
+            patch("products.web_analytics.backend.weekly_digest.get_goals_for_team", return_value=[]),
+            patch("products.web_analytics.backend.weekly_digest.execute_hogql_query", side_effect=TimeoutError),
+            patch("products.web_analytics.backend.weekly_digest.capture_exception") as capture,
+        ):
+            digest = build_team_digest(Team(pk=1))
+
+        assert digest["sessions"] == {"current": 0, "previous": None, "change": None}
+        assert digest["metadata"]["data_status"] == "unknown"
+        capture.assert_called_once()
 
 
 def _create_pageview(
@@ -135,6 +215,8 @@ class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
             "sessions": {"current": 0, "previous": None, "change": None},
             "bounce_rate": {"current": 0.0, "previous": None, "change": None},
             "avg_session_duration": {"current": "0s", "previous": "0s", "change": None},
+            "date_from": datetime(2025, 1, 22, tzinfo=UTC),
+            "date_to": datetime(2025, 1, 29, 23, 59, 59, tzinfo=UTC),
         }
 
 
@@ -369,9 +451,32 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert "dashboard_url" in result
         assert "utm_source=web_analytics_weekly_digest" in result["dashboard_url"]
         assert f"/project/{self.team.pk}/web" in result["dashboard_url"]
+        assert result["metadata"]["data_status"] == "ok"
 
-    def test_works_with_no_events(self):
+    @parameterized.expand(
+        [
+            ("no_events", None, "no_sessions"),
+            ("custom_events_only", "signed_in", "no_web_sessions"),
+            ("pageviews_outside_period", "$pageview", "no_sessions"),
+            ("custom_events_with_non_uuidv7_session_id", "signed_in", "no_sessions", "custom-session-1"),
+        ]
+    )
+    def test_works_with_no_web_traffic(
+        self, _name: str, event: str | None, expected_status: str, session_id: str | None = None
+    ) -> None:
         with time_machine.travel(QUERY_TIMESTAMP, tick=False):
+            if event:
+                _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
+                timestamp = "2025-01-10" if event == "$pageview" else "2025-01-25"
+                _create_event(
+                    team=self.team,
+                    event=event,
+                    distinct_id="user_1",
+                    timestamp=timestamp,
+                    properties={"$session_id": session_id or str(uuid7(timestamp))},
+                )
+                flush_persons_and_events()
+
             result = build_team_digest(self.team)
 
         assert result["team"] == self.team
@@ -383,3 +488,15 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert result["top_pages"] == []
         assert result["top_sources"] == []
         assert result["goals"] == []
+        assert result["metadata"]["data_status"] == expected_status
+        assert result["metadata"]["filter_test_accounts"] is True
+        assert result["metadata"]["date_from"].date().isoformat() == "2025-01-22"
+
+    def test_metadata_period_matches_a_cached_overview(self) -> None:
+        with time_machine.travel("2025-01-28T23:00:00Z", tick=False):
+            build_team_digest(self.team)
+        with time_machine.travel("2025-01-29T01:00:00Z", tick=False):
+            result = build_team_digest(self.team)
+
+        assert result["metadata"]["date_from"].date().isoformat() == "2025-01-21"
+        assert result["metadata"]["date_to"].date().isoformat() == "2025-01-28"

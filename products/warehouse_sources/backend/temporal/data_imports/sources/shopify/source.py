@@ -1,9 +1,8 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -41,6 +39,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH,
+    SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
     SHOPIFY_MISSING_CREDENTIALS_ERROR,
@@ -111,6 +111,14 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                 "Your Shopify access token is missing the permissions required to read some of your data. "
                 "Please reconnect your Shopify integration and grant the requested access scopes."
             ),
+            # GraphQL "This app is not approved to access the <object> object" — the store's
+            # Shopify plan doesn't grant apps access to customer PII. No scope or reconnect can
+            # fix this; the merchant must upgrade their plan or stop syncing tables with PII.
+            SHOPIFY_GRAPHQL_PII_PLAN_RESTRICTED_ERROR: (
+                "Your Shopify plan doesn't allow apps to access customer personal data (PII) such as "
+                "names, addresses, emails, and phone numbers. Upgrade to the Shopify, Advanced, or Plus "
+                "plan, or turn off syncing the tables that include customer PII."
+            ),
             # 402 Payment Required from the Admin API — the store is frozen for an unpaid
             # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
             SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
@@ -118,6 +126,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # time but Shopify now rejects it. Retrying cannot recover; the user must
             # reconnect their integration.
             SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
+            # 404 from the Admin API GraphQL endpoint — no live store answers at the configured
+            # address. Retrying cannot recover; the user must correct the store id, the same fix
+            # as the token endpoint's 404 above.
+            SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH: SHOPIFY_STORE_NOT_FOUND_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -140,7 +152,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHOPIFY,
+            name=ExternalDataSourceType.SHOPIFY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
             caption=(

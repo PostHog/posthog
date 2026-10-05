@@ -60,6 +60,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ipAddresses": "IP addresses registered for the node.",
         },
     },
+    "backends": {
+        "description": "Backends (remote services, databases and message queues) registered in each application, resolving the exit point targets that tiers and business transactions call.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "application_id": "Identifier of the application the backend is registered in.",
+            "id": "Unique identifier of the backend within the controller.",
+            "name": "Name of the backend, as shown on the flow map.",
+            "exitPointType": "Type of exit point the backend is called through (e.g. JDBC, JMS, HTTP).",
+            "properties": "Name-value properties identifying the backend, which vary by exit point type (e.g. HOST, PORT, SCHEMA, VENDOR, URL for JDBC).",
+            "tierId": "Identifier of the tier that calls the backend, 0 when it is not tier-specific.",
+            "applicationComponentNodeId": "Identifier of the node that calls the backend, 0 when it is not node-specific.",
+        },
+    },
     "health_rule_violations": {
         "description": "Health rule violations (policy breaches such as slow response times or high error rates) per application, synced by their start time.",
         "docs_url": _DOCS_URL,
@@ -77,6 +90,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "affectedEntityDefinition": "Entity (tier, node, business transaction) the violation affects.",
             "triggeredEntityDefinition": "Entity whose metrics triggered the violation.",
             "deepLinkUrl": "Link to the violation in the AppDynamics controller UI.",
+        },
+    },
+    "anomalies": {
+        "description": "Anomaly detection violations, the machine-learning counterpart to health rule violations, synced by their start time.",
+        "docs_url": "https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis/anomaly-violation-api",
+        "columns": {
+            "application_id": "Identifier of the application the anomaly was detected in.",
+            "id": "Unique identifier of the anomaly violation within the controller.",
+            "status": "Current status of the anomaly (e.g. OPEN, RESOLVED).",
+            "description": "Summary of what the anomaly detected.",
+            "startTime": "Epoch-ms timestamp when the anomaly started.",
+            "endTime": "Epoch-ms timestamp when the anomaly ended.",
+            "duration": "How long the anomaly lasted, in milliseconds.",
+            "affectedEntityId": "Identifier of the entity the anomaly affects.",
+            "affectedEntityName": "Name of the entity the anomaly affects.",
+            "affectedEntityType": "Type of the affected entity (e.g. BUSINESS_TRANSACTION, APPLICATION_COMPONENT_NODE).",
+            "eventDetailMap": "Events that opened, upgraded or downgraded the anomaly. Empty because suspected causes are not synced.",
         },
     },
     "metric_data": {
@@ -171,6 +201,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Name of the folder or metric.",
             "type": "Whether the item is a 'folder' holding more metrics or a 'leaf' metric.",
             "depth": "How many levels below the metric browser root the item sits.",
+        },
+    },
+    "database_servers": {
+        "description": "Database servers monitored by Database Visibility, the inventory behind the database backends that applications call.",
+        "docs_url": "https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis/database-visibility-api",
+        "columns": {
+            "id": "Unique identifier of the monitored database server within the controller.",
+            "name": "Name of the database collector monitoring the server.",
+            "type": "Database type (e.g. ORACLE, MYSQL, MSSQL).",
+            "hostname": "Hostname of the database server.",
+            "port": "Port the collector connects to the database server on.",
+            "enabled": "Whether the collector is currently collecting from the server.",
+            "licensesUsed": "Licenses the collector consumes. Always -1 on controller 21.2 and later, which licenses Database Visibility per infrastructure unit instead.",
         },
     },
 }

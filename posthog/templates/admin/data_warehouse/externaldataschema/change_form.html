@@ -280,7 +280,7 @@
                 <button type="submit"
                         form="repartition-action-form"
                         class="default"
-                        onclick="return confirm('Repartition + reset resync (non-billable) for this schema?');">
+                        data-confirm="Repartition + reset resync (non-billable) for this schema?">
                     Repartition &amp; resync
                 </button>
             </div>
@@ -363,15 +363,11 @@
                 <button type="submit"
                         form="pause-schedule-action-form"
                         class="default"
-                        onclick="return confirm('Pause the Temporal schedule for this schema?');">
-                    Pause schedule
-                </button>
+                        data-confirm="Pause the Temporal schedule for this schema?">Pause schedule</button>
                 <button type="submit"
                         form="unpause-schedule-action-form"
                         class="default"
-                        onclick="return confirm('Unpause the Temporal schedule for this schema?');">
-                    Unpause schedule
-                </button>
+                        data-confirm="Unpause the Temporal schedule for this schema?">Unpause schedule</button>
             </div>
             <p class="help">
                 If the schedule is missing entirely (pause/unpause/sync fail with "workflow not found",
@@ -383,7 +379,7 @@
                 <button type="submit"
                         form="recreate-schedule-action-form"
                         class="default"
-                        onclick="return confirm('Recreate the Temporal schedule for this schema? No sync run is triggered.');">
+                        data-confirm="Recreate the Temporal schedule for this schema? No sync run is triggered.">
                     Recreate schedule
                 </button>
             </div>
@@ -408,7 +404,7 @@
                 <button type="submit"
                         form="trigger-sync-action-form"
                         class="default"
-                        onclick="return confirm('Trigger a sync for this schema?');">Trigger sync</button>
+                        data-confirm="Trigger a sync for this schema?">Trigger sync</button>
             </div>
         </div>
     </fieldset>
@@ -423,8 +419,8 @@
                 <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ cdc_extraction_schedule_id }}"
                    target="_blank">View CDC extraction schedule in Temporal</a>
                 <p class="help">
-                    For CDC schemas, the per-schema schedule above is paused once streaming starts.
-                    This source-level schedule is what drives the actual change capture.
+                    For CDC schemas, this source-level schedule captures changes into the buffer,
+                    and the per-schema schedule above loads them into the table.
                 </p>
             </div>
         {% endif %}

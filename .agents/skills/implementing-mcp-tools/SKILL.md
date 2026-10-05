@@ -18,7 +18,8 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML — enable tools, add scopes, annotations, descriptions
+# 2. Configure the YAML — enable tools, add descriptions, and annotations for PATCH/POST/PUT
+#    (scopes come from the API when omitted)
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
@@ -26,6 +27,14 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 
 # 4. Generate handlers and schemas
 hogli build:openapi
+
+# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
+# A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
+# true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
+
+# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+pnpm --filter=@posthog/mcp run generate:ui-apps
 ```
 
 ## Before you scaffold: fix the backend first
@@ -40,7 +49,7 @@ Before scaffolding YAML, verify:
    Missing descriptions = agents guessing at parameters.
    Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
    and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
-   (see `products/alerts/backend/api/alert.py` for the pattern).
+   (see `products/alerts/backend/presentation/views/alert.py` for the pattern).
 2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
    without it, drf-spectacular can't discover the request body
    and the generated tool gets `z.object({})` (zero parameters).
@@ -87,7 +96,7 @@ Without action trimming, `experiment-freeze-exposure` can advertise the
 redundant domain `experiment-freeze` instead of `experiment`.
 
 Whenever you add or rename an action tool, check the
-[`TRAILING_ACTIONS`](services/mcp/src/lib/instructions.ts) set in the
+[`TRAILING_ACTIONS`](../../../services/mcp/src/lib/instructions.ts) set in the
 same change. If a rendered domain can end in an operation verb that is not
 already present, add the verb. Cover it in
 `services/mcp/tests/unit/instructions.test.ts`. This applies even when the verb
@@ -142,14 +151,13 @@ tools:
   your-tool-name: # kebab-case
     operation: operationId_from_openapi
     enabled: true
-    scopes:
+    # Optional:
+    scopes: # defaults to the scopes the API requires (from the OpenAPI spec)
       - your_product:read
-    annotations:
+    annotations: # defaults for GET and DELETE; required for PATCH, POST and PUT
       readOnly: true
       destructive: false
       idempotent: true
-    # Optional:
-    mcp_version: 1 # 2 for create/update/delete ops, 1 for read/list if available via HogQL
     title: List things
     description: >
       Human-friendly description for the LLM.
@@ -172,6 +180,15 @@ tools:
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```
 
+When `scopes` is omitted, the generator uses the scopes the API requires, so the tool cannot drift from the endpoint.
+Set `scopes` by hand only when the API computes them per request (the generator fails and says so) or to gate a tool more tightly.
+A `scopes` list that misses a scope the API requires prints a warning, and a GitHub annotation on CI.
+`annotations` default to the HTTP method for GET (read-only) and DELETE (destructive).
+PATCH, POST and PUT vary too much (a PATCH can be a soft delete or non-idempotent), so declare `annotations` for them.
+
+When a tool needs custom logic around the request, set `hooks: <path under src/tools/>` and default-export an object with `beforeRequest`, `afterResponse` or `onError` from that module, written `export default { onError } satisfies ToolHooks<Params>` so a typo fails typecheck (see `ToolHooks` in `src/tools/tool-hooks.ts`).
+Use it to read state before a write or to turn a known error into a result, rather than shadowing the generated tool with a hand-written one.
+
 Unknown keys are rejected at build time (Zod `.strict()`).
 
 ### Gating tools with feature flags
@@ -184,6 +201,46 @@ Add `feature_flag` to any tool (standard or query wrapper) to gate its exposure 
 Reusing the same flag key with both behaviors performs an atomic swap: flag on → new tool visible, old tool hidden; flag off → old tool visible, new tool hidden. Useful for A/B testing tool variations.
 
 Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag can't be evaluated (service error, missing flag), `enable`-gated tools are excluded and `disable`-gated tools are included — fail-closed for new tools, fail-open for existing ones.
+
+### Enabling or renaming a tool
+
+The MCP server and Django deploy separately.
+A tool that reaches clients before its route lands returns 404 on every call until the Django deploy catches up.
+That hits a whole agent fleet at once.
+
+- **Land the route first.** Ship the endpoint, then enable the tool in a later change. A tool with
+  `enabled: true` in the same commit as a brand-new route is live in clients as soon as the MCP
+  server deploys.
+- **Or gate it.** Add `feature_flag` with `feature_flag_behavior: enable` and turn the flag on once
+  the route is serving.
+- **Keep the old name on a rename.** Leave the previous tool name in the YAML, pointing at the same
+  operation, until the new name has deployed everywhere. Sunset it with
+  `feature_flag_behavior: disable` on the same flag key, which swaps the two atomically.
+
+### Deprecating a tool
+
+A rename or a removal has two stages. Do not stop after the first one.
+
+1. **Alias, while callers migrate.** Register the old name as a thin wrapper that calls the current
+   handler and adds a `_deprecation_notice` to the response. The call still succeeds, and the agent
+   learns the new name. See `services/mcp/src/tools/skills/deprecatedAliases.ts`, spread into
+   `TOOL_MAP` in `services/mcp/src/tools/index.ts`. Use an alias only when the replacement accepts
+   the same arguments.
+2. **Redirect, when you delete the alias.** In the same change, add the old name to
+   `DEPRECATED_TOOL_REDIRECTS` in `services/mcp/src/tools/exec.ts`. The call then fails with a
+   `deprecated_tool` error that names the replacement, instead of the generic `Unknown tool: "..."`.
+   State any argument changes in the text — see the `self-driving-inbox-get` entry.
+
+Go directly to stage 2 when the replacement is not a drop-in. An alias that quietly drops renamed
+parameters is worse than a call that fails.
+
+Keep the redirect entry until the old name stops receiving traffic. `isRecordableToolName` records
+`$mcp_exec_target_tool` only for a name the server owns: a live tool, or a
+`DEPRECATED_TOOL_REDIRECTS` key. If you delete the entry too early, the remaining calls become
+unattributable in MCP analytics, and you can no longer tell whether anything still uses the old name.
+
+A tool that a feature flag removes is a different case. It keeps its definition, declares
+`superseded_by` in the YAML, and `flagGatedToolMessage` answers the call.
 
 ### Syncing after endpoint changes
 
@@ -212,20 +269,10 @@ These descriptions are what agents read to understand tool parameters.
 
 Every list/get endpoint should have a corresponding HogQL system table
 in [`posthog/hogql/database/schema/system.py`](../../../posthog/hogql/database/schema/system.py).
-This lets agents query data via SQL in v2 of the MCP.
+This lets agents query data via SQL.
 
 Each system table **must include a `team_id` column** for data isolation.
-
-Use `mcp_version: 1` on read/list YAML tools when a system table covers the same data —
-v2 agents use SQL instead.
 
 When adding a system table, also add a model reference file
 (`models-<domain>.md`) in [`products/posthog_ai/skills/querying-posthog-data/references/`](../../../products/posthog_ai/skills/querying-posthog-data/references/)
 and register it in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](../../../products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
-
-## Two MCP versions
-
-- **v1 (legacy)**: all CRUD tools exposed, for clients without skill support.
-- **v2 (SQL-first)**: read/list tools replaced by HogQL, create/update/delete tools kept. For coding agents.
-
-Control per-tool availability with `mcp_version: 1/2` in the YAML definition.

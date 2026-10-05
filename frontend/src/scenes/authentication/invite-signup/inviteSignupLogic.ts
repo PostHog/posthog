@@ -3,11 +3,12 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import type { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 
@@ -249,6 +250,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     breakpoint()
 
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         return await api.get(`api/signup/${id}/`)
                     } catch (e: any) {
                         if (e.status === 400) {
@@ -276,6 +278,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     if (!values.invite) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return api.create(`api/signup/${values.invite.id}/`)
                 },
             },
@@ -312,6 +315,12 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         submitPayload.challenge_nonce = values.challengeNonce
                     }
 
+                    const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
+                    if (nextUrl) {
+                        submitPayload.next_url = nextUrl
+                    }
+
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const res = await api.create(`api/signup/${values.invite.id}/`, submitPayload)
                     location.href = res.redirect_url || '/' // hard refresh because the current_organization changed
                 } catch (e) {
@@ -333,6 +342,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     const targetEmail = values.invite?.target_email
                     if ((error.status === undefined || error.status >= 500) && targetEmail) {
                         try {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                             await api.create('api/signup/precheck', { email: targetEmail })
                         } catch (probeError) {
                             const probe = probeError as Record<string, any>
@@ -391,6 +401,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
             actions.setPasskeyError(null)
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const beginResponse = await api.create<RegistrationBeginResponse>(
                     'api/webauthn/signup-register/begin/',
                     { email }
@@ -415,6 +426,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     },
                 })
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/webauthn/signup-register/complete/', attestation)
 
                 actions.setPasskeyRegistered(true)

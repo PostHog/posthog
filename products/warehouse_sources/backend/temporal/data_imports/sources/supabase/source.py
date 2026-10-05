@@ -1,20 +1,13 @@
 import re
 from typing import Optional
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -29,16 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-_SourceField = (
-    SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
-)
-
 # Supabase's direct connection host (`db.<ref>.supabase.co`) is IPv6-only and so is
 # unreachable from PostHog's IPv4 egress — by far the biggest cause of Supabase
 # connection failures. Users need the connection pooler host instead.
@@ -48,6 +31,18 @@ _SUPABASE_DIRECT_HOST_RE = re.compile(r"^db\.[a-z0-9]+\.supabase\.co$", re.IGNOR
 # REST/API endpoint, not a Postgres host. Pasting it (often with the scheme) into the host field
 # just yields an opaque DNS failure, so detect it and point users at the actual database host.
 _SUPABASE_PROJECT_HOST_RE = re.compile(r"^(?P<ref>[a-z0-9]+)\.supabase\.co$", re.IGNORECASE)
+
+# The pooler username is `postgres.<project-ref>`, which reads like a host name — our own pooler
+# guidance spells it out, and it lands in the host field often enough to be worth naming. A project
+# ref is 20 characters, and a bare `postgres.<label>` that long is not a resolvable host either
+# way, so matching it can't reject a host that would have worked.
+_SUPABASE_POOLER_USERNAME_HOST_RE = re.compile(r"^postgres\.[a-z0-9]{16,}$", re.IGNORECASE)
+
+_SUPABASE_POOLER_USERNAME_AS_HOST_ERROR = (
+    "The host looks like your Supabase pooler username, not a database host. Enter the Session "
+    "pooler host (aws-0-<region>.pooler.supabase.com) as the host, and postgres.<project-ref> as "
+    "the user."
+)
 
 
 def _strip_host_scheme(host: str) -> str:
@@ -162,7 +157,7 @@ class SupabaseSource(PostgresSource):
         )
 
     @staticmethod
-    def _adjust_field(field: _SourceField) -> _SourceField:
+    def _adjust_field(field: FieldType) -> FieldType:
         if isinstance(field, SourceFieldInputConfig) and field.name == "host":
             return field.model_copy(
                 update={
@@ -177,7 +172,7 @@ class SupabaseSource(PostgresSource):
         fields = [self._adjust_field(field) for field in super().get_source_config.fields]
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SUPABASE,
+            name=ExternalDataSourceType.SUPABASE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql", "postgresql", "postgres"],
             featured=True,
@@ -197,6 +192,9 @@ class SupabaseSource(PostgresSource):
         require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         bare_host = _strip_host_scheme(config.host or "")
+        if _SUPABASE_POOLER_USERNAME_HOST_RE.match(bare_host):
+            return False, _SUPABASE_POOLER_USERNAME_AS_HOST_ERROR
+
         project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)
         if project_host:
             # Project refs are lowercase, and the pooler username (postgres.<ref>) is

@@ -140,6 +140,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             date_to=date_range.date_to(),
             interval=self.query.interval,
             formula=self.query.formula,
+            min_interval=self.query.minInterval,
         )
 
     def _calculate(self) -> MetricsQueryResponse:
@@ -158,6 +159,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     points=[MetricsQueryPoint(time=p.time, value=p.value) for p in s.points],
                     metricName=s.metric_name,
                     clause=s.clause,
+                    unit=s.unit or None,
                 )
                 for s in series
             ]

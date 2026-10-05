@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://posthog.com/contracts/feature_flag_rules_v2/management_warning.schema.json",
+  "title": "Management warning diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "code"
+  ],
+  "properties": {
+    "code": {
+      "enum": [
+        "RULE_ORDER_CHANGES_TRAFFIC",
+        "UNREACHABLE_LOWER_RULE",
+        "ROLLOUT_MISS_CAN_ENTER_LOWER_RULE",
+        "ASSIGNMENT_RESET_CHANGES_TRAFFIC",
+        "CONCLUSION_EXPANDS_POPULATION"
+      ]
+    },
+    "detail": {
+      "type": "string"
+    },
+    "attr": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "description": "A warning code is normative; optional detail is presentation text and attr identifies a field. This diagnostic shape does not prescribe an endpoint envelope or acknowledgement protocol."
+}

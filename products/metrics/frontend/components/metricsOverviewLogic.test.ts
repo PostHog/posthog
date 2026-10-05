@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { metricsOverviewRetrieve, metricsValuesRetrieve } from '../generated/api'
+import { metricsNamesRetrieve, metricsOverviewRetrieve } from '../generated/api'
 import type { _MetricsOverviewResponseApi } from '../generated/api.schemas'
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -19,7 +19,7 @@ jest.mock('../generated/api', () => ({
     metricsOverviewRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsSamplesCreate: jest.fn(),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
 }))
 
 const OVERVIEW_FIXTURE: _MetricsOverviewResponseApi = {
@@ -48,7 +48,7 @@ describe('metricsOverviewLogic', () => {
         jest.mocked(metricsOverviewRetrieve).mockReset()
         jest.mocked(metricsOverviewRetrieve).mockResolvedValue(OVERVIEW_FIXTURE as any)
         // The name picker mounts alongside the viewer logic and loads on mount.
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [] } as any)
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] } as any)
     })
 
     afterEach(() => {
@@ -72,7 +72,7 @@ describe('metricsOverviewLogic', () => {
         ['a named service', 'api', { key: 'service_name', op: 'eq', value: 'api' }, ['api']],
         ['the unknown service', '', { key: 'service_name', op: 'regex', value: '^$' }, ['']],
     ])(
-        'viewService sends a service filter for %s, scopes the picker, and opens the catalog',
+        'viewService sends a service filter for %s, scopes the picker, and opens the viewer',
         async (_name, serviceName, expected, pickerServices) => {
             logic = metricsOverviewLogic()
             logic.mount()
@@ -84,12 +84,10 @@ describe('metricsOverviewLogic', () => {
                 metricsSceneLogic.actionTypes.setActiveTab,
             ])
 
-            // Clicking into a service lands on its catalog of metric cards, not an
-            // empty viewer, so there is something to look at before picking a name.
-            expect(metricsSceneLogic.values.activeTab).toBe('explore')
+            expect(metricsSceneLogic.values.activeTab).toBe('viewer')
             expect(metricsViewerLogic.values.queryFilters).toEqual([expected])
-            // The landing promise: the catalog the user arrives at offers only the
-            // metrics that service reports, not every metric in the project.
+            // The viewer's metric picker offers only the metrics that this service
+            // reports, not every metric in the project.
             expect(metricNamePickerLogic.values.services).toEqual(pickerServices)
         }
     )

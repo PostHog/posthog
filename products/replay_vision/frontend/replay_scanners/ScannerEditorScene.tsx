@@ -5,9 +5,9 @@ import { useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
+import * as trenchcoatPng from '@posthog/brand/hoggies/png/trenchcoat'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconSparkles } from '@posthog/icons'
 import {
@@ -23,8 +23,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -55,22 +57,21 @@ import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
+    SCANNER_STEPPER_STEPS,
     STEP_LABELS,
     ScannerEditorStep,
     UNVALIDATED_SCANNER_STEPS,
-    scannerStepErrors,
     scannerEditorSceneLogic,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
-import { ScannerEditorStepper } from './ScannerEditorStepper'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
-import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
+import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS, scannerTypeOptions } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
-const HedgehogReporter = pngHoggie(reporterPng)
 const HedgehogMoney = pngHoggie(moneyPng)
+const HedgehogReporter = pngHoggie(reporterPng)
+const HedgehogTrenchcoat = pngHoggie(trenchcoatPng)
 const HedgehogXRay = pngHoggie(xRayPng)
 
 export const scene: SceneExport = {
@@ -90,7 +91,7 @@ const STEP_HEADERS: Record<
         subtitle: 'All optional. Tags help you find it later in the scanner list.',
     },
     configure: {
-        hedgehog: <HedgehogMagnifyingGlass className="h-16 sm:h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogTrenchcoat className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Configure your scanner',
         subtitle: 'What it looks for and how it analyzes recordings.',
     },
@@ -111,8 +112,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
-    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
-    const [manualMode, setManualMode] = useState(false)
+    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
     // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
     const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
@@ -122,15 +122,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const {
-        scanner,
-        scannerLoading,
-        isScannerSubmitting,
-        scannerValidationErrors,
-        showScannerErrors,
-        durationValidationError,
-        experimentContext,
-    } = useValues(scannerLogic)
+    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     // An experiment cross-sell entry point has already said what to watch and deep-linked the
@@ -138,7 +130,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     // user restate it, so those entries get the template picker with the prefill already applied.
     // Only the deep link decides this. A context that arrives later (the experiment fetch, or a
     // restored draft that carries targeting) would swap the layout under someone already typing.
-    const showGoalEntry = step === 'template' && goalFlow && !manualMode && !experimentDeepLink
+    const showGoalEntry = step === 'template' && goalFlow && !experimentDeepLink
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -149,10 +141,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     }
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
-
-    const stepErrors = showScannerErrors
-        ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
-        : undefined
 
     // Validate the current step and move on: submit routes to the next step on success. A step with
     // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
@@ -192,9 +180,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         actions={<ReplayVisionFeedbackButton />}
                     />
                     {showGoalEntry || step === 'overview' || fromOverview ? null : (
-                        <ScannerEditorStepper
+                        <GuidedWizardStepper
+                            steps={SCANNER_STEPPER_STEPS}
                             currentStep={step}
-                            steps={SCANNER_EDITOR_STEPS}
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
                             disabledSteps={
@@ -202,6 +190,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     ? undefined
                                     : { template: 'A saved scanner keeps the template it was created from' }
                             }
+                            className="flex-wrap justify-center gap-y-1"
+                            aria-label="Scanner editor progress"
                         />
                     )}
                     {step === 'template' ? (
@@ -217,7 +207,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         for you to review.
                                     </p>
                                 </div>
-                                <ScannerGoalFlow onManual={() => setManualMode(true)} />
+                                <ScannerGoalFlow />
                             </>
                         ) : (
                             <>
@@ -362,9 +352,8 @@ function ConfigureStep(): JSX.Element {
     const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     if (!scanner) {
         return <></>
@@ -405,16 +394,18 @@ function ConfigureStep(): JSX.Element {
                             }
                             setScannerType(next)
                         }}
-                        options={SCANNER_TYPE_OPTIONS.map((opt) => ({
-                            value: opt.value,
-                            label: opt.label,
-                            labelInMenu: (
-                                <div className="flex flex-col">
-                                    <span className="font-medium">{opt.label}</span>
-                                    <span className="text-xs text-muted">{opt.description}</span>
-                                </div>
-                            ),
-                        }))}
+                        options={scannerTypeOptions(experimentScanners || scanner.scanner_type === 'experiment').map(
+                            (opt) => ({
+                                value: opt.value,
+                                label: opt.label,
+                                labelInMenu: (
+                                    <div className="flex flex-col">
+                                        <span className="font-medium">{opt.label}</span>
+                                        <span className="text-xs text-muted">{opt.description}</span>
+                                    </div>
+                                ),
+                            })
+                        )}
                     />
                 </LemonField>
             ) : (
@@ -439,18 +430,10 @@ function ConfigureStep(): JSX.Element {
 
             <div className="flex flex-col gap-1 items-start">
                 <LemonField name="model" label="Model" className="items-start">
-                    <LemonSelect
-                        className="max-w-full"
-                        value={scanner.model}
-                        options={getModelOptions(namingVariant)}
-                    />
+                    <LemonSelect className="max-w-full" value={scanner.model} options={MODEL_OPTIONS} />
                 </LemonField>
-                {/* The price line stays outside the variant branch so every arm of the model-naming experiment
-                    shows it. Tier names give even less of a cost anchor than provider model names do. */}
                 <div className="text-xs text-muted">
-                    {namingVariant
-                        ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
-                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
+                    Newer models tend to produce higher-quality observations, but cost more per observation.{' '}
                     <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />
                 </div>
             </div>
@@ -620,6 +603,8 @@ function EditorFooter({
                                     loading={isSubmitting}
                                     disabledReason={saveDisabledReason}
                                     onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
+                                    // The consent popover anchors here, and a popover anchor gets a dropdown chevron unless told otherwise.
+                                    sideIcon={null}
                                     data-attr="vision-editor-save"
                                     data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
                                 >

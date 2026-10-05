@@ -27,7 +27,7 @@ jest.mock('../logics/runStreamLogic', () => ({
 jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
 
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
-jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
+jest.mock('./ContextUsageChip', () => ({ ContextUsageChip: () => <div data-attr="context" /> }))
 jest.mock('./PermissionInput', () => ({ PermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./QuestionInput', () => ({ QuestionInput: () => <div data-attr="question" /> }))
 jest.mock('./RunLogSkeleton', () => ({ RunLogSkeleton: () => <div data-attr="run-log-skeleton" /> }))
@@ -38,6 +38,7 @@ function setValues(
         pendingPermissionRequest: PermissionRequestRecord | null
         respondingToPermission: boolean
         bootstrapLoading: boolean
+        runOpening: boolean
         threadItems: unknown[]
         task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
     }>
@@ -136,6 +137,31 @@ describe('RunSurface', () => {
     })
 
     describe('Composer slot', () => {
+        it('replaces the loading fallback with the composer after the run status resolves', () => {
+            setValues({ currentRunStatus: null })
+            const surface = (
+                <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                    <RunSurface.Composer loadingFallback={<div data-attr="composer-loading" />}>
+                        <div data-attr="composer-child" />
+                    </RunSurface.Composer>
+                </RunSurface.Root>
+            )
+            const { rerender } = render(surface)
+            expect(screen.getByTestId('composer-loading')).toBeInTheDocument()
+            expect(screen.queryByTestId('composer-child')).not.toBeInTheDocument()
+
+            setValues({ currentRunStatus: 'completed' })
+            rerender(
+                <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                    <RunSurface.Composer loadingFallback={<div data-attr="composer-loading" />}>
+                        <div data-attr="composer-child" />
+                    </RunSurface.Composer>
+                </RunSurface.Root>
+            )
+            expect(screen.queryByTestId('composer-loading')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer-child')).toBeInTheDocument()
+        })
+
         it('clears a draft sent before its debounce commits', () => {
             jest.useFakeTimers()
             try {
@@ -167,9 +193,9 @@ describe('RunSurface', () => {
             }
         )
 
-        it('hides the composer during the null bootstrap window', () => {
-            renderLiveWithComposer(null)
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+        it.each([false, true])('shows the pending composer only for an optimistic start: %s', (runOpening) => {
+            renderLiveWithComposer({ currentRunStatus: null, runOpening })
+            expect(!!screen.queryByTestId('composer')).toBe(runOpening)
             // The thread still renders while bootstrapping.
             expect(screen.getByTestId('thread')).toBeInTheDocument()
         })
@@ -305,5 +331,22 @@ describe('RunSurface', () => {
                 expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
             }
         )
+
+        it('keeps an optimistic provisioning thread visible while task metadata loads', () => {
+            setValues({ bootstrapLoading: true, threadItems: [], task: null })
+            render(
+                <RunSurface.Root
+                    taskId="task-1"
+                    runId="run-1"
+                    streamKey="report-implementation-client-stream"
+                    interaction="live"
+                >
+                    <RunSurface.Thread />
+                </RunSurface.Root>
+            )
+
+            expect(screen.getByTestId('thread')).toBeInTheDocument()
+            expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
+        })
     })
 })

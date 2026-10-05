@@ -6,10 +6,13 @@ describe('resolveReportCardClickIntent', () => {
     test.each([
         ['plain click with nothing selected opens the report', plain, false, 'open'],
         ['plain click in selection mode toggles instead of opening', plain, true, 'toggle'],
-        ['cmd-click toggles from an empty selection', { ...plain, metaKey: true }, false, 'toggle'],
-        ['ctrl-click toggles from an empty selection', { ...plain, ctrlKey: true }, false, 'toggle'],
+        ['cmd-click opens from an empty selection', { ...plain, metaKey: true }, false, 'open'],
+        ['ctrl-click opens from an empty selection', { ...plain, ctrlKey: true }, false, 'open'],
+        ['cmd-click opens in selection mode', { ...plain, metaKey: true }, true, 'open'],
+        ['ctrl-click opens in selection mode', { ...plain, ctrlKey: true }, true, 'open'],
         ['shift-click ranges', { ...plain, shiftKey: true }, true, 'range'],
-        ['shift wins over cmd', { shiftKey: true, metaKey: true, ctrlKey: false }, true, 'range'],
+        ['cmd wins over shift', { shiftKey: true, metaKey: true, ctrlKey: false }, true, 'open'],
+        ['ctrl wins over shift', { shiftKey: true, metaKey: false, ctrlKey: true }, true, 'open'],
     ])('%s', (_name, modifiers, hasSelection, expected) => {
         expect(resolveReportCardClickIntent(modifiers, hasSelection)).toBe(expected)
     })

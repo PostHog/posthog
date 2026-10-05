@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import (
     AppdynamicsAuth,
     AppdynamicsResumeConfig,
@@ -57,12 +55,12 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPDYNAMICS,
+            name=ExternalDataSourceType.APPDYNAMICS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk AppDynamics (Cisco)",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["appdynamics", "cisco", "splunk", "apm"],
-            caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, events, transaction snapshots, health rules, health rule violations, metric paths, and metric time series) into the PostHog Data warehouse.
+            caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, backends, events, transaction snapshots, health rules, health rule violations, anomalies, metric paths, metric time series, and monitored database servers) into the PostHog Data warehouse.
 
 Enter your controller URL (e.g. `https://mycompany.saas.appdynamics.com`) and your account name, then authenticate with an OAuth API client (recommended) or a username and password.
 

@@ -190,10 +190,23 @@ export const personhogStoreShadowFoldRedriveCounter = new Counter({
     labelNames: ['outcome'],
 })
 
+export const personhogStoreShadowMergeRedriveCounter = new Counter({
+    name: 'personhog_store_shadow_merge_redrive_total',
+    help: 'Shadow merges re-driven at a flush after their retries ended unsettled: settled, deferred to a later flush, or dropped; abandoned counts a re-queue at the ceiling before the final outcome',
+    labelNames: ['outcome'],
+})
+
 export const personhogStoreShadowCompareFailedCounter = new Counter({
     name: 'personhog_store_shadow_compare_failed_total',
     help: 'Shadow comparisons that threw, which is a fault in the comparison rather than in either backend',
     labelNames: ['verb'],
+})
+
+export const personhogStoreShadowDurationSeconds = new Histogram({
+    name: 'personhog_store_shadow_duration_seconds',
+    help: 'Wall time the shadowed personhog side of a store verb adds to the event pipeline, by verb',
+    labelNames: ['verb'],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
 export const personProfileUpdateOutcomeCounter = new Counter({

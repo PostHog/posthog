@@ -67,27 +67,6 @@ export interface experimentTimeseriesLogicActions {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
     } // eventUsageLogic
-    clearTimeseries: () => {
-        value: true
-    }
-    clearTimeseriesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    clearTimeseriesSuccess: (
-        timeseries: null,
-        payload?: {
-            value: true
-        }
-    ) => {
-        timeseries: null
-        payload?: {
-            value: true
-        }
-    }
     loadTimeseries: ({ metric }: { metric: ExperimentMetric }) => {
         metric: ExperimentMetric
     }
@@ -165,7 +144,6 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     })),
 
     actions(() => ({
-        clearTimeseries: true,
         recalculateTimeseries: ({ metric }: { metric: ExperimentMetric }) => ({ metric }),
     })),
 
@@ -181,18 +159,19 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         throw new Error('Metric fingerprint is required')
                     }
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsTimeseriesResultsRetrieve() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
                     return response
                 },
-                clearTimeseries: () => null,
                 recalculateTimeseries: async ({ metric }: { metric: ExperimentMetric }) => {
                     if (!metric.fingerprint) {
                         throw new Error('Metric fingerprint is required')
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsRecalculateTimeseriesCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.createResponse(
                             `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/recalculate_timeseries/`,
                             {

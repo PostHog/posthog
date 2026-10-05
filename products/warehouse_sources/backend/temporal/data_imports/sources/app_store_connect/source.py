@@ -1,14 +1,14 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+import structlog
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
@@ -44,6 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+logger = structlog.get_logger(__name__)
+
+_UNEXPECTED_PROBE_STATUS = "App Store Connect is not answering correctly right now. Wait a few minutes, then try again."
+
 _MISSING_VENDOR_NUMBER = (
     "Add your vendor number in the source settings to sync sales and subscription reports. "
     "You can find it in App Store Connect under Payments and Financial Reports."
@@ -67,9 +71,9 @@ class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStor
 
         caption = """Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
 
-An Account Holder or Admin creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
+An **Account Holder** or **Admin** creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Set the key's access role there — it decides which tables sync. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
 
-Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Finance, Sales, or Admin role. Leave it blank if you only want app, review and build data.
+Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the **Finance**, **Sales**, or **Admin** role. Leave it blank if you only want app, review and build data.
 
 The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report.
 
@@ -79,7 +83,7 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             caption = f"{caption}\n\n{restatement_note}"
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APP_STORE_CONNECT,
+            name=ExternalDataSourceType.APPSTORECONNECT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Apple (App Store Connect)",
             releaseStatus=ReleaseStatus.GA,
@@ -251,9 +255,12 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             # reports what it can't reach, so don't block source creation on it.
             return True, None
         if status == 403:
-            return False, "Your App Store Connect API key does not have permission to read this data."
+            return False, APP_STORE_CONNECT_READ_FORBIDDEN_ERROR
         if status != 200:
-            return False, f"App Store Connect returned status {status}"
+            # Apple answers a signed probe with 429 or a 5xx when it is busy. The status itself means
+            # nothing to the user, so keep it in the log and tell them what to do instead.
+            logger.warning("app_store_connect_credential_probe_unexpected_status", status=status)
+            return False, _UNEXPECTED_PROBE_STATUS
 
         # Create and edit only: the per-schema call runs once per table in the picker, and each
         # would list every app again.

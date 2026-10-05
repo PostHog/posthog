@@ -12,6 +12,8 @@ import type {
     CommunitySkillApi,
     CommunitySkillInstallApi,
     CommunitySkillPublishResultApi,
+    CommunitySkillRenderApi,
+    CommunitySkillRenderResponseApi,
     CommunitySkillVoteResponseApi,
     CommunitySkillsListParams,
     LLMSkillApi,
@@ -21,6 +23,7 @@ import type {
     LLMSkillFileCreateApi,
     LLMSkillFileRenameApi,
     LLMSkillImportApi,
+    LLMSkillMarkdownApi,
     LLMSkillMarketplaceCommandApi,
     LLMSkillMarketplaceIssueApi,
     LLMSkillPublishToCommunityApi,
@@ -33,6 +36,7 @@ import type {
     LlmSkillsNameFilesDestroyParams,
     LlmSkillsNameFilesRetrieveParams,
     LlmSkillsNameRetrieveParams,
+    LlmSkillsNameSkillMdRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
     LlmSkillsSearchRetrieveParams,
     PaginatedCommunitySkillListListApi,
@@ -114,6 +118,30 @@ export const communitySkillsInstallCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(communitySkillInstallApi),
+    })
+}
+
+export const getCommunitySkillsRenderCreateUrl = (projectId: string, slug: string) => {
+    return `/api/projects/${projectId}/community_skills/${slug}/render/`
+}
+
+/**
+ * Bind a catalog entry's template variables and return the text a create form starts from.
+ *
+ * Persists nothing, so it needs no more access than reading the catalog already does — the
+ * result is prefill, and the caller creates the skill or scout through its own product's path.
+ */
+export const communitySkillsRenderCreate = async (
+    projectId: string,
+    slug: string,
+    communitySkillRenderApi?: CommunitySkillRenderApi,
+    options?: RequestInit
+): Promise<CommunitySkillRenderResponseApi> => {
+    return apiMutator<CommunitySkillRenderResponseApi>(getCommunitySkillsRenderCreateUrl(projectId, slug), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(communitySkillRenderApi),
     })
 }
 
@@ -493,7 +521,7 @@ export const getLlmSkillsNamePublishCommunityCreateUrl = (projectId: string, ski
 export const llmSkillsNamePublishCommunityCreate = async (
     projectId: string,
     skillName: string,
-    lLMSkillPublishToCommunityApi?: LLMSkillPublishToCommunityApi,
+    lLMSkillPublishToCommunityApi: LLMSkillPublishToCommunityApi,
     options?: RequestInit
 ): Promise<CommunitySkillPublishResultApi> => {
     return apiMutator<CommunitySkillPublishResultApi>(getLlmSkillsNamePublishCommunityCreateUrl(projectId, skillName), {
@@ -519,6 +547,44 @@ export const llmSkillsNameRenameCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMSkillRenameApi),
+    })
+}
+
+export const getLlmSkillsNameSkillMdRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameSkillMdRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/skill-md/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/name/${skillName}/skill-md/`
+}
+
+/**
+ * The rendered SKILL.md plus its frontmatter as JSON, for a host that serves the file.
+ *
+ * Both halves come from one renderer, so a digest a client takes over ``content`` still
+ * describes the fields it reads from ``frontmatter``.
+ */
+export const llmSkillsNameSkillMdRetrieve = async (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameSkillMdRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillMarkdownApi> => {
+    return apiMutator<LLMSkillMarkdownApi>(getLlmSkillsNameSkillMdRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

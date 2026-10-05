@@ -3,16 +3,18 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
 import { CollectedUrl } from './parse-and-anonymize-step'
 import { CollectedUrlsMessage, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
+import { ProducedTransportUrls } from './produced-refs'
 
 describe('produceCollectedUrlsStep', () => {
-    const PSEUDO_TEAM = 'a'.repeat(32)
+    const TEAM_ID = '42'
     const CAPTURED_AT = 1_700_000_000_000
-    let queued: { key: string; value: Buffer }[][]
+    let queued: { key: string; value: Buffer; headers?: Record<string, string> }[][]
     let outputs: IngestionOutputs<MlImageFetchOutput>
     let queueMessages: jest.Mock
     let topHog: TopHogRegistry
@@ -30,8 +32,50 @@ describe('produceCollectedUrlsStep', () => {
         topHogRecords = recordingTopHog.records
     })
 
+    function createStep({
+        producedRefCacheMax = 500_000,
+        producedRefCacheWindowMs = 15 * 24 * 60 * 60 * 1000,
+        crawlHistory,
+    }: {
+        producedRefCacheMax?: number
+        producedRefCacheWindowMs?: number
+        crawlHistory?: Pick<CrawlHistoryStore, 'read'>
+    } = {}) {
+        return createProduceCollectedUrlsStep(
+            outputs,
+            topHog,
+            new ProducedTransportUrls(producedRefCacheMax, producedRefCacheWindowMs),
+            { crawlHistory }
+        )
+    }
+
     function collected(hash: string, host: string, url: string, domain = host): CollectedUrl {
-        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, pseudoTeam: PSEUDO_TEAM, url, host, domain }
+        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, teamId: TEAM_ID, url, host, domain }
+    }
+
+    function collectedV3(hash: string, url: string): CollectedUrl {
+        const host = new URL(url).host
+        return {
+            ref: `imageurl:v3:${TEAM_ID}:2026-09:${hash.padEnd(22, 'x')}`,
+            teamId: TEAM_ID,
+            url,
+            host,
+            domain: host,
+        }
+    }
+
+    function v3SessionInput(sessionId: string, collectedUrls: CollectedUrl[]) {
+        const key = {
+            identity: { teamId: Number(TEAM_ID), sessionId, sessionMonth: '2026-09' },
+            plaintext: Buffer.alloc(32),
+            wrapped: Buffer.alloc(0),
+        }
+        return {
+            message: { timestamp: CAPTURED_AT },
+            headers: { session_id: sessionId },
+            mlKeys: { session: key, image: key },
+            collectedUrls,
+        }
     }
 
     function decode(batch: { key: string; value: Buffer }[]) {
@@ -71,7 +115,7 @@ describe('produceCollectedUrlsStep', () => {
         // time of the replay message, not the time the mirror produced it.
         jest.useFakeTimers().setSystemTime(new Date('2026-08-10T00:00:00.000Z'))
         try {
-            const step = createProduceCollectedUrlsStep(outputs, topHog)
+            const step = createStep()
             const result = await run(step, {
                 message: { timestamp: CAPTURED_AT },
                 collectedUrls: [
@@ -102,6 +146,10 @@ describe('produceCollectedUrlsStep', () => {
                     },
                 },
             ])
+            expect(queued[0].map((message) => message.headers?.[CAPTURE_TIMESTAMP_HEADER])).toEqual([
+                String(CAPTURED_AT),
+                String(CAPTURED_AT),
+            ])
             expect(topHogRecords.get('ml_image_fetch_produced_urls_by_registrable_domain')).toEqual([
                 { key: { registrable_domain: 'cdn.example.com' }, value: 2 },
                 { key: { registrable_domain: 'img.other.com' }, value: 1 },
@@ -113,14 +161,14 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     it('passes through elements with no collected URLs without producing', async () => {
-        const step = createProduceCollectedUrlsStep(outputs, topHog)
+        const step = createStep()
         await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: undefined })
         await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [] })
         expect(queueMessages).not.toHaveBeenCalled()
     })
 
     it('dedups an identical transport URL but produces a new URL for the same ref', async () => {
-        const step = createProduceCollectedUrlsStep(outputs, topHog)
+        const step = createStep()
         const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=old')
         const replacement = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=new')
         await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first] })
@@ -130,10 +178,48 @@ describe('produceCollectedUrlsStep', () => {
         ).toEqual([[[first.url]], [[replacement.url]]])
     })
 
+    it('dedups an identical transport URL that another session of the team collected', async () => {
+        const step = createStep()
+        const url = collectedV3('h1', 'https://cdn.example.com/a.jpg')
+
+        await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000001', [url]))
+        await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000002', [url]))
+
+        expect(queued).toHaveLength(1)
+    })
+
+    it('skips a v3 ref whose crawl history is fresh', async () => {
+        const fresh = collectedV3('h1', 'https://cdn.example.com/fresh.jpg')
+        const missing = collectedV3('h2', 'https://cdn.example.com/missing.jpg')
+        const read = jest.fn<
+            ReturnType<Pick<CrawlHistoryStore, 'read'>['read']>,
+            Parameters<Pick<CrawlHistoryStore, 'read'>['read']>
+        >()
+        read.mockResolvedValue(
+            new Map([
+                [
+                    fresh.ref,
+                    {
+                        kind: 'url' as const,
+                        key: fresh.ref,
+                        nextFetchAtMs: Number.MAX_SAFE_INTEGER,
+                        storageExpiresAtMs: Number.MAX_SAFE_INTEGER,
+                        outcome: 'ok',
+                    },
+                ],
+            ])
+        )
+        const step = createStep({ crawlHistory: { read } })
+
+        await run(step, v3SessionInput('01a0c669-8800-7000-8000-000000000001', [fresh, missing]))
+
+        expect(decode(queued[0])[0].value.jobs.map((job) => job.originalRef)).toEqual([missing.ref])
+    })
+
     it('produces an identical transport URL again after the dedup window', async () => {
         jest.useFakeTimers().setSystemTime(10_000)
         try {
-            const step = createProduceCollectedUrlsStep(outputs, topHog, {
+            const step = createStep({
                 producedRefCacheMax: 100,
                 producedRefCacheWindowMs: 1_000,
             })
@@ -152,7 +238,7 @@ describe('produceCollectedUrlsStep', () => {
 
     it('swallows a failed produce and un-marks its refs so a later sighting produces again', async () => {
         queueMessages.mockRejectedValueOnce(new Error('broker down'))
-        const step = createProduceCollectedUrlsStep(outputs, topHog)
+        const step = createStep()
         const entry = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
 
         const result = await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
@@ -203,7 +289,7 @@ describe('produceCollectedUrlsStep', () => {
                     ],
                 ])
             )
-            const step = createProduceCollectedUrlsStep(outputs, topHog, { crawlHistory: { read } })
+            const step = createStep({ crawlHistory: { read } })
 
             await run(step, {
                 message: { timestamp: CAPTURED_AT },
@@ -223,7 +309,7 @@ describe('produceCollectedUrlsStep', () => {
     it('produces every URL when the crawl-history read fails', async () => {
         const entry = collected('h1', 'img.example.com', 'https://img.example.com/a.png')
         const read = jest.fn().mockRejectedValue(new Error('store unavailable'))
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { crawlHistory: { read } })
+        const step = createStep({ crawlHistory: { read } })
 
         const result = await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
 
@@ -233,17 +319,17 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     test.each([
-        ['inline image', `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
-        ['legacy team-scoped URL', `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['inline image', `image:${TEAM_ID}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['legacy team-scoped URL', `imageurl:${'a'.repeat(32)}:h1xxxxxxxxxxxxxxxxxxxx`],
     ])('refuses to produce a %s ref', async (_name, ref) => {
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100 })
+        const step = createStep({ producedRefCacheMax: 100 })
 
         await run(step, {
             message: { timestamp: CAPTURED_AT },
             collectedUrls: [
                 {
                     ref,
-                    pseudoTeam: PSEUDO_TEAM,
+                    teamId: TEAM_ID,
                     url: 'https://img.example.com/a.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -256,15 +342,15 @@ describe('produceCollectedUrlsStep', () => {
 
     it('drops a bytes ref that follows a usable one, and keeps the rest', async () => {
         // A guard that reads only the first entry passes this array and produces the bytes ref.
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100 })
+        const step = createStep({ producedRefCacheMax: 100 })
 
         await run(step, {
             message: { timestamp: CAPTURED_AT },
             collectedUrls: [
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
-                    ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
-                    pseudoTeam: PSEUDO_TEAM,
+                    ref: `image:${TEAM_ID}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    teamId: TEAM_ID,
                     url: 'https://img.example.com/inlined.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -284,7 +370,7 @@ describe('produceCollectedUrlsStep', () => {
     it('packs many short urls into one record', async () => {
         // A fixed count would have cut this into several records and used a fraction of each. The
         // budget is bytes, so ordinary URLs pack until the bytes run out.
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100_000 })
+        const step = createStep({ producedRefCacheMax: 100_000 })
         const many = Array.from({ length: 400 }, (_v, i) =>
             collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${i}.png`)
         )
@@ -297,7 +383,7 @@ describe('produceCollectedUrlsStep', () => {
     it('splits on the count bound even when the bytes would fit', async () => {
         // The fetcher refuses a record above its own count cap, whole. Byte packing alone would let
         // the collector's per-message cap in another crate decide how many entries a record holds.
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100_000 })
+        const step = createStep({ producedRefCacheMax: 100_000 })
         const many = Array.from({ length: 1200 }, (_v, i) =>
             collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${i}.png`)
         )
@@ -312,7 +398,7 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     it('splits when the urls are long enough to fill a record', async () => {
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100_000 })
+        const step = createStep({ producedRefCacheMax: 100_000 })
         const long = 'x'.repeat(2000)
         const many = Array.from({ length: 400 }, (_v, i) =>
             collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${long}${i}.png`)
@@ -329,7 +415,7 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     it('drops an entry whose ref names another team', async () => {
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100 })
+        const step = createStep({ producedRefCacheMax: 100 })
         const otherTeam = 'b'.repeat(32)
 
         await run(step, {
@@ -338,7 +424,7 @@ describe('produceCollectedUrlsStep', () => {
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
                     ref: `imageurl:h2xxxxxxxxxxxxxxxxxxxx`,
-                    pseudoTeam: otherTeam,
+                    teamId: otherTeam,
                     url: 'https://img.example.com/b.png',
                     host: 'img.example.com',
                     domain: 'img.example.com',
@@ -355,7 +441,7 @@ describe('produceCollectedUrlsStep', () => {
         // A CDN that shards over numbered subdomains is one operator. Keying by host gave it one
         // budget per subdomain, which is the fragmentation this key exists to prevent. Each entry
         // still carries its own host, because robots.txt and the connection limit are per host.
-        const step = createProduceCollectedUrlsStep(outputs, topHog, { producedRefCacheMax: 100 })
+        const step = createStep({ producedRefCacheMax: 100 })
 
         await run(step, {
             message: { timestamp: CAPTURED_AT },

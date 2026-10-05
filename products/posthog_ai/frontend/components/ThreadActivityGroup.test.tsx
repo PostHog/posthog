@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ToolInvocation } from '../types/streamTypes'
@@ -57,7 +57,6 @@ describe('ThreadActivityGroup', () => {
         )
         const { rerender } = render(renderGroup(makeGroup(count)))
         fireEvent.click(screen.getByTestId('thread-activity-toggle'))
-        fireEvent.click(screen.getAllByTestId('thread-tool-chain').at(-1)!.querySelector('[role="button"]')!)
         fireEvent.click(screen.getByText(`call-${count - 1}`))
         expect(screen.getByText(`Details for call-${count - 1}`)).toBeVisible()
 
@@ -79,19 +78,30 @@ describe('ThreadActivityGroup', () => {
         expect(screen.getByText(`Details for call-${count - 1}`)).toBeVisible()
     })
 
-    it('collapses consecutive tools into a chain while keeping failures and individual calls accessible', () => {
+    it.each([
+        ['identical calls fold into one chain', () => 'execute-sql', 1, '· 8 calls· 1 failed'],
+        [
+            'runs shorter than three stay flat',
+            (index: number) => (index % 4 < 2 ? 'execute-sql' : 'query-trends'),
+            0,
+            '',
+        ],
+    ])('%s, but only inside the hidden middle', (_name, toolFor, chainCount, chainText) => {
         const tools = new Map<string, ToolInvocation>(
-            ['first', 'second', 'third'].map((id, index) => [
-                id,
-                {
-                    toolCallId: id,
-                    rawServerName: 'posthog',
-                    rawToolName: 'exec',
-                    input: { command: 'call execute-sql {}' },
-                    status: index === 1 ? 'failed' : 'completed',
-                    contentBlocks: [],
-                },
-            ])
+            Array.from({ length: 13 }, (_, index) => {
+                const id = `call-${index}`
+                return [
+                    id,
+                    {
+                        toolCallId: id,
+                        rawServerName: 'posthog',
+                        rawToolName: 'exec',
+                        input: { command: `call ${toolFor(index)} {}` },
+                        status: index === 5 ? 'failed' : 'completed',
+                        contentBlocks: [],
+                    },
+                ]
+            })
         )
         render(
             <ThreadActivityGroup
@@ -103,17 +113,29 @@ describe('ThreadActivityGroup', () => {
                 toolInvocations={tools}
                 active={false}
                 cancelled={false}
-                renderItem={(item) => <div>{item.id}</div>}
+                renderItem={(item) => <div data-attr="test-activity-row">{item.id}</div>}
             />
         )
         fireEvent.click(screen.getByTestId('thread-activity-toggle'))
-        const chain = screen.getByTestId('thread-tool-chain')
-        expect(chain).toHaveTextContent('execute-sql· 3 calls· 1 failed')
-        expect(screen.queryByText('first')).not.toBeInTheDocument()
-        fireEvent.click(chain.querySelector('[role="button"]')!)
+        expect(screen.getAllByTestId('test-activity-row').map((row) => row.textContent)).toEqual([
+            'call-0',
+            'call-1',
+            'call-10',
+            'call-11',
+            'call-12',
+        ])
+        expect(screen.queryByTestId('thread-tool-chain')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByTestId('thread-activity-more'))
+        expect(screen.queryAllByTestId('thread-tool-chain')).toHaveLength(chainCount)
+        if (chainCount) {
+            const chain = screen.getByTestId('thread-tool-chain')
+            expect(chain).toHaveTextContent(`SQL query${chainText}`)
+            fireEvent.click(chain.querySelector('[role="button"]')!)
+        }
         for (const id of tools.keys()) {
             expect(screen.getByText(id)).toBeVisible()
         }
+        expect(screen.getByTestId('thread-activity-more')).toHaveTextContent('Show less')
     })
 
     it('reveals thought-only activity with one click and keeps streamed text readable when a tool arrives', () => {
@@ -164,7 +186,7 @@ describe('ThreadActivityGroup', () => {
         expect(screen.getByTestId('thread-activity-refresh')).toHaveTextContent('Show 1 new activity')
     })
 
-    it('keeps the inspected rows stable while new calls arrive and adds hidden failures without replacing them', async () => {
+    it('keeps the inspected rows stable while new calls arrive and reveals every row with one more click', () => {
         const tools = new Map<string, ToolInvocation>(
             Array.from({ length: 12 }, (_, index) => {
                 const id = `call-${index}`
@@ -209,62 +231,14 @@ describe('ThreadActivityGroup', () => {
             items: [...group.items, { id: 'call-11', type: 'tool_invocation', toolCallId: 'call-11' }],
         }
         rerender(renderGroup(next))
-        expect(screen.getByTestId('thread-activity-toggle')).toHaveTextContent('2 tool calls failed')
+        expect(screen.getByTestId('thread-activity-toggle')).not.toHaveTextContent('failed')
         expect(screen.getByText('call-10: failed')).toBeInTheDocument()
         expect(screen.queryByText('call-11: in_progress')).not.toBeInTheDocument()
         fireEvent.click(screen.getByTestId('thread-activity-refresh'))
         expect(screen.getByText('call-11: in_progress')).toBeInTheDocument()
-        fireEvent.click(screen.getByTestId('thread-activity-failures'))
-        expect(screen.getAllByTestId('test-activity-row')).toHaveLength(6)
-        expect(screen.getByText('call-5: failed')).toBeInTheDocument()
-        expect(screen.getByText('call-10: failed')).toBeInTheDocument()
-        expect(screen.getByText('call-11: in_progress')).toBeInTheDocument()
-        fireEvent.click(screen.getByTestId('thread-activity-failures'))
-        await waitFor(() => expect(screen.queryByText('call-5: failed')).not.toBeInTheDocument())
-        expect(screen.getAllByTestId('test-activity-row')).toHaveLength(5)
-    })
-
-    it('pages additional failures without changing the ordinary activity page or duplicating visible calls', () => {
-        const tools = new Map<string, ToolInvocation>(
-            Array.from({ length: 300 }, (_, index) => {
-                const id = `failure-${index}`
-                return [
-                    id,
-                    {
-                        toolCallId: id,
-                        rawServerName: 'example',
-                        rawToolName: index % 2 === 0 ? 'read' : 'search',
-                        input: {},
-                        status: 'failed',
-                        contentBlocks: [],
-                    },
-                ]
-            })
-        )
-        const group: ActivityGroup = {
-            id: 'failures',
-            type: 'activity_group',
-            items: [...tools.keys()].map((id) => ({ id, type: 'tool_invocation', toolCallId: id })),
-        }
-        render(
-            <ThreadActivityGroup
-                group={group}
-                toolInvocations={tools}
-                active={false}
-                cancelled={false}
-                renderItem={(item) => <div data-attr="test-activity-row">{item.id}</div>}
-            />
-        )
-        fireEvent.click(screen.getByTestId('thread-activity-toggle'))
         fireEvent.click(screen.getByTestId('thread-activity-more'))
-        fireEvent.click(screen.getByTestId('thread-activity-next'))
-        const originalRows = screen.getAllByTestId('test-activity-row').map((row) => row.textContent)
-        fireEvent.click(screen.getByTestId('thread-activity-failures'))
-        expect(screen.getAllByTestId('test-activity-row')).toHaveLength(25)
-        fireEvent.click(screen.getByTestId('thread-activity-failures-next'))
-        const rows = screen.getAllByTestId('test-activity-row').map((row) => row.textContent)
-        expect(new Set(rows).size).toBe(25)
-        originalRows.forEach((text) => expect(rows).toContain(text))
-        expect(screen.getByText('Page 2 of 30')).toBeInTheDocument()
+        expect(screen.getAllByTestId('test-activity-row').map((row) => row.textContent)).toEqual(
+            [...tools.keys()].map((id) => `${id}: ${tools.get(id)?.status}`)
+        )
     })
 })

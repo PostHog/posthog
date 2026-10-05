@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -53,11 +51,11 @@ class FireworksAISource(ResumableSource[FireworksAISourceConfig, FireworksAIResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FIREWORKS_AI,
+            name=ExternalDataSourceType.FIREWORKSAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Fireworks AI",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Fireworks AI API key and account ID to sync your models, datasets, deployments, fine-tuning jobs, batch inference jobs, evaluations, and account users into the PostHog Data warehouse.
+            caption="""Enter your Fireworks AI API key and account ID to sync your models, datasets, deployments, routers, fine-tuning jobs, batch inference jobs, evaluations, account users, and token and spend usage into the PostHog Data warehouse.
 
 You can find or create an API key in your [Fireworks AI account settings](https://app.fireworks.ai/settings/users/api-keys). Your account ID is shown in your account settings and in every resource name (`accounts/<account-id>/...`).""",
             iconPath="/static/services/fireworks_ai.svg",
@@ -111,15 +109,16 @@ You can find or create an API key in your [Fireworks AI account settings](https:
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The API documents an AIP-160 `filter` param but not its filterable fields, and we could
-        # not verify server-side timestamp filtering, so every table is full refresh only
-        # (see settings.py).
+        # The list endpoints document an AIP-160 `filter` param but not its filterable fields, and
+        # we could not verify server-side timestamp filtering, so every collection is full refresh
+        # only. `account_usage` windows on a documented startTime/endTime filter and is the one
+        # table that can sync incrementally (see settings.py).
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(FIREWORKS_AI_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=FIREWORKS_AI_ENDPOINTS[endpoint].incremental_fields,
                 detected_primary_keys=FIREWORKS_AI_ENDPOINTS[endpoint].primary_keys,
             )
             for endpoint in ENDPOINTS
@@ -178,5 +177,7 @@ You can find or create an API key in your [Fireworks AI account settings](https:
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Fireworks AI endpoint is full refresh
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

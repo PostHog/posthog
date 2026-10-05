@@ -44,21 +44,27 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   // references (fonts) are relative, so they only resolve alongside the
                   // toolbar/assets/ directory it was built with.
                   //
-                  // When __POSTHOG_TOOLBAR_PUBLIC_PATH__ is baked in at build
-                  // time (posthog-js versioned bundle), load the CSS from the
-                  // same versioned URL as the JS bundle. The version is the
-                  // cache key, so no cache-busting query param is needed.
-                  //
-                  // Otherwise (i.e. posthog/posthog's own deploys), fall back to
-                  // serving it from the API host alongside toolbar.js, with a
-                  // 5-minute cache-buster on the unversioned URL.
+                  // The loader shares the origin it was served from as
+                  // __POSTHOG_TOOLBAR_SCRIPT_SRC__. Resolve the CSS from that origin so it
+                  // follows the same reverse proxy as the JS. The loader prefers this over the
+                  // baked absolute CDN host for the same reason (see resolveAppUrl in loader.ts),
+                  // and this is why a style-src 'self' CSP or an ad blocker no longer strips the
+                  // stylesheet on proxied customer pages.
+                  const scriptSrc = (window as any).__POSTHOG_TOOLBAR_SCRIPT_SRC__ as string | undefined
+
                   if (__POSTHOG_TOOLBAR_PUBLIC_PATH__) {
-                      styleLink.href = `${__POSTHOG_TOOLBAR_PUBLIC_PATH__}toolbar/toolbar-app.css`
+                      // posthog-js versioned bundle: the version in the path is the cache key, so
+                      // no cache-busting query param is needed.
+                      const base = scriptSrc || __POSTHOG_TOOLBAR_PUBLIC_PATH__
+                      styleLink.href = new URL('toolbar/toolbar-app.css', base).href
                   } else {
+                      // posthog/posthog's own deploy: the URL is unversioned, so add a 5-minute
+                      // cache-buster.
                       const fiveMinutesInMillis = 5 * 60 * 1000
                       const timestampToNearestFiveMinutes =
                           Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                      styleLink.href = `${apiHost}/static/toolbar/toolbar-app.css?t=${timestampToNearestFiveMinutes}`
+                      const base = scriptSrc || `${apiHost}/static/toolbar.js`
+                      styleLink.href = new URL(`toolbar/toolbar-app.css?t=${timestampToNearestFiveMinutes}`, base).href
                   }
 
                   styleLink.onload = () => setDidLoadStyles(true)

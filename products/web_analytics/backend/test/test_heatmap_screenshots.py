@@ -464,6 +464,31 @@ class TestHeatmapsAPI(APIBaseTest):
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
 
+    @parameterized.expand(
+        [
+            ("default_order", None, True),
+            ("requested_descending", "-created_at", True),
+            ("requested_ascending", "created_at", False),
+        ]
+    )
+    def test_tied_timestamps_keep_a_stable_order_across_pages(self, _name, order, newest_first):
+        created = [
+            SavedHeatmap.objects.create(team=self.team, url=f"https://example.com/{index}", created_by=self.user)
+            for index in range(5)
+        ]
+        timestamp = timezone.now()
+        SavedHeatmap.objects.filter(team=self.team).update(created_at=timestamp, updated_at=timestamp)
+
+        query = f"&order={order}" if order else ""
+        seen: list[str] = []
+        for offset in range(5):
+            r = self.client.get(f"/api/environments/{self.team.id}/saved/?limit=1&offset={offset}{query}")
+            self.assertEqual(r.status_code, 200)
+            seen.extend(row["id"] for row in r.data["results"])
+
+        expected = [str(saved.id) for saved in sorted(created, key=lambda heatmap: heatmap.id, reverse=newest_first)]
+        self.assertEqual(seen, expected)
+
 
 class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
@@ -498,6 +523,12 @@ def _jpeg_bytes(width: int = 12, height: int = 12) -> bytes:
     return buf.getvalue()
 
 
+def _tiff_bytes() -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (12, 12), (200, 30, 30)).save(buf, format="TIFF")
+    return buf.getvalue()
+
+
 @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
 class TestHeatmapToolbarCapture(APIBaseTest):
     def setUp(self) -> None:
@@ -515,7 +546,10 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         data.update(overrides)
         return self.client.post(f"/api/environments/{self.team.id}/saved/capture/", data, format="multipart")
 
-    def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(self, mock_task: MagicMock) -> None:
+    @parameterized.expand([(None,), ("",), ("https://app.example.com/dashboard",), ("https://app.example.com/*",)])
+    def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(
+        self, mock_task: MagicMock, data_url: str | None
+    ) -> None:
         image_bytes = _jpeg_bytes()
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/capture/",
@@ -524,6 +558,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
                 "url": "https://app.example.com/dashboard",
                 "width": 1440,
                 "name": "Dashboard",
+                **({"data_url": data_url} if data_url is not None else {}),
             },
             format="multipart",
         )
@@ -533,7 +568,9 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(resp.data["type"], "screenshot")
 
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
-        self.assertEqual(saved.data_url, "https://app.example.com/dashboard")
+        self.assertEqual(saved.url, "https://app.example.com/dashboard")
+        self.assertEqual(saved.data_url, data_url or saved.url)
+        self.assertEqual(resp.data["data_url"], saved.data_url)
         self.assertEqual(saved.target_widths, [1440])
         self.assertEqual(saved.created_by, self.user)
 
@@ -562,6 +599,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         [
             ("wildcard_url", "https://app.example.com/*", _jpeg_bytes()),
             ("not_an_image", "https://app.example.com/x", b"<html>not a jpeg</html>"),
+            ("unsupported_format", "https://app.example.com/x", _tiff_bytes()),
         ]
     )
     def test_capture_rejects_invalid_input(self, _mock_task: MagicMock, _name: str, url: str, content: bytes) -> None:
@@ -611,6 +649,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
                 "images": [SimpleUploadedFile(f"heatmap-{w}.jpg", img, "image/jpeg") for w, img in zip(widths, images)],
                 "widths": widths,
                 "url": "https://app.example.com/dashboard",
+                "data_url": "https://app.example.com/*",
                 "name": "Dashboard",
             },
             format="multipart",
@@ -619,6 +658,8 @@ class TestHeatmapToolbarCapture(APIBaseTest):
 
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
         self.assertEqual(saved.source, SavedHeatmap.Source.TOOLBAR)
+        self.assertEqual(saved.url, "https://app.example.com/dashboard")
+        self.assertEqual(saved.data_url, "https://app.example.com/*")
         self.assertEqual(saved.target_widths, widths)
         self.assertEqual(sorted(s.width for s in saved.snapshots.all()), widths)
 
@@ -644,7 +685,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(resp.status_code, 400)
         mock_task.assert_not_called()
 
-    def test_partial_update_blocks_render_input_change_for_toolbar_but_allows_rename(
+    def test_partial_update_blocks_render_input_change_for_toolbar_but_allows_metadata(
         self, mock_task: MagicMock
     ) -> None:
         saved = SavedHeatmap.objects.create(
@@ -673,26 +714,39 @@ class TestHeatmapToolbarCapture(APIBaseTest):
 
         renamed = self.client.patch(
             f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
-            {"name": "Renamed"},
+            {"name": "Renamed", "data_url": "https://example.com/*"},
         )
         self.assertEqual(renamed.status_code, 200, renamed.data)
         saved.refresh_from_db()
         self.assertEqual(saved.name, "Renamed")
+        self.assertEqual(saved.data_url, "https://example.com/*")
+        self.assertEqual(saved.url, "https://example.com")
+        self.assertEqual(saved.status, SavedHeatmap.Status.COMPLETED)
+        self.assertEqual(saved.snapshots.count(), 1)
+        mock_task.assert_not_called()
 
 
 class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
     @parameterized.expand(
         [
-            ("wildcard", "https://app.example.com/*"),
-            ("javascript_scheme", "javascript:alert"),
-            ("ftp_scheme", "ftp://app.example.com/x"),
-            ("no_scheme", "app.example.com/x"),
+            ("wildcard", "url", "https://app.example.com/*"),
+            ("javascript_scheme", "url", "javascript:alert"),
+            ("ftp_scheme", "url", "ftp://app.example.com/x"),
+            ("no_scheme", "url", "app.example.com/x"),
+            ("invalid_data_url", "data_url", "not-a-url"),
         ]
     )
-    def test_rejects_invalid_url(self, _name: str, url: str) -> None:
-        serializer = SavedHeatmapCaptureRequestSerializer(data={"url": url})
+    def test_rejects_invalid_url(self, _name: str, field: str, url: str) -> None:
+        serializer = SavedHeatmapCaptureRequestSerializer(data={field: url})
         self.assertFalse(serializer.is_valid())
-        self.assertIn("url", serializer.errors)
+        self.assertIn(field, serializer.errors)
+
+    def test_accepts_a_query_string_url(self) -> None:
+        serializer = SavedHeatmapCaptureRequestSerializer(
+            data={"url": "https://app.example.com/dashboard?tab=(1)&q=a+b"}
+        )
+        serializer.is_valid()
+        self.assertNotIn("url", serializer.errors)
 
     @parameterized.expand(
         [

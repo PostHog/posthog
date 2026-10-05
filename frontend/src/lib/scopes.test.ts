@@ -1,14 +1,21 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
+    API_SCOPE_GROUPS,
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
     getScopeDescription,
     scopeMatchesSearch,
 } from 'lib/scopes'
 
-import { API_SCOPE_OBJECTS } from '~/types'
+import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
+const OAUTH_HIDDEN_SCOPE_OBJECTS = new Set(OAUTH_SCOPES_HIDDEN.map((scope) => scope.split(':')[0]))
+
+// The pickers never show an OAuth-hidden object, so only the rest need a row and a group.
+const PICKER_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi).filter((obj) => !OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -49,15 +56,39 @@ describe('API_SCOPES modal coverage', () => {
     const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
 
     it('offers or explicitly omits every scope object', () => {
-        // Guards the drift where a scope object is added to API_SCOPE_OBJECTS (mirroring a new
-        // backend scope) but its key-creation modal row is forgotten, silently hiding a grantable scope.
-        const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
+        // The enum is generated from posthog/scopes.py, so a new backend scope object fails here
+        // until someone offers it in the key-creation modal or gives a reason to omit it.
+        const uncovered = PICKER_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
         expect(uncovered).toEqual([])
     })
 
     it('never both offers and omits the same scope', () => {
-        const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
+        const overlap = [...omitted].filter((obj) => offered.has(obj as ScopeObjectEnumApi))
         expect(overlap).toEqual([])
+    })
+})
+
+describe('API_SCOPE_GROUPS', () => {
+    const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
+
+    it('files every picker scope object in exactly one group', () => {
+        // A new scope object fails here until someone picks the product area it belongs to.
+        const duplicates = [...new Set(filed.filter((obj, index) => filed.indexOf(obj) !== index))]
+        const missing = PICKER_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
+        expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
+    })
+
+    it('keeps OAuth-hidden scope objects out of every picker', () => {
+        // A hidden object with a row would show in the key picker, and a group that exists only for
+        // hidden objects carries a label that no person should ever see.
+        const shown = [...filed, ...API_SCOPES.map(({ key }) => key)]
+        const hidden = shown.filter((obj) => OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
+        expect(hidden).toEqual([])
+    })
+
+    it('uses each group label once', () => {
+        const labels = API_SCOPE_GROUPS.map(({ label }) => label)
+        expect(labels).toEqual([...new Set(labels)])
     })
 })
 

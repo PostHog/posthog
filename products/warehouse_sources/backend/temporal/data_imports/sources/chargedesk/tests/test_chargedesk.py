@@ -23,17 +23,28 @@ CHARGEDESK_SESSION_PATCH = (
 )
 
 
-def _small_charges_cfg(**overrides: Any) -> dict[str, Any]:
-    """CHARGEDESK_ENDPOINTS override shrinking the charges page size (and optionally the offset cap)
+def _small_cfg(endpoint: str, **overrides: Any) -> dict[str, Any]:
+    """CHARGEDESK_ENDPOINTS override shrinking an endpoint's page size (and optionally the offset cap)
     so pagination/window-shift behavior is testable with a handful of rows."""
-    base = dataclasses.replace(CHARGEDESK_ENDPOINTS["charges"], **{"page_size": 2, **overrides})
-    return {"charges": base}
+    return {endpoint: dataclasses.replace(CHARGEDESK_ENDPOINTS[endpoint], **{"page_size": 2, **overrides})}
+
+
+def _small_charges_cfg(**overrides: Any) -> dict[str, Any]:
+    return _small_cfg("charges", **overrides)
 
 
 def _response(items: list[dict[str, Any]]) -> Response:
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps({"data": items}).encode()
+    return resp
+
+
+def _items_response(items: list[dict[str, Any]]) -> Response:
+    # The charge items endpoint answers with two arrays; only `items` is synced.
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({"items": items, "taxes": []}).encode()
     return resp
 
 
@@ -65,6 +76,20 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
     return param_snapshots
+
+
+def _wire_requests(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Like `_wire`, but snapshots each request's URL alongside its params at send time."""
+    session.headers = {}
+    snapshots: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append((request.url, dict(request.params or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
 
 
 def _source(
@@ -362,6 +387,121 @@ class TestResume:
         assert params[0]["offset"] == 2
         assert params[0]["occurred[min]"] == 50
         assert "occurred[max]" not in params[0]
+
+
+class TestChargeItemsFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_charges_and_carries_parent_fields(self, MockSession) -> None:
+        session = MockSession.return_value
+        requests = _wire_requests(
+            session,
+            [
+                _response(_charges([("a", 30), ("b", 20)])),
+                _items_response([{"ord": 0, "amount": 12}]),
+                _items_response([{"ord": 0, "amount": 5}, {"ord": 1, "amount": 7}]),
+            ],
+        )
+
+        rows = _rows(_source(endpoint="charge_items"))
+
+        assert [url for url, _params in requests[1:]] == [
+            "https://api.chargedesk.com/v1/charges/a/items",
+            "https://api.chargedesk.com/v1/charges/b/items",
+        ]
+        # The parent's id and timestamp ride along under the names the table keys and partitions on.
+        assert [(r["charge_id"], r["ord"], r["charge_occurred"]) for r in rows] == [
+            ("a", 0, 30),
+            ("b", 0, 20),
+            ("b", 1, 20),
+        ]
+        # The child endpoint documents no paging params, so none are sent.
+        assert all(params == {} for _url, params in requests[1:])
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_bounds_the_parent_walk(self, MockSession) -> None:
+        session = MockSession.return_value
+        requests = _wire_requests(
+            session,
+            [_response(_charges([("a", 60)])), _items_response([{"ord": 0}])],
+        )
+
+        _rows(
+            _source(
+                endpoint="charge_items",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=50,
+            )
+        )
+
+        # The child takes no filters, so the watermark has to narrow the parent listing instead.
+        assert requests[0][1]["occurred[min]"] == 50
+        assert requests[1][1] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_each_completed_parent(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire_requests(
+            session,
+            [
+                _response(_charges([("a", 30), ("b", 20)])),
+                _items_response([{"ord": 0}]),
+                _items_response([{"ord": 0}]),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source(endpoint="charge_items", manager=manager))
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved[-1].phase == "full"
+        assert saved[-1].fanout_state["completed"] == ["/charges/a/items", "/charges/b/items"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_parents_already_fetched(self, MockSession) -> None:
+        session = MockSession.return_value
+        requests = _wire_requests(
+            session,
+            [_response(_charges([("a", 30), ("b", 20)])), _items_response([{"ord": 0}])],
+        )
+
+        manager = _make_manager(
+            ChargedeskResumeConfig(
+                phase="full",
+                fanout_state={"completed": ["/charges/a/items"], "current": None, "child_state": None},
+            )
+        )
+        _rows(_source(endpoint="charge_items", manager=manager))
+
+        # Only the parent that hadn't been fetched costs a request on the resumed run.
+        assert [url for url, _params in requests[1:]] == ["https://api.chargedesk.com/v1/charges/b/items"]
+
+
+class TestSyntheticLogIds:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_indistinguishable_rows_collapse_within_a_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        entry = {"object_type": "charge", "object_id": "a", "event": "charge-refund", "occurred": 100}
+        _wire(session, [_response([entry, dict(entry), {**entry, "event": "charge-void"}])])
+
+        rows = _rows(_source(endpoint="activity_log"))
+
+        assert [r["event"] for r in rows] == ["charge-refund", "charge-void"]
+        assert len({r["log_id"] for r in rows}) == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_row_reread_on_a_later_page_keeps_its_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        first = {"subscription_id": "s1", "action": "cancel", "occurred": 100}
+        boundary = {"subscription_id": "s2", "action": "pause", "occurred": 90}
+        _wire(session, [_response([first, boundary]), _response([boundary])])
+
+        with mock.patch.dict(CHARGEDESK_ENDPOINTS, _small_cfg("subscription_cancellations")):
+            rows = _rows(_source(endpoint="subscription_cancellations"))
+
+        ids = [r["log_id"] for r in rows if r["subscription_id"] == "s2"]
+        # The window-shift re-read has to merge onto the row it already synced, not land beside it.
+        assert len(ids) == 2
+        assert ids[0] == ids[1]
 
 
 class TestValidateCredentials:

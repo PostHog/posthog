@@ -9,18 +9,18 @@ export type ReportCardClickIntent = 'open' | 'toggle' | 'range'
 
 /**
  * A plain click opens the report until something is selected; from then on the list is in
- * selection mode and the same click toggles instead. Cmd / Ctrl always toggles, shift always
- * ranges, so a selection can start from an empty list.
+ * selection mode and the same click toggles instead. Cmd / Ctrl keeps browser navigation,
+ * while shift selects a range, so a selection can start from an empty list.
  */
 export function resolveReportCardClickIntent(
     modifiers: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
     hasSelection: boolean
 ): ReportCardClickIntent {
+    if (modifiers.metaKey || modifiers.ctrlKey) {
+        return 'open'
+    }
     if (modifiers.shiftKey) {
         return 'range'
-    }
-    if (modifiers.metaKey || modifiers.ctrlKey) {
-        return 'toggle'
     }
     return hasSelection ? 'toggle' : 'open'
 }

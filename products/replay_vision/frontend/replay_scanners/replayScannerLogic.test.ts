@@ -9,10 +9,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
-import { consumeGoalDraftIntent, markGoalDraftIntent } from './goalDraftIntent'
 import {
     buildObservationListParams,
     ObservationStatusValue,
@@ -23,6 +23,7 @@ import {
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { consumeScannerHandoffIntent, markScannerHandoffIntent } from './scannerHandoffIntent'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
@@ -63,8 +64,8 @@ describe('replayScannerLogic', () => {
                 '/api/projects/:team/vision/scanners/draft/': draftSpy,
             },
         })
-        // The draft layer persists form edits to localStorage and the nudge hand-off marker to
-        // sessionStorage; without a reset, one test's state bleeds into the next.
+        // The draft layer persists form edits to localStorage and the cross-product hand-off
+        // marker to sessionStorage; without a reset, one test's state bleeds into the next.
         localStorage.clear()
         sessionStorage.clear()
         initKeaTests()
@@ -197,8 +198,9 @@ describe('replayScannerLogic', () => {
             ).toFinishAllListeners()
 
             expect(draftSpy).toHaveBeenCalled()
-            expect(logic.values.goalDraftInput).toEqual('')
+            expect(logic.values.goalDraftInput).toEqual('understand what users come here to do')
             expect(logic.values.scanner).toMatchObject({
+                goal: 'understand what users come here to do',
                 name: draft.name,
                 description: draft.description,
                 scanner_type: draft.scanner_type,
@@ -327,54 +329,9 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toEqual(pathBefore)
         })
 
-        // The in-player analysis nudge hands the goal to the wizard via a one-shot sessionStorage
-        // hand-off that authorizes the auto-start; the free text never travels in the URL.
-        it('consumes the nudge hand-off: prefills the box and starts the draft with the goal never in the URL', async () => {
-            draftSpy.mockReturnValue([
-                200,
-                { name: 'Rage clicks', description: '', scanner_type: 'monitor', scanner_config: { prompt: 'x' } },
-            ])
-            markGoalDraftIntent('find rage clicks in checkout')
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
-
-            await expectLogic(logic, () => logic.actions.loadScanner())
-                .toDispatchActions([
-                    logic.actionCreators.setGoalDraftInput('find rage clicks in checkout'),
-                    'draftScannerFromGoal',
-                ])
-                .toFinishAllListeners()
-
-            expect(draftSpy).toHaveBeenCalled()
-            expect(router.values.searchParams.goal).toBeUndefined()
-            expect(logic.values.scanner).toMatchObject({ name: 'Rage clicks' })
-            expect(router.values.location.pathname).toContain(urls.replayVisionScannerDetails('new'))
-            // One-shot: the entry consumed the hand-off, so a reload cannot re-fire the draft.
-            expect(consumeGoalDraftIntent()).toBeNull()
-        })
-
-        // The hand-off is consumed on every wizard entry, even when another prefill path wins,
-        // so it can't stay armed for the tab session and auto-start from a later ?goal= link.
-        it('an entry that takes the experiment path still consumes the hand-off, so a later ?goal= link cannot auto-start', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
-                },
-            })
-            markGoalDraftIntent('find rage clicks in checkout')
-            router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
-            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
-
-            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
-            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
-
-            expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
-            expect(draftSpy).not.toHaveBeenCalled()
-        })
-
         // Documented precedence with the ?filters= deep link (a fully built query): filters win,
         // the free-text goal is dropped, regardless of which entry point built the URL.
         it('an explicit ?filters= param outranks the goal prefill and drops it', async () => {
-            markGoalDraftIntent('find rage clicks in checkout')
             router.actions.push(urls.replayVisionScannerTemplate('new'), {
                 filters: JSON.stringify({ kind: 'RecordingsQuery' }),
                 goal: 'find rage clicks in checkout',
@@ -386,8 +343,8 @@ describe('replayScannerLogic', () => {
             expect(draftSpy).not.toHaveBeenCalled()
         })
 
-        // A ?goal= link without the nudge's marker (e.g. crafted or shared) must not spend the
-        // user's AI allowance on its own; it only prefills the box for an explicit click.
+        // A ?goal= link (e.g. crafted or shared) must not spend the user's AI allowance on its own;
+        // it only prefills the box for an explicit click.
         it('a bare ?goal= param prefills the input without auto-starting the draft', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
 
@@ -398,21 +355,42 @@ describe('replayScannerLogic', () => {
             expect(router.values.searchParams.goal).toBeUndefined()
         })
 
-        // The drafted scanner persists over the sole saved-draft slot, so auto-starting on top of
-        // a restored draft would destroy the user's saved work without any action of theirs.
-        it('a nudge hand-off over a saved draft restores the draft and does not auto-start', async () => {
-            writeScannerDraft(MOCK_TEAM_ID, {
-                ...logic.values.scanner!,
-                name: 'My saved work',
+        // A cross-product entry point (e.g. "scan this error's recordings" in error tracking)
+        // hands over a whole prefilled scanner via one-shot sessionStorage, so customer text in
+        // the name and prompt never enters the URL. It expresses fresh intent like the experiment
+        // deep link, so it outranks a saved draft, but must not delete that draft.
+        it('consumes a scanner hand-off: seeds the wizard over a saved draft, one-shot, draft intact', async () => {
+            writeScannerDraft(MOCK_TEAM_ID, { ...logic.values.scanner!, name: 'My saved work' })
+            markScannerHandoffIntent({
+                source: 'error_tracking',
+                scanner: {
+                    name: 'Error tracking: TypeError',
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Watch each recording around the error.', length: 'medium' },
+                    query: {
+                        kind: NodeKind.RecordingsQuery,
+                        events: [{ id: '$exception', name: '$exception', type: 'events' }],
+                    },
+                    sampling_rate: 1.0,
+                    credit_limit: 5000,
+                    credit_limit_enabled: true,
+                },
             })
-            markGoalDraftIntent('find rage clicks in checkout')
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            router.actions.push(urls.replayVisionScannerOverview('new'))
 
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
 
-            expect(logic.values.scanner).toMatchObject({ name: 'My saved work' })
-            expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
-            expect(draftSpy).not.toHaveBeenCalled()
+            expect(logic.values.scanner).toMatchObject({
+                name: 'Error tracking: TypeError',
+                scanner_type: 'summarizer',
+                scanner_config: { prompt: 'Watch each recording around the error.', length: 'medium' },
+                query: expect.objectContaining({ events: [expect.objectContaining({ id: '$exception' })] }),
+                sampling_rate: 1.0,
+                credit_limit: 5000,
+                credit_limit_enabled: true,
+            })
+            expect(consumeScannerHandoffIntent()).toBeNull()
+            expect(readScannerDraft(MOCK_TEAM_ID)?.scanner.name).toEqual('My saved work')
         })
     })
 
@@ -1109,6 +1087,37 @@ describe('replayScannerLogic', () => {
             expect(patchedBody.credit_limit).toBe(100)
             expect(patchedBody).not.toHaveProperty('credit_limit_enabled')
         })
+
+        it('turns on self-driving with a patch of that one field and keeps the version the save bumped', async () => {
+            let patchedBody: any
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': async ({ request }: { request: Request }) => {
+                        patchedBody = await request.json()
+                        return [
+                            200,
+                            {
+                                ...loadedScanner,
+                                emits_signals: true,
+                                scanner_version: 7,
+                                updated_at: '2026-09-24T10:00:00Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            await expectLogic(editLogic, () => editLogic.actions.turnOnSelfDriving()).toDispatchActions([
+                'turnOnSelfDrivingSuccess',
+            ])
+            expect(patchedBody).toEqual({ emits_signals: true })
+            expect(editLogic.values.scanner).toMatchObject({ emits_signals: true, scanner_version: 7 })
+            expect(editLogic.values.originalScanner).toMatchObject({
+                emits_signals: true,
+                scanner_version: 7,
+                updated_at: '2026-09-24T10:00:00Z',
+            })
+        })
     })
 
     describe('buildObservationListParams', () => {
@@ -1284,8 +1293,10 @@ describe('replayScannerLogic', () => {
 
     describe('observationsPage / sort URL sync', () => {
         let scannedLogic: ReturnType<typeof replayScannerLogic.build>
+        let observationRequests: URL[]
 
         beforeEach(() => {
+            observationRequests = []
             useMocks({
                 get: {
                     '/api/projects/:team/vision/scanners/:id/': () => [
@@ -1299,7 +1310,10 @@ describe('replayScannerLogic', () => {
                             enabled: true,
                         },
                     ],
-                    '/api/projects/:team/vision/scanners/:id/observations/': { results: [], count: 0 },
+                    '/api/projects/:team/vision/scanners/:id/observations/': ({ request }) => {
+                        observationRequests.push(new URL(request.url))
+                        return [200, { results: [], count: 0 }]
+                    },
                     '/api/projects/:team/vision/scanners/:id/observations/stats/': {
                         status_counts: {
                             total: 0,
@@ -1319,6 +1333,45 @@ describe('replayScannerLogic', () => {
             })
             scannedLogic = replayScannerLogic({ id: 'sid' })
             scannedLogic.mount()
+        })
+
+        it('loads rows only when the table opens and preserves filters across tab changes', async () => {
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(0)
+            expect(scannedLogic.values.observationStatsApi).not.toBeNull()
+
+            await expectLogic(scannedLogic, () => {
+                router.actions.push(urls.replayVision('sid'), {
+                    tab: 'configuration',
+                    status: 'failed',
+                    sort: 'created_at',
+                })
+            }).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(0)
+
+            await expectLogic(scannedLogic, () =>
+                scannedLogic.actions.setObservationsActive(true)
+            ).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(1)
+            expect(observationRequests[0].searchParams.get('status')).toBe('failed')
+            expect(observationRequests[0].searchParams.get('order_by')).toBe('created_at')
+
+            await expectLogic(scannedLogic, () => scannedLogic.actions.refreshObservations()).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(2)
+
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationsActive(false)
+                scannedLogic.actions.refreshObservations()
+                scannedLogic.actions.setObservationStatusFilter(['succeeded'])
+            }).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(2)
+
+            await expectLogic(scannedLogic, () =>
+                scannedLogic.actions.setObservationsActive(true)
+            ).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(3)
+            expect(observationRequests[2].searchParams.get('status')).toBe('succeeded')
+            expect(observationRequests[2].searchParams.get('order_by')).toBe('created_at')
         })
 
         afterEach(() => {
@@ -1517,6 +1570,7 @@ describe('replayScannerLogic', () => {
             persisted.mount()
             try {
                 // The initial foreground load (also manual refresh, filter/sort/pagination) shows the overlay.
+                persisted.actions.setObservationsActive(true)
                 expect(persisted.values.observationsLoading).toBe(true)
 
                 persisted.actions.loadObservationsSuccess([], 0)
@@ -1572,14 +1626,17 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('drafting from a goal reports the AI path without the goal text', async () => {
+        it.each([
+            ['a typed goal', undefined, null],
+            ['a goal starter', 'dead_end', 'dead_end'],
+        ])('drafting from %s reports the AI path without the goal text', async (_, templateKey, reportedKey) => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             await expectLogic(logic, () => {
-                logic.actions.draftScannerFromGoal('  find users who get stuck  ')
+                logic.actions.draftScannerFromGoal('  find users who get stuck  ', undefined, templateKey)
             }).toFinishAllListeners()
             expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                 creation_method: 'ai',
-                template_key: null,
+                template_key: reportedKey,
                 goal_length: 'find users who get stuck'.length,
             })
         })
@@ -1631,6 +1688,34 @@ describe('replayScannerLogic', () => {
 
             expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
             expect(logic.values.experimentContext).toBeNull()
+        })
+
+        it('an experiment scanner loads its experiment from the config and estimates its scope', async () => {
+            const estimateSpy = jest.fn(() => [200, {}])
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [
+                        200,
+                        { id: 7, name: 'Checkout redesign', start_date: '2026-09-20T00:00:00Z' },
+                    ],
+                },
+                post: { '/api/projects/:team/vision/scanners/estimate/': estimateSpy },
+            })
+            logic.actions.setScannerType('experiment')
+
+            await expectLogic(logic, () => logic.actions.loadScannerEstimate()).toFinishAllListeners()
+            expect(estimateSpy).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(7)).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+
+            logic.actions.setScannerValue(['scanner_config', 'variants'], ['test'])
+            await expectLogic(logic, () => logic.actions.loadScannerEstimate()).toFinishAllListeners()
+            const body = await (estimateSpy.mock.calls.at(-1) as any)[0].request.json()
+            expect(body).toMatchObject({
+                experiment: { experiment_id: 7, variants: ['test'] },
+                experiment_targeting: null,
+            })
         })
     })
 

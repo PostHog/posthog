@@ -27,6 +27,7 @@ from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+MAX_SPARKLINE_BATCH_SIZE = 20
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
@@ -95,7 +96,7 @@ class MetricQueryRequest:
     `interval` is on the request (not per clause) so every series in the
     response shares one bucket grid — required for a formula like "a / b"
     to align, and the right default anyway. None means auto-pick from the
-    range.
+    range. `min_interval` is a floor for the auto pick and for `interval`.
     """
 
     clauses: tuple[MetricQueryClause, ...]
@@ -103,6 +104,7 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
+    min_interval: str | None = None
 
     def __post_init__(self) -> None:
         if not self.clauses:
@@ -137,6 +139,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
+    # did not set one. Set by `run_metric_query`, not by callers.
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +184,7 @@ class MetricAnomalyReport:
 
 @dataclass(frozen=True, slots=True)
 class MetricEventSample:
-    """A single raw metric emission: one `metric_samples` row enriched with its
+    """A single raw metric emission: one `metrics` row enriched with its
     `metric_series` labels. Backs the Samples view and the metric->trace pivot.
     Distinct from `MetricSeries`, which is aggregated at query time.
     """

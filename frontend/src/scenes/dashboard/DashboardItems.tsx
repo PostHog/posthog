@@ -24,7 +24,11 @@ import {
     getInsightQueryError,
     isWidgetTileVisibleOnPlacement,
 } from 'scenes/dashboard/dashboardUtils'
-import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
+import {
+    continueDragGestureInEditMode,
+    continueResizeGestureInEditMode,
+    whenPressBecomesDrag,
+} from 'scenes/dashboard/editLayoutGesture'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
@@ -120,7 +124,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
+        // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
+        skip: placement === DashboardPlacement.Dashboard,
+    })
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
@@ -284,9 +291,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () =>
             canEnterEditModeFromEdge
                 ? (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => {
-                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
-                      // continue the press into a live resize so the user doesn't have to release and grab again
-                      continueResizeGestureInEditMode(e, edge)
+                      whenPressBecomesDrag(e, (moveEvent) => {
+                          setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
+                          // continue the press into a live resize so the user doesn't have to release and grab again
+                          continueResizeGestureInEditMode(e, edge, moveEvent)
+                      })
                   }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardEditing]
@@ -316,9 +325,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                       }
                       e.preventDefault()
                       e.stopPropagation()
-                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
-                      // continue the press into a live drag so the user doesn't have to release and grab again
-                      continueDragGestureInEditMode(e)
+                      whenPressBecomesDrag(e, (moveEvent) => {
+                          setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
+                          // continue the press into a live drag so the user doesn't have to release and grab again
+                          continueDragGestureInEditMode(e, moveEvent)
+                      })
                   }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardEditing]
@@ -502,6 +513,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                             const commonTileProps = {
                                 dashboardId: dashboard?.id,
+                                canEditDashboard,
                                 showResizeHandles,
                                 canEnterEditModeFromEdge,
                                 onEnterEditModeFromEdge,
@@ -677,6 +689,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         onUpdateWidgetTile={async (patch) => {
                                             await updateWidgetTile({ tile, ...patch })
                                         }}
+                                        onConfigPublished={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}

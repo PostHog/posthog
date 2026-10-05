@@ -124,6 +124,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # insight specific config for the alert
     config = models.JSONField(default=dict, null=True, blank=True)
+    evaluation_delay_intervals = models.PositiveSmallIntegerField(default=0, db_default=0)
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
@@ -137,7 +138,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     calculation_interval = models.CharField(
         max_length=20,
         choices=CALCULATION_INTERVAL_CHOICES,
-        default=AlertCalculationInterval.DAILY,
+        default=AlertCalculationInterval.DAILY.value,
         null=True,
         blank=True,
     )
@@ -149,12 +150,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     # Detector-based anomaly detection configuration (alternative to threshold)
     detector_config = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
     enabled = models.BooleanField(default=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
-    # UTC time for when next alert check is due
+    # UTC time for when next alert check is due. Null only before the first
+    # check, when created_at is the scheduler's due-age lower bound.
     next_check_at = models.DateTimeField(null=True, blank=True)
     # UTC time until when we shouldn't check alert/notify user
     snoozed_until = models.DateTimeField(null=True, blank=True)
@@ -269,6 +271,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "config_type": alert_config.get("type"),
             "trends_series_index": alert_config.get("series_index"),
             "trends_check_ongoing_interval": alert_config.get("check_ongoing_interval"),
+            "evaluation_delay_intervals": self.evaluation_delay_intervals,
             "hogql_evaluation": (alert_config.get("evaluation") or "last_row") if is_hogql_config else None,
             "hogql_has_explicit_column": bool(alert_config.get("column")) if is_hogql_config else None,
             "hogql_has_label_column": bool(alert_config.get("label_column")) if is_hogql_config else None,
@@ -442,7 +445,7 @@ class AlertCheck(UUIDTModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING.value)
 
     # Detector-based anomaly detection results
     anomaly_scores = models.JSONField(null=True, blank=True)  # Scores for each data point

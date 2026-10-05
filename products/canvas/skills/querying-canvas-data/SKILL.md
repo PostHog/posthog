@@ -104,10 +104,11 @@ PostHog queries can take several seconds each, and a board usually runs several.
 rendering on all of them:
 
 - Fire independent queries concurrently on mount; never chain unrelated queries with sequential
-  `await`s. The host caps a canvas at 8 in-flight data requests and rejects the ninth ("Canvas
-  data request exceeds runtime limits") rather than queuing it — a board that needs more than 8
-  consolidates them (one query returning every row, sliced client-side) or throttles the overflow
-  behind a small concurrency limiter, still with one state per section.
+  `await`s. The host runs 8 data requests at a time and makes the rest wait in a 32-deep queue,
+  so a board with more sections than slots still loads, section by section. A board wide enough to
+  outlast the queue gets its extra requests refused, with the reason in the error message, and the
+  runtime sends each one again after a backoff before it gives up; a board that wide consolidates
+  its queries (one query returning every row, sliced client-side), still one state per section.
 - Give every query its own `{ loading, error, data }` state and let each card, chart, or table
   swap its skeleton for data the moment its own result arrives. One shared `loading` flag or a
   single `Promise.all` across independent queries makes the fastest metric wait for the slowest —
@@ -231,9 +232,11 @@ channel. Use `canvas-state-set` when the user asks to change those values; read 
 unrelated keys, and use the scope the canvas source expects.
 
 Canvas discussions use the generic comment tools. Read them with `comments-list` filtered to
-`scope=desktop_canvas`, the canvas id as `item_id`, and its `discussion_task_id` as `task_id`. Create
-a root comment or reply with `comments-create`, using the same scope and ids (put the task id in
-`item_context.taskId`). The same public-channel and personal-channel visibility rules apply.
+`scope=canvas` and the canvas id as `item_id`. Create a root comment or reply with
+`comments-create`, using the same scope and item id. A thread belongs to the canvas, so a task id is
+optional. Put one in `item_context.taskId` only when that task generated or published the canvas;
+the API refuses any other task. The space of the canvas controls access: a user who can see the
+space can read and write its comments.
 
 ## PostHog writes — ph.actions
 
@@ -305,8 +308,14 @@ useEffect(() => {
 - `ph.capture(event, properties?, distinctId?)` — analytics events for interactions
   (fire-and-forget). Session replay, `$session_id`, and person attribution are handled by the
   host automatically; never initialize recording, set session ids, or roll your own capture.
-- `ph.openExternal(url)` — opens `https://posthog.com` / `*.posthog.com` URLs only, and only from
-  a user interaction (opens outside focus are ignored). Sandboxed `target="_blank"` navigation is
-  blocked, so do not use it as a fallback or link elsewhere.
+- `ph.openExternal(url)` — opens PostHog HTTPS URLs and `https://github.com/<owner>/<repo>/pull/<number>`
+  links from a user click. GitHub PR links open without a confirmation dialog. Files, commits, checks,
+  and fragment links are allowed; credentials, custom ports, query strings, and other domains are not.
+  Sandboxed `target="_blank"` navigation is blocked, so use the bridge rather than a browser fallback.
 - `ph.navigate.toTask(id)` / `.toNewTask()` / `.toCanvas(id)` / `.toNewCanvas()` — in-app
   navigation within the canvas's own channel.
+- `ph.navigate.toNewTask({ prompt, repository })` — opens a prefilled task form in a new tab from
+  a user click. `prompt` is at most 16,000 characters; `repository` is an `owner/repo` name. Both are
+  optional. Setting a repository selects cloud mode for this task without changing the space.
+  The viewer reviews and sends the prompt; opening the form does not start a run. Check for
+  `ph.navigate` in older published artifacts and ask for a rebuild after deployment if it is missing.

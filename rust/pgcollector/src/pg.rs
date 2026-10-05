@@ -165,10 +165,11 @@ pub async fn capabilities(client: &Client) -> Result<crate::collector::Capabilit
         }
     }
     for r in client
-        .query("SELECT extname FROM pg_extension", &[])
+        .query("SELECT extname, extversion FROM pg_extension", &[])
         .await?
     {
-        caps.extensions.insert(r.get::<_, String>(0));
+        caps.extensions
+            .insert(r.get::<_, String>(0), r.get::<_, String>(1));
     }
     Ok(caps)
 }

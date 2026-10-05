@@ -16,9 +16,11 @@ import {
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
+import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -42,6 +44,8 @@ function buildBaseProperties(
 
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
+        is_impersonated: state.isImpersonated === true,
+        suppress_analytics: state.suppressAnalytics === true,
         // The same property `posthog/event_usage.py` stamps on product events, so an MCP call
         // and the API work it causes land in one breakdown. Distinct from `$mcp_source`, which
         // names the emitting SDK rather than the surface.
@@ -61,7 +65,9 @@ function buildBaseProperties(
         $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
         $mcp_transport: requestContext.transport,
         $mcp_session_id: requestContext.mcpSessionId,
-        $mcp_conversation_id: requestContext.mcpConversationId,
+        // Present only when there is a handle. An explicit `undefined` would erase the value the
+        // SDK maps from its own `conversationId` field, because caller properties merge last.
+        ...(requestContext.mcpConversationId ? { $mcp_conversation_id: requestContext.mcpConversationId } : {}),
         $mcp_consumer: clientIdentity.mcpConsumer,
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
@@ -89,10 +95,10 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
             : undefined
-        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -103,6 +109,9 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             groups,
             durationMs: initDurationMs ?? 0,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 $mcp_is_error: false,
@@ -118,6 +127,21 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
+type ModelMissingReason = 'missing' | 'unknown' | 'invalid' | 'not_captured' | 'capture_error'
+
+export function getModelMissingReason(modelArgument: unknown): ModelMissingReason {
+    if (modelArgument === undefined) {
+        return 'missing'
+    }
+    if (typeof modelArgument !== 'string' || !modelArgument.trim()) {
+        return 'invalid'
+    }
+    if (modelArgument.trim().toLowerCase() === 'unknown') {
+        return 'unknown'
+    }
+    return 'not_captured'
+}
+
 export interface ToolCallAnalyticsMeta {
     /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
     intent?: string
@@ -127,6 +151,7 @@ export interface ToolCallAnalyticsMeta {
     llmModel?: string
     /** Where the model identifier came from -> `$mcp_llm_model_source`. */
     llmModelSource?: MCPAnalyticsModelSource
+    llmModelMissingReason?: ModelMissingReason
 }
 
 export async function trackToolCall(
@@ -138,6 +163,10 @@ export async function trackToolCall(
     analyticsMeta?: ToolCallAnalyticsMeta,
     servedDescription?: string
 ): Promise<void> {
+    // Operator tokens are ordinary tokens, but comparison details must stay out of scout-readable analytics.
+    if (isPrivateScoutTrialTool(toolName) || isPrivateScoutTrialTool(extraProperties?.$mcp_exec_target_tool)) {
+        return
+    }
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
@@ -175,6 +204,9 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
             ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
@@ -182,12 +214,17 @@ export async function trackToolCall(
             properties: {
                 ...properties,
                 tool_name: toolName,
+                ...(!analyticsMeta?.llmModel && analyticsMeta?.llmModelMissingReason
+                    ? { $mcp_llm_model_missing_reason: analyticsMeta.llmModelMissingReason }
+                    : {}),
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
                 // Which vendor ran the tool, so "who do people actually call" is a
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
+                is_impersonated: state.isImpersonated === true,
+                suppress_analytics: state.suppressAnalytics === true,
             },
         })
     } catch {
@@ -283,6 +320,9 @@ function isMetadataQuery(query: string): boolean {
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
+    if (isPrivateScoutTrialTool(toolName)) {
+        return false
+    }
     // A proxied third-party tool's args and result are the vendor's content — an issue
     // body, a support ticket, a CRM record — passing through our gateway on its way
     // somewhere else. Key-based redaction only catches credential-shaped fields, so
@@ -373,6 +413,20 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
+function omitAppData(output: unknown): unknown {
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+        return output
+    }
+    const result = output as Record<string, unknown>
+    const meta = result._meta
+    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
+        return output
+    }
+    const sanitizedMeta: Record<string, unknown> = { ...meta }
+    delete sanitizedMeta[APP_DATA_META_KEY]
+    return { ...result, _meta: sanitizedMeta }
+}
+
 /**
  * Captures an `$ai_span` for a tool call, joining the same MCP-session trace as
  * the execute-sql `$ai_generation` events. Trace-target online evaluations then
@@ -392,7 +446,9 @@ export async function trackToolSpan(toolName: string, state: ResolvedState, meta
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
         const toolCategory = getToolCategory(toolName)
         const inputState = serializeSpanState(meta.input)
-        const outputState = serializeSpanState(meta.output)
+        const outputState = serializeSpanState(
+            state.clientProfile.consumer === 'posthog_ai' ? omitAppData(meta.output) : meta.output
+        )
 
         getPostHogClient().capture({
             distinctId: state.distinctId,
@@ -435,6 +491,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
             event: '$mcp_auth_failed',
             properties: {
                 $ai_product: 'mcp',
+                suppress_analytics: props.suppressAnalytics === true,
                 // Resolved without scopes — the request never authenticated, so nothing can
                 // vouch for a declared consumer and anything unproven lands as `mcp`.
                 source: resolveEventSource({
@@ -473,6 +530,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
 export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
@@ -485,6 +543,9 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            // Omitted rather than set to `undefined`: the SDK applies caller properties last, so
+            // an explicit `undefined` erases the value it maps from this field.
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
