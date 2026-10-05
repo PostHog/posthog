@@ -332,10 +332,14 @@ export function NativeEmailIntegrationChoice({
     }
 
     const senderLabel = (integration: IntegrationType): JSX.Element => (
-        <span className="flex items-center gap-2">
+        <>
             {integration.display_name}
-            {integration.id === sandboxSenderId && <LemonTag type="highlight">Sandbox</LemonTag>}
-        </span>
+            {integration.id === sandboxSenderId && (
+                <LemonTag type="highlight" className="ml-2 align-middle">
+                    Sandbox
+                </LemonTag>
+            )}
+        </>
     )
 
     if (!integrationsLoading && senderIntegrations.length === 0) {
@@ -364,7 +368,7 @@ export function NativeEmailIntegrationChoice({
             <div className="flex gap-2 items-center">
                 {label}
                 {senderRotationEnabled ? (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 min-w-0">
                         <LemonInputSelect<number>
                             className="m-1 flex-1"
                             mode="multiple"
@@ -395,39 +399,43 @@ export function NativeEmailIntegrationChoice({
                         </span>
                     </div>
                 ) : (
-                    <LemonSelect
-                        className="m-1 flex-1"
-                        type="tertiary"
-                        placeholder="Choose email sender"
-                        loading={integrationsLoading}
-                        options={[
-                            {
-                                title: 'Email senders',
-                                options: senderIntegrations.map((integration) => ({
-                                    label: integration.display_name,
-                                    labelInMenu: senderLabel(integration),
-                                    value: integration.id,
-                                })),
-                                footer: sandboxSelected
-                                    ? 'Delivers only to verified members of your organization.'
-                                    : undefined,
-                            },
-                            {
-                                options: [
-                                    {
-                                        label: 'Add new email sender',
-                                        icon: <IconExternal />,
-                                        value: -1,
-                                    },
-                                ],
-                            },
-                        ]}
-                        value={value?.integrationId}
-                        size="small"
-                        fullWidth
-                        onChange={onChangeIntegration}
-                        data-attr="workflow-email-sender-select"
-                    />
+                    <div className="flex flex-col flex-1 min-w-0">
+                        <LemonSelect
+                            className="m-1 flex-1"
+                            type="tertiary"
+                            placeholder="Choose email sender"
+                            loading={integrationsLoading}
+                            options={[
+                                {
+                                    title: 'Email senders',
+                                    options: senderIntegrations.map((integration) => ({
+                                        label: integration.display_name,
+                                        labelInMenu: senderLabel(integration),
+                                        value: integration.id,
+                                    })),
+                                },
+                                {
+                                    options: [
+                                        {
+                                            label: 'Add new email sender',
+                                            icon: <IconExternal />,
+                                            value: -1,
+                                        },
+                                    ],
+                                },
+                            ]}
+                            value={value?.integrationId}
+                            size="small"
+                            fullWidth
+                            onChange={onChangeIntegration}
+                            data-attr="workflow-email-sender-select"
+                        />
+                        {sandboxSelected && (
+                            <span className="px-2 pb-1 text-xs text-muted">
+                                Delivers only to verified members of your organization.
+                            </span>
+                        )}
+                    </div>
                 )}
                 {!overridesVisible && !sandboxSelected && (
                     <LemonButton
