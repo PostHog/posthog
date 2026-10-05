@@ -47,6 +47,7 @@ def validate_credentials(config: SlashSourceConfig, schema_name: str | None) -> 
         auth=APIKeyAuth(api_key=config.api_key, name="X-API-Key"),
         headers={"x-legal-entity": config.legal_entity_id} if config.legal_entity_id else {},
         paginator=SinglePagePaginator(),
+        allow_redirects=False,
         request_timeout=(10, 60),
     )
     try:
@@ -105,6 +106,7 @@ def slash_source(
             "base_url": BASE_URL,
             "auth": {"type": "api_key", "api_key": config.api_key, "name": "X-API-Key", "location": "header"},
             "headers": {"x-legal-entity": config.legal_entity_id} if config.legal_entity_id else {},
+            "allow_redirects": False,
             "request_timeout": (10, 60),
         },
         "resources": [resource_config],
