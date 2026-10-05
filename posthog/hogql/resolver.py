@@ -57,6 +57,7 @@ from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     lookup_field_by_name,
     lookup_table_by_name,
+    lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
 )
@@ -2444,6 +2445,13 @@ class Resolver(CloningVisitor):
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
+        # The number of leading chain segments that name the table or field found above.
+        qualifier_length = 1
+        if not type:
+            nested_match = lookup_table_by_nested_name(scope, node)
+            if nested_match:
+                type, qualifier_length = nested_match
+
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
@@ -2525,9 +2533,9 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         field_name = str(node.chain[-1])
         loop_type = type
-        chain_to_parse = node.chain[1:]
+        chain_to_parse = node.chain[qualifier_length:]
         previous_types = []
-        resolved_chain: list[str] = [str(node.chain[0])]
+        resolved_chain: list[str] = [str(segment) for segment in node.chain[:qualifier_length]]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
