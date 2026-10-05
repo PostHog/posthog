@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheck } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -9,11 +8,13 @@ import {
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
+    ItemContent,
+    ItemDescription,
+    ItemRadio,
+    ItemTitle,
     MenuLabel,
-    Text,
 } from '@posthog/quill-primitives'
 
-import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -56,19 +57,20 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                 </Button>
                 <TodaySheetMenu open={open} onOpenChange={setOpen} title="Mode">
                     {options.map((option) => (
-                        <SHEET_PARTS.Item
+                        <ItemRadio
                             key={option.value}
-                            onClick={() => onModeChange(option.value)}
-                            dataAttr={`composer-mode-${option.value}`}
+                            aria-checked={option.value === selectedMode}
+                            onClick={() => {
+                                onModeChange(option.value)
+                                setOpen(false)
+                            }}
+                            data-attr={`composer-mode-${option.value}`}
                         >
-                            <span className="flex min-w-0 flex-1 flex-col text-left">
-                                <span>{option.label}</span>
-                                <Text size="sm" variant="muted" render={<span />}>
-                                    {option.description}
-                                </Text>
-                            </span>
-                            {option.value === selectedMode && <IconCheck className="shrink-0" aria-label="Selected" />}
-                        </SHEET_PARTS.Item>
+                            <ItemContent className="text-left">
+                                <ItemTitle>{option.label}</ItemTitle>
+                                <ItemDescription className="line-clamp-none">{option.description}</ItemDescription>
+                            </ItemContent>
+                        </ItemRadio>
                     ))}
                 </TodaySheetMenu>
             </>

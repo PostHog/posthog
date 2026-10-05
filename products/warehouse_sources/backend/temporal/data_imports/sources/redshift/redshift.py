@@ -1559,6 +1559,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # error tracking. Mirrors `get_rows_to_sync`/`fetch_table_stats`.
             logger.debug(f"has_duplicate_primary_keys: no privilege to run duplicate-key probe, skipping check: {e}")
             return None
+        except psycopg.errors.UndefinedTable as e:
+            # The table existed when schema discovery ran but was dropped or renamed before this
+            # probe executed — the same already-known, non-actionable condition
+            # `get_non_retryable_errors` stops the sync for entirely. The duplicate-key probe is
+            # best-effort, so skip gracefully instead of reporting the expected error to error
+            # tracking. Mirrors `get_rows_to_sync`.
+            logger.debug(f"has_duplicate_primary_keys: table no longer exists, skipping check: {e}")
+            return None
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
             # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable

@@ -1059,21 +1059,6 @@
         "params": [],
         "scope": "project"
     },
-    "link": {
-        "template": "/link/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "links": {
-        "template": "/links",
-        "params": [],
-        "scope": "project"
-    },
-    "liveDebugger": {
-        "template": "/live-debugger",
-        "params": [],
-        "scope": "project"
-    },
     "login": {
         "template": "/login",
         "params": [],
@@ -1766,21 +1751,6 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
-        "params": [],
-        "scope": "project"
-    },
-    "userInterview": {
-        "template": "/user_research/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "userInterviewResponse": {
-        "template": "/user_research/{topicId}/response/{responseId}",
-        "params": ["topicId", "responseId"],
-        "scope": "project"
-    },
-    "userInterviews": {
-        "template": "/user_research",
         "params": [],
         "scope": "project"
     },

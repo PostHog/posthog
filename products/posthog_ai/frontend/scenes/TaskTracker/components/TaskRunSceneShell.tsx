@@ -166,7 +166,7 @@ export function TaskRunSceneShell({
                                     <Button
                                         variant="default"
                                         size="icon-lg"
-                                        className="-ml-2 rounded-full"
+                                        className="-ml-2"
                                         aria-label="Back"
                                         onClick={goBackOnPhone}
                                         data-attr="today-phone-back"

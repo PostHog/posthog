@@ -156,7 +156,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             {TODAY_MORE_PANES.includes(activePane) && (
                                 <Button
                                     size="icon-lg"
-                                    className="-ml-2 rounded-full"
+                                    className="-ml-2"
                                     aria-label="Back to More"
                                     data-attr="today-more-back"
                                     onClick={() => pickPane('more')}

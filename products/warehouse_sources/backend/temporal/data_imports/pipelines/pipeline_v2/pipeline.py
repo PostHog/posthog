@@ -248,9 +248,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             # `_post_run_operations`) cleans up before adding more small files. Skipped
             # cheaply when the table is healthy; see DeltaMaintenance.run_scheduled.
             if not is_first_ever_sync:
-                await DeltaMaintenance(self._delta_table_ref).run_scheduled(
-                    self._schema, partition_count_fallback=self._resource.partition_count
-                )
+                await DeltaMaintenance(self._delta_table_ref).run_scheduled(self._schema)
 
             async def write_remaining_rows() -> None:
                 nonlocal chunk_index, row_count

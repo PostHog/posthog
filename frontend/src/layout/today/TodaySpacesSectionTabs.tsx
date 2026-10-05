@@ -25,19 +25,12 @@ export function TodaySpacesSectionTabs({ value, onChange, counts, actions }: Tod
                 onValueChange={(next) => onChange(next as TodayWorkSectionId)}
                 className="min-w-0 flex-1"
             >
-                <TabsList variant="line" className="!h-11 gap-4 !p-0">
+                <TabsList variant="line">
                     {SECTIONS.map(({ id, label }) => (
-                        <TabsTrigger
-                            key={id}
-                            value={id}
-                            className="h-11 !px-0 text-xxs font-semibold tracking-wider uppercase"
-                            data-attr={`today-spaces-tab-${id}`}
-                        >
+                        <TabsTrigger key={id} value={id} data-attr={`today-spaces-tab-${id}`}>
                             {label}
                             {counts[id] ? (
-                                <span className="font-normal tracking-normal text-muted-foreground tabular-nums">
-                                    {counts[id]}
-                                </span>
+                                <span className="text-muted-foreground tabular-nums">{counts[id]}</span>
                             ) : null}
                         </TabsTrigger>
                     ))}
