@@ -32,7 +32,7 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
-/** Infrastructure-level failures where the gateway couldn't reach the backend. */
+/** Potentially transient failures; a gateway error does not prove that the backend did no work. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
 function isTransientGatewayStatus(status: number | undefined): boolean {
@@ -243,6 +243,8 @@ export function readableErrorMessage(error: unknown): string | undefined {
 }
 
 export class ApiError extends Error {
+    /** An absolute deadline keeps rerenders and remounts from restarting a capacity cooldown. */
+    readonly retryAfterTimestamp: number | null
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
     /** Django REST Framework `code` - used in downstream error handling. */
@@ -268,6 +270,14 @@ export class ApiError extends Error {
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
+        const retryAfter = status === 503 ? headers?.get('Retry-After') : null
+        let retryAfterTimestamp = NaN
+        if (retryAfter && /^\d+$/.test(retryAfter)) {
+            retryAfterTimestamp = Date.now() + Number(retryAfter) * 1000
+        } else if (retryAfter?.endsWith('GMT')) {
+            retryAfterTimestamp = Date.parse(retryAfter)
+        }
+        this.retryAfterTimestamp = Number.isSafeInteger(retryAfterTimestamp) ? retryAfterTimestamp : null
     }
 
     static async fromResponse(response: Response, fallbackMessage?: string): Promise<ApiError> {

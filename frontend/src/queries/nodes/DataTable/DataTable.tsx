@@ -1096,6 +1096,7 @@ export function DataTable({
                                                 query={query}
                                                 queryId={responseErrorObject?.queryId ?? queryId}
                                                 titleStatus={responseErrorObject?.status}
+                                                retryAfterTimestamp={responseErrorObject?.retryAfterTimestamp}
                                                 // A cancel is the user's own action: no apology or bug-report guidance
                                                 excludeDetail={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}
@@ -1110,6 +1111,8 @@ export function DataTable({
                                         ) : (
                                             <InsightErrorState
                                                 query={query}
+                                                titleStatus={responseErrorObject?.status}
+                                                retryAfterTimestamp={responseErrorObject?.retryAfterTimestamp}
                                                 onRetry={() => loadData('force_blocking')}
                                             />
                                         )

@@ -88,10 +88,10 @@ function shortCapacityWaitMs(error: unknown): number | undefined {
 }
 
 /**
- * A 502, or a 503 without `Retry-After`, means the query did not start, so a quick resubmit is safe.
- * A 503 with `Retry-After` means the backend refused the query for lack of capacity. When the wait is
- * at most CAPACITY_RETRY_MAX_WAIT_SECONDS, the client waits that long and resubmits, because room usually
- * returns within seconds. With a longer wait the error goes to the caller at once, because an early
+ * Treat eligible 502/503 responses as potentially transient and retry within a bounded budget.
+ * A 502 does not establish whether the original query started (RFC 9110, section 15.6.3).
+ * For a 503 with `Retry-After` of at most CAPACITY_RETRY_MAX_WAIT_SECONDS, wait before resubmitting.
+ * With a longer wait the error goes to the caller at once, because an early
  * resubmit only adds load. A 504 means the gateway stopped waiting while the backend can still be
  * running the query, so a resubmit can compute it a second time.
  */

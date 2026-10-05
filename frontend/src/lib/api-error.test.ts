@@ -8,6 +8,15 @@ import {
 } from './api-error'
 
 describe('api-error', () => {
+    describe('capacity retry deadlines', () => {
+        it.each([undefined, '', '-1', '1.5', '1e3', 'unknown', 'Infinity', '9'.repeat(400)])(
+            'ignores an invalid Retry-After header: %s',
+            (retryAfter) => {
+                const headers = new Headers(retryAfter === undefined ? {} : { 'Retry-After': retryAfter })
+                expect(new ApiError('', 503, headers).retryAfterTimestamp).toBeNull()
+            }
+        )
+    })
     describe('ApiError.fromResponse', () => {
         it.each([
             ['error', { error: 'error message' }, 'error message'],

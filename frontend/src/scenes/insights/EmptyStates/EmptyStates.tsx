@@ -21,6 +21,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
+import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -211,10 +212,12 @@ const RetryButton = ({
     onRetry,
     query,
     loading = false,
+    disabledReason,
 }: {
     onRetry: () => void
     query?: Record<string, any> | Node | null
     loading?: boolean
+    disabledReason?: string
 }): JSX.Element => {
     const sideAction = query
         ? {
@@ -240,6 +243,7 @@ const RetryButton = ({
             size="small"
             type="primary"
             loading={loading}
+            disabledReason={disabledReason}
             onClick={() => onRetry()}
             sideAction={sideAction}
         >
@@ -816,6 +820,7 @@ export interface InsightErrorStateProps {
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
+    retryAfterTimestamp?: number | null
     retryLoading?: boolean
     placement?: DashboardPlacement | 'SavedInsightGrid'
     excludeDetail?: boolean
@@ -831,6 +836,7 @@ export function InsightErrorState({
     query,
     queryId,
     retryAfter,
+    retryAfterTimestamp,
     retryLoading = false,
     placement,
     excludeDetail = false,
@@ -839,6 +845,14 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
+    const [, setTick] = useState(0)
+    const capacityRetryAt = titleStatus === 503 ? retryAfterTimestamp : null
+    const retrySecondsLeft = capacityRetryAt ? Math.max(0, Math.ceil((capacityRetryAt - Date.now()) / 1000)) : 0
+    useInterval(() => setTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
+    const retryDisabledReason =
+        retrySecondsLeft > 0
+            ? `PostHog is busy. You can retry in ${retrySecondsLeft} ${retrySecondsLeft === 1 ? 'second' : 'seconds'}.`
+            : undefined
     const errorKind = getInsightErrorKind(titleStatus)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
@@ -847,7 +861,9 @@ export function InsightErrorState({
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
     // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
     const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
-    const remediation = getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
+    const remediation = capacityRetryAt
+        ? (retryDisabledReason ?? 'You can try this query again now.')
+        : getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -912,7 +928,16 @@ export function InsightErrorState({
             {!excludeActions && errorKind !== 'permission' && (
                 <div className="flex gap-2 mt-4">
                     {onRetry && canRetry ? (
-                        <RetryButton onRetry={onRetry} query={query} loading={retryLoading} />
+                        <RetryButton
+                            onRetry={() => {
+                                if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
+                                    onRetry()
+                                }
+                            }}
+                            query={query}
+                            loading={retryLoading}
+                            disabledReason={retryDisabledReason}
+                        />
                     ) : (
                         <QueryDebuggerButton query={query} />
                     )}
