@@ -226,6 +226,29 @@
             }
         },
         {
+            "name": "a question with a null character",
+            "base": "yes_no",
+            "valid": false,
+            "set": {
+                "question": "Is this\u0000 a work email?"
+            }
+        },
+        {
+            "name": "an option name with half an emoji",
+            "base": "pick_one",
+            "valid": false,
+            "set": {
+                "options": [
+                    {
+                        "name": "Developer \ud83d"
+                    },
+                    {
+                        "name": "Other"
+                    }
+                ]
+            }
+        },
+        {
             "name": "a missing answer type",
             "base": "yes_no",
             "valid": false,

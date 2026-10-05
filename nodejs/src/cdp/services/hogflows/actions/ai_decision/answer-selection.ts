@@ -14,6 +14,10 @@ function probabilityOf(probabilities: Record<string, number>, answer: string): n
     return probability
 }
 
+function probabilitiesOf(probabilities: Record<string, number>, answers: string[]): number[] {
+    return answers.map((answer) => probabilityOf(probabilities, answer))
+}
+
 // Thresholds are whole percents. Dividing keeps 29% equal to 0.29, where 0.29 * 100 would fall just under 29.
 function atLeast(probability: number, percent: number): boolean {
     return probability >= percent / 100
@@ -34,7 +38,7 @@ function yesNoBranch(config: AiDecisionConfig, pYes: number): number {
 }
 
 function selectYesNo(config: AiDecisionConfig, probabilities: Record<string, number>): SelectedAnswer {
-    const pYes = probabilityOf(probabilities, 'yes')
+    const [pYes] = probabilitiesOf(probabilities, ['yes', 'no'])
     const branchIndex = yesNoBranch(config, pYes)
     return { answer: ['yes', 'no', 'unsure'][branchIndex], branchIndex, probability: pYes }
 }
@@ -45,7 +49,10 @@ function topOptionIndex(values: number[]): number {
 }
 
 function selectPickOne(config: AiDecisionConfig, probabilities: Record<string, number>): SelectedAnswer {
-    const values = config.options.map((option) => probabilityOf(probabilities, option.name))
+    const values = probabilitiesOf(
+        probabilities,
+        config.options.map((option) => option.name)
+    )
     const top = topOptionIndex(values)
     const probability = values[top]
     if (config.unsure_enabled && !atLeast(probability, config.min_pick_probability)) {

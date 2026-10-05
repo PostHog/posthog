@@ -31,10 +31,10 @@ describe('selectAnswer', () => {
         ['yes at the threshold', yesNo(), 0.5, { answer: 'yes', branchIndex: 0, probability: 0.5 }],
         ['no just under the threshold', yesNo(), 0.4999, { answer: 'no', branchIndex: 1, probability: 0.4999 }],
         [
-            'yes above a raised threshold',
-            yesNo({ yes_threshold: 50 }),
-            0.62,
-            { answer: 'yes', branchIndex: 0, probability: 0.62 },
+            'no under a raised threshold',
+            yesNo({ yes_threshold: 70 }),
+            0.69,
+            { answer: 'no', branchIndex: 1, probability: 0.69 },
         ],
         [
             'a threshold that does not divide evenly',
@@ -107,6 +107,8 @@ describe('selectAnswer', () => {
 
     it.each([
         ['yes or no without a yes probability', yesNo(), { no: 0.4 }],
+        ['yes or no without a no probability', yesNo(), { yes: 0.4 }],
+        ['yes or no with a no probability out of range', yesNo(), { yes: 0.4, no: 1.6 }],
         ['pick one missing an option', pickOne(), { Developer: 0.5, Marketer: 0.5 }],
     ])('rejects %s', (_name, config, probabilities) => {
         expect(() => selectAnswer(config, probabilities)).toThrow()

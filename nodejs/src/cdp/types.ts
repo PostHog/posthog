@@ -486,7 +486,9 @@ export type HogFlowInvocationContext = {
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
-        // continue the same action. Consumed across three sites in hogflow-executor.service.ts
+        // continue the same action. The AI decision handler sets it too when a busy AI service
+        // asks the step to retry, which the run log does not show as a pause either. Consumed
+        // across three sites in hogflow-executor.service.ts
         // to suppress the redundant log lines that would otherwise leak the routing into
         // customer-visible workflow logs:
         //   - `scheduleInvocation` on the dequeue that set it: skips the "Workflow will pause

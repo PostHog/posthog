@@ -132,6 +132,8 @@ jobs:
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
                         - 'posthog/cdp/filter_globals.json'
+                        # The AI decision config cases Django and the Node runtime must both reject.
+                        - 'products/workflows/backend/tests/api/ai_decision_config_cases.json'
                         # The tables that file is generated from. A standard-library change
                         # must run the parity test that shows the file went stale.
                         - 'common/hogvm/typescript/src/**'
@@ -158,6 +160,7 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'posthog/cdp/filter_globals.json'
+                        - 'products/workflows/backend/tests/api/ai_decision_config_cases.json'
                         - 'common/hogvm/typescript/src/**'
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'

@@ -1,4 +1,5 @@
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { parseJSON } from '~/common/utils/json-parse'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 import { AiDecisionConfig, isPlainObject } from './config'
@@ -35,6 +36,12 @@ function retryAfter(headers: Record<string, string>): number | undefined {
     return Number.isSafeInteger(seconds) ? seconds : undefined
 }
 
+const GATEWAY_UNAVAILABLE: AiDecisionReply = {
+    status: 'failed',
+    code: 'gateway_unavailable',
+    message: AI_DECISION_UNAVAILABLE_MESSAGE,
+}
+
 function finalReply(body: unknown): AiDecisionReply {
     if (isPlainObject(body)) {
         if (body.status === 'succeeded' && isPlainObject(body.probabilities) && typeof body.model === 'string') {
@@ -53,7 +60,36 @@ function finalReply(body: unknown): AiDecisionReply {
             return { status: 'failed', code: body.error.code, message: body.error.message }
         }
     }
-    return { status: 'failed', code: 'gateway_unavailable', message: AI_DECISION_UNAVAILABLE_MESSAGE }
+    return GATEWAY_UNAVAILABLE
+}
+
+async function readFinalReply(response: FetchResponse): Promise<AiDecisionReply> {
+    let text: string
+    try {
+        text = await response.text()
+    } catch {
+        // The connection broke after the status line, so the decision may not have finished: ask again later.
+        return { status: 'unavailable' }
+    }
+    try {
+        return finalReply(parseJSON(text))
+    } catch {
+        return GATEWAY_UNAVAILABLE
+    }
+}
+
+async function replyFor(response: FetchResponse): Promise<AiDecisionReply> {
+    if (response.status === 200) {
+        return readFinalReply(response)
+    }
+    await response.dump().catch(() => {})
+    if (response.status === 429) {
+        return { status: 'throttled', retryAfterSeconds: retryAfter(response.headers) }
+    }
+    if (response.status >= 500) {
+        return { status: 'unavailable', retryAfterSeconds: retryAfter(response.headers) }
+    }
+    return { status: 'failed', code: 'invalid_request', message: INVALID_REQUEST_MESSAGE }
 }
 
 export class AiDecisionClient {
@@ -67,20 +103,13 @@ export class AiDecisionClient {
     }
 
     async decide(request: AiDecisionRequest): Promise<AiDecisionReply> {
-        if (!this.enabled) {
-            return { status: 'failed', code: 'gateway_unavailable', message: AI_DECISION_UNAVAILABLE_MESSAGE }
-        }
-        const token = this.jwt.mint({
-            ...(request.hogFlowId && request.hogFlowId !== 'new' ? { hog_flow_id: request.hogFlowId } : {}),
-            team_id: request.teamId,
-        })
         let response: FetchResponse
         try {
             response = await internalFetch(
                 `${this.internalApiBaseUrl}/api/projects/${request.teamId}/workflow_ai_decisions/`,
                 {
                     method: 'POST',
-                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    headers: { Authorization: `Bearer ${this.tokenFor(request)}`, 'Content-Type': 'application/json' },
                     timeoutMs: DECIDE_TIMEOUT_MS,
                     body: JSON.stringify({
                         invocation_id: request.invocationId,
@@ -93,22 +122,11 @@ export class AiDecisionClient {
         } catch {
             return { status: 'unavailable' }
         }
-        if (response.status === 429) {
-            await response.dump().catch(() => {})
-            return { status: 'throttled', retryAfterSeconds: retryAfter(response.headers) }
-        }
-        if (response.status >= 500 && response.status < 600) {
-            await response.dump().catch(() => {})
-            return { status: 'unavailable', retryAfterSeconds: retryAfter(response.headers) }
-        }
-        if (response.status !== 200) {
-            await response.dump().catch(() => {})
-            return { status: 'failed', code: 'invalid_request', message: INVALID_REQUEST_MESSAGE }
-        }
-        try {
-            return finalReply(await response.json())
-        } catch {
-            return { status: 'failed', code: 'gateway_unavailable', message: AI_DECISION_UNAVAILABLE_MESSAGE }
-        }
+        return replyFor(response)
+    }
+
+    private tokenFor(request: AiDecisionRequest): string {
+        const hogFlowClaim = request.hogFlowId && request.hogFlowId !== 'new' ? { hog_flow_id: request.hogFlowId } : {}
+        return this.jwt.mint({ ...hogFlowClaim, team_id: request.teamId })
     }
 }

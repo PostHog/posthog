@@ -117,6 +117,8 @@ Property conditions used in trigger/action `filters`, branch conditions, and con
 
 An `ai_decision` asks a hosted AI model a question about the person or event and sends each answer down its own path. Each person who reaches the step uses one AI decision from the organization's AI credits. The step is behind a feature flag, and the organization must approve AI data processing.
 
+Only use `ai_decision` when the user asks for an AI judgment. If a save fails with "AI decisions aren't available for this organization yet.", the step isn't available to this organization: tell the user, and don't retry or swap in a property filter that only guesses at the same judgment.
+
 ```json
 {
   "id": "decide_track",
@@ -159,7 +161,7 @@ An `ai_decision` asks a hosted AI model a question about the person or event and
 - **Failures** follow the `continue` edge: out of AI credits, AI data processing not approved, a context over 8 KB, a model that cannot answer, or an AI service that stays busy. Set `on_error: "abort"` to end the run instead. The run log names the cause.
 - **Every answer edge is required**, and so is the Unsure edge when it is on. Several edges may point to the same step, so a step that only labels the person is valid. The `continue` edge is required too, unless the step has no `filters` and `on_error` is `abort`.
 - **Context** is the only templated part: named fields whose values are Hog templates (`{event.properties.x}`, `{person.properties.x}`, `{variables.x}`). The question, options, and meanings are plain text and never templated, so person and event data can't become instructions. Keep the context small: over 8 KB of JSON fails the step.
-- **Result.** `output_variable` can store `answer` (the option name, or `yes`, `no`, or `unsure`), `probability` (the probability the answer rests on, from 0 to 1), `probabilities` (every answer's probability), and `model`. A failed decision stores nothing.
+- **Result.** `output_variable` can store `answer` (the option name, or `yes`, `no`, or `unsure`), `probability` (from 0 to 1: P(yes) for `yes_no`, whatever the answer, and the top option's probability for `pick_one`), `probabilities` (every answer's probability), and `model`. A failed decision stores nothing.
 - **Busy service.** When the AI service is busy, the run waits and asks again, for up to 30 minutes. The run log shows no pause for it.
 - **Testing.** `workflows-test-run` mocks the step by default: no AI credits, the answer named in `mock_answer` (or the first answer), and the rendered context with its size. With `mock_async_functions: false` it asks the model once and uses one AI decision.
 

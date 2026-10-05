@@ -31,12 +31,22 @@ function characterCount(text: string): number {
     return [...text].length
 }
 
+// Django's text fields refuse null characters and lone UTF-16 surrogates, such as half of a cut emoji.
+const UNSAVEABLE_CHARACTER = /[\0\uD800-\uDFFF]/u
+
+function checkSaveable(text: string): string {
+    if (UNSAVEABLE_CHARACTER.test(text)) {
+        throw new Error("Remove the null character or the broken emoji from the step's text.")
+    }
+    return text
+}
+
 function requiredText(value: unknown, label: string, maxLength: number): string {
     const trimmed = typeof value === 'string' ? value.trim() : ''
     if (!trimmed || characterCount(trimmed) > maxLength) {
         throw new Error(`Enter ${label} of 1 to ${maxLength.toLocaleString('en-US')} characters.`)
     }
-    return trimmed
+    return checkSaveable(trimmed)
 }
 
 function optionalText(value: unknown, label: string): string {
@@ -44,7 +54,7 @@ function optionalText(value: unknown, label: string): string {
     if (typeof text !== 'string' || characterCount(text.trim()) > MAX_TEXT_LENGTH) {
         throw new Error(`Keep ${label} to ${MAX_TEXT_LENGTH} characters or fewer.`)
     }
-    return text.trim()
+    return checkSaveable(text.trim())
 }
 
 function percent(value: unknown, fallback: number, label: string, maximum: number): number {

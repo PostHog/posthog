@@ -27,7 +27,7 @@ import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
-import { ActionHandler } from './actions/action.interface'
+import { ActionHandler, TestRunOptions } from './actions/action.interface'
 import { AiDecisionClient } from './actions/ai_decision/client'
 import { AiDecisionHandler } from './actions/ai_decision/handler'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -551,7 +551,7 @@ export class HogFlowExecutorService {
         invocation: CyclotronJobInvocationHogFlow,
         options?: {
             hogExecutorOptions?: HogExecutorExecuteAsyncOptions
-            testRun?: { mockAsyncFunctions: boolean; mockAnswer?: string }
+            testRun?: TestRunOptions
         }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         // queuePriority is carried over explicitly: createInvocationResult resets it to
@@ -847,7 +847,8 @@ export class HogFlowExecutorService {
         // represent a workflow-author-visible pause — the next dequeue fires almost
         // immediately and continues the same action. Skip the "Workflow will pause until..."
         // log in that case so it doesn't surface as a pause the workflow never actually took.
-        // Real pauses (delays, wait_until_condition, throttle retries) still log normally.
+        // Real pauses (delays, wait_until_condition, throttle retries) still log normally. An AI
+        // decision retry sets the flag too, because its wait is not a pause the author configured.
         if (!result.invocation.state.currentAction?.routingOnlyReschedule) {
             result.logs.push({
                 level: 'info',

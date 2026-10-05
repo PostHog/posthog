@@ -16,12 +16,15 @@ export interface ActionHandlerResult {
     error?: any
 }
 
+/** Set only by the editor's test run. A native step that calls out reads it to mock its call. */
+export type TestRunOptions = { mockAsyncFunctions: boolean; mockAnswer?: string }
+
 export interface ActionHandlerOptions<T extends HogFlowAction> {
     invocation: CyclotronJobInvocationHogFlow
     action: T
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     hogExecutorOptions?: HogExecutorExecuteAsyncOptions
-    testRun?: { mockAsyncFunctions: boolean; mockAnswer?: string }
+    testRun?: TestRunOptions
 }
 
 export interface ActionHandler {

@@ -15,12 +15,15 @@ type Options = ActionHandlerOptions<Action>
 type Answered = Extract<AiDecisionReply, { status: 'answered' }>
 type Busy = Extract<AiDecisionReply, { status: 'throttled' | 'unavailable' }>
 type Prepared = { config: AiDecisionConfig; context: Record<string, unknown>; contextBytes: number }
+type AiDecisionRetry = NonNullable<
+    NonNullable<CyclotronJobInvocationHogFlow['state']['currentAction']>['aiDecisionRetry']
+>
 type TestOutput = { context: Record<string, unknown>; context_bytes: number }
 
 const MAX_CONTEXT_BYTES = 8192
 const THROTTLED_GIVE_UP_MS = 30 * 60_000
 const THROTTLED_DEFAULT_WAIT_SECONDS = 5
-const THROTTLED_MAX_WAIT_SECONDS = 60
+const MAX_WAIT_SECONDS = 60
 const THROTTLED_MAX_JITTER = 0.25
 const MAX_UNAVAILABLE_RESCHEDULES = 5
 
@@ -37,35 +40,33 @@ function failure(code: string, message: string, testOutput?: unknown): ActionHan
 }
 
 function percentOf(probability: number): string {
-    return `${Math.round(probability * 100)}%`
+    // One decimal, so 79.5% under an 80% threshold doesn't read as 80%.
+    return `${Math.round(probability * 1000) / 10}%`
 }
 
 function describeAnswer(selected: SelectedAnswer, reply: Answered): string {
     const probabilities = Object.entries(reply.probabilities)
         .map(([answer, probability]) => `${answer} ${percentOf(probability)}`)
         .join(', ')
-    return `AI decision answered "${selected.answer}" (${percentOf(selected.probability)}). Probabilities: ${probabilities}. Model: ${reply.model}.`
+    return `AI decision answered "${selected.answer}". Probabilities: ${probabilities}. Model: ${reply.model}.`
 }
 
 function busyCode(reply: Busy): string {
     return reply.status === 'throttled' ? 'throttled' : 'gateway_unavailable'
 }
 
-function waitSeconds(invocation: CyclotronJobInvocationHogFlow, reply: Busy): number | null {
-    const retry = invocation.state.currentAction!.aiDecisionRetry!
+function nextWaitSeconds(retry: AiDecisionRetry, reply: Busy): number | null {
     if (reply.status === 'throttled') {
         if (Date.now() - retry.firstAttemptAt >= THROTTLED_GIVE_UP_MS) {
             return null
         }
-        const wait = Math.min(reply.retryAfterSeconds ?? THROTTLED_DEFAULT_WAIT_SECONDS, THROTTLED_MAX_WAIT_SECONDS)
+        const wait = Math.min(reply.retryAfterSeconds ?? THROTTLED_DEFAULT_WAIT_SECONDS, MAX_WAIT_SECONDS)
         return wait * (1 + Math.random() * THROTTLED_MAX_JITTER)
     }
     if (retry.unavailableReschedules >= MAX_UNAVAILABLE_RESCHEDULES) {
         return null
     }
-    const backoff = 2 ** (retry.unavailableReschedules + 1)
-    retry.unavailableReschedules++
-    return reply.retryAfterSeconds ?? backoff
+    return Math.min(reply.retryAfterSeconds ?? 2 ** (retry.unavailableReschedules + 1), MAX_WAIT_SECONDS)
 }
 
 export class AiDecisionHandler implements ActionHandler {
@@ -118,7 +119,7 @@ export class AiDecisionHandler implements ActionHandler {
         if (branchIndex < 0) {
             return failure(
                 'invalid_request',
-                `The mocked answer "${answer}" isn't one of this step's answers.`,
+                `The mocked answer "${answer}" isn't one of this step's answers: ${answers.join(', ')}.`,
                 testOutput
             )
         }
@@ -188,15 +189,20 @@ export class AiDecisionHandler implements ActionHandler {
     }
 
     private askAgainLater(options: Options, reply: Busy): ActionHandlerResult {
-        const seconds = waitSeconds(options.invocation, reply)
+        const currentAction = options.invocation.state.currentAction!
+        const retry = currentAction.aiDecisionRetry!
+        const seconds = nextWaitSeconds(retry, reply)
         if (seconds === null) {
             return reply.status === 'throttled'
                 ? failure('throttled', THROTTLED_MESSAGE)
                 : failure('gateway_unavailable', AI_DECISION_UNAVAILABLE_MESSAGE)
         }
+        if (reply.status === 'unavailable') {
+            retry.unavailableReschedules++
+        }
         const scheduledAt = DateTime.now().plus({ seconds })
         // Keeps a retry out of the run log's pause and resume lines, the way queue routing does.
-        options.invocation.state.currentAction!.routingOnlyReschedule = true
+        currentAction.routingOnlyReschedule = true
         this.log(options, 'debug', `The AI service is busy. Asking again at ${scheduledAt.toUTC().toISO()}.`)
         return { scheduledAt }
     }

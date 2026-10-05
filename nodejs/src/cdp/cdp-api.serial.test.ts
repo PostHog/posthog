@@ -1,6 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
-import { mockFetch } from '../../tests/helpers/mocks/request.mock'
+import { mockFetch, mockInternalFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
@@ -1135,6 +1135,72 @@ describe('CDP API', () => {
             expect(res.status).toEqual(200)
             expect(res.body.status).toEqual('success')
             expect(res.body.nextActionId).toEqual(expectedNextActionId)
+        })
+    })
+
+    describe('hogflow ai_decision test invocations', () => {
+        const decisionConfiguration = {
+            name: 'Decision flow',
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                {
+                    id: 'decision_node',
+                    name: 'Decide',
+                    type: 'ai_decision',
+                    config: {
+                        question: 'Which onboarding track fits this signup?',
+                        answer_type: 'pick_one',
+                        options: [{ name: 'Developer' }, { name: 'Marketer' }],
+                        inputs: { context: { value: { event: 'signed_up' } } },
+                    },
+                },
+                { id: 'developer_node', name: 'Developer', type: 'exit', config: {} },
+                { id: 'marketer_node', name: 'Marketer', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'decision_node', to: 'developer_node', type: 'branch', index: 0 },
+                { from: 'decision_node', to: 'marketer_node', type: 'branch', index: 1 },
+                { from: 'decision_node', to: 'developer_node', type: 'continue' },
+            ],
+        }
+        const decided = {
+            status: 200,
+            headers: {},
+            json: () => Promise.resolve({}),
+            text: () =>
+                Promise.resolve(
+                    JSON.stringify({
+                        status: 'succeeded',
+                        probabilities: { Developer: 0.1, Marketer: 0.9 },
+                        model: 'm',
+                    })
+                ),
+            dump: () => Promise.resolve(),
+        }
+
+        it.each([
+            [
+                'follows mock_answer without asking the model',
+                { mock_async_functions: true, mock_answer: 'Marketer' },
+                0,
+            ],
+            ['asks the model once when real requests are on', { mock_async_functions: false }, 1],
+        ])('%s', async (_name, testOptions, expectedCalls) => {
+            mockInternalFetch.mockClear()
+            mockInternalFetch.mockResolvedValueOnce(decided)
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals,
+                    configuration: decisionConfiguration,
+                    current_action_id: 'decision_node',
+                    ...testOptions,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({ status: 'success', nextActionId: 'marketer_node' })
+            expect(mockInternalFetch).toHaveBeenCalledTimes(expectedCalls)
         })
     })
 
