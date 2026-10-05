@@ -316,7 +316,7 @@ if results:
 
 The coordinator workflow (`llma-trace-clustering-coordinator`) runs on a schedule and:
 
-1. Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a stable, hash-based sample of teams with AI events)
+1. Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events)
 2. Spawns clustering workflow for each team in parallel
 3. Handles failures gracefully (individual team failures don't affect others)
 

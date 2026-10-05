@@ -57,7 +57,7 @@ Both activities are unified — they handle trace-level and generation-level sum
 
 ### Coordinator: `llma-trace-summarization-coordinator`
 
-Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a stable, hash-based sample of teams with AI events, configured in `team_discovery.py`), less the teams without AI data processing consent.
+Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`), less the teams without AI data processing consent.
 Guaranteed teams come first, and the sampled teams keep a random order.
 
 The coordinator keeps up to `max_concurrent_teams` per-team workflows running at once.
@@ -141,7 +141,7 @@ The coordinator runs hourly via Temporal schedule (configured in `schedule.py`).
 
 ### Team Discovery
 
-Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a stable, hash-based sample of teams with AI events, sized by a configurable percentage.
+Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.
 Every discovered team must also pass the consent gate below, guaranteed teams included.
 
 ### AI data processing consent
