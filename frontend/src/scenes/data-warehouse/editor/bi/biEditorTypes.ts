@@ -298,12 +298,17 @@ export interface BIDataPaneFields {
     measures: BIField[]
 }
 
-export function getBIDataPaneFields(table: DatabaseSchemaTable | undefined, source: BIDataSource): BIDataPaneFields {
+export function getBIDataPaneFields(
+    table: Pick<DatabaseSchemaTable, 'fields'> | undefined,
+    source: BIDataSource,
+    path: string[] = []
+): BIDataPaneFields {
     const fields = Object.values(table?.fields ?? {})
         .filter((field) => DATA_PANE_FIELD_TYPES.has(field.type))
         .map((field): BIField => {
-            const expression = escapeDottedHogQLIdentifier(field.name)
-            return { id: getBIFieldId(source, expression), name: field.name, expression, type: field.type, source }
+            const name = [...path, field.name].join('.')
+            const expression = escapeDottedHogQLIdentifier(name)
+            return { id: getBIFieldId(source, expression), name, expression, type: field.type, source }
         })
         .sort((first, second) => first.name.localeCompare(second.name))
 
