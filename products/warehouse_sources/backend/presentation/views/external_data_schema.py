@@ -72,6 +72,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     purge_buffer_prefix,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
+    tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import (
@@ -1395,13 +1396,22 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 should_sync_value = should_sync if should_sync is not None else updated_instance.should_sync
                 # A reset left to capture keeps the schedule paused, and capture unpauses it once the reset is done.
                 reset_pending = bool((updated_instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
+                # Repair CDC unpauses the tables of a broken source, so an edit must leave them paused.
+                waits_for_repair = updated_instance.is_cdc and tables_wait_for_repair(source)
+                held = reset_pending or waits_for_repair
                 schedule_exists = external_data_workflow_exists(str(updated_instance.id))
 
                 if schedule_exists:
                     if should_sync is False:
                         pause_external_data_schedule(str(updated_instance.id))
-                    elif (should_sync is True or (resume_paused_schedule and should_sync_value)) and not reset_pending:
+                    elif (should_sync is True or (resume_paused_schedule and should_sync_value)) and not held:
                         unpause_external_data_schedule(str(updated_instance.id))
+                elif should_sync_value and waits_for_repair:
+                    # Repair CDC unpauses a schedule but cannot create one, and a new schedule's
+                    # first run would start even while it is paused.
+                    sync_external_data_job_workflow(
+                        updated_instance, create=True, should_sync=False, trigger_immediately=False
+                    )
                 elif should_sync_value:
                     # No schedule yet but the schema should be syncing — create (or recover) it. The
                     # schedule is built from the current frequency, so a cadence-only edit on an
@@ -1415,7 +1425,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # found" — so its new cadence is just saved and applies if/when it is enabled.
                 if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
                     sync_external_data_job_workflow(
-                        updated_instance, create=False, should_sync=should_sync_value and not reset_pending
+                        updated_instance, create=False, should_sync=should_sync_value and not held
                     )
 
             self._run_temporal_side_effect(update_schedule)
