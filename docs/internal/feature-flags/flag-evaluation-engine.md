@@ -490,7 +490,8 @@ The batch evaluation endpoint adds a person to the cohort when the target is ena
 So it compares the two answers by match only for the target, and for each dependency that only `true` or `false` filters read.
 A failed flag that could change only the variant of one of these flags does not fail it.
 A dependency that an evaluated flag filters on by variant keeps the variant comparison.
-The batch evaluation endpoint retries a target that failed with `dependency_failed` only when every failed dependency reports a transient code.
+The batch evaluation endpoint retries a target that failed with `dependency_failed` only when every dependency that failed on its own reports a transient code.
+An unsupported non-v1 dependency does not count, because its dependents read it as false.
 
 ### Partial flag evaluation
 
