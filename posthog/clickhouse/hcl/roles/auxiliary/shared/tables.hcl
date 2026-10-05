@@ -322,6 +322,36 @@ database "posthog" {
       version_column = "computed_at"
     }
   }
+  table "sharded_engineering_analytics_ci_jobs_precomputed" {
+    order_by     = ["team_id", "job_id", "source_id", "ci_engine", "id", "run_attempt"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_engineering_analytics_ci_jobs_precomputed_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.engineering_analytics_ci_jobs_precomputed"
+      replica_name   = "{replica}-{shard}"
+      version_column = "computed_at"
+    }
+  }
+  table "sharded_engineering_analytics_ci_runs_precomputed" {
+    order_by     = ["team_id", "job_id", "source_id", "ci_engine", "id"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_engineering_analytics_ci_runs_precomputed_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.engineering_analytics_ci_runs_precomputed"
+      replica_name   = "{replica}-{shard}"
+      version_column = "computed_at"
+    }
+  }
   table "sharded_experiment_metric_events_preaggregated" {
     order_by     = ["team_id", "job_id", "entity_id", "timestamp", "event_uuid"]
     partition_by = "toYYYYMMDD(expires_at)"
