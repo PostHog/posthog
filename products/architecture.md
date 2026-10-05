@@ -93,7 +93,7 @@ Core sometimes needs behavior from a product, not data: query runners it dispatc
 These cross the boundary as classes — allowed only under all three rules:
 
 1. **Approved interface.**
-   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn`, and Celery's `@shared_task`.
+   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn` and `Interceptor` (the worker in `posthog/temporal/common/worker.py` registers each one), and Celery's `@shared_task`.
    Core code may rely only on the base's interface, never on product-specific members.
    Extending the list is a core PR: define the base and validate at the registration point.
    DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; the `facade must not import presentation or DRF` import-linter contract enforces both, with the existing violations grandfathered in its TODO list) — their soundness is governed by the presentation rules above.
@@ -183,8 +183,10 @@ Run `hogli product:crossings --all --write-baseline` to record a decrease.
 
 **The baseline only shrinks.**
 `--write-baseline` refuses to write when the scan holds a line the file does not, prints those lines, and changes nothing, so a new coupling cannot enter by regenerating.
-A coupling that must stand is a hand-edited line in the baseline plus a note here that says why it stands.
-Both are in the diff, which is what a reviewer reads; a regenerated line is not.
+A hand edit cannot add a line either.
+New lines come only with a DevEx change to the scanner: a new check that records the findings that exist when it lands, or an approved exception (an approved interface, a `MODEL_CROSSINGS` entry, a carve-out).
+A coupling that must stand needs such a change, not a line.
+A change that only moves or splits a consumer module carries its lines along.
 
 **What the check cannot see.**
 The check reads uses of the class name, plus `get_model` string references.
@@ -199,6 +201,7 @@ All three are a declared residual, not permission to add more.
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
 A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
+The one exception is a check that DevEx introduces: findings that already exist in Isolated products at that moment are recorded in the crossings ledger instead, and those lines may only go away.
 
 **Inbound webhook consumers are a designated location of the same kind.**
 A product declares its handlers in `backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence.
@@ -548,7 +551,7 @@ Django auto-generates a reverse accessor (`project.visualreview_set`), a reverse
 
 **Rule:** declare every relation field (FK, O2O, M2M) that crosses a product boundary with `related_name="+"`, and do not set an explicit `related_query_name` on it. `related_name="+"` alone removes the reverse accessor and the reverse query name; an explicit `related_query_name` keeps `filter()` traversal alive, and the ratchet records it as a `query:<name>` row. A product may point relations _at_ core models; other products must not reference models _inside_ this product. When a caller needs reverse access, add a facade read function — do not traverse the ORM.
 
-A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it or a review adds a hand-edited baseline line. Regenerate after a removal with `bin/hogli product:crossings --all --write-baseline`.
+A repo invariant enforces this: every cross-boundary reverse accessor is frozen as a `reverse-accessor(...)` line in `products/model_crossing_uses_baseline.txt`, next to the other crossing kinds. The set may only shrink. A new relation without `related_name="+"` fails CI until you seal it. Regenerate after a removal with `bin/hogli product:crossings --all --write-baseline`.
 
 `db_constraint` is a separate concern: it is migration safety (see the hot-table FK rules in [products/README.md](README.md)) and multi-database planning, not Python isolation. Both `db_constraint=False` and a two-phase validated constraint are sanctioned.
 
