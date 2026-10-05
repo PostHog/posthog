@@ -15,6 +15,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person.deletion import orphan_share_refusal
@@ -206,7 +207,14 @@ def _postgres_distinct_id_tombstone_versions(team_id: int) -> dict[str, int]:
         return {distinct_id: int(version or 0) for distinct_id, version in cursor.fetchall()}
 
 
-def _primary_distinct_id_rows(team_id: int, distinct_ids: list[str]) -> dict[str, tuple[UUID, bool, int]]:
+@frozen
+class _PrimaryDistinctId:
+    person_uuid: UUID
+    is_deleted: bool
+    version: int
+
+
+def _primary_distinct_id_rows(team_id: int, distinct_ids: list[str]) -> dict[str, _PrimaryDistinctId]:
     """The owner, tombstone flag and version the Postgres primary holds for each distinct id.
 
     The floor RPC does not return this, and personhog's primary reads list only live mappings.
@@ -219,7 +227,7 @@ def _primary_distinct_id_rows(team_id: int, distinct_ids: list[str]) -> dict[str
             [team_id, distinct_ids],
         )
         return {
-            distinct_id: (uuid, bool(is_deleted), int(version or 0))
+            distinct_id: _PrimaryDistinctId(person_uuid=uuid, is_deleted=bool(is_deleted), version=int(version or 0))
             for distinct_id, uuid, is_deleted, version in cursor.fetchall()
         }
 
@@ -241,20 +249,22 @@ def _tombstone_distinct_ids_above_clickhouse(
                     set_distinct_id_version_floor(team_id, distinct_id, ch_versions[distinct_id] + 1)
             primary_rows = _primary_distinct_id_rows(team_id, batch)
             for distinct_id in batch:
-                person_uuid, is_deleted, version = primary_rows.get(distinct_id, (None, False, 0))
-                if person_uuid is None or version <= ch_versions[distinct_id]:
+                row = primary_rows.get(distinct_id)
+                if row is None or row.version <= ch_versions[distinct_id]:
                     logger.warning(
                         f"Skipping distinct ID {distinct_id}: the Postgres primary holds no row above "
                         f"ClickHouse version {ch_versions[distinct_id]}"
                     )
                     continue
-                logger.info(f"Publishing distinct ID {distinct_id} at version {version} (is_deleted={is_deleted})")
+                logger.info(
+                    f"Publishing distinct ID {distinct_id} at version {row.version} (is_deleted={row.is_deleted})"
+                )
                 create_person_distinct_id(
                     team_id=team_id,
                     distinct_id=distinct_id,
-                    person_id=str(person_uuid),
-                    version=version,
-                    is_deleted=is_deleted,
+                    person_id=str(row.person_uuid),
+                    version=row.version,
+                    is_deleted=row.is_deleted,
                 )
     finally:
         flush_all_producers(5 * 60)
