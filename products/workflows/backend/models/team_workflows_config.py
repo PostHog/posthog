@@ -50,6 +50,11 @@ class TeamWorkflowsConfig(models.Model):
     # can be held at a tier that its sending history would not give it.
     email_sending_tier_pinned = models.BooleanField(default=False, db_default=False)
 
+    # Team defaults for UTM tags on email links. New email steps copy them when they are created, and a
+    # bulk apply rewrites the steps whose values still follow them. Off by default.
+    email_utm_tags_enabled = models.BooleanField(default=False, db_default=False)
+    email_utm_params = models.JSONField(default=dict, db_default={}, blank=True)
+
     # Overrides for AI tasks created by workflows. Null keeps the product defaults;
     # zero pauses new task creation at that scope.
     workflow_task_rate_limit_per_day = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])

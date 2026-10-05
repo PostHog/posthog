@@ -23,15 +23,22 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { HogFunctionTemplateType, UserBasicType } from '../../../../../frontend/src/types'
+import type {
+    HogFunctionTemplateType,
+    TeamPublicType,
+    TeamType,
+    UserBasicType,
+} from '../../../../../frontend/src/types'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
+import { getTeamUtmDefaults, newEmailUtmConfig } from './steps/components/utmDefaults'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
 import { isWorkflowTreeComplete } from './tree/workflowTree'
@@ -197,6 +204,7 @@ export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 
 export interface hogFlowEditorLogicValues {
     categories: MessageCategory[] // optOutCategoriesLogic
     categoriesLoading: boolean // optOutCategoriesLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
     workflow: HogFlow // workflowLogic
@@ -2176,6 +2184,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             workflowLogic,
@@ -2764,6 +2774,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ...config,
                                 inputs: { ...defaults, ...('inputs' in config ? config.inputs : {}) },
                             }
+                        }
+                    }
+
+                    if (!isHogFlowActionNode && partialNewAction.type === 'function_email') {
+                        config = {
+                            ...config,
+                            ...newEmailUtmConfig(getTeamUtmDefaults(values.currentTeam?.workflows_config)),
                         }
                     }
 

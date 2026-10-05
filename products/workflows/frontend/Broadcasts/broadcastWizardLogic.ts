@@ -47,7 +47,8 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
-import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import { getTeamUtmDefaults, newEmailUtmConfig } from '../Workflows/hogflows/steps/components/utmDefaults'
+import type { UtmTagKey, UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
@@ -122,6 +123,8 @@ export interface BroadcastEmailSettings {
     trackingEnabled: boolean
     utmTagsEnabled: boolean
     utmParams: UtmTagValues
+    /** The utmParams keys that still follow the team default. Absent on broadcasts saved before team defaults. */
+    utmParamsFromDefault?: UtmTagKey[]
 }
 
 export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
@@ -143,6 +146,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         trackingEnabled: config.tracking_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
         utmParams: config.utm_params ?? {},
+        utmParamsFromDefault: config.utm_params_from_default,
     }
 }
 
@@ -156,6 +160,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         tracking_enabled: settings.trackingEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
         utm_params: settings.utmParams,
+        utm_params_from_default: settings.utmParamsFromDefault,
     }
 }
 
@@ -382,6 +387,11 @@ export interface broadcastWizardLogicActions {
     setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => {
         settings: Partial<BroadcastEmailSettings>
     }
+    seedTeamUtmDefaults: (
+        settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
+    ) => {
+        settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
+    }
     setExpandedRunOverride: (runIds: string[]) => {
         runIds: string[]
     }
@@ -532,6 +542,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
+        seedTeamUtmDefaults: (
+            settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
+        ) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setScheduleMode: (mode: BroadcastScheduleMode) => ({ mode }),
         setSendAt: (sendAt: string | null) => ({ sendAt }),
@@ -706,6 +719,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL_SETTINGS,
             {
                 setEmailSettings: (state, { settings }) => ({ ...state, ...settings }),
+                // Not setEmailSettings: that one autosaves, and opening /broadcasts/new must not create a draft.
+                seedTeamUtmDefaults: (state, { settings }) => ({ ...state, ...settings }),
                 hydrateFromBroadcast: (state, { broadcast }) => readEmailSettings(broadcast) ?? state,
                 applyExternalEdit: (state, { broadcast, base }) =>
                     changedElsewhere(broadcast, base, readEmailSettings)
@@ -1678,10 +1693,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values }) => {
         if (props.id !== 'new') {
             actions.loadBroadcast()
         } else {
+            const utm = newEmailUtmConfig(getTeamUtmDefaults(values.currentTeam?.workflows_config))
+            actions.seedTeamUtmDefaults({
+                utmTagsEnabled: utm.utm_tags_enabled,
+                utmParams: utm.utm_params,
+                utmParamsFromDefault: utm.utm_params_from_default,
+            })
             actions.loadBlastRadius()
         }
     }),

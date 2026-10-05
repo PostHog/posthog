@@ -27,7 +27,9 @@ import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySele
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { UtmTagFields } from '../steps/components/UtmTagFields'
+import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
+import { UTM_TAG_KEYS, UtmTagFields } from '../steps/components/UtmTagFields'
+import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
@@ -173,17 +175,34 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                         />
                     </div>
                     {action.config.utm_tags_enabled === true && (
-                        <div className="px-2 pb-2">
+                        <div className="px-2 pb-2 flex flex-col gap-2">
                             <UtmTagFields
                                 value={action.config.utm_params ?? {}}
                                 onChange={(utmParams) => {
                                     setWorkflowAction(action.id, {
                                         ...action,
-                                        config: { ...action.config, utm_params: utmParams },
+                                        config: {
+                                            ...action.config,
+                                            utm_params: utmParams,
+                                            utm_params_from_default: utmKeysFromDefaultAfterEdit(
+                                                action.config.utm_params_from_default,
+                                                action.config.utm_params ?? {},
+                                                utmParams
+                                            ),
+                                        },
                                     })
                                 }}
                                 campaignDefault={workflow.name || 'Workflow name'}
                                 contentDefault={action.name}
+                            />
+                            <UtmTeamDefaultControls
+                                value={action.config.utm_params ?? {}}
+                                onSavedAsTeamDefault={() => {
+                                    setWorkflowAction(action.id, {
+                                        ...action,
+                                        config: { ...action.config, utm_params_from_default: [...UTM_TAG_KEYS] },
+                                    })
+                                }}
                             />
                         </div>
                     )}

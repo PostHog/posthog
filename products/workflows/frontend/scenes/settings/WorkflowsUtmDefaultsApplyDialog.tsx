@@ -1,0 +1,66 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonCheckbox, LemonModal, Spinner } from '@posthog/lemon-ui'
+
+import { workflowsUtmDefaultsApplyLogic } from './workflowsUtmDefaultsApplyLogic'
+
+export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
+    const { isApplyDialogOpen, enableWhereOff, preview, previewLoading, applyResultLoading } =
+        useValues(workflowsUtmDefaultsApplyLogic)
+    const { closeApplyDialog, setEnableWhereOff, applyDefaults } = useActions(workflowsUtmDefaultsApplyLogic)
+
+    const nothingToUpdate = !!preview && preview.emails_updated === 0
+
+    return (
+        <LemonModal
+            isOpen={isApplyDialogOpen}
+            onClose={closeApplyDialog}
+            title="Update existing emails?"
+            description="Existing broadcasts and workflow emails keep their current values until you apply the new defaults. Values typed into a single email stay as they are, and sent broadcasts never change."
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={closeApplyDialog} data-attr="workflows-utm-defaults-skip">
+                        Not now
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={applyDefaults}
+                        loading={applyResultLoading}
+                        disabledReason={
+                            previewLoading || !preview
+                                ? 'Counting the emails to update'
+                                : nothingToUpdate
+                                  ? 'No emails to update'
+                                  : undefined
+                        }
+                        data-attr="workflows-utm-defaults-apply"
+                    >
+                        {preview && !nothingToUpdate ? `Update ${preview.emails_updated} emails` : 'Update emails'}
+                    </LemonButton>
+                </>
+            }
+        >
+            {previewLoading || !preview ? (
+                <Spinner />
+            ) : (
+                <div className="flex flex-col gap-3">
+                    <p className="m-0">
+                        {nothingToUpdate
+                            ? 'Every email already uses these values.'
+                            : `${preview.emails_updated} emails in ${preview.workflows_updated} broadcasts and workflows will use the new values.`}
+                        {preview.active_workflows_updated > 0 &&
+                            ` ${preview.active_workflows_updated} of them are live, so their next send uses the new values.`}
+                    </p>
+                    {preview.emails_off > 0 && (
+                        <LemonCheckbox
+                            checked={enableWhereOff}
+                            onChange={setEnableWhereOff}
+                            label={`Also turn on UTM tags in ${preview.emails_off} emails where they're off`}
+                            data-attr="workflows-utm-defaults-enable-where-off"
+                        />
+                    )}
+                </div>
+            )}
+        </LemonModal>
+    )
+}

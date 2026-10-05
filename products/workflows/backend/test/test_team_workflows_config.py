@@ -47,6 +47,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "email_utm_tags_enabled": False,
+            "email_utm_params": {},
         }
 
     def test_patch_enables_capture(self) -> None:
@@ -108,4 +110,6 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "email_utm_tags_enabled": False,
+            "email_utm_params": {},
         }
