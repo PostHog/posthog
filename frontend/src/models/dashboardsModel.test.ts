@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -73,6 +74,7 @@ const basicDashboard: DashboardBasicType = {
     last_viewed_at: null,
     is_shared: false,
     deleted: false,
+    archived: false,
     creation_mode: 'default',
     user_access_level: AccessControlLevel.Editor,
 }
@@ -298,6 +300,50 @@ describe('the dashboards model', () => {
         await expectLogic(teamLogic).toMatchValues({
             currentTeam: expect.objectContaining({ primary_dashboard: primaryDashboardId }),
         })
+    })
+
+    it('archives and unarchives a dashboard, merging the response into rawDashboards', async () => {
+        let lastPatchBody: any
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': async ({ request }) => {
+                    lastPatchBody = await request.json()
+                    return { ...basicDashboard, id: 1, archived: (lastPatchBody as { archived: boolean }).archived }
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.archiveDashboard(1, DashboardEventSource.DashboardsList)
+        })
+            .toDispatchActions(['archiveDashboard'])
+            .toMatchValues({ archivingDashboardIds: new Set([1]) })
+            .toDispatchActions(['archiveDashboardSuccess'])
+            .toMatchValues({ archivingDashboardIds: new Set() })
+        expect(lastPatchBody).toEqual({ archived: true })
+        expect(logic.values.rawDashboards[1].archived).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.unarchiveDashboard(1, DashboardEventSource.DashboardsList)
+        }).toDispatchActions(['unarchiveDashboardSuccess'])
+        expect(lastPatchBody).toEqual({ archived: false })
+        expect(logic.values.rawDashboards[1].archived).toBe(false)
+        expect(logic.values.archivingDashboardIds).toEqual(new Set())
+    })
+
+    it('clears archive loading state after a failed request', async () => {
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': () => [500, {}],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.archiveDashboard(1, DashboardEventSource.DashboardsList)
+        })
+            .toMatchValues({ archivingDashboardIds: new Set([1]) })
+            .toDispatchActions(['archiveDashboardFailure'])
+            .toMatchValues({ archivingDashboardIds: new Set() })
     })
 })
 

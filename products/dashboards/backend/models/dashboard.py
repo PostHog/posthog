@@ -69,6 +69,8 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
+    # Archiving hides the dashboard from lists and the project tree without breaking direct links.
+    archived = models.BooleanField(default=False, db_default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     last_refresh = models.DateTimeField(blank=True, null=True)
     filters = models.JSONField(default=dict)
@@ -131,11 +133,11 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Dashboard"]:
-        base_qs = cls.objects.filter(team=team, deleted=False).exclude(creation_mode="template")
+        base_qs = cls.objects.filter(team=team, deleted=False, archived=False).exclude(creation_mode="template")
         return cls._filter_unfiled_queryset(base_qs, team, type="dashboard", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
-        should_delete = self.deleted or (self.creation_mode == "template")
+        should_delete = self.deleted or self.archived or (self.creation_mode == "template")
         return FileSystemRepresentation(
             base_folder=self._get_assigned_folder("Unfiled/Dashboards"),
             type="dashboard",  # sync with APIScopeObject in scopes.py
@@ -166,6 +168,7 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
         return {
             "dashboard_id": self.pk,
             "pinned": self.pinned,
+            "archived": self.archived,
             "item_count": self.tiles.exclude(insight=None).count(),
             "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,

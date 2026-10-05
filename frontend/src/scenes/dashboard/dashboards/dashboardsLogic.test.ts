@@ -76,7 +76,10 @@ describe('dashboardsLogic', () => {
                 name: 'VMS Feature - History Browser - Nova',
             }),
         },
+        { ...dashboard({ created_by: CURRENT_USER, archived: true }) },
     ]
+    const visibleDashboards = allDashboards.filter((d) => !(d as DashboardType).archived)
+    const archivedDashboard = allDashboards.find((d) => (d as DashboardType).archived)!
 
     beforeEach(async () => {
         jest.clearAllMocks()
@@ -86,7 +89,7 @@ describe('dashboardsLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/dashboards/': {
-                    count: 7,
+                    count: allDashboards.length,
                     next: null,
                     previous: null,
                     results: allDashboards,
@@ -240,8 +243,17 @@ describe('dashboardsLogic', () => {
         })
     })
 
-    it('shows all dashboards when no filters', async () => {
-        expect(logic.values.dashboards).toHaveLength(allDashboards.length)
+    it('shows all non-archived dashboards when no filters', async () => {
+        expect(logic.values.dashboards).toHaveLength(visibleDashboards.length)
+        expect(logic.values.dashboards.some((d) => d.id === archivedDashboard.id)).toBe(false)
+    })
+
+    it('shows only archived dashboards when the archived filter is on', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ archived: true })
+        }).toMatchValues({
+            dashboards: [expect.objectContaining({ id: archivedDashboard.id })],
+        })
     })
 
     it('shows correct dashboards when on pinned tab', async () => {
@@ -291,12 +303,10 @@ describe('dashboardsLogic', () => {
     })
 
     it('shows dashboards from all selected creators when multiple are chosen', async () => {
-        // Multi-select is a union: selecting both users returns every dashboard, since each was
-        // created by one of them.
         expectLogic(logic, () => {
             logic.actions.setFilters({ createdBy: [CURRENT_USER.id, OTHER_USER.id] })
         }).toMatchValues({
-            dashboards: truth((dashboards: DashboardType[]) => dashboards.length === allDashboards.length),
+            dashboards: truth((dashboards: DashboardType[]) => dashboards.length === visibleDashboards.length),
         })
     })
 
@@ -350,9 +360,6 @@ describe('dashboardsLogic', () => {
     })
 
     it('uses server-side search results when a search term is set', async () => {
-        // Search is executed server-side (Postgres trigram word similarity); the logic
-        // delegates ranking to the API and uses the returned list as-is. We mock the search
-        // endpoint and assert the selector swaps the in-memory list for the response.
         const needleDashboard = allDashboards.find((d) => d.name === 'needle')!
         useMocks({
             get: {
@@ -393,8 +400,6 @@ describe('dashboardsLogic', () => {
     })
 
     it('sends tag filters to the server alongside search', async () => {
-        // Server-side tag filtering keeps MCP/API clients in sync with the UI and ensures
-        // the limit:200 cap operates on the right population (pre-tag-filtered, not post).
         let lastRequestUrl: URL | null = null
         useMocks({
             get: {
@@ -406,16 +411,20 @@ describe('dashboardsLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setFilters({ tags: ['finance', 'q4'] })
+            logic.actions.setFilters({ tags: ['finance', 'q4'], archived: true })
             logic.actions.setSearch('sales')
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(lastRequestUrl).not.toBeNull()
         expect(lastRequestUrl!.searchParams.get('search')).toBe('sales')
         expect(lastRequestUrl!.searchParams.getAll('tags')).toEqual(['finance', 'q4'])
+        expect(lastRequestUrl!.searchParams.get('archived')).toBe('true')
     })
 
-    it('refetches when tags change while a search is active', async () => {
+    it.each([
+        ['tags', { tags: ['finance'] }],
+        ['archived', { archived: true }],
+    ])('refetches when %s changes while a search is active', async (_name, filterChange) => {
         let requestCount = 0
         useMocks({
             get: {
@@ -432,7 +441,7 @@ describe('dashboardsLogic', () => {
         const afterSearch = requestCount
 
         await expectLogic(logic, () => {
-            logic.actions.setFilters({ tags: ['finance'] })
+            logic.actions.setFilters(filterChange)
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(requestCount).toBe(afterSearch + 1)
@@ -497,6 +506,7 @@ describe('dashboardsLogic', () => {
         },
         { name: 'pinned', set: { pinned: true }, reset: { pinned: false }, param: 'pinned', expected: true },
         { name: 'shared', set: { shared: true }, reset: { shared: false }, param: 'shared', expected: true },
+        { name: 'archived', set: { archived: true }, reset: { archived: false }, param: 'archived', expected: true },
         { name: 'tags', set: { tags: ['finance'] }, reset: { tags: [] }, param: 'tags', expected: ['finance'] },
     ]
 
@@ -523,6 +533,7 @@ describe('dashboardsLogic', () => {
         { name: 'created_by', params: { created_by: [2] }, expected: { createdBy: [2] } },
         { name: 'pinned', params: { pinned: true }, expected: { pinned: true } },
         { name: 'shared', params: { shared: true }, expected: { shared: true } },
+        { name: 'archived', params: { archived: true }, expected: { archived: true } },
         { name: 'tags', params: { tags: ['finance', 'q4'] }, expected: { tags: ['finance', 'q4'] } },
     ]
 

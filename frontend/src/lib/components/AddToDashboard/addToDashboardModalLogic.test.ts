@@ -76,6 +76,7 @@ const mkDashboard = (
     last_viewed_at: null,
     is_shared: false,
     deleted: false,
+    archived: false,
     creation_mode: 'default',
     user_access_level: AccessControlLevel.Editor,
 })

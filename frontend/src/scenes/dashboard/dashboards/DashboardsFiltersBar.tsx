@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
+import { IconArchive, IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
@@ -145,6 +145,18 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             icon={<IconShare />}
                         >
                             Shared
+                        </LemonButton>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            active={filters.archived}
+                            type="secondary"
+                            size="small"
+                            onClick={() => setFilters({ archived: !filters.archived })}
+                            icon={<IconArchive />}
+                            data-attr="dashboards-filter-archived"
+                        >
+                            Archived
                         </LemonButton>
                     </div>
                     {filters.folder != null && (

@@ -48,6 +48,8 @@ describe('DashboardsTable move to folder', () => {
         ;(useActions as jest.Mock).mockReturnValue({
             unpinDashboard: jest.fn(),
             pinDashboard: jest.fn(),
+            archiveDashboard: jest.fn(),
+            unarchiveDashboard: jest.fn(),
             tableSortingChanged: jest.fn(),
             showDuplicateDashboardModal: jest.fn(),
             showDeleteDashboardModal: jest.fn(),
@@ -63,7 +65,8 @@ describe('DashboardsTable move to folder', () => {
         tags?: string[],
         primaryDashboard?: number,
         homepageDashboard?: number,
-        homepageSaving: boolean = false
+        homepageSaving: boolean = false,
+        archivingDashboardIds: Set<number> = new Set()
     ): void => {
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
@@ -72,6 +75,7 @@ describe('DashboardsTable move to folder', () => {
             homepage: homepageDashboard ? { id: `homepage-dashboard-${homepageDashboard}` } : null,
             homepageSaving,
             filedDashboardIds: new Set(filedRows),
+            archivingDashboardIds,
         })
         mockCtx = { selectedKeys, clearSelection, setSelectedKeys }
         render(
@@ -120,6 +124,12 @@ describe('DashboardsTable move to folder', () => {
         expect(setHomepage).not.toHaveBeenCalled()
     })
 
+    it('disables archive while that dashboard is saving', () => {
+        renderTable([1], [], [1], undefined, undefined, undefined, false, new Set([1]))
+
+        expect(screen.getByText('Archive dashboard').closest('button')).toHaveAttribute('aria-disabled', 'true')
+    })
+
     it('offers the per-row move action and moves that dashboard', () => {
         renderTable([1])
         fireEvent.click(screen.getByText('Move to another folder'))
@@ -157,6 +167,8 @@ describe('DashboardsTable move to folder', () => {
         ;(useActions as jest.Mock).mockReturnValue({
             unpinDashboard: jest.fn(),
             pinDashboard: jest.fn(),
+            archiveDashboard: jest.fn(),
+            unarchiveDashboard: jest.fn(),
             tableSortingChanged: jest.fn(),
             setFilters,
             showDuplicateDashboardModal: jest.fn(),
@@ -168,6 +180,7 @@ describe('DashboardsTable move to folder', () => {
             filters: { search: '' },
             currentTeam: { id: 1 },
             filedDashboardIds: new Set([1]),
+            archivingDashboardIds: new Set(),
         })
 
         render(
@@ -196,6 +209,8 @@ describe('DashboardsTable move to folder', () => {
         ;(useActions as jest.Mock).mockReturnValue({
             unpinDashboard: jest.fn(),
             pinDashboard: jest.fn(),
+            archiveDashboard: jest.fn(),
+            unarchiveDashboard: jest.fn(),
             tableSortingChanged: jest.fn(),
             setFilters,
             showDuplicateDashboardModal: jest.fn(),
@@ -207,6 +222,7 @@ describe('DashboardsTable move to folder', () => {
             filters: { search: '' },
             currentTeam: { id: 1 },
             filedDashboardIds: new Set([1]),
+            archivingDashboardIds: new Set(),
         })
 
         render(

@@ -377,6 +377,13 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400, required=False, allow_null=True)
     description = serializers.CharField(required=False, allow_blank=True)
     pinned = serializers.BooleanField(required=False)
+    archived = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the dashboard is archived. Archived dashboards are hidden from the dashboard list "
+            "scene by default. Distinct from deleting the dashboard."
+        ),
+    )
     filters = DashboardFiltersOpenApiSerializer(
         required=False,
         help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",

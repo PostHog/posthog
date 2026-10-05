@@ -37,6 +37,7 @@ const MOCK_DASHBOARD: DashboardType = {
     last_accessed_at: '2020-01-01T00:00:00Z',
     is_shared: false,
     deleted: false,
+    archived: false,
     creation_mode: 'default',
     user_access_level: AccessControlLevel.Editor,
     filters: {},

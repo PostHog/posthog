@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "archived": {
+            "description": "Return only archived dashboards when true, or only non-archived dashboards when false.",
+            "type": "boolean"
+        },
         "exclude_generated": {
             "description": "Optional. Exclude dashboards that PostHog generated.",
             "type": "boolean"

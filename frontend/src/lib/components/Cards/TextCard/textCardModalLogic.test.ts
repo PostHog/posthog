@@ -20,6 +20,7 @@ const makeDashboard = (body: string = 'existing text', agentContext: string = ''
         last_accessed_at: null,
         is_shared: false,
         deleted: false,
+        archived: false,
         creation_mode: 'default',
         tiles: [
             {

@@ -50,6 +50,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.schema import InsightVizNode
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -252,6 +253,7 @@ DASHBOARD_SHARED_FIELDS = [
     "name",
     "description",
     "pinned",
+    "archived",
     "created_at",
     "created_by",
     "last_accessed_at",
@@ -1212,6 +1214,7 @@ class DashboardBasicSerializer(
             "name",
             "description",
             "pinned",
+            "archived",
             "created_at",
             "created_by",
             "last_accessed_at",
@@ -1237,6 +1240,14 @@ class DashboardBasicSerializer(
             "name": {"help_text": "Name of the dashboard."},
             "description": {"help_text": "Description of the dashboard."},
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
+            "archived": {
+                "help_text": (
+                    "Whether the dashboard is archived. Archived dashboards are hidden from the dashboard "
+                    "list scene by default, but pass `?archived=true` to this endpoint to list only "
+                    "archived ones. Distinct from `deleted`: an archived dashboard keeps working normally "
+                    "when linked to directly."
+                )
+            },
             "restriction_level": {"help_text": "Controls who can edit the dashboard."},
         }
 
@@ -2546,6 +2557,17 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
     )
 
 
+class OptionalQueryBooleanField(serializers.BooleanField):
+    default_empty_html = serializers.empty
+
+
+class DashboardListQuerySerializer(serializers.Serializer):
+    archived = OptionalQueryBooleanField(
+        required=False,
+        help_text="Return only archived dashboards when true, or only non-archived dashboards when false.",
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -2680,8 +2702,13 @@ class DashboardsViewSet(
             entries = entries.filter(path__startswith=f"{folder}/")
         return queryset.filter(Exists(entries))
 
+    @validated_request(
+        query_serializer=DashboardListQuerySerializer,
+        responses={200: DashboardBasicSerializer(many=True)},
+        operation_id="dashboards_list",
+    )
     @tracer.start_as_current_span("DashboardViewSet.list")
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         response = super().list(request, *args, **kwargs)
         # Record search-result cardinality so we can tune MIN_*_TRIGRAM_SIMILARITY from prod
         # telemetry — flag empty results (loosen) and high counts (tighten).
@@ -2801,6 +2828,11 @@ class DashboardsViewSet(
 
         if self.action == "list" and self.request.query_params.get("pinned") == "true":
             queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name", "id")
+
+        if self.action == "list":
+            archived = cast(ValidatedRequest, self.request).validated_query_data.get("archived")
+            if archived is not None:
+                queryset = queryset.filter(archived=archived)
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")

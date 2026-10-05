@@ -17,6 +17,7 @@ const makeDashboard = (body?: string): DashboardType =>
         last_accessed_at: null,
         is_shared: false,
         deleted: false,
+        archived: false,
         creation_mode: 'default',
         tiles: body
             ? [

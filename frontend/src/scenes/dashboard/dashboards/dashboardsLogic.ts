@@ -36,6 +36,7 @@ export interface DashboardsFilters {
     createdBy: number[] | 'All users'
     pinned: boolean
     shared: boolean
+    archived: boolean
     tags?: string[]
     /** Folder path to filter to, e.g. 'Unfiled/Dashboards' (empty string = project root). null means no folder filter. */
     folder?: string | null
@@ -46,6 +47,7 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     createdBy: 'All users',
     pinned: false,
     shared: false,
+    archived: false,
     tags: [],
     folder: null,
 }
@@ -55,6 +57,7 @@ export function hasDashboardFilters(filters: DashboardsFilters): boolean {
         filters.search ||
         filters.pinned ||
         filters.shared ||
+        filters.archived ||
         (filters.createdBy !== 'All users' && filters.createdBy.length > 0) ||
         filters.tags?.length ||
         filters.folder != null
@@ -126,10 +129,21 @@ export interface dashboardsLogicActions {
     loadMoreTagResults: () => {
         value: true
     }
-    loadSearchedDashboards: ({ search, tags, folder }: { folder: string | null; search: string; tags: string[] }) => {
+    loadSearchedDashboards: ({
+        search,
+        tags,
+        folder,
+        archived,
+    }: {
+        archived: boolean
+        folder: string | null
+        search: string
+        tags: string[]
+    }) => {
         search: string
         tags: string[]
         folder: string | null
+        archived: boolean
     }
     loadSearchedDashboardsFailure: (
         error: string,
@@ -144,6 +158,7 @@ export interface dashboardsLogicActions {
             search: string
             tags: string[]
             folder: string | null
+            archived: boolean
         }
     ) => {
         searchedDashboards: DashboardBasicType[] | null
@@ -151,6 +166,7 @@ export interface dashboardsLogicActions {
             search: string
             tags: string[]
             folder: string | null
+            archived: boolean
         }
     }
     loadTagResults: ({ search, offset }: { offset: number; search: string }) => {
@@ -335,7 +351,12 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                  * in-flight request can't clobber a freshly cleared search.
                  */
                 loadSearchedDashboards: async (
-                    { search, tags, folder }: { search: string; tags: string[]; folder: string | null },
+                    {
+                        search,
+                        tags,
+                        folder,
+                        archived,
+                    }: { search: string; tags: string[]; folder: string | null; archived: boolean },
                     breakpoint
                 ) => {
                     await breakpoint(250)
@@ -351,11 +372,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         search: term,
                         limit: '200',
                         exclude_generated: 'true',
+                        archived: archived ? 'true' : 'false',
                     })
-                    // Push tag/folder filtering to the server so MCP and API clients see the same
-                    // result shape as the UI, and so the limit:200 cap operates on the right
-                    // population — filtered first, not after. Without this, a folder filter combined
-                    // with search would only narrow the top-200 global matches and silently drop the rest.
+                    // Apply these filters before the server caps search results at 200.
                     for (const tag of tags) {
                         params.append('tags', tag)
                     }
@@ -445,6 +464,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     filters.search && searchedDashboards
                         ? searchedDashboards.map((d) => (rawDashboards[d.id] as DashboardBasicType | undefined) ?? d)
                         : allDashboards
+                // Persisted filters from before archiving have no `archived` key.
+                haystack = haystack.filter((d) => Boolean(d.archived) === Boolean(filters.archived))
                 if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
@@ -532,7 +553,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
         setFilters: () => {
-            const { createdBy, pinned, shared, tags } = values.filters
+            const { createdBy, pinned, shared, archived, tags } = values.filters
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 
             if (searchParams['tab'] === DashboardsTab.Pinned) {
@@ -553,6 +574,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 searchParams['shared'] = true
             } else {
                 delete searchParams['shared']
+            }
+            if (archived) {
+                searchParams['archived'] = true
+            } else {
+                delete searchParams['archived']
             }
             if (tags && tags.length > 0) {
                 searchParams['tags'] = tags
@@ -586,7 +612,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             const hasFilterParams =
                 requestedTab === DashboardsTab.Pinned ||
-                ['created_by', 'pinned', 'shared', 'tags', 'folder', 'search'].some((key) => key in searchParams)
+                ['created_by', 'pinned', 'shared', 'archived', 'tags', 'folder', 'search'].some(
+                    (key) => key in searchParams
+                )
             if (tab === DashboardsTab.Yours && values.filters.createdBy !== DEFAULT_FILTERS.createdBy) {
                 actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
             }
@@ -627,6 +655,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     searchParams['pinned'] === true ||
                     searchParams['pinned'] === 'true',
                 shared: searchParams['shared'] === true || searchParams['shared'] === 'true',
+                archived: searchParams['archived'] === true || searchParams['archived'] === 'true',
                 tags: Array.isArray(searchParams['tags']) ? searchParams['tags'] : DEFAULT_FILTERS.tags,
                 folder: 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null,
             }
@@ -635,6 +664,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 !objectsEqual(current.createdBy, nextFilters.createdBy) ||
                 current.pinned !== nextFilters.pinned ||
                 current.shared !== nextFilters.shared ||
+                current.archived !== nextFilters.archived ||
                 !objectsEqual(current.tags ?? [], nextFilters.tags ?? []) ||
                 (current.folder ?? null) !== nextFilters.folder
             ) {
@@ -685,17 +715,17 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 search,
                 tags: values.filters.tags ?? [],
                 folder: values.filters.folder ?? null,
+                archived: Boolean(values.filters.archived),
             })
         },
         setFilters: ({ filters }) => {
-            // Tag/folder changes refetch when a search is active so server-side filtering stays
-            // accurate. Other filter keys (pinned/shared/createdBy/currentTab) are still
-            // applied client-side over the in-memory list so they don't refetch.
-            if (('tags' in filters || 'folder' in filters) && values.filters.search) {
+            // Search applies these filters on the server before pagination.
+            if (('tags' in filters || 'folder' in filters || 'archived' in filters) && values.filters.search) {
                 actions.loadSearchedDashboards({
                     search: values.filters.search,
                     tags: values.filters.tags ?? [],
                     folder: values.filters.folder ?? null,
+                    archived: Boolean(values.filters.archived),
                 })
             }
         },
