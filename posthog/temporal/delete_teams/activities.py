@@ -50,7 +50,10 @@ async def delete_groups_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_group_type_mappings_for_teams, _delete_groups_for_teams
 
-        await database_sync_to_async_pool(_delete_groups_for_teams)(inputs.team_ids)
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_groups_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
         await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(inputs.team_ids)
 
 
@@ -59,7 +62,10 @@ async def delete_team_persons_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_persons_for_teams
 
-        await database_sync_to_async_pool(_delete_persons_for_teams)(inputs.team_ids)
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_persons_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
 
 
 @temporalio.activity.defn
