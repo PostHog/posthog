@@ -106,7 +106,7 @@ If a batch reaches a ceiling, shrink the batch. Do not raise the ceiling.
 
 Every analytics ingestion lane can run the fork step, the delayed `historical` and `async` lanes included. A lane forks only when its deployment config sets `INGESTION_FLAG_EVALUATIONS_MODE` and `INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC`. A lane without them writes the team's calls to the events table and not to `flag_evaluations`, which reads as a deficit for a team whose fork is healthy.
 
-On a deficit that names a team with no other sign of trouble, check the `historical` lane first. It carries `/batch/` requests sent with `historical_migration: true` and managed batch imports, so the events rows it wrote have `historical_migration = 1`.
+On a deficit that names a team with no other sign of trouble, check whether the missing calls came through a lane whose deployment config does not turn the fork on. While the `historical` lane does not fork, start there. It carries `/batch/` requests sent with `historical_migration: true` and managed batch imports, so the events rows it wrote have `historical_migration = 1`. Add `AND historical_migration = 0` to the `events` half of the `UNION ALL`. If the deficit disappears, the missing calls came through the historical lane.
 
 ## Why this is not a scheduled job
 

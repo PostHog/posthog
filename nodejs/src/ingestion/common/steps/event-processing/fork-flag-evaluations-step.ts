@@ -55,10 +55,11 @@ const hasFlagKey = ({ event }: EventToEmit<string>): boolean => {
 const FLAG_EVALUATIONS_TTL_DAYS = 90
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// The table's `TTL toDate(timestamp) + INTERVAL 90 DAY` expires a row dated D at the start of D + 90 days.
-// Every row dated before the returned instant has therefore expired. ClickHouse can drop it at any merge.
-// For a FLAG_EVALUATIONS_ONLY team the row is the only copy of the call. The fork skips a call this old and
-// leaves it in the events table.
+// The table's TTL expires a row dated D at the start of day D + FLAG_EVALUATIONS_TTL_DAYS.
+// The day FLAG_EVALUATIONS_TTL_DAYS back has already expired when today starts.
+// This function returns the start of the UTC day FLAG_EVALUATIONS_TTL_DAYS - 1 days back, the oldest day the
+// table keeps. ClickHouse can drop an older row at any merge. For a FLAG_EVALUATIONS_ONLY team the row is the
+// only copy of the call. The fork skips a call this old and leaves it in the events table.
 const retentionStartMs = (nowMs: number): number =>
     Math.floor(nowMs / DAY_MS) * DAY_MS - (FLAG_EVALUATIONS_TTL_DAYS - 1) * DAY_MS
 
