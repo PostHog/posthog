@@ -40,6 +40,7 @@ import {
     BIConfig,
     BIEditorView,
     BIField,
+    DEFAULT_BI_CONFIG,
     getBIFieldPillLabel,
     getBIShelfEditorKey,
 } from 'products/business_intelligence/frontend/biEditorTypes'
@@ -340,23 +341,50 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('local draft recovery', () => {
-        const mountEditor = (): void => {
-            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+        const mountEditor = (mode = SQLEditorMode.FullScene): void => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, mode, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
         }
 
-        it.each([
-            { searchParams: { open_view: MOCK_VIEW.id }, savedQuery: MOCK_VIEW.query.query },
-            {
-                searchParams: { open_insight: MOCK_INSIGHT_SHORT_ID },
-                savedQuery: MOCK_INSIGHT_QUERY.source.query,
-            },
-        ])('discards an unrun edit and does not recover it again (%j)', async ({ searchParams, savedQuery }) => {
-            mountEditor()
-            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), searchParams))
+        it.each(
+            [
+                { searchParams: { open_view: MOCK_VIEW.id }, savedQuery: MOCK_VIEW.query.query },
+                {
+                    searchParams: { open_insight: MOCK_INSIGHT_SHORT_ID },
+                    savedQuery: MOCK_INSIGHT_QUERY.source.query,
+                },
+            ].flatMap((savedItem) =>
+                [SQLEditorMode.FullScene, SQLEditorMode.BusinessIntelligence].map((mode) => ({ ...savedItem, mode }))
+            )
+        )('discards an unrun edit and does not recover it again (%j)', async ({ searchParams, savedQuery, mode }) => {
+            mountEditor(mode)
+            const editorUrl =
+                mode === SQLEditorMode.BusinessIntelligence ? urls.businessIntelligence() : urls.sqlEditor()
+            const hashParams =
+                mode === SQLEditorMode.BusinessIntelligence
+                    ? {
+                          mode: BIEditorView.BI,
+                          bi: {
+                              ...DEFAULT_BI_CONFIG,
+                              source: { table: 'events' },
+                              rows: [
+                                  {
+                                      id: 'event',
+                                      name: 'event',
+                                      expression: 'event',
+                                      type: 'string',
+                                      source: { table: 'events' },
+                                  },
+                              ],
+                          },
+                      }
+                    : undefined
+            await expectLogic(logic, () => router.actions.push(editorUrl, searchParams, hashParams))
                 .toDispatchActions(['createTab', 'setQueryInput'])
                 .toFinishAllListeners()
             expect(logic.values.hasEditorChanges).toBe(false)
+            const biEditorState = logic.values.activeTab?.biEditorState
+            expect(biEditorState?.config.rows).toEqual(hashParams?.bi.rows)
 
             logic.actions.setQueryInput('SELECT unfinished')
             expect(logic.values.hasEditorChanges).toBe(true)
@@ -368,6 +396,7 @@ describe('sqlEditorLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({ queryInput: savedQuery, hasEditorChanges: false })
+            expect(logic.values.activeTab?.biEditorState).toEqual(biEditorState)
             expect(router.values.hashParams.q).toEqual(savedQuery)
             expect(logic.values.activeTab?.view?.id ?? logic.values.activeTab?.insight?.short_id).toEqual(
                 searchParams.open_view ?? searchParams.open_insight
@@ -375,8 +404,8 @@ describe('sqlEditorLogic', () => {
 
             logic.unmount()
             initKeaTests()
-            mountEditor()
-            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), searchParams))
+            mountEditor(mode)
+            await expectLogic(logic, () => router.actions.push(editorUrl, searchParams))
                 .toDispatchActions(['createTab', 'setQueryInput'])
                 .toFinishAllListeners()
                 .toMatchValues({ queryInput: savedQuery, hasEditorChanges: false })

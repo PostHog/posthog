@@ -18,6 +18,8 @@ Insights can be saved or updated before running the SQL. Updating a view still r
 
 Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
 
+Discarding query edits preserves the worksheet's selected source and shelves.
+
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
 Use the table picker in the data pane to browse the same source groups and folders as the database tree.
