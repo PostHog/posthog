@@ -234,16 +234,33 @@ class SentImages implements Component {
   invalidate(): void {}
 }
 
+// A fence line, marked by an SGR code that changes nothing, so it can be found and dropped after pi renders it.
+const FENCE = "\u001b[10m";
+
+// An assistant message whose code blocks show as indented, highlighted code, without the fence rows around them.
+class CodeBlocks implements Component {
+  constructor(private readonly inner: Component) {}
+
+  render(width: number): string[] {
+    return this.inner.render(width).filter((line) => !line.includes(FENCE));
+  }
+
+  invalidate(): void {
+    this.inner.invalidate();
+  }
+}
+
 function componentFor(line: TranscriptLine): Component {
   const markdown = getMarkdownTheme();
   switch (line.kind) {
     case "user":
       return new UserMessageComponent(line.text, markdown);
     case "assistant":
-      return new AssistantMessageComponent(
-        assistantMessage(line.text),
-        false,
-        markdown,
+      return new CodeBlocks(
+        new AssistantMessageComponent(assistantMessage(line.text), false, {
+          ...markdown,
+          codeBlockBorder: (text) => `${FENCE}${text}`,
+        }),
       );
     case "notice":
       return new Text(DIM(line.text), 1, 0);
