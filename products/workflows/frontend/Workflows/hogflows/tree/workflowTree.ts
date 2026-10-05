@@ -29,6 +29,11 @@ export interface WorkflowTreeBranch {
 // same digits and backtracks quadratically on a long stored value that never matches.
 const COMPLETE_DURATION_PATTERN = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)([dhms])$/
 
+// A branch without a shared continuation repeats every later step on each of its routes, so a
+// chain of such branches doubles the tree at each one. Past this size the linear view is not
+// readable, and building it can exhaust the browser's memory, so the editor uses the graph instead.
+const MAX_WORKFLOW_TREE_NODES = 1000
+
 // The executor holds a wait to the ceiling of its unit, and the API stores a larger amount
 // unchanged. Use the same ceilings here so the label names the window the wait really honors.
 const MAX_WAIT_AMOUNT_FOR_UNIT: Record<string, number> = {
@@ -215,7 +220,16 @@ function collectBranchJoinEdges(
     }
 }
 
+interface WorkflowTreeBuild {
+    tree: WorkflowTreeSequence
+    reachesNodeLimit: boolean
+}
+
 export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>): WorkflowTreeSequence {
+    return buildWorkflowTreeWithinNodeLimit(workflow).tree
+}
+
+function buildWorkflowTreeWithinNodeLimit(workflow: Pick<HogFlow, 'actions' | 'edges'>): WorkflowTreeBuild {
     const actionsById = new Map(workflow.actions.map((action) => [action.id, action]))
     const actionOrder = new Map(workflow.actions.map((action, index) => [action.id, index]))
     const outgoingEdgesByActionId = new Map<string, HogFlowEdge[]>()
@@ -237,6 +251,7 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
     }
 
     const postDominatorsByActionId = buildPostDominators([...actionsById.keys()], outgoingEdgesByActionId)
+    let nodeCount = 0
 
     const buildSequence = (
         startActionId: string | undefined,
@@ -250,9 +265,10 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
 
         while (actionId && actionId !== stopActionId && !ancestors.has(actionId)) {
             const action = actionsById.get(actionId)
-            if (!action) {
+            if (!action || nodeCount >= MAX_WORKFLOW_TREE_NODES) {
                 break
             }
+            nodeCount++
 
             ancestors.add(actionId)
             const outgoingEdges = outgoingEdgesByActionId.get(actionId) ?? []
@@ -307,12 +323,17 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
     }
 
     const trigger = workflow.actions.find((action) => action.type === 'trigger') ?? workflow.actions[0]
-    return buildSequence(trigger?.id, null, null, new Set())
+    const tree = buildSequence(trigger?.id, null, null, new Set())
+    return { tree, reachesNodeLimit: nodeCount >= MAX_WORKFLOW_TREE_NODES }
 }
 
 export function isWorkflowTreeComplete(workflow: Pick<HogFlow, 'actions' | 'edges'>): boolean {
+    const { tree, reachesNodeLimit } = buildWorkflowTreeWithinNodeLimit(workflow)
+    if (reachesNodeLimit) {
+        return false
+    }
     const actionIds = new Set<string>()
-    collectWorkflowTreeActionIds(buildWorkflowTree(workflow), actionIds)
+    collectWorkflowTreeActionIds(tree, actionIds)
     return workflow.actions.every((action) => actionIds.has(action.id))
 }
 
