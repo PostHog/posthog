@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { createStreamConnection } from 'lib/api-stream'
 import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -76,7 +77,6 @@ const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
 const HOGQL_RELOAD_INTERVAL_MS = 30000
 const PAUSE_GRACE_MS = 2000
-const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
 type BotQueryStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
@@ -90,8 +90,8 @@ const liveQueryTags = (name: string): QueryLogTags => ({
 })
 
 const isTransientQueryError = (error: unknown): boolean => {
-    const status = (error as { status?: number } | null)?.status
-    return status !== undefined && TRANSIENT_QUERY_STATUSES.has(status)
+    // performQuery owns 502/503 retries and capacity waits.
+    return (error as { status?: number } | null)?.status === 504
 }
 
 const performLiveQuery = <N extends HogQLQuery | TrendsQuery>(
@@ -729,6 +729,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const abortController = new AbortController()
             cache.loadAbortController = abortController
             const { signal } = abortController
+            let retryAfterTimestamp = 0
+            const onQueryError = (error: unknown): void => {
+                if (error instanceof ApiError) {
+                    retryAfterTimestamp = Math.max(retryAfterTimestamp, error.retryAfterTimestamp ?? 0)
+                }
+            }
 
             const isColdLoad = !cache.hasLoadedData || !isBackground
             if (isColdLoad) {
@@ -760,6 +766,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     filtersEnabled: true,
                     doPathCleaning: values.pathCleaningFilters.length > 0,
                     abortController,
+                    onQueryError,
                 })
 
                 if (signal.aborted) {
@@ -809,6 +816,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         filterTestAccounts: values.shouldFilterTestAccounts,
                         filtersEnabled: true,
                         abortController,
+                        onQueryError,
                     })
                     if (signal.aborted) {
                         return
@@ -854,7 +862,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 // Counted from load completion, so a load slower than the interval is never aborted by the next one.
                 if (!signal.aborted && values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
                     cache.disposables.add(() => {
-                        const timeoutId = setTimeout(() => actions.loadInitialData(true), HOGQL_RELOAD_INTERVAL_MS)
+                        const delay = Math.max(HOGQL_RELOAD_INTERVAL_MS, retryAfterTimestamp - Date.now())
+                        const timeoutId = setTimeout(() => actions.loadInitialData(true), delay)
                         return () => clearTimeout(timeoutId)
                     }, 'hogqlReload')
                 }
@@ -1181,6 +1190,7 @@ const loadQueryData = async ({
     filtersEnabled,
     doPathCleaning,
     abortController,
+    onQueryError,
 }: {
     dateFrom: Date
     dateTo: Date
@@ -1191,6 +1201,7 @@ const loadQueryData = async ({
     filtersEnabled: boolean
     doPathCleaning: boolean
     abortController: AbortController
+    onQueryError: (error: unknown) => void
 }): Promise<LiveQueryData> => {
     const { signal } = abortController
     const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
@@ -1447,6 +1458,7 @@ const loadQueryData = async ({
                 data[key] = result.value as HogQLQueryResponse
             }
         } else if (!isAbortedRequest(result.reason)) {
+            onQueryError(result.reason)
             data.failedQueries.push(LIVE_QUERY_LABELS[key])
             console.error(`Live query "${query.tags?.name ?? key}" failed:`, result.reason)
         }
@@ -1463,7 +1475,11 @@ const loadBotQueryData = async ({
     filterTestAccounts,
     filtersEnabled,
     abortController,
-}: LiveQueryContextParams & { abortController: AbortController }): Promise<HogQLQueryResponse | null> => {
+    onQueryError,
+}: LiveQueryContextParams & {
+    abortController: AbortController
+    onQueryError: (error: unknown) => void
+}): Promise<HogQLQueryResponse | null> => {
     const { signal } = abortController
     const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
         dateFrom,
@@ -1514,6 +1530,7 @@ const loadBotQueryData = async ({
         })
     } catch (error) {
         if (!isAbortedRequest(error)) {
+            onQueryError(error)
             console.error('Live query "live_bots" failed:', error)
         }
         return null

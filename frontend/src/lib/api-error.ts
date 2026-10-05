@@ -168,7 +168,7 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
- * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
+ * - 502/503/504 are gateway or upstream failures. The backend may already have started the request.
  *
  * Left unreported for a second reason, that there is nothing to fix:
  * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
@@ -275,7 +275,11 @@ export class ApiError extends Error {
         if (retryAfter && /^\d+$/.test(retryAfter)) {
             retryAfterTimestamp = Date.now() + Number(retryAfter) * 1000
         } else if (retryAfter?.endsWith('GMT')) {
-            retryAfterTimestamp = Date.parse(retryAfter)
+            // Compare server dates to keep device clock skew out of the cooldown.
+            const serverDate = headers?.get('Date')
+            if (serverDate) {
+                retryAfterTimestamp = Date.now() + Math.max(0, Date.parse(retryAfter) - Date.parse(serverDate))
+            }
         }
         this.retryAfterTimestamp = Number.isSafeInteger(retryAfterTimestamp) ? retryAfterTimestamp : null
     }

@@ -226,7 +226,7 @@ async function executeQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
-        // Minted here rather than left to the server, so every attempt below names the same run.
+        // Share a client ID for tracing and cancellation; it does not guarantee a single execution.
         const clientQueryId = queryId || uuid()
 
         const response = await retryWithBackoff(

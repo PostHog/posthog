@@ -420,18 +420,14 @@ describe('query', () => {
                 .mockRejectedValueOnce(shortCapacityWait())
                 .mockResolvedValueOnce({ results: ['ok'] } as any)
 
-            const rejected = await expect(
-                performQuery(query, { signal: controller.signal }, 'blocking')
-            ).rejects.toMatchObject({
-                name: 'AbortError',
-            })
+            const outcome = Promise.allSettled([performQuery(query, { signal: controller.signal }, 'blocking')])
             await jest.advanceTimersByTimeAsync(1000)
             expect(querySpy).toHaveBeenCalledTimes(1)
 
             controller.abort()
             await jest.advanceTimersByTimeAsync(5000)
 
-            await rejected
+            await expect(outcome).resolves.toMatchObject([{ status: 'rejected', reason: { name: 'AbortError' } }])
             expect(querySpy).toHaveBeenCalledTimes(1)
         })
 
@@ -442,12 +438,10 @@ describe('query', () => {
             jest.useFakeTimers()
             const querySpy = jest.spyOn(api, 'query').mockRejectedValue(makeError())
 
-            const rejected = await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({
-                status: 503,
-            })
+            const outcome = Promise.allSettled([performQuery(query, undefined, 'blocking')])
             await jest.advanceTimersByTimeAsync(elapsedMs)
 
-            await rejected
+            await expect(outcome).resolves.toMatchObject([{ status: 'rejected', reason: { status: 503 } }])
             expect(querySpy).toHaveBeenCalledTimes(3)
         })
 

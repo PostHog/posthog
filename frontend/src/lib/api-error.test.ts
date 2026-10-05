@@ -9,6 +9,36 @@ import {
 
 describe('api-error', () => {
     describe('capacity retry deadlines', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([-3_600_000, 3_600_000])('honors HTTP dates with %i ms of device clock skew', (clockSkew) => {
+            jest.useFakeTimers({ now: Date.parse('Mon, 05 Oct 2026 12:00:00 GMT') + clockSkew })
+            const error = new ApiError(
+                '',
+                503,
+                new Headers({
+                    Date: 'Mon, 05 Oct 2026 12:00:00 GMT',
+                    'Retry-After': 'Mon, 05 Oct 2026 12:00:45 GMT',
+                })
+            )
+
+            expect(error.retryAfterTimestamp).toBe(Date.now() + 45_000)
+        })
+
+        it.each([undefined, 'invalid'])(
+            'does not enforce an HTTP-date cooldown without a valid server Date: %s',
+            (date) => {
+                const headers = new Headers({ 'Retry-After': 'Mon, 05 Oct 2026 12:00:45 GMT' })
+                if (date) {
+                    headers.set('Date', date)
+                }
+
+                expect(new ApiError('', 503, headers).retryAfterTimestamp).toBeNull()
+            }
+        )
+
         it.each([undefined, '', '-1', '1.5', '1e3', 'unknown', 'Infinity', '9'.repeat(400)])(
             'ignores an invalid Retry-After header: %s',
             (retryAfter) => {

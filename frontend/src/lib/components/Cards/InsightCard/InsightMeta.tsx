@@ -125,6 +125,7 @@ interface InsightMetaProps extends Pick<
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile
     insight: InsightModel
+    refreshDisabledReason?: string
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
@@ -146,6 +147,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshDisabledReason: capacityDisabledReason,
     refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
@@ -380,9 +382,11 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? dayjs(nextAllowedClientRefresh).fromNow()
             : null
-    const refreshDisabledReason = nextRefreshFromNow
-        ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : undefined
+    const refreshDisabledReason =
+        capacityDisabledReason ??
+        (nextRefreshFromNow
+            ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
+            : undefined)
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason

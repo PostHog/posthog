@@ -9,6 +9,7 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { useInterval } from 'lib/hooks/useInterval'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -333,6 +334,20 @@ function InsightCardInternal(
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
 
+    const [, setCooldownTick] = useState(0)
+    const capacityRetryAt = apiErrored && apiError instanceof ApiError ? apiError.retryAfterTimestamp : null
+    const retrySecondsLeft = capacityRetryAt ? Math.max(0, Math.ceil((capacityRetryAt - Date.now()) / 1000)) : 0
+    useInterval(() => setCooldownTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
+    const refreshDisabledReason =
+        retrySecondsLeft > 0
+            ? `PostHog is busy. You can retry in ${retrySecondsLeft} ${retrySecondsLeft === 1 ? 'second' : 'seconds'}.`
+            : undefined
+    const refreshAfterCooldown = useCallback((): void => {
+        if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
+            refresh?.()
+        }
+    }, [refresh, capacityRetryAt])
+
     if (insightLoading || insightDataLoading) {
         loading = true
     }
@@ -399,7 +414,7 @@ function InsightCardInternal(
                         query={insight.query}
                         excludeActions={sharedView}
                         placement={placement}
-                        onRetry={sharedView ? undefined : refresh}
+                        onRetry={sharedView || !refresh ? undefined : refreshAfterCooldown}
                     />
                 )
             }
@@ -478,7 +493,8 @@ function InsightCardInternal(
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
-                        refresh={refresh}
+                        refresh={refresh ? refreshAfterCooldown : undefined}
+                        refreshDisabledReason={refreshDisabledReason}
                         loadingQueued={loadingQueued}
                         loading={loading}
                         rename={rename}

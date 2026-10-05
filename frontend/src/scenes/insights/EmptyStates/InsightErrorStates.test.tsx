@@ -185,7 +185,7 @@ describe('insight error states', () => {
     it.each(['seconds', 'HTTP date'])('honors a capacity cooldown in %s across remounts', (format) => {
         jest.useFakeTimers()
         const retryAfter = format === 'seconds' ? '45' : new Date(Date.now() + 45_000).toUTCString()
-        const error = new ApiError('', 503, new Headers({ 'Retry-After': retryAfter }))
+        const error = new ApiError('', 503, new Headers({ 'Retry-After': retryAfter, Date: new Date().toUTCString() }))
         const onRetry = jest.fn()
         const view = (
             <InsightErrorState

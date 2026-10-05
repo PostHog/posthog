@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -44,6 +45,8 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         })
         jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
         ;(posthog as any).setPersonProperties = jest.fn()
+        unmountFeatureFlagLogic = featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
         logic = liveWebAnalyticsMetricsLogic()
         logic.mount()
     })
@@ -51,15 +54,67 @@ describe('liveWebAnalyticsMetricsLogic', () => {
     afterEach(() => {
         logic.unmount()
         unmountFeatureFlagLogic?.()
+        unmountFeatureFlagLogic = undefined
         jest.restoreAllMocks()
+        jest.useRealTimers()
     })
 
     const enableBotAnalysis = (): void => {
-        unmountFeatureFlagLogic = featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
             [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
         })
     }
+
+    it.each([502, 503])('keeps the shared submission budget for HTTP %i failures', async (status) => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        ;(api.query as jest.Mock).mockClear().mockRejectedValue(new ApiError('', status))
+        logic.actions.loadInitialData(true)
+
+        await jest.advanceTimersByTimeAsync(10_000)
+
+        const names = getLiveQueryNames()
+        expect(names.length).toBeGreaterThan(0)
+        for (const name of new Set(names)) {
+            expect(names.filter((queryName) => queryName === name)).toHaveLength(3)
+        }
+        expect(logic.values.isLoading).toBe(false)
+    })
+
+    it.each(['live_device_breakdown', 'live_bots'])(
+        'respects %s capacity hints during retries and periodic refreshes',
+        async (failedQuery) => {
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.LIVESTREAM_HOGQL, FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
+                {
+                    [FEATURE_FLAGS.LIVESTREAM_HOGQL]: true,
+                    [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+                }
+            )
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+            jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+            ;(api.query as jest.Mock).mockClear().mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+                if (query.tags?.name === failedQuery) {
+                    throw new ApiError('', 503, new Headers({ 'Retry-After': '45' }))
+                }
+                return { results: [] }
+            })
+            logic.actions.loadInitialData(true)
+
+            await jest.advanceTimersByTimeAsync(0)
+            expect(getLiveQueryNames().filter((name) => name === failedQuery)).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(44_999)
+            expect(getLiveQueryNames().filter((name) => name === failedQuery)).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(getLiveQueryNames().filter((name) => name === failedQuery)).toHaveLength(2)
+        }
+    )
 
     it('collapses streamed pageviews that clean to the same path into one row', () => {
         logic.actions.addEvents(
