@@ -2513,14 +2513,13 @@ describe('derived scopes and annotations', () => {
     it.each([
         { method: 'GET', expected: { readOnly: true, destructive: false, idempotent: true } },
         { method: 'DELETE', expected: { readOnly: false, destructive: true, idempotent: true } },
-        { method: 'PATCH', expected: { readOnly: false, destructive: false, idempotent: true } },
     ])('annotations: $method defaults to $expected', ({ method, expected }) => {
         const { enabledTools } = generate(specWith(method, readAndWrite), {})
 
         expect(enabledTools[0]?.[1].annotations).toEqual(expected)
     })
 
-    it.each(['POST', 'PUT'])('annotations: %s without annotations fails', (method) => {
+    it.each(['PATCH', 'POST', 'PUT'])('annotations: %s without annotations fails', (method) => {
         expect(generateAndCaptureExit(specWith(method, readAndWrite), {})).toMatch(
             new RegExp(`${method} endpoints have no defaults`)
         )

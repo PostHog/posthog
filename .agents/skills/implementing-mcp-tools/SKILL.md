@@ -18,7 +18,7 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML — enable tools, add descriptions, and annotations for POST/PUT
+# 2. Configure the YAML — enable tools, add descriptions, and annotations for PATCH/POST/PUT
 #    (scopes come from the API when omitted)
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
 
@@ -153,7 +153,7 @@ tools:
     # Optional:
     scopes: # defaults to the scopes the API requires (from the OpenAPI spec)
       - your_product:read
-    annotations: # defaults for GET, DELETE and PATCH; required for POST and PUT
+    annotations: # defaults for GET and DELETE; required for PATCH, POST and PUT
       readOnly: true
       destructive: false
       idempotent: true
@@ -182,8 +182,8 @@ tools:
 When `scopes` is omitted, the generator uses the scopes the API requires, so the tool cannot drift from the endpoint.
 Set `scopes` by hand only when the API computes them per request (the generator fails and says so) or to gate a tool more tightly.
 A `scopes` list that misses a scope the API requires prints a warning, and a GitHub annotation on CI.
-`annotations` default to the HTTP method for GET (read-only), DELETE (destructive) and PATCH (idempotent, non-destructive).
-POST and PUT vary too much, so declare `annotations` for them.
+`annotations` default to the HTTP method for GET (read-only) and DELETE (destructive).
+PATCH, POST and PUT vary too much (a PATCH can be a soft delete or non-idempotent), so declare `annotations` for them.
 
 When a tool needs custom logic around the request, set `hooks: <path under src/tools/>` and default-export an object with `beforeRequest`, `afterResponse` or `onError` from that module, written `export default { onError } satisfies ToolHooks<Params>` so a typo fails typecheck (see `ToolHooks` in `src/tools/tool-hooks.ts`).
 Use it to read state before a write or to turn a known error into a result, rather than shadowing the generated tool with a hand-written one.

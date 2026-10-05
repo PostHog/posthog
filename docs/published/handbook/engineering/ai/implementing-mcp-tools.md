@@ -18,7 +18,7 @@ see [Writing skills](/handbook/engineering/ai/writing-skills).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML – enable tools, add descriptions, and annotations for POST/PUT
+# 2. Configure the YAML – enable tools, add descriptions, and annotations for PATCH/POST/PUT
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. For read/list tools backed by PostHog database rows, add a HogQL system table
@@ -253,7 +253,7 @@ Product teams own their definitions and control which operations are exposed as 
    ```
 
 2. **Configure** the YAML – enable tools and add descriptions.
-   Scopes come from the API when you omit them. Annotations default for GET, DELETE and PATCH, so declare them only for POST and PUT.
+   Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -289,7 +289,7 @@ Product teams own their definitions and control which operations are exposed as 
        # --- optional: ---
        scopes: # defaults to the scopes the API requires; a list that misses one warns
          - your_product:read
-       annotations: # defaults for GET, DELETE and PATCH; required for POST and PUT
+       annotations: # defaults for GET and DELETE; required for PATCH, POST and PUT
          readOnly: true
          destructive: false
          idempotent: true

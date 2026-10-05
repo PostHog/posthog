@@ -1715,11 +1715,11 @@ ${handlerBody}    }`
 type ToolAnnotations = EnabledToolConfig['annotations']
 
 // Only methods whose behavior is the same for every endpoint get defaults.
-// POST and PUT vary too much (search vs. create vs. upsert), so authors declare them.
+// PATCH, POST and PUT vary too much (partial update vs. soft delete, search vs. create vs. upsert),
+// so authors declare them.
 const ANNOTATION_DEFAULTS_BY_METHOD: Record<string, ToolAnnotations> = {
     GET: { readOnly: true, destructive: false, idempotent: true },
     DELETE: { readOnly: false, destructive: true, idempotent: true },
-    PATCH: { readOnly: false, destructive: false, idempotent: true },
 }
 
 function getSpecScopes(operation: OpenApiOperation): string[] {
@@ -1749,7 +1749,7 @@ function resolveToolScopes(name: string, config: ToolConfig, resolved: ResolvedO
     return specScopes
 }
 
-/** YAML `annotations` win. Without them, GET, DELETE and PATCH get fixed defaults. */
+/** YAML `annotations` win. Without them, GET and DELETE get fixed defaults. */
 function resolveToolAnnotations(name: string, config: ToolConfig, method: string): ToolAnnotations {
     if (config.annotations) {
         return config.annotations
