@@ -70,6 +70,9 @@ describe('flagMatchesSearch', () => {
             [webUnderscoreFlag, 'web dash', true], // "web dash" matches "web_dashboard"
             [webSpaceFlag, 'web ana', true], // "web ana" matches "web analytics"
             [webAnalyticsFlag, 'web analytics', true], // Should match name
+            [webAnalyticsFlag, 'WEB_ANALYTICS', true], // Pasted code constant matches hyphenated key
+            [webUnderscoreFlag, 'web-dashboard', true],
+            [webAnalyticsFlag, 'web_-analytics', true], // Mixed separator runs collapse
 
             // Experiment name searches
             [flagWithExperiment, 'experiment test', true], // Should match experiment name
@@ -80,6 +83,7 @@ describe('flagMatchesSearch', () => {
             [webAnalyticsFlag, 'web mobile', false], // "mobile" not in "web-analytics"
             [webUnderscoreFlag, 'web mobile', false], // "mobile" not in flag
             [flagWithExperiment, 'mobile test', false], // "mobile" not in flag or experiment
+            [webAnalyticsFlag, 'WEB_MOBILE', false],
 
             // Single word searches (existing behavior)
             [webAnalyticsFlag, 'web', true],

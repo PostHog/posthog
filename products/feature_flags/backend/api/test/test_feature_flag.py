@@ -7244,6 +7244,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         matched_keys = {result["key"] for result in data["results"]}
         assert "web_dashboard" in matched_keys, f"Expected 'web_dashboard' in {matched_keys}"
 
+        # Underscores and hyphens in the query match any separator, e.g. a pasted code constant
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=WEB_ANALYTICS")
+        matched_keys = {result["key"] for result in response.json()["results"]}
+        assert {"web-analytics", "web analytics"}.issubset(matched_keys), matched_keys
+        assert "mobile-analytics" not in matched_keys
+
+        response = self.client.get(f"/api/projects/@current/feature_flags?search=web-dash")
+        matched_keys = {result["key"] for result in response.json()["results"]}
+        assert "web_dashboard" in matched_keys, matched_keys
+
         # Test single word still works
         response = self.client.get(f"/api/projects/@current/feature_flags?search=web")
         data = response.json()

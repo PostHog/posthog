@@ -43,9 +43,11 @@ export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boole
             .filter(Boolean)
             .join(' ') || ''
 
-    // Use regex pattern matching like the backend - escape metacharacters then replace spaces with word boundary pattern
-    const escapedSearchValue = searchValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regexPattern = escapedSearchValue.replace(/\s+/g, '[\\s\\-_]*')
+    // Match the backend: spaces, hyphens, and underscores are one separator class, so MY_FLAG finds my-flag
+    const regexPattern = searchValue
+        .split(/[\s\-_]+/)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('[\\s\\-_]*')
 
     try {
         const regex = new RegExp(regexPattern, 'i')
