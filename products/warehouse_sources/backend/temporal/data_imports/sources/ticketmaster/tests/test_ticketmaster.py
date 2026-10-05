@@ -134,6 +134,19 @@ def test_auth_errors_are_permanent_and_hide_secrets(status: int) -> None:
     assert http.call_count == 1
 
 
+@pytest.mark.parametrize("status", [400, 404])
+def test_client_errors_hide_query_key(status: int) -> None:
+    config = TicketmasterSourceConfig(api_key="secret/key?", keyword="Example act")
+    with requests_mock.Mocker() as http:
+        http.get("https://app.ticketmaster.com/discovery/v2/events.json", status_code=status)
+        with pytest.raises(ValueError, match=f"HTTP {status}") as error:
+            response = ticketmaster_source(config, "events", "v2", 1, "test-job", make_manager())
+            list(response.items())
+    assert "secret/key?" not in str(error.value)
+    assert "apikey" not in str(error.value)
+    assert http.call_count == 1
+
+
 @pytest.mark.parametrize("status", [429, 503])
 def test_transient_error_retries(status: int) -> None:
     with requests_mock.Mocker() as http:

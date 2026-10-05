@@ -104,8 +104,19 @@ def ticketmaster_source(
                     "params": {"size": PAGE_SIZE, "keyword": config.keyword.strip(), "sort": "name,asc"},
                     "data_selector": f"_embedded.{endpoint}",
                     "response_actions": [
-                        {"status_code": status, "action": "raise", "message": message}
-                        for status, message in AUTH_ERRORS.items()
+                        *[
+                            {"status_code": status, "action": "raise", "message": message}
+                            for status, message in AUTH_ERRORS.items()
+                        ],
+                        *[
+                            {
+                                "status_code": status,
+                                "action": "raise",
+                                "message": f"Ticketmaster request failed (HTTP {status}). Try again.",
+                            }
+                            for status in range(400, 500)
+                            if status not in AUTH_ERRORS and status != 429
+                        ],
                     ],
                 },
             }
