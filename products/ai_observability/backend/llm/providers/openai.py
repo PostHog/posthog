@@ -255,6 +255,10 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
+                # Azure OpenAI rejects a prompt that its filter blocks with a 400, before any
+                # completion exists to carry a `content_filter` finish reason.
+                if error.code == "content_filter":
+                    return ContentFilteredError(str(error))
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
@@ -291,7 +295,11 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             **(self._build_analytics_kwargs(analytics, client)),
         )
 
-        content = create_response.choices[0].message.content or ""
+        choice = create_response.choices[0]
+        if choice.finish_reason == "content_filter":
+            # A refused reply has no content, so parsing it would report the refusal as malformed JSON.
+            raise ContentFilteredError("The request was rejected by the content filter.")
+        content = choice.message.content or ""
         usage = self._extract_usage(create_response.usage)
 
         # Parse the JSON response

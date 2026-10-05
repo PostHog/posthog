@@ -354,7 +354,8 @@ def _build_content_filtered_skip_result(
 ) -> EvaluationActivityResult:
     """Per-item skip for a judge call the provider's content filter refused.
 
-    The same input is refused on every run, so backfills treat it as covered, like an over-window prompt.
+    Backfills treat it as covered, like an over-window prompt, because a re-run sends the same
+    content to the same filter.
     """
     result = build_skipped_evaluation_result(
         output_type=output_type,
@@ -901,8 +902,8 @@ def call_llm_judge(
         )
 
     except ContentFilteredError as e:
-        # Skip rather than raise: the filter refuses the same customer content on every retry, and
-        # raising files a new error tracking issue per call site.
+        # Skip rather than raise: the refusal comes from customer content, so a retry rarely
+        # changes it, and raising files a new error tracking issue per call site.
         increment_errors("content_filtered", provider=provider)
         logger.warning(
             "LLM judge request was refused by the provider content filter",

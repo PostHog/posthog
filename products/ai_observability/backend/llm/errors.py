@@ -143,11 +143,10 @@ def is_output_limit_error_message(message: str) -> bool:
 
 
 class ContentFilteredError(LLMError):
-    """Raised when the provider's content filter refused to answer.
+    """Raised when the provider's content filter refused the prompt or withheld the reply.
 
-    The OpenAI SDK raises `ContentFilterFinishReasonError` on a `content_filter` finish reason.
-    The prompt is usually built from customer trace content, so the same input is refused again on
-    a retry. Callers should skip the item rather than report a defect.
+    The prompt is usually built from customer trace content, so the refusal is not a PostHog
+    defect. Callers should skip the item rather than report one.
     """
 
 
