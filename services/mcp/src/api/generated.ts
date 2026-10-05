@@ -7163,6 +7163,138 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type BIDateBucket = typeof BIDateBucket[keyof typeof BIDateBucket];
+
+
+    export const BIDateBucket = {
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    export interface BIDataSource {
+      connectionId?: string | null;
+      table: string;
+    }
+
+    export type DatabaseSerializedFieldType = typeof DatabaseSerializedFieldType[keyof typeof DatabaseSerializedFieldType];
+
+
+    export const DatabaseSerializedFieldType = {
+      Integer: 'integer',
+      Float: 'float',
+      Decimal: 'decimal',
+      String: 'string',
+      Datetime: 'datetime',
+      Date: 'date',
+      Boolean: 'boolean',
+      Array: 'array',
+      Json: 'json',
+      LazyTable: 'lazy_table',
+      VirtualTable: 'virtual_table',
+      FieldTraverser: 'field_traverser',
+      Expression: 'expression',
+      View: 'view',
+      MaterializedView: 'materialized_view',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface BIField {
+      dateBucket?: BIDateBucket | null;
+      expression: string;
+      id: string;
+      name: string;
+      source: BIDataSource;
+      type: DatabaseSerializedFieldType;
+    }
+
+    export type BIFilterOperator = typeof BIFilterOperator[keyof typeof BIFilterOperator];
+
+
+    export const BIFilterOperator = {
+      Equals: 'equals',
+      NotEquals: 'not_equals',
+      Contains: 'contains',
+      In: 'in',
+      NotIn: 'not_in',
+      Between: 'between',
+      GreaterThan: 'greater_than',
+      LessThan: 'less_than',
+      Last7Days: 'last_7_days',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      Custom: 'custom',
+    } as const;
+
+    export interface BIFilter {
+      customExpression?: string | null;
+      enabled?: boolean | null;
+      field: BIField;
+      operator: BIFilterOperator;
+      value: string;
+      valueTo?: string | null;
+      values?: string[] | null;
+    }
+
+    export type BIQueryLimit = typeof BIQueryLimit[keyof typeof BIQueryLimit];
+
+
+    export const BIQueryLimit = {
+      Number100: 100,
+      Number1000: 1000,
+      Number10000: 10000,
+      Number50000: 50000,
+    } as const;
+
+    export type BISortDirection = typeof BISortDirection[keyof typeof BISortDirection];
+
+
+    export const BISortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
+    export interface BISort {
+      direction: BISortDirection;
+      key: string;
+    }
+
+    export type BIAggregation = typeof BIAggregation[keyof typeof BIAggregation];
+
+
+    export const BIAggregation = {
+      Count: 'count',
+      CountDistinct: 'count_distinct',
+      Sum: 'sum',
+      Average: 'average',
+      Minimum: 'minimum',
+      Maximum: 'maximum',
+      Custom: 'custom',
+    } as const;
+
+    export interface BIValue {
+      aggregation: BIAggregation;
+      customExpression?: string | null;
+      field: BIField;
+      label?: string | null;
+    }
+
+    export interface BIConfig {
+      chartType: ChartDisplayType;
+      columns: BIField[];
+      filters: BIFilter[];
+      limit: BIQueryLimit;
+      rows: BIField[];
+      /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
+      sort?: BISort | null;
+      source?: BIDataSource | null;
+      values: BIValue[];
+    }
+
     export interface HogQLFilters {
       /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
       breakdownFilter?: BreakdownFilter | null;
@@ -7333,6 +7465,8 @@ export namespace Schemas {
     export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null;
 
     export interface HogQLQuery {
+      /** Visual worksheet definition, retained on the source so saved views and insights can reopen in BI. */
+      biConfig?: BIConfig | null;
       /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
       connectionId?: string | null;
       explain?: boolean | null;
@@ -29061,28 +29195,6 @@ export namespace Schemas {
       source_table_key?: string | null;
       source_table_name?: string | null;
     }
-
-    export type DatabaseSerializedFieldType = typeof DatabaseSerializedFieldType[keyof typeof DatabaseSerializedFieldType];
-
-
-    export const DatabaseSerializedFieldType = {
-      Integer: 'integer',
-      Float: 'float',
-      Decimal: 'decimal',
-      String: 'string',
-      Datetime: 'datetime',
-      Date: 'date',
-      Boolean: 'boolean',
-      Array: 'array',
-      Json: 'json',
-      LazyTable: 'lazy_table',
-      VirtualTable: 'virtual_table',
-      FieldTraverser: 'field_traverser',
-      Expression: 'expression',
-      View: 'view',
-      MaterializedView: 'materialized_view',
-      Unknown: 'unknown',
-    } as const;
 
     export interface DatabaseSchemaField {
       chain?: (string | number)[] | null;
