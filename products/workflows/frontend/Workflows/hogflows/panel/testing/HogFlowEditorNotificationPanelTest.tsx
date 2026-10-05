@@ -51,7 +51,7 @@ export function EmailActionTestContent(): JSX.Element | null {
         sampleGlobals,
         sampleGlobalsLoading,
         sampleGlobalsError,
-        emailAddressOverride,
+        emailInput,
     } = useValues(hogFlowEditorNotificationTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -63,8 +63,6 @@ export function EmailActionTestContent(): JSX.Element | null {
         setEmailAddressOverride,
         setSampleGlobals,
     } = useActions(hogFlowEditorNotificationTestLogic(logicProps))
-
-    const emailInput = emailAddressOverride || sampleGlobals?.person?.properties?.email || ''
 
     const isLoading = samplePersonsLoading || (sampleGlobalsLoading && !sampleGlobals)
 

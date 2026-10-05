@@ -1,5 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { CyclotronJobInvocationGlobals } from '~/types'
@@ -144,19 +148,79 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 source: { name: 'Test', url: '' },
             }
 
-            // Loading a person should NOT automatically set emailAddressOverride
+            // Loading a person should NOT automatically set emailAddressOverride.
+            // The input still shows that person's email until the field is edited.
             await expectLogic(logic, () => {
                 logic.actions.loadSamplePersonByDistinctIdSuccess(globalsWithEmail)
             }).toMatchValues({
-                emailAddressOverride: null, // Should remain null, not automatically set
+                emailAddressOverride: null,
+                emailInput: 'new@example.com',
             })
 
-            // Only manual setting should update it
+            // Clearing the field must stay empty. An empty string is an edit, not "no override".
+            await expectLogic(logic, () => {
+                logic.actions.setEmailAddressOverride('')
+            }).toMatchValues({
+                emailAddressOverride: '',
+                emailInput: '',
+            })
+
             await expectLogic(logic, () => {
                 logic.actions.setEmailAddressOverride('manual@example.com')
             }).toMatchValues({
                 emailAddressOverride: 'manual@example.com',
+                emailInput: 'manual@example.com',
             })
+        })
+
+        it('does not send a cleared address to the selected person', async () => {
+            const createTestInvocation = jest
+                .spyOn(api.hogFlows, 'createTestInvocation')
+                .mockResolvedValue({ status: 'success', logs: [], nextActionId: null } as any)
+            const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('test-toast-id')
+
+            const globalsWithEmail: CyclotronJobInvocationGlobals = {
+                event: {
+                    uuid: 'test-uuid',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '2024-01-01T00:00:00Z',
+                    elements_chain: '',
+                    url: '',
+                    event: '$pageview',
+                    properties: {},
+                },
+                person: {
+                    id: 'person-1',
+                    properties: { email: 'person@example.com' },
+                    name: 'Test Person',
+                    url: '',
+                },
+                groups: {},
+                project: { id: 1, name: 'Test', url: '' },
+                source: { name: 'Test', url: '' },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSamplePersonByDistinctIdSuccess(globalsWithEmail)
+            }).toDispatchActions(['setTestInvocationValue'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setEmailAddressOverride('')
+                logic.actions.submitTestInvocation()
+            }).toDispatchActions(['submitTestInvocationFailure'])
+
+            expect(createTestInvocation).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.setEmailAddressOverride('other@example.com')
+                logic.actions.submitTestInvocation()
+            }).toDispatchActions(['submitTestInvocationSuccess'])
+
+            expect(createTestInvocation).toHaveBeenCalledTimes(1)
+            expect(createTestInvocation.mock.calls[0][1].globals.person.properties.email).toBe('other@example.com')
+
+            createTestInvocation.mockRestore()
+            toastError.mockRestore()
         })
     })
 
