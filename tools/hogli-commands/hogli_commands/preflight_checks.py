@@ -119,6 +119,8 @@ def check_snapshot_baselines(scope: Scope) -> Outcome:
 
 
 SEMGREP_RULES = ".semgrep/rules/devex"
+# The `SEMGREP_IMAGE` value in this workflow is the one semgrep version pin in the repository.
+SEMGREP_WORKFLOW = ".github/workflows/ci-security.yaml"
 # The directories the `semgrep-devex` CI job scans.
 SEMGREP_SCOPE = [
     f"{root}/*"
@@ -143,7 +145,25 @@ _SEMGREP_TIMEOUT_SECONDS = 300
 Finding = tuple[str, str, str]
 
 
-def _semgrep_findings(contents: dict[str, bytes]) -> dict[Finding, list[int]] | None:
+def _semgrep_command() -> list[str] | None:
+    """The command that runs the semgrep version CI pins. None when it cannot be built.
+
+    uv runs that version from its cache, in an environment of its own, so the scan does not
+    depend on a semgrep the developer installed. The first run downloads the package.
+    """
+    if shutil.which("uv") is None:
+        return None
+    try:
+        workflow = (REPO_ROOT / SEMGREP_WORKFLOW).read_text()
+    except OSError:
+        return None
+    pin = re.search(r"^\s*SEMGREP_IMAGE:\s*semgrep/semgrep:(\d+\.\d+\.\d+)@", workflow, re.MULTILINE)
+    if pin is None:
+        return None
+    return ["uv", "tool", "run", "--from", f"semgrep=={pin.group(1)}", "semgrep"]
+
+
+def _semgrep_findings(contents: dict[str, bytes], command: list[str]) -> dict[Finding, list[int]] | None:
     """Findings in *contents* (path to file content), each with the lines it starts on.
 
     None when the scan did not complete. The files are written to a temporary directory
@@ -160,7 +180,7 @@ def _semgrep_findings(contents: dict[str, bytes]) -> dict[Finding, list[int]] | 
         try:
             result = subprocess.run(
                 [
-                    "semgrep",
+                    *command,
                     "--config",
                     str(REPO_ROOT / SEMGREP_RULES),
                     "--severity=WARNING",
@@ -202,8 +222,9 @@ def _semgrep_findings(contents: dict[str, bytes]) -> dict[Finding, list[int]] | 
 
 
 def check_semgrep_devex(scope: Scope) -> Outcome:
-    if shutil.which("semgrep") is None:
-        return "skipped", "semgrep not found on PATH"
+    command = _semgrep_command()
+    if command is None:
+        return "skipped", f"uv is not on PATH, or {SEMGREP_WORKFLOW} pins no semgrep version"
     incomplete: Outcome = ("skipped", "semgrep did not complete")
 
     # Semgrep cannot scan a binary, and a snapshot update can carry hundreds of them.
@@ -214,7 +235,7 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
     }
     if not after_contents:
         return "skipped", "no file to scan"
-    after = _semgrep_findings(after_contents)
+    after = _semgrep_findings(after_contents, command)
     if after is None:
         return incomplete
     if not after:
@@ -230,7 +251,7 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
         for path in {path for _, path, _ in after}
         if (content := _git("show", f"{scope.merge_base}:{renames.get(path, path)}")) is not None
     }
-    before = _semgrep_findings(before_contents) if before_contents else {}
+    before = _semgrep_findings(before_contents, command) if before_contents else {}
     if before is None:
         return incomplete
 
@@ -242,13 +263,13 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
     if not introduced:
         return "pass", "no new findings"
     more = f" (+{len(introduced) - 3} more)" if len(introduced) > 3 else ""
-    # An advisory and not a failure: the local semgrep can be a different version from the one
-    # CI pins, and this comparison is a reconstruction of CI's, so a mismatch must not block a push.
+    # An advisory and not a failure: this comparison is a reconstruction of CI's baseline scan,
+    # so a mismatch between the two must not block a push.
     return (
         "advisory",
         f"{len(introduced)} new finding(s) that the semgrep-devex CI job blocks on: "
         f"{' · '.join(introduced[:3])}{more}. "
-        f"Run `semgrep --config {SEMGREP_RULES} <file>` to read the rule",
+        f"Run `{' '.join(command)} --config {SEMGREP_RULES} <file>` to read the rule",
     )
 
 

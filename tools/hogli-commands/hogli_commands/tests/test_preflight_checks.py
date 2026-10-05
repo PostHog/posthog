@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import subprocess
 from collections.abc import Callable
@@ -74,7 +75,7 @@ class TestSnapshotBaselines:
             assert removed in detail
 
 
-def _every_line_is_a_finding(contents: dict[str, bytes]) -> dict[Finding, list[int]]:
+def _every_line_is_a_finding(contents: dict[str, bytes], command: list[str]) -> dict[Finding, list[int]]:
     found: dict[Finding, list[int]] = {}
     for path, content in contents.items():
         for number, line in enumerate(content.decode().splitlines(), start=1):
@@ -120,7 +121,7 @@ class TestSemgrepDevex:
         ],
     )
     @patch("hogli_commands.preflight_checks._semgrep_findings", side_effect=_every_line_is_a_finding)
-    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/semgrep")
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
     def test_only_findings_the_branch_introduced_are_reported(
         self,
         mock_which: MagicMock,
@@ -141,7 +142,7 @@ class TestSemgrepDevex:
         assert expected_fragment in detail
 
     @patch("hogli_commands.preflight_checks._semgrep_findings", return_value=None)
-    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/semgrep")
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
     def test_an_incomplete_scan_skips_instead_of_reporting(
         self, mock_which: MagicMock, mock_findings: MagicMock
     ) -> None:
@@ -149,6 +150,16 @@ class TestSemgrepDevex:
             status, _ = check_semgrep_devex(_scope(["posthog/a.py"]))
 
         assert status == "skipped"
+
+    @patch("hogli_commands.preflight_checks._semgrep_findings", return_value={})
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    def test_the_scan_runs_the_semgrep_version_ci_pins(self, mock_which: MagicMock, mock_findings: MagicMock) -> None:
+        with patch("hogli_commands.preflight_checks._git", side_effect=_git_show({"HEAD:posthog/a.py": b"new"})):
+            status, _ = check_semgrep_devex(_scope(["posthog/a.py"]))
+
+        assert status == "pass"
+        command = mock_findings.call_args.args[1]
+        assert re.fullmatch(r"semgrep==\d+\.\d+\.\d+", command[command.index("--from") + 1])
 
 
 WORKFLOW = ".github/workflows/ci-backend.yml"
