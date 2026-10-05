@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -18,7 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, resolve_scopes
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
@@ -591,9 +591,12 @@ class ChannelsAPITestCase(TestCase):
         task(public_id, self.user, 90, archived=True)
         task(public_id, third, 5, deleted=True)
         task(private_id, self.user, 1)
-        with team_scope(self.team.id):
-            Canvas.objects.create(team=self.team, channel_id=public_id, name="Board", created_by=self.other_user)
-            Canvas.objects.create(team=self.team, channel_id=public_id, name="Gone", created_by=third, deleted=True)
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Board", created_by_id=self.other_user.id
+        )
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Gone", created_by_id=third.id, deleted=True
+        )
 
         response = self.client.get(f"{self._channels_url()}contributors/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)

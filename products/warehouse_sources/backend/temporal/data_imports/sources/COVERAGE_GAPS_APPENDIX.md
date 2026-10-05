@@ -4150,19 +4150,19 @@ Note: Diffed the Sections/\*.md files in the official hubplanner/API repo agains
 
 ## HuggingFace — **thin**
 
-Today (3): `datasets`, `models`, `spaces`
+Today (8): `collections`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `spaces`
 
 Diffed against: <https://huggingface.co/.well-known/openapi.json>
 
-- [ ] `/api/{repoType}/{namespace}/{repo}/discussions` — discussions and pull requests per repo - the main community activity signal on repos we already sync (high)
-- [ ] `/api/collections` — curated collections grouping models, datasets and spaces we already sync (high)
-- [ ] `/api/models-tags-by-type and /api/datasets-tags-by-type` — lookup tables resolving the tag strings carried on every model and dataset row (high)
+- [x] `/api/{repoType}/{namespace}/{repo}/discussions` — discussions and pull requests per repo - the main community activity signal on repos we already sync (high)
+- [x] `/api/collections` — curated collections grouping models, datasets and spaces we already sync (high)
+- [x] `/api/models-tags-by-type and /api/datasets-tags-by-type` — lookup tables resolving the tag strings carried on every model and dataset row (high)
 - [ ] `/api/trending` — Hub-wide trending repos - the headline discovery metric (medium)
 - [ ] `/api/models|datasets|spaces/{namespace}/{repo}/commits/{rev}` — commit history per repo, the change/velocity fact table for repos we sync (medium)
 - [ ] `/api/daily_papers and /api/papers` — papers linked to models and datasets, plus daily paper rankings (medium)
 - [ ] `/api/organizations/{name}/members` — org membership roster resolving repo owners (medium)
 - [ ] `/api/spaces/{namespace}/{repo}/metrics` — runtime usage metrics for spaces we already sync (medium)
-- [ ] `/api/users/{username}/likes` — per-user likes, the engagement edge between users and repos (medium)
+- [x] `/api/users/{username}/likes` — per-user likes, the engagement edge between users and repos (medium)
 - [ ] `/api/jobs/{namespace} (and /{jobId}/metrics)` — compute job runs and their metrics for cost/usage analysis (low)
 - [ ] `/api/models|datasets/{namespace}/{repo}/refs` — branches and tags per repo, needed to interpret revision-scoped data (low)
 - [ ] `/api/models|datasets/{namespace}/{repo}/lfs-files` — per-file storage footprint for repo size analysis (low)
@@ -4272,15 +4272,15 @@ Note: Endpoint count is a wildly misleading measure of this API's size: of ~800 
 
 ## Inflowinventory — gaps
 
-Today (5): `customers`, `products`, `purchase_orders`, `sales_orders`, `vendors`
+Today (9): `categories`, `customers`, `locations`, `manufacturing_orders`, `products`, `purchase_orders`, `sales_orders`, `stock_transfers`, `vendors`
 
 Diffed against: <https://cloudapi.inflowinventory.com/docs/api/swagger.json>
 
 - [ ] `/{companyId}/stock-adjustments` — inventory write-offs and corrections - the transaction table that explains why on-hand quantities move outside of orders (high)
-- [ ] `/{companyId}/stock-transfers` — inter-location inventory movements, required for any multi-warehouse stock analysis (high)
-- [ ] `/{companyId}/manufacturing-orders` — production/assembly orders - the third order type alongside the sales and purchase orders already synced (high)
-- [ ] `/{companyId}/locations` — lookup resolving the locationId carried on orders, transfers and product quantities (high)
-- [ ] `/{companyId}/categories` — lookup resolving product categoryId - the primary breakdown dimension for any sales or inventory report (high)
+- [x] `/{companyId}/stock-transfers` — inter-location inventory movements, required for any multi-warehouse stock analysis (high)
+- [x] `/{companyId}/manufacturing-orders` — production/assembly orders - the third order type alongside the sales and purchase orders already synced (high)
+- [x] `/{companyId}/locations` — lookup resolving the locationId carried on orders, transfers and product quantities (high)
+- [x] `/{companyId}/categories` — lookup resolving product categoryId - the primary breakdown dimension for any sales or inventory report (high)
 - [ ] `/{companyId}/stock-counts` — physical count cycles and their variances, for shrinkage and count-accuracy reporting (medium)
 - [ ] `/{companyId}/product-cost-adjustments` — cost basis changes over time, needed for correct COGS and margin on historical orders (medium)
 - [ ] `/{companyId}/product-groups (+ /{productGroupId}/quantities/{locationId})` — product grouping lookup plus per-location on-hand quantities, the current-stock view products alone does not give (medium)
@@ -4371,14 +4371,14 @@ Note: Full OpenAPI 3.1 spec is public and unauthenticated. Note /leads and /lead
 
 ## Instatus — gaps
 
-Today (9): `audience_groups`, `components`, `incidents`, `maintenances`, `metrics`, `pages`, `subscribers`, `team`, `templates`
+Today (11): `audience_groups`, `components`, `generic_notices`, `incidents`, `maintenances`, `metrics`, `outages`, `pages`, `subscribers`, `team`, `templates`
 
 Diffed against: <https://instatus.com/help/api>
 
-- [ ] `GET /v1/{page_id}/outages` — component outage history — the uptime metric a status page exists to report (high)
-- [ ] `GET /v1/{page_id}/incidents/{incident_id}/incident-updates` — incident status transition history (investigating -> identified -> resolved); needed for MTTR (high)
-- [ ] `GET /v1/{page_id}/maintenances/{maintenance_id}/maintenance-updates` — maintenance state transitions matching the maintenances we already sync (medium)
-- [ ] `GET /v1/{page_id}/generic-notices` — banner notices posted on the status page outside the incident model (low)
+- [x] `GET /v1/{page_id}/outages` — component outage history — the uptime metric a status page exists to report (high). Added as `outages` (fan-out over `pages`).
+- [ ] `GET /v1/{page_id}/incidents/{incident_id}/incident-updates` — skipped: the API has no list route here, only `GET .../incident-updates/{incident_update_id}`. Every update is already embedded in the `updates` array of each `incidents` row.
+- [ ] `GET /v1/{page_id}/maintenances/{maintenance_id}/maintenance-updates` — skipped: the API has no list route here, only `GET .../maintenance-updates/{maintenance_update_id}`. Every update is already embedded in the `updates` array of each `maintenances` row.
+- [x] `GET /v1/{page_id}/generic-notices` — banner notices posted on the status page outside the incident model (low). Added as `generic_notices` (fan-out over `pages`).
 
 Note: Existing 'team' table maps to the teammates endpoint (GET /v1/{page_id}/team) and 'pages' to GET /v2/pages, so those are covered. Metric data points are POST/DELETE only — there is no GET for metric datapoints, so metric time series is not fetchable. escalation-policies, monitors, on-call-schedules, routing-rules and monitoring-integrations doc pages expose no GET list endpoints.
 

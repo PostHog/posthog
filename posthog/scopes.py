@@ -81,8 +81,8 @@ APIScopeObject = Literal[
     "interactive_run",
     "internal_run",
     "legal_document",
-    "link",
-    "live_debugger",
+    "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
+    "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "llm_analytics",
     "ai_observability_clusters",
     "llm_gateway",
@@ -138,7 +138,7 @@ APIScopeObject = Literal[
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
+    "user_interview",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",

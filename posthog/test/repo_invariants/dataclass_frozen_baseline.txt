@@ -136,7 +136,6 @@
 1 products/growth/backend/temporal/signup_enrichment/workflow.py
 1 products/growth/dags/product_push_campaigns.py
 1 products/growth/dags/team_production_event_activation.py
-1 products/live_debugger/backend/models.py
 1 products/logs/backend/anomaly_scan.py
 1 products/managed_warehouse/backend/cp_teams.py
 1 products/marketing_analytics/backend/demo/warehouse.py

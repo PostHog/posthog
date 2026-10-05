@@ -126,9 +126,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIEnrichment: () => import('../../products/growth/frontend/aiEnrichment/AIEnrichmentScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
-    Links: () => import('../../products/links/frontend/LinksScene'),
-    Link: () => import('../../products/links/frontend/LinkScene'),
-    LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
     LogsAlertNotificationDetail: () =>
@@ -183,9 +180,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/tracing/frontend/scenes/TracingRetentionNewScene/TracingRetentionNewScene'),
     TracingRetentionDetail: () =>
         import('../../products/tracing/frontend/scenes/TracingRetentionDetailScene/TracingRetentionDetailScene'),
-    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
-    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
-    UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 
-import { IconCheck } from '@posthog/icons'
-import { Button, MenuLabel, ToggleGroup, ToggleGroupItem, cn } from '@posthog/quill-primitives'
+import { Button, ItemRadio, MenuLabel, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
@@ -103,22 +102,16 @@ export function ComposerModelEffortSheet({
                     {adapterModels.map((option) => {
                         const selected = option.model === selectedModel
                         return (
-                            <button
+                            <ItemRadio
                                 key={option.model}
-                                type="button"
-                                role="radio"
                                 aria-checked={selected}
-                                className={cn(
-                                    'flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-base',
-                                    'hover:bg-fill-hover focus-visible:bg-fill-hover focus-visible:outline-none'
-                                )}
+                                className="flex-nowrap"
                                 onClick={() => onModelChange(option.model)}
                                 data-attr="composer-model-sheet-model"
                             >
-                                <span className="min-w-0 flex-1 truncate">{option.display_name}</span>
+                                <span className="min-w-0 flex-1 truncate text-left">{option.display_name}</span>
                                 <ModelCostChip model={option.model} />
-                                <span className="flex size-4 shrink-0">{selected && <IconCheck />}</span>
-                            </button>
+                            </ItemRadio>
                         )
                     })}
                 </div>
@@ -136,15 +129,18 @@ export function ComposerModelEffortSheet({
                         dataAttr="composer-model-sheet-harness"
                     >
                         {adapters.map((adapter) => (
-                            <SHEET_PARTS.Item
+                            <ItemRadio
                                 key={adapter}
+                                aria-checked={adapter === selectedAdapter}
                                 disabled={harnessDisabled(adapter)}
-                                onClick={() => onAdapterChange(adapter)}
-                                dataAttr={`composer-model-sheet-harness-${adapter}`}
+                                onClick={() => {
+                                    onAdapterChange(adapter)
+                                    setOpen(false)
+                                }}
+                                data-attr={`composer-model-sheet-harness-${adapter}`}
                             >
-                                <span className="flex-1 text-left">{getHarnessLabel(adapter)}</span>
-                                {adapter === selectedAdapter && <IconCheck className="shrink-0" />}
-                            </SHEET_PARTS.Item>
+                                {getHarnessLabel(adapter)}
+                            </ItemRadio>
                         ))}
                     </TodaySheetSub>
                 )}
@@ -156,18 +152,21 @@ export function ComposerModelEffortSheet({
                         dataAttr="composer-model-sheet-billing"
                     >
                         {[ModelAccessEnumApi.PosthogGateway, ModelAccessEnumApi.OwnSubscription].map((value) => (
-                            <SHEET_PARTS.Item
+                            <ItemRadio
                                 key={value}
+                                aria-checked={value === billing.value}
                                 disabled={
                                     billing.locked ||
                                     (value === ModelAccessEnumApi.OwnSubscription && !billing.planConnected)
                                 }
-                                onClick={() => billing.onChange(value)}
-                                dataAttr={`composer-model-sheet-billing-${value}`}
+                                onClick={() => {
+                                    billing.onChange(value)
+                                    setOpen(false)
+                                }}
+                                data-attr={`composer-model-sheet-billing-${value}`}
                             >
-                                <span className="flex-1 text-left">{billingLabels[value]}</span>
-                                {value === billing.value && <IconCheck className="shrink-0" />}
-                            </SHEET_PARTS.Item>
+                                {billingLabels[value]}
+                            </ItemRadio>
                         ))}
                         {!billing.planConnected && !billing.locked && (
                             <>

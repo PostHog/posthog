@@ -5425,7 +5425,6 @@ export type FileSystemIconType =
     | 'session_profile'
     | 'survey'
     | 'product_tour'
-    | 'user_interview'
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
@@ -5435,8 +5434,6 @@ export type FileSystemIconType =
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
-    | 'link'
-    | 'live_debugger'
     | 'logs'
     | 'tracing'
     | 'metrics'
@@ -9069,8 +9066,6 @@ export enum ProductKey {
     HISTORY = 'history',
     INGESTION_WARNINGS = 'ingestion_warnings',
     INTEGRATIONS = 'integrations',
-    LINKS = 'links',
-    LIVE_DEBUGGER = 'live_debugger',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',
@@ -9109,7 +9104,6 @@ export enum ProductKey {
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
     METRICS = 'metrics',
-    USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',

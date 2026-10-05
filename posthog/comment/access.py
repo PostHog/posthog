@@ -46,7 +46,7 @@ def task_comment_target_is_accessible(
         except ValueError:
             return False
 
-    from products.canvas.backend.comment_access import (
+    from products.canvas.backend.facade.access import (
         canvas_comments_accessible,  # noqa: PLC0415  # Import lazily because non-canvas comments do not need Canvas models.
     )
 
