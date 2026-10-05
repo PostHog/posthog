@@ -57,6 +57,26 @@ describe('agent API diff', () => {
         expect(overLimit.map(({ name }) => name)).toEqual(['crossing-tool'])
     })
 
+    it('caps list cells and total size so the comment stays under the GitHub limit', () => {
+        const tools = Object.fromEntries(
+            Array.from({ length: 200 }, (_, i) => [
+                `tool-${i}`,
+                { params: Array.from({ length: 30 }, (_, j) => `p${j}`) },
+            ])
+        )
+        const markdown = renderAgentApiDiff(diffToolSurfaces(surface({}), surface(tools)))
+        const changed = renderAgentApiDiff(
+            diffToolSurfaces(
+                surface(tools),
+                surface(Object.fromEntries(Object.keys(tools).map((name) => [name, { params: ['q'] }])))
+            )
+        )
+
+        expect(markdown.length).toBeLessThan(16_000)
+        expect(changed.length).toBeLessThan(16_000)
+        expect(changed).toContain('more')
+    })
+
     it('reports a description-only change', () => {
         const base = surface({ 'a-tool': {} })
         const head = surface({ 'a-tool': {} })

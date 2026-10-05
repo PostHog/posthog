@@ -7,6 +7,9 @@ export const INPUT_SCHEMA_CHAR_LIMIT = 16_384
 
 const MAX_NAMES_LISTED = 60
 const MAX_ROWS = 40
+const MAX_CELL_ITEMS = 8
+// Well under GitHub's 65,536 char comment limit, which the shared CI report also uses.
+const MAX_MARKDOWN_CHARS = 15_000
 
 const DEFINITION_FILES = ['tool-definitions.json', 'generated-tool-definitions.json']
 const SCHEMA_SNAPSHOT_DIR = 'services/mcp/tests/unit/__snapshots__/tool-schemas'
@@ -197,20 +200,25 @@ function listNames(items: { name: string; note?: string }[]): string {
     return shown.map(({ name, note }) => `\`${safe(name)}\`${note ? ` (${note})` : ''}`).join(', ') + more
 }
 
+function capItems(items: string[]): string {
+    const shown = items.slice(0, MAX_CELL_ITEMS)
+    return items.length > shown.length ? `${shown.join(' ')} ... ${items.length - shown.length} more` : shown.join(' ')
+}
+
 function paramsCell(change: ToolChange): string {
     const parts = [
         ...change.paramsAdded.map((param) => `+\`${safe(param)}\``),
         ...change.paramsRemoved.map((param) => `-\`${safe(param)}\``),
     ]
     const looksRenamed = change.paramsAdded.length > 0 && change.paramsRemoved.length > 0
-    return parts.join(' ') + (looksRenamed ? ' (rename?)' : '')
+    return capItems(parts) + (looksRenamed ? ' (rename?)' : '')
 }
 
 function scopesCell(change: ToolChange): string {
-    return [
+    return capItems([
         ...change.scopesAdded.map((scope) => `+\`${safe(scope)}\``),
         ...change.scopesRemoved.map((scope) => `-\`${safe(scope)}\``),
-    ].join(' ')
+    ])
 }
 
 function sizeCell(change: ToolChange): string {
@@ -270,5 +278,10 @@ export function renderAgentApiDiff(diff: AgentApiDiff): string {
             lines.push('', `...and ${diff.changed.length - rows.length} more changed tools.`)
         }
     }
-    return lines.join('\n') + '\n'
+    const markdown = lines.join('\n') + '\n'
+    if (markdown.length <= MAX_MARKDOWN_CHARS) {
+        return markdown
+    }
+    const cut = markdown.slice(0, markdown.lastIndexOf('\n', MAX_MARKDOWN_CHARS))
+    return `${cut}\n\n...truncated, ${diff.changed.length} changed tools in total.\n`
 }

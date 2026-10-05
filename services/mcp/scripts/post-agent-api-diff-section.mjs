@@ -12,7 +12,14 @@ if (!markdownPath || !fs.existsSync(markdownPath)) {
     process.exit(0)
 }
 
-const markdown = fs.readFileSync(markdownPath, 'utf-8').trim()
+// The file comes from a job that ran PR code, so it is data: drop HTML comment markers (the
+// shared report parser reads them as section boundaries) and cap the size.
+const MAX_CHARS = 20_000
+const markdown = fs
+    .readFileSync(markdownPath, 'utf-8')
+    .replaceAll(/<!--|-->/g, '')
+    .trim()
+    .slice(0, MAX_CHARS)
 
 if (!markdown) {
     // A change that a later push reverted must not leave a stale table behind.
