@@ -40,6 +40,7 @@ from llm_gateway.rate_limiting.cost_throttles import (
 from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
+from llm_gateway.services.account_trust import AccountTrustResolver
 from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
@@ -181,6 +182,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         max_size=settings.db_pool_max_size,
     )
     logger.info("Database pool initialized")
+    app.state.account_trust_resolver = AccountTrustResolver(app.state.db_pool)
 
     app.state.redis = await init_redis(settings.redis_url)
     if app.state.redis:

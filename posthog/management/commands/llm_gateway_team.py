@@ -30,6 +30,7 @@ from django.utils import timezone
 
 from posthog.models.team.team import Team
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
+from posthog.storage.team_llm_gateway_account_trust_cache import update_team_account_trust
 from posthog.storage.team_llm_gateway_policy_cache import update_team_llm_gateway_policy_cache
 from posthog.storage.team_llm_gateway_quota_cache import (
     AI_GATEWAY_QUOTA_BUCKETS,
@@ -50,6 +51,7 @@ _VERBS = (
     ("refresh", "rewrite the team's policy cache entry from current DB state (no field change)"),
     ("status", "print the team's current admission state"),
     ("project-quota", "write or clear the team's llm_gateway_quota blob from the quota zsets and org state"),
+    ("project-trust", "project organization age and trust scores for a team or all teams"),
 )
 
 
@@ -60,9 +62,9 @@ class Command(BaseCommand):
         sub = parser.add_subparsers(dest="action", required=True, metavar="action")
         for verb, desc in _VERBS:
             p = sub.add_parser(verb, help=desc)
-            if verb == "project-quota":
+            if verb in {"project-quota", "project-trust"}:
                 p.add_argument("team", nargs="?", help="team id (integer) or api_token")
-                p.add_argument("--all", action="store_true", help="reconcile every limited or projected team")
+                p.add_argument("--all", action="store_true", help="project all relevant teams")
                 continue
             p.add_argument("team", help="team id (integer) or api_token")
             if verb == "set-allowance":
@@ -70,6 +72,9 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **opts: Any) -> None:
         action = opts["action"]
+        if action == "project-trust":
+            self._project_trust(opts)
+            return
         if action == "project-quota":
             self._project_quota(opts)
             return
@@ -103,6 +108,23 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"team {team.id} ({team.api_token}): {action} ok"))
         self.stdout.write(f"  before: {before}")
         self.stdout.write(f"  after:  {after}")
+
+    def _project_trust(self, opts: dict[str, Any]) -> None:
+        if not settings.AI_GATEWAY_REDIS_URL:
+            raise CommandError("project-trust needs AI_GATEWAY_REDIS_URL")
+        if bool(opts.get("all")) == bool(opts.get("team")):
+            raise CommandError("project-trust takes a team or --all")
+        teams = (
+            Team.objects.only("id").order_by("id").iterator(chunk_size=500)
+            if opts.get("all")
+            else iter([_resolve_team(opts["team"])])
+        )
+        written = 0
+        for team in teams:
+            if not update_team_account_trust(team):
+                raise CommandError(f"team {team.id}: trust projection failed")
+            written += 1
+        self.stdout.write(self.style.SUCCESS(f"Projected account trust for {written} teams"))
 
     def _project_quota(self, opts: dict[str, Any]) -> None:
         if not settings.AI_GATEWAY_REDIS_URL:
