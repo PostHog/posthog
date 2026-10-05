@@ -82,18 +82,19 @@ fn dry_run_report(config: &LokiImportConfig) -> Result<()> {
     );
     let mapper = Mapper::new(config.extract.clone())?;
 
+    // Each selector gets an equal share of the sample. A first selector that filled the whole
+    // sample would report a field that only later selectors carry as NOT FOUND.
+    let per_selector = SAMPLE_RECORDS.div_ceil(config.range.select.len().max(1));
     let mut volume = 0;
     let mut sample = Vec::new();
     for selector in &config.range.select {
         volume += client.volume_bytes(selector, config.range.from, config.range.to)?;
-        if sample.len() < SAMPLE_RECORDS {
-            let (entries, _) = client.query_page(
-                selector,
-                config.range.from.timestamp_nanos_opt().unwrap_or_default(),
-                config.range.to,
-            )?;
-            sample.extend(entries.into_iter().take(SAMPLE_RECORDS - sample.len()));
-        }
+        let (entries, _) = client.query_page(
+            selector,
+            config.range.from.timestamp_nanos_opt().unwrap_or_default(),
+            config.range.to,
+        )?;
+        sample.extend(entries.into_iter().take(per_selector));
     }
 
     let hits = mapper.hits(&sample);
