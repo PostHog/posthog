@@ -141,7 +141,7 @@ def test_client_errors_hide_query_key(status: int) -> None:
         http.get("https://app.ticketmaster.com/discovery/v2/events.json", status_code=status)
         with pytest.raises(ValueError, match=f"HTTP {status}") as error:
             response = ticketmaster_source(config, "events", "v2", 1, "test-job", make_manager())
-            list(response.items())
+            list(cast(Iterable[Any], response.items()))
     assert "secret/key?" not in str(error.value)
     assert "apikey" not in str(error.value)
     assert http.call_count == 1

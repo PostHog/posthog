@@ -14,6 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    ResponseAction,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -88,6 +92,24 @@ def ticketmaster_source(
     path = schema_for_resource(ENDPOINTS, endpoint)
     if not config.keyword.strip():
         raise ValueError(KEYWORD_ERROR)
+    response_actions: list[ResponseAction] = [
+        *[{"status_code": status, "action": "raise", "message": message} for status, message in AUTH_ERRORS.items()],
+        *[
+            {
+                "status_code": status,
+                "action": "raise",
+                "message": f"Ticketmaster request failed (HTTP {status}). Try again.",
+            }
+            for status in range(400, 500)
+            if status not in AUTH_ERRORS and status != 429
+        ],
+    ]
+    endpoint_config: Endpoint = {
+        "path": path,
+        "params": {"size": PAGE_SIZE, "keyword": config.keyword.strip(), "sort": "name,asc"},
+        "data_selector": f"_embedded.{endpoint}",
+        "response_actions": response_actions,
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"https://app.ticketmaster.com/discovery/{api_version}/",
@@ -96,31 +118,7 @@ def ticketmaster_source(
             "request_timeout": 30,
             "allow_redirects": False,
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": path,
-                    "params": {"size": PAGE_SIZE, "keyword": config.keyword.strip(), "sort": "name,asc"},
-                    "data_selector": f"_embedded.{endpoint}",
-                    "response_actions": [
-                        *[
-                            {"status_code": status, "action": "raise", "message": message}
-                            for status, message in AUTH_ERRORS.items()
-                        ],
-                        *[
-                            {
-                                "status_code": status,
-                                "action": "raise",
-                                "message": f"Ticketmaster request failed (HTTP {status}). Try again.",
-                            }
-                            for status in range(400, 500)
-                            if status not in AUTH_ERRORS and status != 429
-                        ],
-                    ],
-                },
-            }
-        ],
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
