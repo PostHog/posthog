@@ -1,5 +1,7 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
+import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,7 +12,7 @@ import { mswDecorator } from '~/mocks/browser'
 import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { expect, userEvent, waitFor, within } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
@@ -183,6 +185,27 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+export const LoadingInsight: Story = {
+    parameters: {
+        pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="hogql-query-editor"] ~ [role="status"]',
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/insights/': async () => {
+                        await delay('infinite')
+                        return [200, { results: [] }]
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
+
 // Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
 // has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.
 export const ManagedWarehouseConnection: Story = {
@@ -282,7 +305,7 @@ export const EditedInsight: Story = {
         await waitFor(() =>
             expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
         )
-        await expect(canvas.getByText('Edited')).toBeVisible()
+        await waitFor(() => expect(canvas.getByText('Edited')).toBeVisible())
         await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
         const menu = within(canvasElement.ownerDocument.body)
@@ -384,6 +407,127 @@ export const BIModeWorksheet: Story = {
                     },
                 },
             },
+        },
+    },
+}
+
+export const BICalculatedMeasureEditor: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-calculated-measure-modal"] .monaco-editor',
+            viewport: { width: 1050, height: 900 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const addMeasure = await canvas.findByText('Add calculated measure', {}, { timeout: 15000 })
+        await waitFor(() => expect(addMeasure.closest('button')).toBeEnabled())
+        await userEvent.click(addMeasure)
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
+    },
+}
+
+const BI_QUICK_FILTERS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    columns: [],
+    values: [
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'custom',
+            label: 'ARPU',
+            customExpression: 'sum(revenue) / nullIf(count(DISTINCT user_id), 0)',
+        },
+    ],
+    filters: [
+        { field: biEventsField('event', 'string'), operator: 'in', value: '', values: ['purchase', 'renewal'] },
+        {
+            field: biEventsField('timestamp', 'datetime'),
+            operator: 'between',
+            value: '2026-06-01 00:00:00',
+            valueTo: '2026-06-07 23:59:59',
+        },
+    ],
+}
+
+export const BIQuickFilters: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({ q: buildBIQuery(BI_QUICK_FILTERS_CONFIG)?.query ?? '', mode: 'bi', bi: JSON.stringify(BI_QUICK_FILTERS_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: { request: Request }) => {
+                        const { query } = await request.json()
+                        return [
+                            200,
+                            query.query.startsWith('SELECT DISTINCT')
+                                ? {
+                                      columns: ['value'],
+                                      types: ['String'],
+                                      results: [['purchase'], ['renewal'], ['refund'], ['trial_started']],
+                                      hasMore: false,
+                                  }
+                                : {
+                                      columns: ['toStartOfDay(timestamp)', 'ARPU'],
+                                      types: ['DateTime', 'Float64'],
+                                      hasMore: false,
+                                      results: [24, 28, 26, 31, 35, 33, 38].map((value, index) => [
+                                          `2026-06-0${index + 1} 00:00:00`,
+                                          value,
+                                      ]),
+                                  },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BIQuickFiltersNarrow: Story = {
+    ...BIQuickFilters,
+    parameters: {
+        ...BIQuickFilters.parameters,
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+            mode: 'bi',
+            bi: JSON.stringify({
+                ...BI_QUICK_FILTERS_CONFIG,
+                filters: [
+                    ...BI_QUICK_FILTERS_CONFIG.filters,
+                    {
+                        field: biEventsField('properties.region', 'string'),
+                        operator: 'in',
+                        value: '',
+                        values: ['North', 'West'],
+                    },
+                    {
+                        field: biEventsField('properties.device', 'string'),
+                        operator: 'in',
+                        value: '',
+                        values: ['Desktop'],
+                    },
+                    {
+                        field: biEventsField('properties.channel', 'string'),
+                        operator: 'not_in',
+                        value: '',
+                        values: ['Internal'],
+                    },
+                    { field: biEventsField('revenue', 'float'), operator: 'between', value: '0', valueTo: '1000' },
+                    { field: biEventsField('duration_ms', 'integer'), operator: 'less_than', value: '5000' },
+                    { field: biEventsField('distinct_id', 'string'), operator: 'is_set', value: '' },
+                ],
+            } satisfies BIConfig),
+        })}`,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-filters-pill"]',
+            viewport: { width: 1050, height: 900 },
         },
     },
 }
@@ -530,5 +674,63 @@ export const LazySchema: Story = {
                 },
             },
         },
+    },
+}
+
+export const BIDataSourcePicker: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-data-source-picker"]',
+            viewport: { width: 1280, height: 800 },
+        },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+                            persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                            stripe_customers: {
+                                id: 'stripe_customers',
+                                name: 'stripe_customers',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-stripe', source_type: 'Stripe', prefix: 'stripe_' },
+                            },
+                            stripe_invoices: {
+                                id: 'stripe_invoices',
+                                name: 'stripe_invoices',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-stripe', source_type: 'Stripe', prefix: 'stripe_' },
+                            },
+                            postgres_orders: {
+                                id: 'postgres_orders',
+                                name: 'postgres_orders',
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: { id: 'example-postgres', source_type: 'Postgres', prefix: 'postgres_' },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
+            timeout: 15000,
+        })
+        await userEvent.click(canvas.getByRole('button', { name: 'SQL' }))
+        await userEvent.click(canvas.getByRole('button', { name: 'BI' }))
+        await waitFor(() => expect(canvas.queryByText('Locate')).not.toBeInTheDocument())
+        await userEvent.click(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')!)
+        const page = within(canvasElement.ownerDocument.body)
+        await waitFor(() => expect(page.getByRole('searchbox', { name: 'Search tables' })).toBeVisible())
     },
 }

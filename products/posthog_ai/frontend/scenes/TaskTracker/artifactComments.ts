@@ -70,6 +70,14 @@ export function anchorKindLabel(anchor: ArtifactCommentAnchor | null): ArtifactC
     return anchor?.kind === 'region' ? 'image' : anchor?.kind === 'text' ? 'selection' : 'document'
 }
 
+/** The accessible name of a thread: the text or the pin it is about. */
+export function threadAnchorLabel(thread: ArtifactCommentThread): string {
+    if (thread.anchor?.kind === 'text') {
+        return `Comments on "${thread.anchor.quote}"`
+    }
+    return thread.pinNumber ? `Comments on pin ${thread.pinNumber}` : 'Comments on this file'
+}
+
 /** Comments need a stable artifact id the server can find on the task. Cited objects and living documents have none. */
 export function isCommentableArtifact(artifact: RunArtifact | null): artifact is RunArtifact & { id: string } {
     return !!artifact?.id && artifact.type !== 'reference' && !artifact.living

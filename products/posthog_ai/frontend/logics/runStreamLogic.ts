@@ -73,6 +73,7 @@ import {
     parseAvailableCommands,
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
+import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconcileFoldedThread'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -653,11 +654,12 @@ export function extractDenialReason(meta: unknown): string | undefined {
  * assistant-message and agent-thought streams, which both buffer incremental chunks this way.
  */
 function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemType, incompleteOnly: boolean): number {
+    const prefix = `${id}@`
     for (let i = state.length - 1; i >= 0; i--) {
         const item = state[i]
         if (
             item.type === type &&
-            (item.id === id || item.id.startsWith(`${id}@`)) &&
+            (item.id === id || item.id.startsWith(prefix)) &&
             (!incompleteOnly || !item.complete)
         ) {
             return i
@@ -673,13 +675,23 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
  * send the agent has not taken up yet sinks below the whole answer before it renders, so it splits
  * the halves the same way and is passed over too.
  */
-function onlyDebugRowsFollow(state: ThreadItem[], idx: number, waitingIds: ReadonlySet<string>): boolean {
-    for (let i = idx + 1; i < state.length; i++) {
-        if (state[i].type !== 'debug' && !waitingIds.has(state[i].id)) {
-            return false
+function findContinuableBuffer(
+    state: ThreadItem[],
+    id: string,
+    type: ThreadItemType,
+    waitingIds: ReadonlySet<string>
+): number {
+    const prefix = `${id}@`
+    for (let i = state.length - 1; i >= 0; i--) {
+        const item = state[i]
+        if (item.type === type && (item.id === id || item.id.startsWith(prefix))) {
+            return item.complete ? -1 : i
+        }
+        if (item.type !== 'debug' && !waitingIds.has(item.id)) {
+            return -1
         }
     }
-    return true
+    return -1
 }
 
 // The agent takes a queued or steering send up at the next turn boundary, so a placeholder that
@@ -1486,6 +1498,73 @@ function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage
         : null
 }
 
+const NO_IDS: ReadonlySet<string> = new Set()
+
+export interface FoldOptions {
+    isResumeRun: boolean
+    pendingMessage?: PendingRunMessage | null
+    taskId?: string | null
+}
+
+export interface FoldCheckpoint {
+    entries: StoredEntry[]
+    options: FoldOptions
+    items: ThreadItem[]
+    invocations: Map<string, ToolInvocation>
+    rememberedHumanTexts: Map<string, number>
+    waitingSends: { id: string; text: string; turns: number }[]
+    pairedSends: Map<string, number>
+    toolItemIds: Set<string>
+    counters: {
+        humanCount: number
+        bubbleSeq: number
+        separatorSeq: number
+        errorSeq: number
+        statusSeq: number
+        compactSeq: number
+        clearedSeq: number
+        taskSeq: number
+        consoleSeq: number
+        contextSeq: number
+        openAssistantMessages: number
+    }
+    importedRun: boolean
+    pendingMessageSeen: boolean
+    pendingInsertionIndex: number | undefined
+    bufferedAttachments: ThreadAttachment[]
+}
+
+function sameFoldOptions(a: FoldOptions, b: FoldOptions): boolean {
+    return (
+        a.isResumeRun === b.isResumeRun &&
+        (a.taskId ?? null) === (b.taskId ?? null) &&
+        (a.pendingMessage?.runId ?? null) === (b.pendingMessage?.runId ?? null) &&
+        (a.pendingMessage?.id ?? null) === (b.pendingMessage?.id ?? null) &&
+        (a.pendingMessage?.text ?? null) === (b.pendingMessage?.text ?? null)
+    )
+}
+
+function canResumeFold(checkpoint: FoldCheckpoint, entries: StoredEntry[], options: FoldOptions): boolean {
+    if (checkpoint.entries.length > entries.length || !sameFoldOptions(checkpoint.options, options)) {
+        return false
+    }
+    for (let index = 0; index < checkpoint.entries.length; index++) {
+        if (checkpoint.entries[index] !== entries[index]) {
+            return false
+        }
+    }
+    return true
+}
+
+function lastTurnCompleteIndex(entries: StoredEntry[]): number {
+    for (let index = entries.length - 1; index >= 0; index--) {
+        if (entries[index].entry.notification?.method === '_posthog/turn_complete') {
+            return index
+        }
+    }
+    return -1
+}
+
 /**
  * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
  * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
@@ -1493,39 +1572,49 @@ function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage
  * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
  * whether a wire user turn renders (replay) or is left to the live echo (live).
  */
-export function foldLogToThread(
+export function foldLogToThread(entries: StoredEntry[], options: FoldOptions): FoldedThread {
+    return foldLogFromCheckpoint(entries, options, null).folded
+}
+
+export function foldLogFromCheckpoint(
     entries: StoredEntry[],
-    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null; taskId?: string | null }
-): FoldedThread {
-    let items: ThreadItem[] = []
-    const invocations = new Map<string, ToolInvocation>()
+    options: FoldOptions,
+    checkpoint: FoldCheckpoint | null
+): { folded: FoldedThread; checkpoint: FoldCheckpoint | null } {
+    const resume = checkpoint && canResumeFold(checkpoint, entries, options) ? checkpoint : null
+    const checkpointIndex = lastTurnCompleteIndex(entries)
+    let nextCheckpoint = resume && resume.entries.length - 1 === checkpointIndex ? resume : null
+    let items: ThreadItem[] = resume ? [...resume.items] : []
+    const invocations = new Map<string, ToolInvocation>(resume?.invocations)
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
-    const rememberedHumanTexts = new Map<string, number>()
+    const rememberedHumanTexts = new Map<string, number>(resume?.rememberedHumanTexts)
     // Placeholders the composer drew for sends the agent has not taken up, in send order. A queued or
     // steering send is echoed only when the agent takes it up, which is a turn later than the bubble,
     // so the pairing outlives that turn. Text is what an echo matches on, because a client echo
     // carries no id, and send order keeps repeated sends of one text apart.
-    const waitingSends: { id: string; text: string; turns: number }[] = []
+    const waitingSends: { id: string; text: string; turns: number }[] = resume
+        ? resume.waitingSends.map((send) => ({ ...send }))
+        : []
     // Sends this turn already paired, counted per text so the same send's second wire form takes no
     // further placeholder while a second send of that text still takes its own.
-    const pairedSends = new Map<string, number>()
-    let humanCount = 0
-    let bubbleSeq = 0
-    let separatorSeq = 0
-    let errorSeq = 0
-    let statusSeq = 0
-    let compactSeq = 0
-    let clearedSeq = 0
-    let taskSeq = 0
-    let consoleSeq = 0
-    let contextSeq = 0
+    const pairedSends = new Map<string, number>(resume?.pairedSends)
+    let humanCount = resume?.counters.humanCount ?? 0
+    let bubbleSeq = resume?.counters.bubbleSeq ?? 0
+    let separatorSeq = resume?.counters.separatorSeq ?? 0
+    let errorSeq = resume?.counters.errorSeq ?? 0
+    let statusSeq = resume?.counters.statusSeq ?? 0
+    let compactSeq = resume?.counters.compactSeq ?? 0
+    let clearedSeq = resume?.counters.clearedSeq ?? 0
+    let taskSeq = resume?.counters.taskSeq ?? 0
+    let consoleSeq = resume?.counters.consoleSeq ?? 0
+    let contextSeq = resume?.counters.contextSeq ?? 0
     let timestamp: number | undefined
-    let importedRun = false
+    let importedRun = resume?.importedRun ?? false
     let entryRunId: string | undefined
-    let pendingMessageSeen = false
-    let pendingInsertionIndex: number | undefined
-    let bufferedAttachments: ThreadAttachment[] = []
+    let pendingMessageSeen = resume?.pendingMessageSeen ?? false
+    let pendingInsertionIndex: number | undefined = resume?.pendingInsertionIndex
+    let bufferedAttachments: ThreadAttachment[] = resume ? [...resume.bufferedAttachments] : []
 
     /**
      * A wire turn opens with its message, so that is where a message goes by default. A send the
@@ -1590,9 +1679,39 @@ export function foldLogToThread(
 
     const waitingSendIds = (): ReadonlySet<string> =>
         new Set(waitingSends.filter((send) => send.turns < SETTLED_AFTER_TURNS).map((send) => send.id))
+    const toolItemIds = new Set<string>(resume?.toolItemIds)
+    let openAssistantMessages = resume?.counters.openAssistantMessages ?? 0
+
+    const takeCheckpoint = (index: number): FoldCheckpoint => ({
+        entries: entries.slice(0, index + 1),
+        options,
+        items: [...items],
+        invocations: new Map(invocations),
+        rememberedHumanTexts: new Map(rememberedHumanTexts),
+        waitingSends: waitingSends.map((send) => ({ ...send })),
+        pairedSends: new Map(pairedSends),
+        toolItemIds: new Set(toolItemIds),
+        counters: {
+            humanCount,
+            bubbleSeq,
+            separatorSeq,
+            errorSeq,
+            statusSeq,
+            compactSeq,
+            clearedSeq,
+            taskSeq,
+            consoleSeq,
+            contextSeq,
+            openAssistantMessages,
+        },
+        importedRun,
+        pendingMessageSeen,
+        pendingInsertionIndex,
+        bufferedAttachments: [...bufferedAttachments],
+    })
 
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
-        const idx = findLastBufferIndex(items, id, type, false)
+        const idx = findContinuableBuffer(items, id, type, waitingSends.length > 0 ? waitingSendIds() : NO_IDS)
         // Continue the matched buffer only while it's incomplete and only debug rows followed it;
         // otherwise (no buffer, a finalized one, or one interrupted by a tool call/separator) start
         // a fresh bubble so text resuming after an interruption renders in chronological order.
@@ -1600,7 +1719,10 @@ export function foldLogToThread(
         // the S3 replay always does, since the backend drops chunks), so the bare fallback id would
         // collide as a React key across messages. The continuation lookup matches the `${id}@`
         // prefix, so it still works.
-        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx, waitingSendIds())) {
+        if (idx === -1) {
+            if (type === 'assistant_message') {
+                openAssistantMessages++
+            }
             items.push({
                 id: `${id}@${bubbleSeq++}`,
                 type,
@@ -1618,8 +1740,8 @@ export function foldLogToThread(
     }
 
     const finalizeMessage = (id: string, text: string): void => {
-        let idx = findLastBufferIndex(items, id, 'assistant_message', true)
-        if (idx === -1) {
+        let idx = openAssistantMessages > 0 ? findLastBufferIndex(items, id, 'assistant_message', true) : -1
+        if (idx === -1 && openAssistantMessages > 0) {
             // The wire isn't consistent about carrying `messageId` across a message's chunks and its
             // closing `agent_message` (the chunks often have one, the finalize doesn't, or vice
             // versa), so an id-keyed lookup can miss the buffer the chunks opened. Fall back to the
@@ -1649,11 +1771,13 @@ export function foldLogToThread(
             })
             return
         }
+        openAssistantMessages--
         items[idx] = { ...items[idx], text, complete: true, ...(timestamp !== undefined && { endedAt: timestamp }) }
     }
 
     const upsertInvocationItem = (toolCallId: string, hasStart = true): void => {
-        if (!items.some((item) => item.type === 'tool_invocation' && item.toolCallId === toolCallId)) {
+        if (!toolItemIds.has(toolCallId)) {
+            toolItemIds.add(toolCallId)
             items.push({
                 id: toolCallId,
                 type: 'tool_invocation',
@@ -1752,8 +1876,12 @@ export function foldLogToThread(
         if (!existing && !subagentParentToolCallId(update._meta)) {
             upsertInvocationItem(next.toolCallId, false)
         }
-        if (timestamp !== undefined && (next.status === 'completed' || next.status === 'failed')) {
-            const index = items.findIndex((item) => item.toolCallId === next.toolCallId)
+        if (
+            timestamp !== undefined &&
+            (next.status === 'completed' || next.status === 'failed') &&
+            toolItemIds.has(next.toolCallId)
+        ) {
+            const index = items.findLastIndex((item) => item.toolCallId === next.toolCallId)
             if (index !== -1) {
                 items[index] = { ...items[index], endedAt: timestamp }
             }
@@ -1789,7 +1917,8 @@ export function foldLogToThread(
             ...(sourceRunId ? { sourceRunId } : {}),
         })
     }
-    for (const { entry, source } of entries) {
+    for (let index = resume ? resume.entries.length : 0; index < entries.length; index++) {
+        const { entry, source } = entries[index]
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
         if (
             options.pendingMessage &&
@@ -1841,6 +1970,9 @@ export function foldLogToThread(
             })
             pairedSends.clear()
             waitingSends.forEach((send) => (send.turns += 1))
+            if (index === checkpointIndex) {
+                nextCheckpoint = takeCheckpoint(index)
+            }
             continue
         }
         if (method === '_posthog/progress') {
@@ -2080,7 +2212,7 @@ export function foldLogToThread(
             complete: true,
         })
     }
-    return { threadItems: items, toolInvocations: invocations }
+    return { folded: { threadItems: items, toolInvocations: invocations }, checkpoint: nextCheckpoint }
 }
 
 /**
@@ -3111,7 +3243,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ cache }) => ({
         respondingToPermission: [
             (s) => [s.permissionResponseRequestIds, s.pendingPermissionRequest],
             (ids: Set<string>, record: PermissionRequestRecord | null): boolean =>
@@ -3128,7 +3260,29 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 isResumeRun: boolean,
                 pendingMessage: PendingRunMessage | null,
                 taskId: string | null
-            ): FoldedThread => foldLogToThread(log.entries, { isResumeRun, pendingMessage, taskId }),
+            ): FoldedThread => {
+                const previousCheckpoint: FoldCheckpoint | null = cache.foldCheckpoint ?? null
+                const { folded, checkpoint } = foldLogFromCheckpoint(
+                    log.entries,
+                    { isResumeRun, pendingMessage, taskId },
+                    previousCheckpoint
+                )
+                const previous: FoldedThread | undefined = cache.previousFoldedThread
+                const reconciled: FoldedThread = {
+                    threadItems: reconcileThreadItems(previous?.threadItems, folded.threadItems),
+                    toolInvocations: reconcileToolInvocations(previous?.toolInvocations, folded.toolInvocations),
+                }
+                if (checkpoint && checkpoint !== previousCheckpoint) {
+                    checkpoint.items = reconcileThreadItems(reconciled.threadItems, checkpoint.items)
+                    checkpoint.invocations = reconcileToolInvocations(
+                        reconciled.toolInvocations,
+                        checkpoint.invocations
+                    )
+                }
+                cache.foldCheckpoint = checkpoint
+                cache.previousFoldedThread = reconciled
+                return reconciled
+            },
         ],
         errorTraceIds: [
             (s) => [s.threadItems],
@@ -3354,7 +3508,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return null
             },
         ],
-    }),
+    })),
     listeners(({ values, actions, cache, props }) => {
         const sessionNow = (): RunStreamRecovery | undefined => cache.recoverySession
         const endedKey = (projectId: number, taskId: string, runId: string): string => `${projectId}:${taskId}:${runId}`

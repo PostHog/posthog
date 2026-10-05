@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 22 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -626,6 +626,33 @@ export const AutoresearchRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Return the realized metrics online validation recorded for each model on each validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean predicted probability against the base rate, lift, and the model's role when it emitted and now. The rows come from the validation runs, so a former champion that a promotion archived keeps its history. Read-only; it runs no queries.
+ * @summary Read realized performance history
+ */
+export const AutoresearchOnlinePerformanceRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const autoresearchOnlinePerformanceRetrieveQueryLimitDefault = 60
+export const autoresearchOnlinePerformanceRetrieveQueryLimitMax = 180
+
+export const AutoresearchOnlinePerformanceRetrieveQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(autoresearchOnlinePerformanceRetrieveQueryLimitMax)
+        .default(autoresearchOnlinePerformanceRetrieveQueryLimitDefault)
+        .describe(
+            'Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.'
         ),
 })
 
