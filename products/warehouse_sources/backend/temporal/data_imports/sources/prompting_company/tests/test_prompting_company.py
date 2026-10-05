@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -14,7 +14,7 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptingcompany import (
     PromptingCompanySourceConfig,
 )
@@ -53,6 +53,10 @@ def inputs(name: str, incremental: bool = False, watermark: object = None) -> So
             db_incremental_field_last_value=watermark,
         ),
     )
+
+
+def sync_items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
 
 
 class MockAPI:
@@ -96,7 +100,7 @@ def test_content_pagination_and_resume(
         (200, {"ok": True, "data": {"items": [{"id": "doc-b"}], "totalPages": first_page + 1}}),
     ]
     response = prompting_company_source(config, inputs("published_content"), manager)
-    pages = iter(response.items())
+    pages = iter(sync_items(response))
     assert next(pages) == [{"id": "doc-a"}]
     assert list(pages) == [[{"id": "doc-b"}]]
     manager.save_state.assert_called_once_with(PromptingCompanyResumeConfig(page=first_page + 1))
@@ -136,7 +140,7 @@ def test_empty_terminal_page(
     expected_path: str,
 ) -> None:
     api.responses = [(200, {"ok": True, "data": data})]
-    assert list(prompting_company_source(config, inputs(name), manager).items()) == []
+    assert list(sync_items(prompting_company_source(config, inputs(name), manager))) == []
     assert len(api.requests) == 1
     assert urlsplit(api.requests[0].url or "").path == expected_path
     manager.save_state.assert_not_called()
@@ -148,7 +152,7 @@ def test_runs_continue_until_empty_page(config: PromptingCompanySourceConfig, ma
         (200, {"ok": True, "data": {"runs": [{"id": "run-b"}], "total": 2}}),
         (200, {"ok": True, "data": {"runs": [], "total": 2}}),
     ]
-    assert list(prompting_company_source(config, inputs("simulation_runs"), manager).items()) == [
+    assert list(sync_items(prompting_company_source(config, inputs("simulation_runs"), manager))) == [
         [{"id": "run-a"}],
         [{"id": "run-b"}],
     ]
@@ -162,7 +166,7 @@ def test_suggestions_single_page(config: PromptingCompanySourceConfig, manager: 
     rows = [{"id": "suggestion-a", "message": "Which tools measure search visibility?"}]
     api.responses = [(200, {"ok": True, "data": rows})]
     response = prompting_company_source(config, inputs("prompt_suggestions"), manager)
-    assert list(response.items()) == [rows]
+    assert list(sync_items(response)) == [rows]
     assert api.params() == {"productId": ["product_example"]}
     assert len(api.requests) == 1
     manager.can_resume.assert_not_called()
@@ -193,7 +197,7 @@ def test_sov_date_filter(
     with patch(TRANSPORT + ".datetime") as clock:
         clock.now.return_value = datetime(2025, 2, 2, tzinfo=UTC)
         response = prompting_company_source(config, inputs("share_of_voice", incremental, watermark), manager)
-        assert list(response.items()) == [rows]
+        assert list(sync_items(response)) == [rows]
     assert api.params() == {
         "productId": ["product_example"],
         "start": [expected_start],
@@ -255,7 +259,7 @@ def test_sync_auth_errors_are_terminal(
 ) -> None:
     api.responses = [(status, {"ok": False, "code": code, "message": "authentication required"})]
     with pytest.raises(HTTPError) as exc:
-        list(prompting_company_source(config, inputs("published_content"), manager).items())
+        list(sync_items(prompting_company_source(config, inputs("published_content"), manager)))
     assert len(api.requests) == 1
     assert any(pattern in str(exc.value) for pattern in PromptingCompanySource().get_non_retryable_errors())
 
@@ -265,8 +269,8 @@ def test_sync_retries_transient_errors(
     config: PromptingCompanySourceConfig, manager: MagicMock, api: MockAPI, status: int
 ) -> None:
     api.responses = [(status, {"ok": False}), (200, {"ok": True, "data": []})]
-    with patch.object(RESTClient._send_request.retry, "wait", return_value=0):
-        assert list(prompting_company_source(config, inputs("prompt_suggestions"), manager).items()) == []
+    with patch.object(RESTClient._send_request.retry, "wait", return_value=0):  # type: ignore[attr-defined]
+        assert list(sync_items(prompting_company_source(config, inputs("prompt_suggestions"), manager))) == []
     assert len(api.requests) == 2
 
 

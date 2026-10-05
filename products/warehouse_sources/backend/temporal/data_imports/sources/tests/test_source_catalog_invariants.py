@@ -69,7 +69,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Mintlify",
     "Mono",
     "OpenRouter",
-    "PromptingCompany",
     "Roark",
     "ScaleAI",
     "Skyvern",

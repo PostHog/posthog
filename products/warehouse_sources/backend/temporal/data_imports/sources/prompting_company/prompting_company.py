@@ -4,14 +4,16 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
     SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+    RESTAPIConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -105,24 +107,21 @@ def prompting_company_source(
         if state is not None and "page" in state:
             manager.save_state(PromptingCompanyResumeConfig(page=int(state["page"])))
 
+    endpoint_config: Endpoint = {
+        "path": endpoint.path,
+        "params": params,
+        "data_selector": endpoint.data_selector,
+        "data_selector_required": True,
+        "paginator": paginator,
+    }
+    resource_config: EndpointResource = {"name": name, "endpoint": endpoint_config}
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
             "auth": {"type": "api_key", "name": "x-api-key", "api_key": config.api_key, "location": "header"},
             "request_timeout": 30,
         },
-        "resources": [
-            {
-                "name": name,
-                "endpoint": {
-                    "path": endpoint.path,
-                    "params": params,
-                    "data_selector": endpoint.data_selector,
-                    "data_selector_required": True,
-                    "paginator": paginator,
-                },
-            }
-        ],
+        "resources": [resource_config],
     }
     resource = rest_api_resource(
         rest_config,
