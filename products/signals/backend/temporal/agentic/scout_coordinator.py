@@ -38,6 +38,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_display_name_for,
     canonical_skill_names,
     discover_canonical_skills,
+    source_product_gating,
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.limits import (
@@ -440,6 +441,8 @@ def _collect_planned_runs(
         for config in SignalScoutConfig.all_teams.filter(
             team_id=team.id, enabled=True, skill_name__in=live_skills
         ).exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND):
+            if not _enrolled_by_its_source(config):
+                continue
             overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
@@ -663,6 +666,18 @@ def _breaker_paused_configs_by_team() -> dict[int, list[SignalScoutConfig]]:
     return paused_by_team
 
 
+def _enrolled_by_its_source(config: SignalScoutConfig) -> bool:
+    """False for a source-only canonical scout on a config its product did not create, or on a project
+    whose organization has since withdrawn AI data processing approval.
+
+    A person can still create or enable such a config by hand, and this keeps it from running.
+    """
+    source_product = source_product_gating(config.team_id, config.skill_name)
+    if not source_product:
+        return True
+    return config.source_product == source_product and _ai_data_processing_approved(config.team)
+
+
 def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: set[str], now: datetime) -> list[_DueRun]:
     """The half-open side of the failure-streak breaker: one probe per cooldown for paused lanes.
 
@@ -680,7 +695,7 @@ def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: se
     """
     probes: list[_DueRun] = []
     for config in paused_configs:
-        if config.skill_name not in live_skills:
+        if config.skill_name not in live_skills or not _enrolled_by_its_source(config):
             continue
         # The cooldown runs from the later of the lane's last dispatch and the moment it was
         # paused. `last_run_at` alone is not enough: the run that trips the breaker was dispatched

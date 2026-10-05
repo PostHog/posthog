@@ -26,7 +26,11 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutConfig
 from products.signals.backend.scout_harness import lazy_seed
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    canonical_source_only_scout_names,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
     DISPATCH_BATCH_INTERVAL_SECONDS,
@@ -2379,6 +2383,7 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     )()
     assert config_names == seeded
     assert {p.skill_name for p in planned} == seeded
+    assert not seeded & canonical_source_only_scout_names()
 
 
 @pytest.mark.asyncio
@@ -2706,3 +2711,49 @@ async def test_hard_dispatch_error_does_not_stamp():
         run_due_signal_report_checks_activity,
         fetch_enabled_signals_scout_runs_activity,
     ]
+
+
+# ── Scouts a source product enrolls (scout-source-product) ─────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_source_only_scout_is_never_seeded_a_config(ateam):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-workflow-ideas")
+
+    await _run_activity()
+
+    seeded = await database_sync_to_async(
+        lambda: set(SignalScoutConfig.all_teams.filter(team_id=ateam.id).values_list("skill_name", flat=True))
+    )()
+    assert "signals-scout-general" in seeded
+    assert "signals-scout-workflow-ideas" not in seeded
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source_product,consent,seeded,planned",
+    [
+        (None, True, True, False),
+        ("workflows", True, True, True),
+        ("workflows", False, True, False),
+        (None, True, False, True),
+    ],
+)
+async def test_source_only_scout_runs_only_on_a_config_its_source_created(
+    ateam, source_product, consent, seeded, planned
+):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-workflow-ideas", seeded=seeded)
+    await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-workflow-ideas", enabled=True, source_product=source_product
+    )
+    if not consent:
+        await database_sync_to_async(
+            lambda: Organization.objects.filter(id=ateam.organization_id).update(is_ai_data_processing_approved=False)
+        )()
+
+    runs = await _run_activity()
+
+    assert any(p.skill_name == "signals-scout-workflow-ideas" and p.team_id == ateam.id for p in runs) is planned

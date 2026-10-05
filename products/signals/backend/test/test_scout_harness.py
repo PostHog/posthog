@@ -2960,6 +2960,30 @@ async def test_withheld_scout_is_not_run(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_source_only_scout_is_not_run_where_its_source_did_not_enroll_it(ateam):
+    await database_sync_to_async(LLMSkill.objects.create)(
+        team=ateam,
+        name="signals-scout-workflow-ideas",
+        description="d",
+        body="b",
+        metadata={"seeded_by": HARNESS_SEEDED_BY},
+    )
+    with patch(
+        "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+        new_callable=AsyncMock,
+        side_effect=AssertionError("session.start should not run for an unenrolled scout"),
+    ):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-workflow-ideas")
+
+    assert result.skip_reason == "scout is not enrolled by its source product"
+    has_config = await database_sync_to_async(
+        SignalScoutConfig.objects.filter(team=ateam, skill_name="signals-scout-workflow-ideas").exists
+    )()
+    assert not has_config
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, aerrors_skill):
     """Different skills for the same team must be allowed to run concurrently — the
     coordinator can dispatch several due scouts for one team in a single tick. The

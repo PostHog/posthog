@@ -35,7 +35,11 @@ from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_skill_names,
+    source_product_gating,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
@@ -321,6 +325,30 @@ async def _arun_signals_scout(
     # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
     # hasn't edited, and leaves forked / tombstoned rows alone. Failures here should not
     # crash the run — we log and continue with whatever skills the team already has.
+    source_product = await database_sync_to_async(source_product_gating, thread_sensitive=False)(
+        team.parent_team_id or team.id, skill_name
+    )
+    if trial is None and source_product:
+        if not await database_sync_to_async(_enrolled_by_source, thread_sensitive=False)(
+            team.parent_team_id or team.id, skill_name, source_product
+        ):
+            logger.info(
+                "signals_scout: skipping run, scout runs only where its source product enrolled it",
+                extra={"team_id": team_id, "skill_name": skill_name, "source_product": source_product},
+            )
+            return RunResult(
+                run_id=None,
+                task_run_id=None,
+                status=None,
+                last_message=None,
+                runtime_s=0.0,
+                skill_name=skill_name,
+                skill_version=skill_version or 0,
+                skip_reason="scout is not enrolled by its source product",
+            )
+        # A project its source product enrolled gets this one scout, not the whole fleet.
+        withheld = set(withheld) | (canonical_skill_names() - {skill_name})
+
     if trial is None:
         try:
             await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(
@@ -1122,6 +1150,17 @@ async def _spawn_and_run(
 
 def _get_team(team_id: int) -> Team:
     return Team.objects.select_related("organization").get(id=team_id)
+
+
+def _enrolled_by_source(team_id: int, skill_name: str, source_product: str) -> bool:
+    # Consent is checked again here because an organization can withdraw it after enrollment.
+    if not Team.objects.filter(id=team_id, organization__is_ai_data_processing_approved=True).exists():
+        return False
+    return (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name, source_product=source_product)
+        .exists()
+    )
 
 
 def _resolve_config(team: Team, skill_name: str) -> SignalScoutConfig:

@@ -13,6 +13,7 @@ compatibility: >
   channel, which is on because this skill ships a schema.
   No write scopes, and no report or signal channel - see "Why this scout files nothing".
 scout-structured-output-schema: references/idea.schema.json
+scout-source-product: workflows
 scout-tags:
   - workflows
 metadata:
@@ -37,6 +38,10 @@ A project where 400 people a week start a trial, 70% never pay, and nothing is s
 An idea is worth recording when someone could build it as written and then see whether it worked.
 So every idea carries the outcome it moves (`goal_event`), how often that outcome happens today with no message (`baseline_conversion_rate`), and how the workflow is built: when the first message goes, how many follow, and who exits early.
 An idea a person cannot measure afterwards is an opinion.
+
+This scout runs only on projects Workflows picked for a two-week trial, every few days, and then moves on to other projects.
+So the first run on a project is the one that counts: record its best ideas in that run, rather than spending it on orientation and leaving the ideas for later.
+A later run in the same trial records an idea again only when its numbers moved enough to change the decision.
 
 You record **at most 3 ideas per run**.
 Fifteen ideas is a list nobody reads, and the cap is what forces you to rank.

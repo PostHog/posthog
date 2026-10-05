@@ -1350,3 +1350,69 @@ def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     if not team_is_enrolled(canonical_team.id):
         return False
     return can_create_scout(user, canonical_team)
+
+
+def enroll_scout_for_source(
+    *,
+    team: "Team",
+    skill_name: str,
+    source_product: str,
+    source_id: str,
+    run_interval_minutes: int | None = None,
+    model: str | None = None,
+) -> bool:
+    """Turn on a canonical scout that only runs where its source product enrolls it.
+
+    The scout must declare `scout-source-product: <source_product>` in its SKILL.md. The project
+    gets that one skill and one enabled config owned by the source. Nothing else from the scout
+    fleet is seeded. Returns False without writing when the organization has not approved AI data
+    processing, or when the project already holds a config for the scout that the source did not
+    create. Idempotent for a config the source already owns.
+    """
+    from products.signals.backend.scout_harness.lazy_seed import (  # noqa: PLC0415 — keeps the skill seeding modules off the facade's import path
+        canonical_config_tags_for,
+        canonical_display_name_for,
+        canonical_skill_names,
+        canonical_source_product_for,
+        canonical_structured_output_schema_for,
+        sync_canonical_skills,
+    )
+
+    if canonical_source_product_for(skill_name) != source_product:
+        raise ValueError(f"{skill_name} does not declare scout-source-product: {source_product}")
+    if team.organization.is_ai_data_processing_approved is not True:
+        return False
+
+    defaults: dict[str, Any] = {"source_product": source_product, "source_id": source_id, "enabled": True}
+    if tags := canonical_config_tags_for(skill_name):
+        defaults["tags"] = list(tags)
+    if display_name := canonical_display_name_for(skill_name):
+        defaults["display_name"] = display_name
+    if schema := canonical_structured_output_schema_for(skill_name):
+        defaults["structured_output_schema"] = schema
+    if run_interval_minutes is not None:
+        defaults["run_interval_minutes"] = run_interval_minutes
+    if model:
+        defaults["model"] = model
+    config, _ = SignalScoutConfig.objects.for_team(team.id).get_or_create(
+        team_id=team.id, skill_name=skill_name, defaults=defaults
+    )
+    if config.source_product != source_product:
+        return False
+    # After the config, because the sync seeds a source-only scout only where its source enrolled it.
+    sync_canonical_skills(team, withheld_skill_names=canonical_skill_names() - {skill_name})
+    return True
+
+
+def withdraw_scout_for_source(*, team_id: int, skill_name: str, source_product: str) -> bool:
+    """Stop a scout its source product enrolled, by removing the config the source created.
+
+    The harness never seeds a config for such a scout, so removal is final until the source enrolls
+    the project again. The run history stays. Returns False when the source owns no config here.
+    """
+    deleted, _ = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name, source_product=source_product)
+        .delete()
+    )
+    return deleted > 0

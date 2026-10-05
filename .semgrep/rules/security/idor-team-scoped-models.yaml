@@ -447,6 +447,7 @@ rules:
                               |WizardRunArtifact
                               |WizardSession
                               |WizardWorker
+                              |WorkflowIdeaTrial
                               |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
@@ -883,6 +884,7 @@ rules:
                         |WizardRunArtifact
                         |WizardSession
                         |WizardWorker
+                        |WorkflowIdeaTrial
                         |WorkflowProposal
                     )$
           # Exclude when team filter is present
