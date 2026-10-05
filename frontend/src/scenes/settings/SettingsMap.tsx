@@ -53,6 +53,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { PartnerBilling } from 'products/billing/frontend/partnerBilling/PartnerBilling'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -2445,6 +2446,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'View applications that have been authorized to connect to your organization.',
                 component: <OAuthApps />,
                 keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-partner-billing',
+        hideSelfHost: true,
+        title: 'Partner billing',
+        settings: [
+            {
+                id: 'organization-partner-billing',
+                title: 'Partner billing',
+                description: 'Manage how your application pays for the PostHog organizations it creates for customers.',
+                component: <PartnerBilling />,
+                keywords: ['partner', 'provisioning', 'payment', 'webhook', 'spend cap', 'invoice', 'settlement'],
             },
         ],
     },

@@ -15,6 +15,9 @@ import { organizationIntegrationsLogic } from 'scenes/settings/organization/orga
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import type { PartnerPayerApplicationApi } from 'products/billing/frontend/generated/api.schemas'
+import { partnerBillingApplicationsLogic } from 'products/billing/frontend/partnerBilling/partnerBillingApplicationsLogic'
+
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { IntegrationType, PreflightStatus, TeamPublicType, TeamType } from '../../types'
 import type { AvailableFeature, OrganizationType } from '../../types'
@@ -87,6 +90,7 @@ export interface settingsLogicValues {
     organizationIntegrations: IntegrationType[] | null // organizationIntegrationsLogic
     currentOrganization: OrganizationType | null // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
+    partnerBillingApplications: PartnerPayerApplicationApi[] | null // partnerBillingApplicationsLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     preflight: PreflightStatus | null // preflightLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
@@ -201,7 +205,8 @@ export interface settingsLogicMeta {
             organizationIntegrations: IntegrationType[] | null,
             preflight: PreflightStatus | null,
             billingEntryUrl: string | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            partnerBillingApplications: PartnerPayerApplicationApi[] | null
         ) => SettingSection[]
         selectedLevel: (
             selectedLevelRaw: 'environment' | 'organization' | 'project' | 'user',
@@ -285,6 +290,8 @@ export const settingsLogic = kea<settingsLogicType>([
             ['currentTeam'],
             organizationLogic,
             ['currentOrganization', 'isAdminOrOwner'],
+            partnerBillingApplicationsLogic,
+            ['partnerBillingApplications'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
@@ -478,6 +485,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.preflight,
                 s.billingEntryUrl,
                 s.isAdminOrOwner,
+                s.partnerBillingApplications,
             ],
             (
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
@@ -487,7 +495,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 organizationIntegrations: import('../../types').IntegrationType[] | null,
                 preflight: null | import('../../types').PreflightStatus,
                 billingEntryUrl: string | null,
-                isAdminOrOwner: boolean | null
+                isAdminOrOwner: boolean | null,
+                partnerBillingApplications: PartnerPayerApplicationApi[] | null
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -505,7 +514,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     return true
                 }
 
-                const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
+                const allowedSections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
                         return false
                     }
@@ -523,9 +532,21 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (ADMIN_ONLY_SECTION_IDS.includes(section.id) && !isAdminOrOwner) {
                         return false
                     }
+                    if (section.id === 'organization-partner-billing' && partnerBillingApplications?.length === 0) {
+                        return false
+                    }
 
                     return true
                 })
+
+                // The billing portal returns people straight to partner billing, often before the partner list
+                // has loaded. Until it has, a direct link still opens the section, but the navigation and search
+                // leave it out, so it cannot appear and then vanish for organizations without a paying partner.
+                const sections = allowedSections.map((section) =>
+                    section.id === 'organization-partner-billing' && !partnerBillingApplications
+                        ? { ...section, hideFromNavigation: true }
+                        : section
+                )
 
                 // If there's no current organization, hide everything except user sections
                 if (!currentOrganization) {

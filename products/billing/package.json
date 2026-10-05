@@ -1,3 +1,17 @@
 {
-    "name": "@posthog/products-billing"
+    "name": "@posthog/products-billing",
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/lemon-ui": "*",
+        "@storybook/react": "catalog:",
+        "@types/react": "*",
+        "react": "*"
+    }
 }
