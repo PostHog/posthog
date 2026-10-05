@@ -5,6 +5,7 @@ from .hog_flow_optimization import HogFlowOptimization
 from .hog_flow_revision import HogFlowRevision
 from .hog_flow_schedule.hog_flow_schedule import HogFlowSchedule
 from .team_workflows_config import TeamWorkflowsConfig
+from .workflow_idea_trial import WorkflowIdeaTrial
 from .workflow_proposal import WorkflowProposal
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "HogFlowSchedule",
     "HogFlowTemplate",
     "TeamWorkflowsConfig",
+    "WorkflowIdeaTrial",
     "WorkflowProposal",
 ]
