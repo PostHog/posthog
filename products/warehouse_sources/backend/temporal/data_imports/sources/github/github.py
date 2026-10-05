@@ -62,6 +62,8 @@ FAN_OUT_PARENT_CAP_HITS = Counter(
 # for clock skew between the two before trusting it to skip a parent.
 _RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
+_STARTUP_FAILURE_FIRST_SYNC_LOOKBACK = timedelta(days=1)
+
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. Every caller —
 # sync, credential validation, webhook management — passes the source's resolved pin; this constant
 # is only the fallback for callers outside a source instance. Response shapes are not compatible
@@ -1805,6 +1807,43 @@ async def _chain_webhook_items_with_reconciliation(
         yield table
 
 
+def _get_startup_failure_runs(
+    personal_access_token: str,
+    repository: str,
+    logger: FilteringBoundLogger,
+    created_since: datetime,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> Iterator[pa.Table]:
+    """Poll the runs that ended in startup_failure since ``created_since``. GitHub sends only the
+    `requested` workflow_run webhook (status queued) for such a run and never a `completed` one, so
+    without this poll the webhook-fed table keeps the run queued forever. The `status` filter makes
+    GitHub cap the result at 1,000 runs, so the window stays as short as the time since the last sync."""
+    params = {
+        "status": "startup_failure",
+        "created": f">={created_since.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        "per_page": GITHUB_ENDPOINTS["workflow_runs"].page_size,
+    }
+    url = f"{GITHUB_BASE_URL}/repos/{repository}/actions/runs?{urlencode(params)}"
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    pages = _iter_pages(
+        url,
+        _get_headers(personal_access_token, "workflow_runs", api_version),
+        "workflow_runs",
+        logger,
+        egress_identity=egress_identity,
+        repository=repository,
+        required_permission=ENDPOINT_REQUIRED_PERMISSION.get("workflow_runs"),
+    )
+    for runs, _page_url in pages:
+        for run in runs:
+            batcher.batch(run)
+            if batcher.should_yield():
+                yield batcher.get_table()
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
 def github_source(
     personal_access_token: str,
     repository: str,
@@ -1889,6 +1928,25 @@ def github_source(
                 else None
             )
             webhook_items = webhook_source_manager.get_items(table_transformer=transformer)
+            if endpoint == "workflow_runs":
+                # The poll runs after the drain, so its completed row lands after the queued
+                # webhook row of the same run and wins the merge.
+                created_since = (
+                    reconcile_since - _RECONCILE_SKEW_ALLOWANCE
+                    if reconcile_since
+                    else _now_utc() - _STARTUP_FAILURE_FIRST_SYNC_LOOKBACK
+                )
+                return _chain_webhook_items_with_reconciliation(
+                    webhook_items,
+                    lambda: _get_startup_failure_runs(
+                        personal_access_token=personal_access_token,
+                        repository=repository,
+                        logger=logger,
+                        created_since=created_since,
+                        egress_identity=egress_identity,
+                        api_version=api_version,
+                    ),
+                )
             reconcile_days = endpoint_config.webhook_reconcile_lookback_days
             if reconcile_days is None:
                 return webhook_items
