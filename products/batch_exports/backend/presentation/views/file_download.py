@@ -34,11 +34,6 @@ from posthog.models import Team, User
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
-from products.batch_exports.backend.api.utils import (
-    HOGQL_MODIFIERS_HELP_TEXT,
-    HogQLModifiersField,
-    check_hogql_batch_exports_enabled,
-)
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     find_interval_placeholders,
@@ -52,6 +47,11 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportOnDemand,
     BatchExportRun,
     BatchExportSource,
+)
+from products.batch_exports.backend.presentation.views.utils import (
+    HOGQL_MODIFIERS_HELP_TEXT,
+    HogQLModifiersField,
+    check_hogql_batch_exports_enabled,
 )
 from products.batch_exports.backend.service import (
     BatchExportModel,
