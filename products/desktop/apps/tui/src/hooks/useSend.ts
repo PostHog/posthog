@@ -5,14 +5,7 @@ import { REGIONS } from "../auth";
 import type { PiChats } from "../chats";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
-import {
-  assignTask,
-  findPane,
-  initialLayout,
-  type LayoutState,
-  newChat,
-  saveLayout,
-} from "../layout";
+import { assignTask, findPane, type LayoutState, newChat } from "../layout";
 import type { LocalSession } from "../local";
 import { parseSlash } from "../models";
 import type { ChatPlace } from "../prefs";
@@ -110,12 +103,9 @@ export function useSend({
     );
   };
 
-  // A session's workspaces belong to its account, so signing out starts from one empty chat.
+  // A session's workspaces stay in its account's layout file, so signing out only resets what the screen holds.
   const signOut = (): void => {
     logout();
-    const fresh = initialLayout();
-    setLayout(fresh);
-    saveLayout(fresh);
     resetWork();
     setFresh(new Map());
     setPending(new Map());

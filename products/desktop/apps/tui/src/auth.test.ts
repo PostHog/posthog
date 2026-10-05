@@ -26,6 +26,10 @@ describe("TuiAuth", () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ uuid: "user-1" })),
+    );
     path = join(mkdtempSync(join(tmpdir(), "tui-auth-")), "auth.json");
   });
 
@@ -42,6 +46,7 @@ describe("TuiAuth", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(await TuiAuth.load(path)?.getAccessToken()).toBe("first");
     expect(TuiAuth.load(path)?.apiHost).toBe("https://us.posthog.com");
+    expect(TuiAuth.load(path)?.account).toBe("user-1");
   });
 
   it("refreshes an expired token once for concurrent callers and keeps the new one", async () => {
@@ -61,6 +66,7 @@ describe("TuiAuth", () => {
     expect(tokens).toEqual(["new", "new"]);
     expect(refreshPosthog).toHaveBeenCalledTimes(1);
     expect(await TuiAuth.load(path)?.getAccessToken()).toBe("new");
+    expect(TuiAuth.load(path)?.account).toBe("user-1");
   });
 
   it("forgets the session on logout", async () => {

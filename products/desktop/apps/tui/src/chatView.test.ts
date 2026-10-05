@@ -207,7 +207,7 @@ describe("ChatView", () => {
       if (reverse) chat.select(to, from);
       else chat.select(from, to);
 
-      expect(chat.selectedText()).toBe("beta gamma\n\n delta eps");
+      expect(chat.selectedText()).toBe("beta gamma\n\ndelta eps");
       expect(highlighted(chat.render(40, 5))).toEqual([
         "beta gamma",
         " delta eps",
@@ -243,6 +243,37 @@ describe("ChatView", () => {
         expect(codes.at(-1)?.[1].startsWith("38") ?? false).toBe(coloured);
       },
     );
+
+    it("copies wrapped rows as one line each, keeping paragraph and list breaks", () => {
+      const paragraph =
+        "A small helper cuts the row at a column and keeps every styling code in place.";
+      const item = "a list item long enough to wrap onto the next row";
+      const chat = new ChatView();
+      chat.setTranscript([
+        {
+          kind: "assistant",
+          id: "a",
+          text: `${paragraph}\n\n- ${item}\n- short item\n\n\`\`\`\nconst x = 1;\nconst y = 2;\n\`\`\``,
+        },
+      ]);
+      const lines = chat.render(40, 20);
+      chat.select({ row: 0, column: 0 }, { row: 19, column: 39 });
+
+      expect(lines.filter((line) => line.trim()).length).toBeGreaterThan(8);
+      expect(chat.selectedText().trimEnd()).toBe(
+        [
+          paragraph,
+          "",
+          `- ${item}`,
+          "- short item",
+          "",
+          "```",
+          "  const x = 1;",
+          "  const y = 2;",
+          "```",
+        ].join("\n"),
+      );
+    });
 
     it("keeps the selection on the same text when the chat scrolls", () => {
       const { chat, lines } = chatWith();

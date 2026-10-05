@@ -5,13 +5,15 @@ import { join } from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { Task } from "@posthog/shared";
-import { renderToString } from "ink";
+import { Box, renderToString } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiChats } from "../chats";
 import {
   activeWorkspace,
+  allPanes,
   focusPane,
   initialLayout,
+  layoutPath,
   loadLayout,
   openTask,
   paneIds,
@@ -455,6 +457,90 @@ describe("App", () => {
       rmSync(join(homedir(), ".config", "posthog-tui", "prefs.json"), {
         force: true,
       });
+    }
+  });
+
+  // A signed-in app on local chat t5, in a full-height frame as Root gives it, so the chat has rows to draw messages in.
+  const localApp = () => {
+    initTheme("dark");
+    const sessions = join(homedir(), ".config", "posthog-tui", "local");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(join(sessions, "t5.jsonl"), "");
+    saveLayout(openTask(initialLayout(), "t5"), layoutPath("user-1"));
+    const agent = () =>
+      ({
+        watch: (onView: (view: typeof emptyRunView) => void) => {
+          onView({ ...emptyRunView, loaded: true, status: "in_progress" });
+          return () => {};
+        },
+        watchPrompts: () => () => {},
+        prompt: async () => {},
+        stop: vi.fn(async () => {}),
+        control: {
+          models: async () => ({ available: [], current: null }),
+          efforts: async () => ({ available: [], current: null }),
+          commands: async () => [],
+        },
+      }) as unknown as LocalSession;
+    const first = agent();
+    const mouse: MouseEvents = new EventEmitter();
+    const app = (local: LocalSession | null) => (
+      <Box height={30} flexDirection="column">
+        <App
+          session={
+            local && {
+              account: "user-1",
+              work: {
+                listRecent: async () => ({
+                  tasks: [{ id: "t5", title: "Local", runtime: "pi" } as Task],
+                  hasMore: false,
+                }),
+              } as unknown as WorkList,
+              runs: { prefetch: async () => {} } as unknown as CloudRuns,
+              chats: {} as PiChats,
+              control: () => ({}) as PiControl,
+              startLocal: async () => local,
+            }
+          }
+          login={async () => {}}
+          logout={() => instance.rerender(app(null))}
+          mouse={mouse}
+        />
+      </Box>
+    );
+    const { instance, output, type } = renderInTerminal(app(first));
+    return {
+      output,
+      first,
+      signIn: () => instance.rerender(app(agent())),
+      press: (bytes: string): void => {
+        mouse.emit("keys", bytes);
+        type(bytes);
+      },
+      drawnSince: (mark: number): string =>
+        stripTerminalSequences(output().slice(mark)),
+      close: (): void => {
+        instance.unmount();
+        rmSync(sessions, { recursive: true });
+      },
+    };
+  };
+
+  it("keeps the account's layout through a sign-out", async () => {
+    const { output, press, drawnSince, close } = localApp();
+    try {
+      await vi.waitFor(() => expect(drawnSince(0)).toContain("Local ·"));
+      // Ctrl+S splits, so the saved layout differs from a fresh one.
+      press("\x13");
+      const saved = (): number =>
+        allPanes(loadLayout(layoutPath("user-1"))).length;
+      await vi.waitFor(() => expect(saved()).toBe(2));
+      press("/logout");
+      press("\r");
+      await vi.waitFor(() => expect(output()).toContain("Signed out"));
+      expect(saved()).toBe(2);
+    } finally {
+      close();
     }
   });
 });
