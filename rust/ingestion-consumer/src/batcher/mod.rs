@@ -19,6 +19,7 @@ pub mod packer;
 pub mod request_class;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod worker_assigner;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
