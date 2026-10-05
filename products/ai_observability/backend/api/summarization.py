@@ -289,10 +289,20 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
     @staticmethod
     def _get_cached_summary(cache_key: str, compact_context: bool) -> dict | None:
         """Read a cached summary. A full-context summary also serves a compact request, but not the opposite."""
-        cached_result = cache.get(cache_key)
-        if cached_result is None and compact_context:
-            cached_result = cache.get(_compact_cache_key(cache_key))
-        return cached_result
+        if compact_context:
+            compact_result = cache.get(_compact_cache_key(cache_key))
+            if compact_result is not None:
+                return compact_result
+        return cache.get(cache_key)
+
+    @staticmethod
+    def _cache_summary(cache_key: str, result: dict, compact_context: bool) -> None:
+        if compact_context:
+            cache.set(_compact_cache_key(cache_key), result, timeout=3600)
+            return
+        cache.set(cache_key, result, timeout=3600)
+        # A compact request reads the compact entry first, so an older one would hide this newer summary.
+        cache.delete(_compact_cache_key(cache_key))
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -468,9 +478,8 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         Returns:
             Line-numbered text representation
         """
-        # A compact request comes from a fan-out over many traces, such as a whole session. Each trace
-        # of an agent session can repeat the full conversation, so the model window lets every call
-        # in the fan-out cost as much as a single huge trace.
+        # Each trace of an agent session can repeat the full conversation, so a fan-out over a session
+        # at the model window pays for a huge trace on every call.
         budget = batch_text_repr_budget(model) if compact_context else text_repr_budget(model)
         options: FormatterOptions = {
             "include_line_numbers": True,
@@ -708,7 +717,7 @@ The response includes the structured summary, the text representation, and metad
 
             result = self._build_summary_response(summary, text_repr, summarize_type)
 
-            cache.set(_compact_cache_key(cache_key) if compact_context else cache_key, result, timeout=3600)
+            self._cache_summary(cache_key, result, compact_context)
             logger.info(
                 "Generated and cached new summary",
                 summarize_type=summarize_type,
