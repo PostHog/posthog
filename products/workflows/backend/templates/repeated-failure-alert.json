@@ -18,21 +18,7 @@
     "updated_at": "2026-03-06T12:47:54.317232Z",
     "trigger": {
         "type": "event",
-        "filters": {
-            "events": [
-                {
-                    "id": null,
-                    "name": "All events",
-                    "type": "events",
-                    "uuid": "b943e971-df9e-4bf1-bf3b-7ce670f8349b",
-                    "order": 0
-                }
-            ],
-            "source": "events",
-            "actions": [],
-            "bytecode": ["_H", 1, 29],
-            "filter_test_accounts": false
-        }
+        "filters": {}
     },
     "trigger_masking": null,
     "conversion": {
@@ -81,21 +67,7 @@
             "type": "trigger",
             "config": {
                 "type": "event",
-                "filters": {
-                    "events": [
-                        {
-                            "id": null,
-                            "name": "All events",
-                            "type": "events",
-                            "uuid": "b943e971-df9e-4bf1-bf3b-7ce670f8349b",
-                            "order": 0
-                        }
-                    ],
-                    "source": "events",
-                    "actions": [],
-                    "bytecode": ["_H", 1, 29],
-                    "filter_test_accounts": false
-                }
+                "filters": {}
             },
             "output_variable": null
         },

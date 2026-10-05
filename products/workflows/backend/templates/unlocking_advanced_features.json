@@ -18,21 +18,7 @@
     "updated_at": "2026-03-06T11:07:44.973320Z",
     "trigger": {
         "type": "event",
-        "filters": {
-            "events": [
-                {
-                    "id": "$pageview",
-                    "name": "Pageview",
-                    "type": "events",
-                    "uuid": "efb83783-118b-4e0b-a72d-eb3a00875ac8",
-                    "order": 0
-                }
-            ],
-            "source": "events",
-            "actions": [],
-            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
-            "filter_test_accounts": false
-        }
+        "filters": {}
     },
     "trigger_masking": null,
     "conversion": {
@@ -73,7 +59,7 @@
         {
             "id": "trigger_node",
             "name": "Trigger",
-            "description": "Event: A user has done something meaningful.",
+            "description": "Pick the event that marks a meaningful action.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -81,21 +67,7 @@
             "type": "trigger",
             "config": {
                 "type": "event",
-                "filters": {
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "name": "Pageview",
-                            "type": "events",
-                            "uuid": "efb83783-118b-4e0b-a72d-eb3a00875ac8",
-                            "order": 0
-                        }
-                    ],
-                    "source": "events",
-                    "actions": [],
-                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
-                    "filter_test_accounts": false
-                }
+                "filters": {}
             },
             "output_variable": null
         },
@@ -113,8 +85,29 @@
                     {
                         "filters": {
                             "source": "events",
-                            "bytecode": [],
-                            "properties": [{}]
+                            "properties": [
+                                {
+                                    "key": "advanced_feature_unlocked",
+                                    "type": "person",
+                                    "operator": "exact",
+                                    "value": ["true"]
+                                }
+                            ],
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "true",
+                                32,
+                                "advanced_feature_unlocked",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                11
+                            ]
                         }
                     }
                 ]
