@@ -76,7 +76,7 @@ export function StepView({
 
     const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
     const emailHtml = showEmailPreview ? getEmailStepHtml(action) : undefined
-    const { width, height: nodeHeight } = emailHtml ? getNodeSize(action) : DEFAULT_NODE_SIZE
+    const { width, height: nodeHeight } = showEmailPreview ? getNodeSize(action) : DEFAULT_NODE_SIZE
     const height = shouldShowMetricsSummary ? nodeHeight + 10 : nodeHeight
 
     const Step = useHogFlowStep(action)
@@ -263,7 +263,7 @@ export function StepView({
             {emailHtml && (
                 <EmailPreviewThumbnail
                     html={emailHtml}
-                    title={`Preview of ${action.name}`}
+                    title={`${action.name} preview`}
                     size="graphNode"
                     className="flex-1 min-h-0 rounded-b-sm dark:invert dark:hue-rotate-180"
                 />

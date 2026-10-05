@@ -189,7 +189,7 @@ export function HogFlowTreeStep({
                     <div className="mt-1 w-fit max-w-full overflow-hidden rounded border">
                         <EmailPreviewThumbnail
                             html={emailHtml}
-                            title={`Preview of ${action.name}`}
+                            title={`${action.name} preview`}
                             size="listItem"
                             className="max-w-full dark:invert dark:hue-rotate-180"
                         />

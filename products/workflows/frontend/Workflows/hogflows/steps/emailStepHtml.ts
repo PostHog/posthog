@@ -1,10 +1,7 @@
 import type { HogFlowAction } from '../types'
-import { isEmailAction } from './types'
+import { isFunctionAction } from './types'
 
 export function getEmailStepHtml(action: HogFlowAction): string | undefined {
-    return isEmailAction(action) ? action.config.inputs?.email?.value?.html || undefined : undefined
-}
-
-export function hasEmailPreview(action: HogFlowAction): boolean {
-    return !!getEmailStepHtml(action)
+    const usesEmailTemplate = isFunctionAction(action) && action.config.template_id === 'template-email'
+    return usesEmailTemplate ? action.config.inputs?.email?.value?.html || undefined : undefined
 }
