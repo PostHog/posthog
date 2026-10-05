@@ -158,6 +158,89 @@ _RUNNER_LABELS = (
 
 _TS_FMT = "%Y-%m-%d %H:%M:%S"
 
+_DEMO_BRANCH = "demo/multi-push-progression"
+
+# The demo pull request's workflows get job shapes like the real ones: jobs that start in waves,
+# and matrix jobs with many shards. Each entry is (job name, wave, shard count).
+_DEMO_JOB_SHAPES: dict[str, tuple[tuple[str, int, int], ...]] = {
+    "Backend CI": (
+        ("Detect changes", 0, 1),
+        ("Django tests – Core", 1, 12),
+        ("Django tests – Temporal", 1, 4),
+        ("Product tests", 1, 6),
+        ("Check migrations", 1, 1),
+        ("Async migrations", 1, 1),
+        ("Django Tests Pass", 2, 1),
+    ),
+    "Frontend CI": (
+        ("Detect changes", 0, 1),
+        ("Jest tests", 1, 8),
+        ("Typecheck", 1, 1),
+        ("Lint", 1, 1),
+        ("Frontend Tests Pass", 2, 1),
+    ),
+    "E2E Tests": (
+        ("Build image", 0, 1),
+        ("Playwright", 1, 6),
+        ("Upload report", 2, 1),
+    ),
+    "Rust CI": (
+        ("Build", 0, 1),
+        ("Test", 1, 4),
+        ("Clippy", 1, 1),
+    ),
+    "Storybook": (
+        ("Build Storybook", 0, 1),
+        ("Visual regression", 1, 10),
+        ("Upload snapshots", 2, 1),
+    ),
+}
+
+
+def _shaped_jobs(
+    run: dict[str, Any], shape: tuple[tuple[str, int, int], ...], run_start: datetime, window: float
+) -> list[dict[str, Any]]:
+    completed = run.get("status") == "completed"
+    failing = run.get("conclusion") in _FAILING_CONCLUSIONS
+    waves = max(wave for _name, wave, _shards in shape) + 1
+    segment = window / waves
+    widest_name, _wave, widest_shards = max(shape, key=lambda entry: entry[2])
+
+    jobs: list[dict[str, Any]] = []
+    for name, wave, shards in shape:
+        for shard in range(shards):
+            index = len(jobs)
+            # An unfinished run is still on its last wave.
+            finished = completed or wave < waves - 1
+            conclusion = "success" if finished else None
+            if failing and (name, shard) == (widest_name, widest_shards // 2):
+                conclusion = run["conclusion"]
+            job_start = run_start + timedelta(seconds=wave * segment)
+            # Shards end at different times, so their durations differ.
+            job_end = job_start + timedelta(seconds=segment * (0.55 + ((index * 37) % 10) / 22))
+            started_at = job_start.strftime(_TS_FMT)
+            jobs.append(
+                {
+                    "id": run["id"] * 100 + index,
+                    "run_id": run["id"],
+                    "run_attempt": run.get("run_attempt", 1),
+                    "name": f"{name} ({shard + 1}/{shards})" if shards > 1 else name,
+                    "workflow_name": run.get("name"),
+                    "status": "completed" if finished else "in_progress",
+                    "conclusion": conclusion,
+                    "head_sha": run.get("head_sha"),
+                    "head_branch": run.get("head_branch"),
+                    "labels": _RUNNER_LABELS[index % len(_RUNNER_LABELS)],
+                    "runner_name": f"runner-{index + 1}",
+                    "runner_group_name": "depot",
+                    "created_at": started_at,
+                    "started_at": started_at,
+                    "completed_at": job_end.strftime(_TS_FMT) if finished else None,
+                    "steps": "[]",
+                }
+            )
+    return jobs
+
 
 def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
@@ -177,6 +260,11 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             pass
         window = (run_end - run_start).total_seconds() if run_start and run_end and run_end > run_start else 0.0
         segment = window / count if window else 0.0
+
+        shape = _DEMO_JOB_SHAPES.get(run.get("name") or "") if run.get("head_branch") == _DEMO_BRANCH else None
+        if shape and run_start and window:
+            jobs.extend(_shaped_jobs(run, shape, run_start, window))
+            continue
 
         for idx in range(count):
             is_last = idx == count - 1
@@ -478,6 +566,7 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
                 "event": event,
                 "actor": json.dumps({"login": (pr.get("user") or {}).get("login") or "", "avatar_url": ""}),
                 "issue": json.dumps({"number": pr["number"]}),
+                "requested_team": None,
                 "created_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
         )
@@ -579,7 +668,7 @@ def _demo_multi_push(
                     "id": 9_900_000_000 + push_index * 100 + wf_index,
                     "name": workflow,
                     "head_sha": push_shas[push_index],
-                    "head_branch": "demo/multi-push-progression",
+                    "head_branch": _DEMO_BRANCH,
                     "status": "in_progress" if running else "completed",
                     "conclusion": None if running else conclusion,
                     "created_at": iso(start),
