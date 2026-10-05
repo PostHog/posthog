@@ -12,6 +12,7 @@ import {
     SurveyDisplayConditions,
     SurveyEventName,
     SurveyEventProperties,
+    SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
     SurveySchedule,
@@ -29,6 +30,7 @@ import {
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
+    getExactUrlSchemeError,
     getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
@@ -1903,5 +1905,45 @@ describe('getRecurringSurveyScheduleInfo', () => {
         ],
     ])('returns null for %s', (_name, survey) => {
         expect(getRecurringSurveyScheduleInfo(survey)).toBeNull()
+    })
+})
+
+describe('getExactUrlSchemeError', () => {
+    it.each([
+        { name: 'a bare host', url: 'app.example.com' },
+        { name: 'a bare path', url: '/pricing' },
+        { name: 'a host with a path', url: 'example.com/pricing' },
+        { name: 'a protocol-relative URL', url: '//example.com/pricing' },
+        { name: 'a host and port with no protocol', url: 'localhost:3000' },
+    ])('flags $name in exact mode', ({ url }) => {
+        expect(getExactUrlSchemeError(url, SurveyMatchType.Exact)).toEqual(
+            expect.stringContaining('Add the protocol and host')
+        )
+    })
+
+    it.each([
+        { name: 'an https URL', url: 'https://example.com/pricing', matchType: SurveyMatchType.Exact },
+        { name: 'a local development URL', url: 'http://localhost:3000/', matchType: SurveyMatchType.Exact },
+        { name: 'an intranet host', url: 'http://intranet/reports', matchType: SurveyMatchType.Exact },
+        { name: 'an uppercase scheme', url: 'HTTPS://example.com/', matchType: SurveyMatchType.Exact },
+        { name: 'an Electron app URL', url: 'app://index.html', matchType: SurveyMatchType.Exact },
+        { name: 'a Capacitor webview URL', url: 'capacitor://localhost/home', matchType: SurveyMatchType.Exact },
+        {
+            name: 'a browser extension page',
+            url: 'chrome-extension://abcdefghijklmnop/options.html',
+            matchType: SurveyMatchType.Exact,
+        },
+        { name: 'a local file URL', url: 'file:///Users/someone/index.html', matchType: SurveyMatchType.Exact },
+        { name: 'a padded URL', url: '  https://example.com/  ', matchType: SurveyMatchType.Exact },
+        { name: 'an empty value', url: '', matchType: SurveyMatchType.Exact },
+        { name: 'a bare host in contains mode', url: 'example.com', matchType: SurveyMatchType.Contains },
+        { name: 'a bare path in regex mode', url: '^/pricing', matchType: SurveyMatchType.Regex },
+        {
+            name: 'a bare host with no match type, which defaults to contains',
+            url: 'example.com',
+            matchType: undefined,
+        },
+    ])('accepts $name', ({ url, matchType }) => {
+        expect(getExactUrlSchemeError(url, matchType)).toBeNull()
     })
 })
