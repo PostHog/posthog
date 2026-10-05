@@ -5,12 +5,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
 import type {
     AlertsRecommendation,
     ErrorTrackingRecommendation,
     LongRunningIssuesRecommendation,
+    QuietIssuesRecommendation,
     RateLimitsRecommendation,
     SourceMapsRecommendation,
 } from './types'
@@ -22,6 +24,10 @@ export const isAlertsRecommendation = (
 export const isLongRunningIssuesRecommendation = (
     recommendation: ErrorTrackingRecommendation
 ): recommendation is LongRunningIssuesRecommendation => recommendation.type === 'long_running_issues'
+
+export const isQuietIssuesRecommendation = (
+    recommendation: ErrorTrackingRecommendation
+): recommendation is QuietIssuesRecommendation => recommendation.type === 'quiet_issues'
 
 export const isRateLimitsRecommendation = (
     recommendation: ErrorTrackingRecommendation
@@ -71,6 +77,9 @@ export interface recommendationsTabLogicActions {
     }
     refreshRecommendation: (id: string) => {
         id: string
+    }
+    resolveIssue: (issueId: string) => {
+        issueId: string
     }
     restoreRecommendation: (id: string) => {
         id: string
@@ -136,6 +145,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         dismissRecommendation: (id: string) => ({ id }),
         restoreRecommendation: (id: string) => ({ id }),
         suppressIssue: (issueId: string) => ({ issueId }),
+        resolveIssue: (issueId: string) => ({ issueId }),
         activateIssue: (issueId: string) => ({ issueId }),
 
         setRecommendations: (recommendations: ErrorTrackingRecommendation[]) => ({ recommendations }),
@@ -188,109 +198,111 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
-        loadRecommendations: async () => {
-            actions.setRecommendationsLoading(true)
-            try {
-                const response = await api.errorTracking.listRecommendations()
-                actions.setRecommendations(response.results)
-                posthog.capture('error_tracking_recommendations_loaded', {
-                    open_count: response.results.filter((r) => !r.dismissed_at && !r.completed).length,
-                    completed_count: response.results.filter((r) => !r.dismissed_at && r.completed).length,
-                    dismissed_count: response.results.filter((r) => !!r.dismissed_at).length,
-                    total_count: response.results.length,
-                })
-            } finally {
-                actions.setRecommendationsLoading(false)
-            }
-        },
-        pollRecommendations: async () => {
-            try {
-                const response = await api.errorTracking.listRecommendations({ poll: true })
-                actions.setRecommendations(response.results)
-            } catch {
-                actions.ensurePollingScheduled()
-            }
-        },
-        refreshRecommendation: async ({ id }) => {
-            // Optimistic flip — the spinner appears instantly. The server response will
-            // confirm the same status, so there's no flicker when it arrives.
-            actions.markRecommendationComputing(id)
-            try {
-                const updated = await api.errorTracking.refreshRecommendation(id)
-                actions.upsertRecommendation(updated)
-            } catch {
-                lemonToast.error('Failed to refresh recommendation')
-                // Polling will reconcile state regardless of which side errored.
-            }
-        },
-        dismissRecommendation: async ({ id }) => {
-            const updated = await api.errorTracking.dismissRecommendation(id)
-            actions.upsertRecommendation(updated)
-            posthog.capture('error_tracking_recommendation_dismissed', {
-                recommendation_type: updated.type,
-            })
-        },
-        restoreRecommendation: async ({ id }) => {
-            const updated = await api.errorTracking.restoreRecommendation(id)
-            actions.upsertRecommendation(updated)
-        },
-        suppressIssue: async ({ issueId }) => {
-            await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
+    listeners(({ actions, values, cache }) => {
+        async function setIssueStatus(issueId: string, status: ErrorTrackingIssue['status']): Promise<void> {
+            // The generated client returns ErrorTrackingRecommendationApi, while this logic carries
+            // its own recommendation type end to end, so one migrated call would mix two clients
+            // and two types in one file. Migrating the whole file is its own change.
+            // nosemgrep: prefer-codegen-api-namespaced-error_tracking -- see above
+            await api.errorTracking.updateIssue(issueId, { status })
             posthog.capture('error_tracking_issue_update_status', {
-                status: 'suppressed',
+                status,
                 issue_id: issueId,
                 source: 'recommendations',
             })
-            const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
-            if (!longRunning) {
-                return
-            }
-            // force=false: just re-pulls enriched meta, no recompute. So we don't mark computing.
-            const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
-            actions.upsertRecommendation(updated)
-        },
-        activateIssue: async ({ issueId }) => {
-            await api.errorTracking.updateIssue(issueId, { status: 'active' })
-            posthog.capture('error_tracking_issue_update_status', {
-                status: 'active',
-                issue_id: issueId,
-                source: 'recommendations',
-            })
-            const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
-            if (!longRunning) {
-                return
-            }
-            const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
-            actions.upsertRecommendation(updated)
-        },
+            // Any card listing issues can hold this one, so re-pull them all rather than
+            // enumerating the types. force=false re-pulls enriched meta without a recompute,
+            // so there is nothing to mark as computing.
+            await Promise.all(
+                values.recommendations
+                    .filter((r) => Array.isArray(r.meta.issues))
+                    .map(async (r) =>
+                        actions.upsertRecommendation(
+                            // nosemgrep: prefer-codegen-api-namespaced-error_tracking -- see setIssueStatus
+                            await api.errorTracking.refreshRecommendation(r.id, { force: false })
+                        )
+                    )
+            )
+        }
 
-        // Polling lifecycle: any time the recommendations state changes, re-evaluate
-        // whether we still need to poll. Schedule one timer at a time.
-        setRecommendations: () => actions.ensurePollingScheduled(),
-        upsertRecommendation: () => actions.ensurePollingScheduled(),
-        markRecommendationComputing: () => actions.ensurePollingScheduled(),
-        ensurePollingScheduled: () => {
-            const stillComputing = values.recommendations.some((r) => r.status === 'computing')
-            if (!stillComputing) {
-                actions.clearPolling()
-                return
-            }
-            if (cache.pollTimeoutId !== undefined) {
-                return
-            }
-            cache.pollTimeoutId = window.setTimeout(() => {
-                cache.pollTimeoutId = undefined
-                actions.pollRecommendations()
-            }, POLL_INTERVAL_MS)
-        },
-        clearPolling: () => {
-            if (cache.pollTimeoutId !== undefined) {
-                window.clearTimeout(cache.pollTimeoutId)
-                cache.pollTimeoutId = undefined
-            }
-        },
-    })),
+        return {
+            loadRecommendations: async () => {
+                actions.setRecommendationsLoading(true)
+                try {
+                    const response = await api.errorTracking.listRecommendations()
+                    actions.setRecommendations(response.results)
+                    posthog.capture('error_tracking_recommendations_loaded', {
+                        open_count: response.results.filter((r) => !r.dismissed_at && !r.completed).length,
+                        completed_count: response.results.filter((r) => !r.dismissed_at && r.completed).length,
+                        dismissed_count: response.results.filter((r) => !!r.dismissed_at).length,
+                        total_count: response.results.length,
+                    })
+                } finally {
+                    actions.setRecommendationsLoading(false)
+                }
+            },
+            pollRecommendations: async () => {
+                try {
+                    const response = await api.errorTracking.listRecommendations({ poll: true })
+                    actions.setRecommendations(response.results)
+                } catch {
+                    actions.ensurePollingScheduled()
+                }
+            },
+            refreshRecommendation: async ({ id }) => {
+                // Optimistic flip — the spinner appears instantly. The server response will
+                // confirm the same status, so there's no flicker when it arrives.
+                actions.markRecommendationComputing(id)
+                try {
+                    const updated = await api.errorTracking.refreshRecommendation(id)
+                    actions.upsertRecommendation(updated)
+                } catch {
+                    lemonToast.error('Failed to refresh recommendation')
+                    // Polling will reconcile state regardless of which side errored.
+                }
+            },
+            dismissRecommendation: async ({ id }) => {
+                const updated = await api.errorTracking.dismissRecommendation(id)
+                actions.upsertRecommendation(updated)
+                posthog.capture('error_tracking_recommendation_dismissed', {
+                    recommendation_type: updated.type,
+                })
+            },
+            restoreRecommendation: async ({ id }) => {
+                const updated = await api.errorTracking.restoreRecommendation(id)
+                actions.upsertRecommendation(updated)
+            },
+            suppressIssue: async ({ issueId }) => await setIssueStatus(issueId, 'suppressed'),
+            resolveIssue: async ({ issueId }) => await setIssueStatus(issueId, 'resolved'),
+            activateIssue: async ({ issueId }) => await setIssueStatus(issueId, 'active'),
+
+            // Polling lifecycle: any time the recommendations state changes, re-evaluate
+            // whether we still need to poll. Schedule one timer at a time.
+            setRecommendations: () => actions.ensurePollingScheduled(),
+            upsertRecommendation: () => actions.ensurePollingScheduled(),
+            markRecommendationComputing: () => actions.ensurePollingScheduled(),
+            ensurePollingScheduled: () => {
+                const stillComputing = values.recommendations.some((r) => r.status === 'computing')
+                if (!stillComputing) {
+                    actions.clearPolling()
+                    return
+                }
+                if (cache.pollTimeoutId !== undefined) {
+                    return
+                }
+                cache.pollTimeoutId = window.setTimeout(() => {
+                    cache.pollTimeoutId = undefined
+                    actions.pollRecommendations()
+                }, POLL_INTERVAL_MS)
+            },
+            clearPolling: () => {
+                if (cache.pollTimeoutId !== undefined) {
+                    window.clearTimeout(cache.pollTimeoutId)
+                    cache.pollTimeoutId = undefined
+                }
+            },
+        }
+    }),
 
     selectors({
         activeRecommendations: [

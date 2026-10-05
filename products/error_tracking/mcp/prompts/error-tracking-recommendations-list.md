@@ -6,7 +6,7 @@ Surface only the few recommendations that matter — don't dump every row. Skip 
 
 # Response envelope (every recommendation)
 
-- `type`: one of `alerts`, `rate_limits`, `source_maps`, `long_running_issues`.
+- `type`: one of `alerts`, `rate_limits`, `source_maps`, `long_running_issues`, `quiet_issues`.
 - `meta`: type-specific payload — see the per-type sections below.
 - `completed`: `true` means the recommended action is already satisfied. Nothing to do — skip it.
 - `dismissed_at`: set if the user dismissed this recommendation. Skip dismissed ones unless the user explicitly asks.
@@ -26,3 +26,4 @@ Only act on recommendations that are not `completed` and not dismissed.
   If frames still don't resolve after uploading, use the `diagnosing-stacktrace-symbolication` skill.
 
 - `long_running_issues` — `meta.issues` lists stale active issues (first seen over a week ago, still recurring). To act, use the `triaging-error-issues` skill to work through them, or `investigating-error-issue` to root-cause one.
+- `quiet_issues` — the inverse of `long_running_issues`. `meta.issues` lists up to five active issues that have received no exception in `meta.quiet_days` days, oldest first, and `meta.total` is how many quiet issues the project has in all. These are dead entries burying the issues a team should look at. To act, resolve them with `error-tracking-issue-update`; ingestion reopens an issue by itself if the error comes back. Report `meta.total` when it is much larger than the sample, because the sample alone understates the cleanup.

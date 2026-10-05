@@ -1,7 +1,12 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
-export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues' | 'rate_limits' | 'source_maps'
+export type ErrorTrackingRecommendationType =
+    | 'alerts'
+    | 'long_running_issues'
+    | 'quiet_issues'
+    | 'rate_limits'
+    | 'source_maps'
 
 export type ErrorTrackingRecommendationStatus = 'ready' | 'computing'
 
@@ -91,6 +96,22 @@ export interface LongRunningIssuesRecommendationMeta extends Record<string, unkn
 }
 
 export type LongRunningIssuesRecommendation = ErrorTrackingRecommendation<LongRunningIssuesRecommendationMeta>
+
+export interface QuietIssueItem {
+    id: string
+    name: string
+    description: string | null
+    first_seen: string
+    status: ErrorTrackingIssue['status']
+}
+
+export interface QuietIssuesRecommendationMeta extends Record<string, unknown> {
+    quiet_days: number
+    total: number
+    issues: QuietIssueItem[]
+}
+
+export type QuietIssuesRecommendation = ErrorTrackingRecommendation<QuietIssuesRecommendationMeta>
 
 export interface SourceMapsRecommendationMeta extends Record<string, unknown> {
     total_frames: number
