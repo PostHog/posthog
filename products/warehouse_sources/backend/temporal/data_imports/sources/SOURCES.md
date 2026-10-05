@@ -783,6 +783,7 @@ the row lists both.
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
 | twenty                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
+| twitter                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twitter_ads                      | HTTP                        | requests                                                        | ✅                          |
 | tyntec_sms                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1462,7 +1463,6 @@ doesn't conflict with concurrent PRs.
 - triple_whale
 - trustradius
 - twitch
-- twitter
 - two_c2p
 - tyntec_sms
 - typesense
