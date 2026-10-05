@@ -23,6 +23,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { getPostHogClient } from '@/lib/posthog'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
@@ -401,9 +402,9 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
-            const handlerResult = markNoncanonicalMetricRun(
-                tool.name,
-                await tool.handler(state.context, validation.data)
+            const handlerResult = withIgnoredInputKeys(
+                markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
+                findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
             )
 
             if (isContextSwitch) {
