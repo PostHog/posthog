@@ -6,7 +6,8 @@ from django.db.utils import IntegrityError
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.organization import Organization
+from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
 
 
 class TestOrganizationProvisioningModel(BaseTest):
@@ -48,3 +49,38 @@ class TestOrganizationProvisioningModel(BaseTest):
         else:
             with transaction.atomic(), self.assertRaises(IntegrityError):
                 create()
+
+    @parameterized.expand(
+        [
+            ("billing_reports_a_payer", True),
+            ("only_another_organization_of_the_partner_has_a_payer", False),
+        ]
+    )
+    def test_billing_lock_on_an_organization_with_a_stripe_customer_follows_its_own_payer(
+        self, _name: str, billing_has_payer: bool
+    ) -> None:
+        partner = OAuthApplication.objects.create(
+            client_id="paying-partner",
+            name="Paying Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        partner.update_provisioning(pays_for_customers=True)
+        other_organization = Organization.objects.create(name="Other customer")
+        for organization, has_payer in (
+            (self.organization, billing_has_payer),
+            (other_organization, not billing_has_payer),
+        ):
+            OrganizationProvisioning.objects.create(
+                organization=organization,
+                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+                application=partner,
+                billing_has_payer=has_payer,
+            )
+        self.organization.customer_id = "cus_example"
+
+        assert get_billing_lock_partner(self.organization) == (partner if billing_has_payer else None)

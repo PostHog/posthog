@@ -27,7 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
-from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -682,6 +682,11 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
+        if "has_payer" in data:
+            OrganizationProvisioning.objects.filter(organization=organization).exclude(
+                billing_has_payer=data["has_payer"]
+            ).update(billing_has_payer=data["has_payer"])
+
         should_update_org_billing_quotas = False
 
         usage_summary = cast(dict, data.get("usage_summary"))
@@ -1045,7 +1050,7 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
-            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
+            BillingManagedByPartnerError: If a partner pays for the organization
         """
         raise_if_billing_managed_by_partner(organization)
 

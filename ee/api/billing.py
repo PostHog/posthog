@@ -293,8 +293,8 @@ class BillingManagedByPartnerSerializer(serializers.Serializer):
 
 
 BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
-    "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of "
-    "its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise."
+    "Set when a provisioning partner pays for this organization. "
+    "Self-serve subscription and payment changes are refused while it is set. Null otherwise."
 )
 
 

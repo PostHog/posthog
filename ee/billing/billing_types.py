@@ -1,6 +1,6 @@
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal, Optional, TypedDict, cast, get_args
+from typing import Any, Literal, NotRequired, Optional, TypedDict, cast, get_args
 
 
 class BillingProvider(StrEnum):
@@ -178,6 +178,7 @@ class CustomerInfo(TypedDict):
     customer_id: Optional[str]
     deactivated: bool
     has_active_subscription: bool
+    has_payer: NotRequired[bool]
     billing_period: BillingPeriod
     available_product_features: list[ProductFeature]
     current_total_amount_usd: Optional[str]

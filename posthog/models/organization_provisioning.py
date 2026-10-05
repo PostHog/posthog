@@ -33,6 +33,7 @@ class OrganizationProvisioning(models.Model):
         blank=True,
         related_name="provisioned_organizations",
     )
+    billing_has_payer = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -46,11 +47,10 @@ class OrganizationProvisioning(models.Model):
 
 
 def get_billing_lock_partner(organization: "Organization") -> OAuthApplication | None:
-    # customer_id is the organization's own Stripe customer, synced from billing. An organization
-    # that already has one keeps paying for itself, and keeps self-serve billing to manage it.
+    # customer_id is the organization's own Stripe customer, synced from billing. Billing gives one to
+    # a partner-paid organization too, so for an organization with a Stripe customer the lock follows
+    # billing_has_payer. Without a payer, that organization pays for itself and keeps self-serve billing.
+    provisioned = Q(provisioned_organizations__organization=organization)
     if organization.customer_id:
-        return None
-    return OAuthApplication.objects.filter(
-        provisioned_organizations__organization=organization,
-        _provisioning_config__pays_for_customers=True,
-    ).first()
+        provisioned &= Q(provisioned_organizations__billing_has_payer=True)
+    return OAuthApplication.objects.filter(provisioned, _provisioning_config__pays_for_customers=True).first()
