@@ -111,14 +111,49 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         browser_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15"
         pageviews = (
             [
-                (0, "a.example.com", "/pricing", "Desktop", "US", browser_user_agent),
-                (2, "b.example.com", "/docs", "Mobile", "BR", browser_user_agent),
-                (5, "a.example.com", "/pricing", "Mobile", "BR", browser_user_agent),
+                (
+                    0,
+                    "a.example.com",
+                    "/pricing",
+                    "Desktop",
+                    "Mac OS X",
+                    "Safari",
+                    "US",
+                    "CA",
+                    "San Francisco",
+                    browser_user_agent,
+                ),
+                (2, "b.example.com", "/docs", "Mobile", "iOS", "Chrome", "BR", "SP", "São Paulo", browser_user_agent),
+                (
+                    5,
+                    "a.example.com",
+                    "/pricing",
+                    "Mobile",
+                    "iOS",
+                    "Chrome",
+                    "BR",
+                    "SP",
+                    "São Paulo",
+                    browser_user_agent,
+                ),
             ]
             if scenario.startswith("engaged")
-            else [(0, "a.example.com", "/pricing", "Desktop", "US", "Googlebot/2.1 (+http://www.google.com/bot.html)")]
+            else [
+                (
+                    0,
+                    "a.example.com",
+                    "/pricing",
+                    "Desktop",
+                    "Mac OS X",
+                    "Safari",
+                    "US",
+                    "CA",
+                    "San Francisco",
+                    "Googlebot/2.1 (+http://www.google.com/bot.html)",
+                )
+            ]
         )
-        for offset_minutes, host, pathname, device, country, user_agent in pageviews:
+        for offset_minutes, host, pathname, device, os_name, browser, country, region, city, user_agent in pageviews:
             _create_event(
                 team=self.team,
                 distinct_id="visitor",
@@ -130,7 +165,11 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$pathname": pathname,
                     "$current_url": f"https://{host}{pathname}",
                     "$device_type": device,
+                    "$os": os_name,
+                    "$browser": browser,
                     "$geoip_country_code": country,
+                    "$geoip_subdivision_1_code": region,
+                    "$geoip_city_name": city,
                     "$raw_user_agent": user_agent,
                 },
             )
@@ -163,7 +202,11 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
             "entry_hostname": row["entry_hostname"],
             "end_pathname": row["end_pathname"],
             "device_type": row["device_type"],
+            "os": row["os"],
+            "browser": row["browser"],
             "country_code": row["country_code"],
+            "region_code": row["region_code"],
+            "city_name": row["city_name"],
             "is_bounce": bool(row["is_bounce"]),
             "session_duration": row["session_duration"],
             "is_bot": bool(row["is_bot"]),
@@ -173,7 +216,11 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
             "entry_hostname": "a.example.com",
             "end_pathname": "/pricing",
             "device_type": "Desktop",
+            "os": "Mac OS X",
+            "browser": "Safari",
             "country_code": "US",
+            "region_code": "CA",
+            "city_name": "San Francisco",
             "is_bounce": not engaged,
             "session_duration": 300 if engaged else 0,
             "is_bot": not engaged,
