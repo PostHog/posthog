@@ -6,7 +6,10 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import RESTAPIConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    RESTAPIConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -36,10 +39,14 @@ def validate_credentials(config: PeecAISourceConfig, api_version: str) -> tuple[
     if start > datetime.now(UTC).date():
         return False, "The start date must be today or earlier."
 
+    params: dict[str, str | int] = {"limit": 1}
+    if config.project_id:
+        params["project_id"] = config.project_id
+
     with make_tracked_session() as session:
         response = session.get(
             f"{BASE_URL}/{api_version}/brands",
-            params={"limit": 1, **({"project_id": config.project_id} if config.project_id else {})},
+            params=params,
             auth=APIKeyAuth(api_key=config.api_key, name="x-api-key", location="header"),
             timeout=30,
         )
@@ -81,6 +88,10 @@ def peec_ai_source(
             end_date = resume.end_date or end_date
         params.update(start_date=start_date, end_date=end_date)
 
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {"path": definition["path"], "data_selector": "data", "params": params},
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{BASE_URL}/{api_version}/",
@@ -88,9 +99,7 @@ def peec_ai_source(
             "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": definition["total_path"]},
             "request_timeout": 30,
         },
-        "resources": [
-            {"name": endpoint, "endpoint": {"path": definition["path"], "data_selector": "data", "params": params}}
-        ],
+        "resources": [resource_config],
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
@@ -112,4 +121,5 @@ def peec_ai_source(
         items=lambda: resource,
         primary_keys=["id"],
         sort_mode="asc" if endpoint == "chats" else None,
+        on_complete=resumable_source_manager.clear_state,
     )

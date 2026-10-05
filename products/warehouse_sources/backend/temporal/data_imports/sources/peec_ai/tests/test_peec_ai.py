@@ -1,8 +1,8 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -12,6 +12,7 @@ import requests
 from requests import PreparedRequest, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.peecai import PeecAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.peec_ai.peec_ai import (
     PeecAIResumeConfig,
@@ -21,6 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.peec_ai.pe
 from products.warehouse_sources.backend.temporal.data_imports.sources.peec_ai.source import PeecAISource
 
 TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.peec_ai.peec_ai"
+
+
+def items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
+
+
+def request_params(request: PreparedRequest) -> dict[str, list[str]]:
+    assert request.url is not None
+    return parse_qs(urlsplit(request.url).query)
 
 
 class HTTPStub:
@@ -92,16 +102,20 @@ def test_request_auth_pagination_and_resume_checkpoints(
     total = {} if endpoint == "model_channels" else {"total_count": 3}
     http.responses = [(200, {"data": [{"id": "a"}, {"id": "b"}], **total}), (200, {"data": [{"id": "c"}], **total})]
     response = peec_ai_source(config, endpoint, "v1", 1, "job", manager, False, None)
-    batches = iter(response.items())
+    batches = iter(items(response))
     assert next(batches) == [{"id": "a"}, {"id": "b"}]
     assert list(batches) == [[{"id": "c"}]]
+    manager.clear_state.assert_not_called()
+    assert response.on_complete is not None
+    response.on_complete()
+    manager.clear_state.assert_called_once()
     checkpoint = manager.save_state.call_args.args[0]
     assert checkpoint.offset == 2
     manager.save_state.assert_called_once()
     for offset, request in zip([0, 2], http.requests):
         assert request.url is not None
         assert urlsplit(request.url).path == f"/customer/v1/{path}"
-        params = parse_qs(urlsplit(request.url).query)
+        params = request_params(request)
         assert params["offset"] == [str(offset)]
         assert params["limit"] == ["2"]
         assert params["project_id"] == ["or_example"]
@@ -117,7 +131,7 @@ def test_terminal_page_does_not_request_another_page(
     http: HTTPStub, config: PeecAISourceConfig, manager: MagicMock, total: int, rows: list[dict[str, str]]
 ) -> None:
     http.responses = [(200, {"data": rows, "total_count": total})]
-    list(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None).items())
+    list(items(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None)))
     assert len(http.requests) == 1
     manager.save_state.assert_not_called()
 
@@ -143,8 +157,8 @@ def test_chat_date_filter(
 ) -> None:
     http.responses = [(200, {"data": [], "total_count": 0})]
     response = peec_ai_source(config, "chats", "v1", 1, "job", manager, incremental, watermark)
-    list(response.items())
-    params = parse_qs(urlsplit(http.requests[0].url).query)
+    list(items(response))
+    params = request_params(http.requests[0])
     assert params["start_date"] == [expected]
     assert params["end_date"] == [datetime.now(UTC).date().isoformat()]
     assert params["sort"] == ["asc"]
@@ -157,8 +171,8 @@ def test_resume_preserves_date_range_after_watermark_advances(
     manager.can_resume.return_value = True
     manager.load_state.return_value = PeecAIResumeConfig(offset=4, start_date="2025-06-01", end_date="2025-06-30")
     http.responses = [(200, {"data": [{"id": "last"}], "total_count": 5})]
-    list(peec_ai_source(config, "chats", "v1", 1, "job", manager, True, "2025-06-15").items())
-    params = parse_qs(urlsplit(http.requests[0].url).query)
+    list(items(peec_ai_source(config, "chats", "v1", 1, "job", manager, True, "2025-06-15")))
+    params = request_params(http.requests[0])
     assert params["offset"] == ["4"]
     assert params["start_date"] == ["2025-06-01"]
     assert params["end_date"] == ["2025-06-30"]
@@ -169,10 +183,10 @@ def test_model_channels_stops_at_empty_page_without_total(
 ) -> None:
     config.project_id = None
     http.responses = [(200, {"data": [{"id": "a"}, {"id": "b"}]}), (200, {"data": []})]
-    batches = list(peec_ai_source(config, "model_channels", "v1", 1, "job", manager, False, None).items())
+    batches = list(items(peec_ai_source(config, "model_channels", "v1", 1, "job", manager, False, None)))
     assert [row for batch in batches for row in batch] == [{"id": "a"}, {"id": "b"}]
     assert len(http.requests) == 2
-    assert all("project_id" not in parse_qs(urlsplit(request.url).query) for request in http.requests)
+    assert all("project_id" not in request_params(request) for request in http.requests)
 
 
 @pytest.mark.parametrize("status", [429, 500])
@@ -183,7 +197,7 @@ def test_sync_retries_transient_errors(
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient._send_request.retry.sleep"
     ):
-        assert list(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None).items()) == [[{"id": "a"}]]
+        assert list(items(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None))) == [[{"id": "a"}]]
     assert len(http.requests) == 2
     assert http.requests[0].url == http.requests[1].url
 
@@ -197,7 +211,7 @@ def test_credential_probe_uses_one_small_request(
     assert validate_credentials(config, "v1") == (True, None)
     assert len(http.requests) == 1
     request = http.requests[0]
-    params = parse_qs(urlsplit(request.url).query)
+    params = request_params(request)
     assert params == {"limit": ["1"], **({"project_id": [project_id]} if project_id else {})}
     assert request.headers["x-api-key"] == "example-secret"
 
@@ -218,7 +232,7 @@ def test_credential_and_sync_errors(
     assert not valid
     assert reason is not None and message in reason
     with pytest.raises(requests.HTTPError) as error:
-        list(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None).items())
+        list(items(peec_ai_source(config, "brands", "v1", 1, "job", manager, False, None)))
     errors = PeecAISource().get_non_retryable_errors()
     assert any(pattern in str(error.value) and mapped == reason for pattern, mapped in errors.items())
     assert len(http.requests) == 2
