@@ -181,7 +181,8 @@ A failed shard can retry without re-running staging.
 Retries keep staged keys after failure, even when source deletion already finished.
 They run a fresh aggregate mutation, recompute, and verify again.
 Successful reconciliation drops the staging tables.
-Person and team deletion also sweep staged keys and verify their distributed proxies.
+Person and team deletion also sweep staged keys on each host's storage table and verify that none survive there.
+A host without the table counts as empty, so a partial or concurrent staging drop does not block them.
 This prevents retained staging data from restoring erased membership on a later retry.
 Do not drop a failed request's staging tables until its retry succeeds or all affected membership has been erased.
 
