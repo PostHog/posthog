@@ -6,6 +6,9 @@ import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_
 
 const MAX_IGNORED_KEYS = 20
 const MAX_KEY_LENGTH = 100
+// Bounds on the walk, so a deeply nested or very wide input cannot make the diff expensive.
+const MAX_DEPTH = 12
+const MAX_COLLECTED_KEYS = 100
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -17,11 +20,22 @@ function collectIgnoredKeys(
     kept: unknown,
     path: string,
     topLevelAliases: ReadonlySet<string>,
-    into: string[]
+    into: string[],
+    depth = 0
 ): void {
+    if (depth > MAX_DEPTH || into.length >= MAX_COLLECTED_KEYS) {
+        return
+    }
     if (Array.isArray(sent) && Array.isArray(kept)) {
         sent.forEach((item, index) => {
-            collectIgnoredKeys(item, kept[index], path ? `${path}.${index}` : String(index), topLevelAliases, into)
+            collectIgnoredKeys(
+                item,
+                kept[index],
+                path ? `${path}.${index}` : String(index),
+                topLevelAliases,
+                into,
+                depth + 1
+            )
         })
         return
     }
@@ -34,14 +48,14 @@ function collectIgnoredKeys(
         }
         const isTopLevel = path === ''
         const keyPath = isTopLevel ? key : `${path}.${key}`
-        if (!(key in kept)) {
+        if (!Object.prototype.hasOwnProperty.call(kept, key)) {
             // The schema folds an alias into its canonical key on purpose, so it is not an ignored key.
-            if (!(isTopLevel && topLevelAliases.has(key))) {
+            if (!(isTopLevel && topLevelAliases.has(key)) && into.length < MAX_COLLECTED_KEYS) {
                 into.push(keyPath)
             }
             continue
         }
-        collectIgnoredKeys(value, kept[key], keyPath, topLevelAliases, into)
+        collectIgnoredKeys(value, kept[key], keyPath, topLevelAliases, into, depth + 1)
     }
 }
 
@@ -65,7 +79,8 @@ export function findIgnoredInputKeys(sent: unknown, parsed: unknown, schema: z.Z
 
 function ignoredKeysNotice(ignoredKeys: string[], omitted: number): string {
     const more = omitted > 0 ? ` (and ${omitted} more)` : ''
-    return `Ignored input keys: ${ignoredKeys.join(', ')}${more}. These keys are not part of the tool's input schema, so the tool did not use them.`
+    // Each key is JSON-encoded so a caller-chosen name stays inside quotes and cannot read as an instruction.
+    return `Ignored input keys: ${ignoredKeys.map((key) => JSON.stringify(key)).join(', ')}${more}. These keys are not part of the tool's input schema, so the tool did not use them.`
 }
 
 /**
@@ -94,18 +109,21 @@ export function withIgnoredInputKeys(result: unknown, ignoredKeys: string[]): un
         return result
     }
 
-    const source = Array.isArray(result) ? { results: result } : (result as Record<string, unknown>)
+    // A raw array is wrapped like `withAgentNote` does. The markers sit on the original value,
+    // not on the wrapper.
+    const markers = result as Record<string, unknown>
+    const source = Array.isArray(result) ? { results: result } : markers
     const wrapped: Record<string, unknown> = { ...source, _ignoredKeys: keys, _ignoredKeysNote: notice }
 
     // Non-enumerable keys do not survive the spread above, so copy them across by hand.
-    const formatted = source[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+    const formatted = markers[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
     if (typeof formatted === 'string') {
         Object.defineProperty(wrapped, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
             value: `${formatted}\n\n${notice}`,
             enumerable: false,
         })
     }
-    if (source[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true) {
+    if (markers[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true) {
         Object.defineProperty(wrapped, POSTHOG_INFORMATIONAL_RESPONSE_KEY, { value: true, enumerable: false })
     }
     return wrapped

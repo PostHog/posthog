@@ -1174,6 +1174,7 @@ describe('exec tool', () => {
             ],
             ['several unknown keys', '{"title":"x","name":"y","other":1}', ['title', 'other']],
             ['a key name with a newline', '{"a\\nb":1}', ['a?b']],
+            ['an undeclared key named like an inherited property', '{"constructor":"x"}', ['constructor']],
             ['a declared alias that the schema folds', '{"insightId":"abc"}', undefined],
             ['only declared keys', '{"id":"abc","name":"y"}', undefined],
         ])('reports %s', async (_label, input, expected) => {
@@ -1215,7 +1216,20 @@ describe('exec tool', () => {
             const exec = createExec([tool])
             const result = (await exec.handler(mockContext, { command: 'call mock-tool {"title":"x"}' })) as string
             expect(result).toContain('table')
-            expect(result).toContain('Ignored input keys: title.')
+            expect(result).toContain('Ignored input keys: "title".')
+        })
+
+        it('keeps the informational wrapper on an array result and quotes key names in the notice', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string().optional() }),
+                handler: async () => withInformationalResponse([{ id: 1 }], 'rows'),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, {
+                command: 'call mock-tool {"bad\\nkey":"x"}',
+            })) as string
+            expect(result).toContain('<rows informational="true"')
+            expect(result).toContain('Ignored input keys: "bad?key".')
         })
 
         it('leaves a clean call without a notice in text mode', async () => {

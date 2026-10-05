@@ -402,9 +402,11 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
+            // Computed before the handler runs, so a failure here cannot follow a write that succeeded.
+            const ignoredKeys = findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
             const handlerResult = withIgnoredInputKeys(
                 markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
-                findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
+                ignoredKeys
             )
 
             if (isContextSwitch) {
