@@ -18226,6 +18226,17 @@
                         }
                     ]
                 },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Period comparison forced onto every insight that supports one."
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
@@ -18236,7 +18247,7 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
-                    "description": "Tri-state test-account override. Null/absent = inherit; true = force on; false = force off.",
+                    "description": "Tri-state test-account override. True = force on; false = force off.",
                     "type": ["boolean", "null"]
                 },
                 "interval": {
@@ -18248,7 +18259,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Time granularity forced onto every insight that supports one. Absent/null = inherit."
+                    "description": "Time granularity forced onto every insight that supports one."
                 },
                 "properties": {
                     "anyOf": [
@@ -54208,6 +54219,16 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
                         },
                         {
                             "type": "null"

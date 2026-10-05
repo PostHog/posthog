@@ -187,7 +187,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
 
             <VariablesForDashboard />
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                <DashboardEditBarAdvancedFilters />
+                <DashboardEditBarAdvancedFilters showCompareFilter={showDateFilter} />
             </div>
         </div>
     )

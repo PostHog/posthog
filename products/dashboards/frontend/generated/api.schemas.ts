@@ -9258,12 +9258,14 @@ export type _InsightResultWarningsApi = (DataWarehouseSyncWarningApi | AccessCon
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
+    /** Period comparison forced onto every insight that supports one. */
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
-    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    /** Tri-state test-account override. True = force on; false = force off. */
     filterTestAccounts?: boolean | null
-    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    /** Time granularity forced onto every insight that supports one. */
     interval?: IntervalTypeApi | null
     properties?:
         | (
@@ -9297,6 +9299,7 @@ export interface DashboardFilterApi {
 
 export interface TileFiltersApi {
     breakdown_filter?: BreakdownFilterApi | null
+    compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
