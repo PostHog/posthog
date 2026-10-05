@@ -1173,6 +1173,7 @@ describe('exec tool', () => {
                 ['series.1.extra'],
             ],
             ['several unknown keys', '{"title":"x","name":"y","other":1}', ['title', 'other']],
+            ['a key name with a newline', '{"a\\nb":1}', ['a?b']],
             ['a declared alias that the schema folds', '{"insightId":"abc"}', undefined],
             ['only declared keys', '{"id":"abc","name":"y"}', undefined],
         ])('reports %s', async (_label, input, expected) => {

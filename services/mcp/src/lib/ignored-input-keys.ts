@@ -6,6 +6,7 @@ import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_
 
 const MAX_IGNORED_KEYS = 20
 const MAX_KEY_LENGTH = 100
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -62,8 +63,9 @@ export function findIgnoredInputKeys(sent: unknown, parsed: unknown, schema: z.Z
     return ignored
 }
 
-function ignoredKeysNotice(ignoredKeys: string[]): string {
-    return `Ignored input keys: ${ignoredKeys.join(', ')}. These keys are not part of the tool's input schema, so the tool did not use them.`
+function ignoredKeysNotice(ignoredKeys: string[], omitted: number): string {
+    const more = omitted > 0 ? ` (and ${omitted} more)` : ''
+    return `Ignored input keys: ${ignoredKeys.join(', ')}${more}. These keys are not part of the tool's input schema, so the tool did not use them.`
 }
 
 /**
@@ -77,8 +79,13 @@ export function withIgnoredInputKeys(result: unknown, ignoredKeys: string[]): un
     if (ignoredKeys.length === 0 || result === null || result === undefined) {
         return result
     }
-    const keys = ignoredKeys.slice(0, MAX_IGNORED_KEYS).map((key) => key.slice(0, MAX_KEY_LENGTH))
-    const notice = ignoredKeysNotice(keys)
+    // Key names come from the caller, so control characters such as newlines are masked before
+    // they reach a message written in the server's voice.
+    const keys = ignoredKeys
+        .slice(0, MAX_IGNORED_KEYS)
+        .map((key) => key.slice(0, MAX_KEY_LENGTH).replace(CONTROL_CHARACTERS, '?'))
+    const omitted = ignoredKeys.length - keys.length
+    const notice = ignoredKeysNotice(keys, omitted)
 
     if (typeof result === 'string') {
         return `${result}\n\n${notice}`
