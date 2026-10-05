@@ -196,6 +196,26 @@ Expected to show:
     },
 }
 
+export const DryRunWithoutTestCases: Story = {
+    render: withFilterAndMetrics({ test_cases: [] }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+Dry-run filter with conditions but no test cases — the state a filter is left in before anyone
+writes a test. Going live is refused in this state, so the option must say why up front.
+
+Expected to show:
+- Status card with yellow border, label "Filter is in dry run"
+- "Live" rendered in its disabled state
+  (hovering it surfaces "Add at least one test case before going live")
+- Empty test cases section
+                `,
+            },
+        },
+    },
+}
+
 export const LiveMode: Story = {
     render: withFilterAndMetrics({ mode: 'live' }),
     parameters: {
