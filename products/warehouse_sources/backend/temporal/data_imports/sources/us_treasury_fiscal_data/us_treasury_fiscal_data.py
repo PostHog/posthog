@@ -8,6 +8,7 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
@@ -75,15 +76,16 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
     if lower_bound is not None:
         params["filter"] = f"{endpoint.incremental_field}:gte:{lower_bound}"
 
+    endpoint_config: Endpoint = {
+        "path": endpoint.path,
+        "data_selector": "data",
+        "data_selector_required": True,
+        "params": params,
+    }
     resource_config: EndpointResource = {
         "name": inputs.schema_name,
         "table_format": "delta",
-        "endpoint": {
-            "path": endpoint.path,
-            "data_selector": "data",
-            "data_selector_required": True,
-            "params": params,
-        },
+        "endpoint": endpoint_config,
     }
     config: RESTAPIConfig = {
         "client": {
