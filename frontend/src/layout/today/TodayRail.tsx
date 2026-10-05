@@ -14,7 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TODAY_RAIL_ITEMS } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
 function RailUtility({
     label,
@@ -65,6 +65,7 @@ export function TodayRail(): JSX.Element {
                     label={label}
                     icon={icon}
                     active={activePane === pane}
+                    to={railPaneHref(pane)}
                     onClick={() => pickPane(pane)}
                     dataAttr={`today-rail-${pane}`}
                 />
