@@ -382,6 +382,7 @@ the row lists both.
 | gumroad                          | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
 | gusto                            | HTTP                        | requests                                                        | ✅                          |
+| harness                          | HTTP                        | requests                                                        | ✅                          |
 | harvest                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | harvey                           | HTTP                        | requests                                                        | ✅                          |
 | hatchet                          | HTTP                        | requests                                                        | ✅                          |
@@ -1162,7 +1163,6 @@ doesn't conflict with concurrent PRs.
 - greythr
 - guesty
 - gumloop
-- harness
 - harness_ccm
 - harness_sei
 - harvey
