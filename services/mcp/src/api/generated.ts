@@ -111107,11 +111107,11 @@ export namespace Schemas {
          */
       page_url: string;
       /**
-         * CSS selector of the element the person selected.
+         * CSS selector of the element the person selected. Empty for feedback about the whole page.
          * @maxLength 1000
          */
-      element_identifier: string;
-      /** JPEG screenshot of the page with the selected element outlined. */
+      element_identifier?: string;
+      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
       screenshot?: Blob;
     };
 

@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Send feedback about an element of the PostHog web app to the team's Slack channel.
+ * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
  */
 export const internalFeedbackCreateBodyCommentMax = 4000
 
@@ -27,11 +27,12 @@ export const InternalFeedbackCreateBody = /* @__PURE__ */ zod.object({
     element_identifier: zod
         .string()
         .max(internalFeedbackCreateBodyElementIdentifierMax)
-        .describe('CSS selector of the element the person selected.'),
+        .optional()
+        .describe('CSS selector of the element the person selected. Empty for feedback about the whole page.'),
     screenshot: zod
         .instanceof(File)
         .optional()
-        .describe('JPEG screenshot of the page with the selected element outlined.'),
+        .describe('JPEG screenshot of the page, with the selected element outlined when there is one.'),
 })
 
 export const createBodyNameMax = 64

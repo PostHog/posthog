@@ -43,10 +43,14 @@ class InternalFeedbackRequestSerializer(serializers.Serializer):
     comment = serializers.CharField(max_length=4000, help_text="What the person wants to tell the developers.")
     page_url = serializers.URLField(max_length=2000, help_text="URL of the page the feedback is about.")
     element_identifier = serializers.CharField(
-        max_length=1000, help_text="CSS selector of the element the person selected."
+        max_length=1000,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="CSS selector of the element the person selected. Empty for feedback about the whole page.",
     )
     screenshot = serializers.ImageField(
-        required=False, help_text="JPEG screenshot of the page with the selected element outlined."
+        required=False, help_text="JPEG screenshot of the page, with the selected element outlined when there is one."
     )
 
     def validate_screenshot(self, value):
@@ -61,15 +65,17 @@ class InternalFeedbackResponseSerializer(serializers.Serializer):
 
 def build_feedback_message(user: User, page_url: str, element_identifier: str, comment: str) -> str:
     name = escape_slack_mrkdwn(user.get_full_name() or user.email)
-    # A backtick would end the inline code span early.
-    identifier = escape_slack_mrkdwn(element_identifier).replace("`", "'")
     lines = [
         f"*New UI feedback from {name}* ({escape_slack_mrkdwn(user.email)})",
         f"*Page:* {escape_slack_mrkdwn(page_url)}",
-        f"*Element:* `{identifier}`",
-        "",
-        escape_slack_mrkdwn(comment),
     ]
+    if element_identifier:
+        # A backtick would end the inline code span early.
+        identifier = escape_slack_mrkdwn(element_identifier).replace("`", "'")
+        lines.append(f"*Element:* `{identifier}`")
+    else:
+        lines.append("*Element:* whole page")
+    lines += ["", escape_slack_mrkdwn(comment)]
     return "\n".join(lines)
 
 
@@ -83,7 +89,7 @@ class InternalFeedbackViewSet(viewsets.ViewSet):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        description="Send feedback about an element of the PostHog web app to the team's Slack channel.",
+        description="Send feedback about an element or page of the PostHog web app to the team's Slack channel.",
         # A raw dict, not the serializer: drf-spectacular types an ImageField as a plain string here,
         # which a generated client cannot fill with a file. Same workaround as `MediaViewSet.create`.
         request={
@@ -104,15 +110,15 @@ class InternalFeedbackViewSet(viewsets.ViewSet):
                     "element_identifier": {
                         "type": "string",
                         "maxLength": 1000,
-                        "description": "CSS selector of the element the person selected.",
+                        "description": "CSS selector of the element the person selected. Empty for feedback about the whole page.",
                     },
                     "screenshot": {
                         "type": "string",
                         "format": "binary",
-                        "description": "JPEG screenshot of the page with the selected element outlined.",
+                        "description": "JPEG screenshot of the page, with the selected element outlined when there is one.",
                     },
                 },
-                "required": ["comment", "page_url", "element_identifier"],
+                "required": ["comment", "page_url"],
             }
         },
         responses={

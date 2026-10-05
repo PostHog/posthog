@@ -75,11 +75,11 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Captures what the person sees in the viewport, with the selected element outlined. The capture
+ * Captures what the person sees in the viewport, with the selected element outlined when there is one. The capture
  * starts at <body> rather than the app root, because menus, popovers and modals render in portals
  * outside the root.
  */
-export async function captureFeedbackScreenshot(rect: ViewportRect): Promise<Blob> {
+export async function captureFeedbackScreenshot(rect: ViewportRect | null): Promise<Blob> {
     const width = window.innerWidth
     const height = window.innerHeight
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
@@ -108,14 +108,16 @@ export async function captureFeedbackScreenshot(rect: ViewportRect): Promise<Blo
         throw new Error('Could not get a 2D canvas context for the screenshot')
     }
     context.drawImage(image, 0, 0, canvas.width, canvas.height)
-    context.strokeStyle = OUTLINE_COLOR
-    context.lineWidth = OUTLINE_WIDTH * pixelRatio
-    context.strokeRect(
-        (rect.left - OUTLINE_PADDING) * pixelRatio,
-        (rect.top - OUTLINE_PADDING) * pixelRatio,
-        (rect.width + OUTLINE_PADDING * 2) * pixelRatio,
-        (rect.height + OUTLINE_PADDING * 2) * pixelRatio
-    )
+    if (rect) {
+        context.strokeStyle = OUTLINE_COLOR
+        context.lineWidth = OUTLINE_WIDTH * pixelRatio
+        context.strokeRect(
+            (rect.left - OUTLINE_PADDING) * pixelRatio,
+            (rect.top - OUTLINE_PADDING) * pixelRatio,
+            (rect.width + OUTLINE_PADDING * 2) * pixelRatio,
+            (rect.height + OUTLINE_PADDING * 2) * pixelRatio
+        )
+    }
 
     return await new Promise((resolve, reject) => {
         canvas.toBlob(

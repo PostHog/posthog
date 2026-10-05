@@ -15,9 +15,10 @@ export interface WidgetPosition {
     y: number
 }
 
+/** What the feedback is about. `element` and `identifier` are null for feedback about the whole page. */
 export interface FeedbackTarget {
-    element: HTMLElement
-    identifier: string
+    element: HTMLElement | null
+    identifier: string | null
     pageUrl: string
 }
 
@@ -49,10 +50,10 @@ function toSelectableElement(target: EventTarget | null): HTMLElement | null {
     return element && !isWidgetElement(element) ? element : null
 }
 
-function describeTarget(element: HTMLElement): FeedbackTarget {
+function describeTarget(element: HTMLElement | null): FeedbackTarget {
     return {
         element,
-        identifier: elementToQuery(element, DATA_ATTRIBUTES) || element.tagName.toLowerCase(),
+        identifier: element ? elementToQuery(element, DATA_ATTRIBUTES) || element.tagName.toLowerCase() : null,
         // Read at select time: on an SPA the URL can change before the person saves.
         pageUrl: window.location.href,
     }
@@ -97,6 +98,9 @@ export interface internalFeedbackLogicActions {
     setPosition: (position: WidgetPosition) => {
         position: WidgetPosition
     }
+    startGeneralFeedback: () => {
+        target: FeedbackTarget
+    }
     startInspecting: () => {
         value: true
     }
@@ -139,6 +143,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
         hide: true,
         startInspecting: true,
         stopInspecting: true,
+        startGeneralFeedback: () => ({ target: describeTarget(null) }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         selectElement: (element: HTMLElement) => ({ target: describeTarget(element) }),
         clearSelection: true,
@@ -168,6 +173,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 startInspecting: () => true,
                 stopInspecting: () => false,
                 selectElement: () => false,
+                startGeneralFeedback: () => false,
                 hide: () => false,
             },
         ],
@@ -177,6 +183,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 setHoverElement: (_, { element }) => element,
                 stopInspecting: () => null,
                 selectElement: () => null,
+                startGeneralFeedback: () => null,
                 hide: () => null,
             },
         ],
@@ -184,6 +191,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
             null as FeedbackTarget | null,
             {
                 selectElement: (_, { target }) => target,
+                startGeneralFeedback: (_, { target }) => target,
                 startInspecting: () => null,
                 clearSelection: () => null,
                 hide: () => null,
@@ -195,6 +203,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
             {
                 setComment: (_, { comment }) => comment,
                 startInspecting: () => '',
+                startGeneralFeedback: () => '',
                 clearSelection: () => '',
                 hide: () => '',
                 submitFeedbackSuccess: () => '',
@@ -207,6 +216,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 submitFeedback: () => null,
                 setComment: () => null,
                 selectElement: () => null,
+                startGeneralFeedback: () => null,
                 clearSelection: () => null,
                 hide: () => null,
             },
@@ -217,6 +227,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 submitFeedbackSuccess: () => true,
                 clearJustSent: () => false,
                 startInspecting: () => false,
+                startGeneralFeedback: () => false,
                 hide: () => false,
             },
         ],
@@ -244,7 +255,8 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
         ],
         selectedElementRect: [
             (s) => [s.target, s.rectUpdateCounter],
-            (target: FeedbackTarget | null): ElementRect | null => (target ? getRectForElement(target.element) : null),
+            (target: FeedbackTarget | null): ElementRect | null =>
+                target?.element ? getRectForElement(target.element) : null,
         ],
     }),
 
@@ -261,7 +273,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 await internalFeedbackCreate({
                     comment: comment.trim(),
                     page_url: target.pageUrl,
-                    element_identifier: target.identifier,
+                    ...(target.identifier ? { element_identifier: target.identifier } : {}),
                     // A bare Blob uploads as "blob", and the backend ImageField rejects a name with no extension.
                     ...(screenshot
                         ? { screenshot: new File([screenshot], 'screenshot.jpg', { type: 'image/jpeg' }) }
@@ -273,7 +285,10 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 )
                 return
             }
-            posthog.capture('internal feedback submitted', { has_screenshot: !!screenshot })
+            posthog.capture('internal feedback submitted', {
+                has_screenshot: !!screenshot,
+                is_whole_page: !target.element,
+            })
             actions.submitFeedbackSuccess()
         },
         submitFeedbackSuccess: () => {
@@ -287,8 +302,12 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
         },
         selectElement: ({ target }) => {
             // Start right away, before the comment box takes focus and an open menu has a chance to close.
-            const rect = target.element.getBoundingClientRect()
-            cache.screenshotPromise = captureFeedbackScreenshot(rect)
+            cache.screenshotPromise = captureFeedbackScreenshot(target.element?.getBoundingClientRect() ?? null)
+            cache.screenshotPromise.catch((e: unknown) => posthog.captureException(e))
+        },
+        startGeneralFeedback: () => {
+            posthog.capture('internal feedback whole page started')
+            cache.screenshotPromise = captureFeedbackScreenshot(null)
             cache.screenshotPromise.catch((e: unknown) => posthog.captureException(e))
         },
         clearSelection: () => {

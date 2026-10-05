@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconCursorClick, IconDrag, IconX } from '@posthog/icons'
+import { IconCursorClick, IconDrag, IconMessage, IconX } from '@posthog/icons'
 import { Button, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { INTERNAL_FEEDBACK_IGNORE_ATTR } from './captureFeedbackScreenshot'
@@ -9,12 +9,14 @@ import { clampToViewport, internalFeedbackLogic } from './internalFeedbackLogic'
 
 export function InternalFeedbackBar(): JSX.Element {
     const { position, isInspecting, target, justSent } = useValues(internalFeedbackLogic)
-    const { setPosition, startInspecting, stopInspecting, hide } = useActions(internalFeedbackLogic)
+    const { setPosition, startInspecting, stopInspecting, startGeneralFeedback, clearSelection, hide } =
+        useActions(internalFeedbackLogic)
     const barRef = useRef<HTMLDivElement>(null)
     const dragOffset = useRef<{ x: number; y: number } | null>(null)
 
     // The tooltips explain the bar while it is idle. Once a flow is open they only get in the way.
     const tooltipsDisabled = isInspecting || !!target
+    const isGeneralFeedbackOpen = !!target && !target.element
 
     const viewport = { width: window.innerWidth, height: window.innerHeight }
     const size = barRef.current
@@ -91,6 +93,22 @@ export function InternalFeedbackBar(): JSX.Element {
                     Inspect
                 </TooltipTrigger>
                 <TooltipContent>Click to pick a part of the page and send feedback about it to the devs</TooltipContent>
+            </Tooltip>
+            <Tooltip disabled={tooltipsDisabled}>
+                <TooltipTrigger
+                    render={
+                        <Button
+                            aria-pressed={isGeneralFeedbackOpen}
+                            className={cn(isGeneralFeedbackOpen && 'bg-fill-selected')}
+                            onClick={() => (isGeneralFeedbackOpen ? clearSelection() : startGeneralFeedback())}
+                            data-attr="internal-feedback-general"
+                        />
+                    }
+                >
+                    <IconMessage />
+                    General feedback
+                </TooltipTrigger>
+                <TooltipContent>Click to send feedback about this whole page, with a screenshot of it</TooltipContent>
             </Tooltip>
             <Tooltip disabled={tooltipsDisabled}>
                 <TooltipTrigger render={<Button onClick={() => hide()} data-attr="internal-feedback-close" />}>

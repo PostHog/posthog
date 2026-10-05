@@ -51,7 +51,8 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { user } = useValues(userLogic)
-    const isPostHogStaff = !!user?.email?.toLowerCase().endsWith('@posthog.com')
+    const showInternalFeedback =
+        !!featureFlags[FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET] && !!user?.email?.toLowerCase().endsWith('@posthog.com')
     const runSyncEnabled = featureFlags[FEATURE_FLAGS.WIZARD_RUN_SYNC] === 'wizard-run'
     const toasts = (
         <ToastContainer
@@ -96,7 +97,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     but the doc dialog must be able to open from any surface. */}
                 <WizardHandoffDialog />
                 <WizardSyncDebugPanel />
-                {isPostHogStaff && (
+                {showInternalFeedback && (
                     <ErrorBoundary>
                         <Suspense fallback={null}>
                             <InternalFeedbackWidget />

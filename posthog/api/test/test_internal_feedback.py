@@ -42,10 +42,18 @@ class TestInternalFeedbackAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_client.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("element", {}, '*Element:* `[data-attr="save-insight"]`'),
+            ("whole_page", {"element_identifier": ""}, "*Element:* whole page"),
+        ]
+    )
     @patch("posthog.api.internal_feedback.SlackWebClient")
-    def test_uploads_screenshot_with_escaped_message(self, mock_client: MagicMock) -> None:
+    def test_uploads_screenshot_with_escaped_message(
+        self, _name: str, extra: dict[str, str], element_line: str, mock_client: MagicMock
+    ) -> None:
         with FIXTURE_IMAGE.open("rb") as image:
-            response = self._post(screenshot=image)
+            response = self._post(screenshot=image, **extra)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         kwargs = mock_client.return_value.files_upload_v2.call_args.kwargs
@@ -56,3 +64,4 @@ class TestInternalFeedbackAPI(APIBaseTest):
         assert "https://us.posthog.com/project/1/insights" in message
         assert "&lt;!channel&gt;" in message
         assert "<!channel>" not in message
+        assert element_line in message

@@ -15,6 +15,7 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    cn,
 } from '@posthog/quill'
 
 import { INTERNAL_FEEDBACK_IGNORE_ATTR } from './captureFeedbackScreenshot'
@@ -33,14 +34,16 @@ export function InternalFeedbackPopover(): JSX.Element | null {
         return null
     }
 
-    let top = 80
-    let left = 16
+    // Whole-page feedback has no element to sit next to, so the card centers in the viewport.
+    let position: React.CSSProperties | undefined
     if (selectedElementRect) {
-        top = Math.max(
-            8,
-            Math.min(selectedElementRect.top + selectedElementRect.height + 8, window.innerHeight - POPOVER_HEIGHT)
-        )
-        left = Math.min(Math.max(selectedElementRect.left, 8), window.innerWidth - POPOVER_WIDTH - 8)
+        position = {
+            top: Math.max(
+                8,
+                Math.min(selectedElementRect.top + selectedElementRect.height + 8, window.innerHeight - POPOVER_HEIGHT)
+            ),
+            left: Math.min(Math.max(selectedElementRect.left, 8), window.innerWidth - POPOVER_WIDTH - 8),
+        }
     }
     const canSave = !!comment.trim()
 
@@ -50,15 +53,22 @@ export function InternalFeedbackPopover(): JSX.Element | null {
             data-quill
             {...{ [INTERNAL_FEEDBACK_IGNORE_ATTR]: '' }}
             // Same top layer as the bar, so an open modal or menu never covers the card.
-            className="fixed z-[2147483647] pointer-events-auto w-80 shadow-md"
+            className={cn(
+                'fixed z-[2147483647] pointer-events-auto w-80 shadow-md',
+                !position && 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+            )}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ top, left }}
+            style={position}
         >
             <CardHeader>
                 <CardTitle>Send feedback to devs</CardTitle>
-                <CardDescription className="font-mono truncate" title={target.identifier}>
-                    {target.identifier}
-                </CardDescription>
+                {target.identifier ? (
+                    <CardDescription className="font-mono truncate" title={target.identifier}>
+                        {target.identifier}
+                    </CardDescription>
+                ) : (
+                    <CardDescription>About this whole page</CardDescription>
+                )}
             </CardHeader>
             <CardContent>
                 <Field>

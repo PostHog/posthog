@@ -88,7 +88,7 @@ export const getInternalFeedbackCreateUrl = () => {
 }
 
 /**
- * Send feedback about an element of the PostHog web app to the team's Slack channel.
+ * Send feedback about an element or page of the PostHog web app to the team's Slack channel.
  */
 export const internalFeedbackCreate = async (
     internalFeedbackCreateBody?: InternalFeedbackCreateBody,
