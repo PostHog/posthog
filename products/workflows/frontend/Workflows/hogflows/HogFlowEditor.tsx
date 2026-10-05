@@ -16,6 +16,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -26,13 +27,15 @@ import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { LOW_DETAIL_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
+import { getNodesDeleteDisabledReason } from './steps/utils'
 import { HogFlowTreeEditor } from './tree/HogFlowTreeEditor'
 import { HogFlowActionEdge, HogFlowActionNode } from './types'
 
 function HogFlowGraphEditor(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isZoomedOutFar } = useValues(hogFlowEditorLogic)
+    const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isZoomedOutFar, workflow } =
+        useValues(hogFlowEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -101,6 +104,17 @@ function HogFlowGraphEditor(): JSX.Element {
                     edges={edges}
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
+                    onBeforeDelete={async ({ nodes }) => {
+                        const disabledReason = getNodesDeleteDisabledReason(
+                            workflow.edges,
+                            nodes.map((node) => node.id)
+                        )
+                        if (disabledReason) {
+                            lemonToast.error(disabledReason)
+                            return false
+                        }
+                        return true
+                    }}
                     onNodesDelete={onNodesDelete}
                     onDragOver={onDragOver}
                     onDrop={onDrop}

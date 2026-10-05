@@ -8,7 +8,6 @@ import {
     ReactFlowInstance,
     applyEdgeChanges,
     applyNodeChanges,
-    getOutgoers,
 } from '@xyflow/react'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -34,6 +33,7 @@ import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } 
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
+import { getNodesDeleteDisabledReason } from './steps/utils'
 import { isWorkflowTreeComplete } from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
@@ -2129,11 +2129,7 @@ export interface hogFlowEditorLogicMeta {
             selectedNodeId: string | null,
             workflow: HogFlow
         ) => HogFlowActionNode | null
-        selectedNodeCanBeDeleted: (
-            selectedNode: HogFlowActionNode | null,
-            nodes: HogFlowActionNode[],
-            edges: HogFlowActionEdge[]
-        ) => boolean
+        selectedNodeCanBeDeleted: (selectedNode: HogFlowActionNode | null, workflow: HogFlow) => boolean
         selectedNodeCanBeCopiedOrMoved: (
             selectedNode: HogFlowActionNode | null,
             selectedNodeCanBeDeleted: boolean
@@ -2373,19 +2369,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNodeCanBeDeleted: [
-            (s) => [s.selectedNode, s.nodes, s.edges],
-            (selectedNode: HogFlowActionNode | null, nodes: HogFlowActionNode[], edges: HogFlowActionEdge[]) => {
-                if (!selectedNode) {
-                    return false
-                }
-
-                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
-                if (outgoingNodes.length === 1) {
-                    return true
-                }
-
-                return new Set(outgoingNodes.map((node) => node.id)).size === 1
-            },
+            (s) => [s.selectedNode, s.workflow],
+            (selectedNode: HogFlowActionNode | null, workflow: HogFlow): boolean =>
+                !!selectedNode?.deletable && !getNodesDeleteDisabledReason(workflow.edges, [selectedNode.id]),
         ],
         selectedNodeCanBeCopiedOrMoved: [
             (s) => [s.selectedNode, s.selectedNodeCanBeDeleted],
@@ -2582,11 +2568,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
 
             onNodesDelete: ({ deleted }) => {
+                const deletedNodeIds = deleted.map((node) => node.id)
+                const disabledReason = getNodesDeleteDisabledReason(values.workflow.edges, deletedNodeIds)
+                if (disabledReason) {
+                    lemonToast.error(disabledReason)
+                    return
+                }
+
                 if (deleted.some((node) => node.id === values.selectedNodeId)) {
                     actions.setSelectedNodeId(null)
                 }
-
-                const deletedNodeIds = deleted.map((node) => node.id)
 
                 // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
                 const updatedEdges = values.workflow.edges

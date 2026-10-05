@@ -44,6 +44,19 @@ export function getBranchRemovalDisabledReason(
     return hasOtherIncomingEdges ? undefined : 'Clean up branching steps first'
 }
 
+export function getNodesDeleteDisabledReason(edges: HogFlowEdge[], nodeIds: string[]): string | null {
+    const hasDistinctTargets = nodeIds.some(
+        (nodeId) => new Set(edges.filter((edge) => edge.from === nodeId).map((edge) => edge.to)).size > 1
+    )
+    if (hasDistinctTargets) {
+        return 'Clean up branching steps first'
+    }
+    if (nodeIds.length > 1 && edges.some((edge) => nodeIds.includes(edge.from) && nodeIds.includes(edge.to))) {
+        return 'Delete these steps one at a time'
+    }
+    return null
+}
+
 /** Filter out a branch edge by its index property and reindex the remaining edges. */
 export function removeBranchEdge(branchEdges: HogFlowEdge[], conditionIndex: number): HogFlowEdge[] {
     return branchEdges.filter((e) => e.index !== conditionIndex).map((edge, i) => ({ ...edge, index: i }))
