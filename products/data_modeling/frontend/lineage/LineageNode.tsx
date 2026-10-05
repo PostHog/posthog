@@ -62,6 +62,8 @@ export interface LineageNodeState {
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
     isSelected?: boolean
+    /** Faded while another node's lineage is selected */
+    isDimmed?: boolean
     loading?: 'placeholder' | 'focus'
 }
 
@@ -81,6 +83,7 @@ export interface LineageNodeData extends Record<string, unknown> {
     direction: ElkDirection
     draggable?: boolean
     openUrl?: string
+    selectable?: boolean
     state: LineageNodeState
     callbacks: LineageNodeCallbacks
     handles: NodeHandle[]
@@ -329,16 +332,10 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         fn?.()
     }
 
-    const handleKeyDown = (e: React.KeyboardEvent): void => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            callbacks.onClick?.(e)
-        }
-    }
-
     const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const cardAction = data.selectable ? 'highlights its lineage' : `opens ${destination}`
     const ariaLabel = [
-        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, opens ${destination}`,
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
         node.lineage_issue && lineageIssueMessage(node.lineage_issue),
     ]
         .filter(Boolean)
@@ -348,15 +345,16 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         <div
             className={clsx(
                 'relative pointer-events-auto rounded-lg border bg-bg-light min-w-[180px]',
-                callbacks.onClick && 'cursor-pointer',
-                !callbacks.onClick && data.draggable && 'cursor-grab active:cursor-grabbing',
+                data.draggable && 'cursor-grab active:cursor-grabbing',
+                !data.draggable && callbacks.onClick && 'cursor-pointer',
                 state.isRunning && 'animate-pulse',
                 state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
                 state.isSelected && 'border-link ring-4 ring-link/40',
                 !state.isRunning && !state.isSelected && state.isHighlighted && 'border-link ring-2 ring-link/30',
                 !state.isRunning && !state.isSelected && !state.isHighlighted && !state.isCurrent && 'border-border',
                 node.lineage_issue && !state.isRunning && !state.isSelected && !state.isHighlighted && 'border-warning',
-                state.isCurrent && 'border-2'
+                state.isCurrent && 'border-2',
+                state.isDimmed && 'opacity-30'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -365,12 +363,19 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             onClick={callbacks.onClick}
-            onKeyDown={callbacks.onClick ? handleKeyDown : undefined}
-            role={callbacks.onClick ? 'button' : undefined}
-            tabIndex={callbacks.onClick ? 0 : undefined}
-            aria-label={callbacks.onClick ? ariaLabel : undefined}
             data-attr="lineage-node"
         >
+            {callbacks.onClick && (
+                <button
+                    type="button"
+                    className="absolute inset-0 pointer-events-none rounded-lg focus-visible:ring-4 focus-visible:ring-link/40"
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        callbacks.onClick?.(event)
+                    }}
+                    aria-label={ariaLabel}
+                />
+            )}
             {data.handles.map((handle) => (
                 <Handle
                     key={handle.id}
@@ -410,9 +415,9 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                 #{node.user_tag}
                             </span>
                         )}
-                        {data.draggable && data.openUrl && (
+                        {data.openUrl && (
                             <LemonButton
-                                className="nodrag nopan"
+                                className="nodrag nopan relative z-10"
                                 size="xxsmall"
                                 type="secondary"
                                 to={data.openUrl}

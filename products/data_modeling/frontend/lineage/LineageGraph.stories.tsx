@@ -209,6 +209,45 @@ export const Canvas: Story = {
     ),
 }
 
+export const Selectable: Story = {
+    render: () => <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" selectable interactive />,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const selectedNode = (await canvas.findByText('monthly_report')).closest<HTMLElement>(
+            '[data-attr="lineage-node"]'
+        )
+        const relatedNode = canvas.getByText('orders').closest<HTMLElement>('[data-attr="lineage-node"]')
+        const siblingNode = canvas
+            .getByText('weekly_active_accounts')
+            .closest<HTMLElement>('[data-attr="lineage-node"]')
+        const pane = canvasElement.querySelector<HTMLElement>('.react-flow__pane')
+
+        if (!selectedNode || !relatedNode || !siblingNode || !pane) {
+            throw new Error('The selectable graph must render its nodes and pane')
+        }
+
+        fireEvent.click(selectedNode)
+        await waitFor(() => {
+            if (!selectedNode.classList.contains('ring-4')) {
+                throw new Error('The clicked node must show the selected state')
+            }
+            if (relatedNode.classList.contains('opacity-30')) {
+                throw new Error('An upstream node must stay highlighted')
+            }
+            if (!siblingNode.classList.contains('opacity-30')) {
+                throw new Error('A node outside the selected lineage must be dimmed')
+            }
+        })
+
+        fireEvent.click(pane)
+        await waitFor(() => {
+            if (siblingNode.classList.contains('opacity-30')) {
+                throw new Error('Clicking the canvas must clear the lineage selection')
+            }
+        })
+    },
+}
+
 // The minimap is gated on the canvas container instead of the viewport, so a canvas that is narrow
 // inside a wide window must still hide it and leave the zoom controls room. The graph is cut to two
 // nodes because fit-view scales the whole graph into 480px, and nodes that small render text the
@@ -257,8 +296,12 @@ export const DraggableNodes: Story = {
         ) {
             throw new Error('The explicit node link must open in a new tab')
         }
-        if (!nodeCard || nodeCard.getAttribute('role') === 'button' || nodeCard.tabIndex >= 0) {
-            throw new Error('A draggable node must not navigate as a card')
+        if (!nodeCard || !nodeCard.classList.contains('cursor-grab')) {
+            throw new Error('A draggable node must keep its drag affordance')
+        }
+        const selectionButton = within(nodeCard).getByRole('button', { name: /highlights its lineage/ })
+        if (selectionButton.tabIndex < 0) {
+            throw new Error('Lineage selection must be keyboard accessible')
         }
     },
 }
