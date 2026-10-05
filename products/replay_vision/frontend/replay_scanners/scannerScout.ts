@@ -13,6 +13,15 @@ import { SIGNALS_SCOUT_SKILL_PREFIX } from 'products/signals/frontend/inbox/util
 // agree or a scanner stops finding its own scouts.
 const SCOUT_SOURCE_PRODUCT = 'replay_vision'
 
+// pinned: the tag the backend's `VARIANT_ANALYSIS_TAG` puts on a variant analysis scout's config. The
+// two must agree, or the template card offers a second scout the API then refuses.
+const VARIANT_ANALYSIS_TAG = 'replay-vision-variant-analysis'
+
+/** The scanner's variant analysis scout, if it has one. The API allows one per scanner. */
+export function variantAnalysisScout(configs: SignalScoutConfigApi[]): SignalScoutConfigApi | undefined {
+    return configs.find((config) => config.tags?.includes(VARIANT_ANALYSIS_TAG))
+}
+
 /** Whether this scout was stood up for this scanner. The pair is recorded on the config when the
  * scout is created and is not user-editable, so it cannot be lost the way a label could. */
 export function isScannerScoutConfig(config: SignalScoutConfigApi, scannerId: string): boolean {
@@ -80,6 +89,7 @@ export function scoutSkillName(
 }
 
 export type ScannerScoutTemplateKey =
+    | 'variant-analysis'
     | 'daily-digest'
     | 'root-cause'
     | 'weekly-themes'
@@ -115,6 +125,8 @@ interface ScoutFocus {
     /** Replaces the default window, which is everything since the previous run. An analysis that
      * needs more volume than one run collects reads a fixed trailing window instead. */
     window?: string
+    /** What the run's structured record holds, for a scout whose config attaches a record schema. */
+    record?: string
 }
 
 const DEFAULT_QUIET_VERDICT =
@@ -202,7 +214,7 @@ ${focus.shape ?? DEFAULT_REPORT_SHAPE}
 ${focus.quietVerdict ?? DEFAULT_QUIET_VERDICT} ${focus.priority}
 These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a report on a quiet window does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's report card and stops delivery, so a quiet window reads as a run that never happened.
 
-## Memory
+${focus.record ? `## Record the comparison\n\n${focus.record}\n\n` : ''}## Memory
 
 Write scratchpad entries as you go (\`pattern:\` baselines, \`noise:\` known-quiet shapes, \`dedupe:\`/\`report:\` pointers). Start every key with \`${scannerId}\`, then the kind and a slugified tag name, never raw summary text — the first move searches on that id.
 
@@ -389,6 +401,42 @@ function weeklyThemesTemplate(scannerId: string, scannerName: string): ScannerSc
     }
 }
 
+/** Offered to experiment scanners only: its runs record a comparison of the variants, which the
+ * scanner's variants view shows. The record's schema is attached server-side, not sent from here. */
+function variantAnalysisTemplate(scannerId: string, scannerName: string): ScannerScoutTemplate {
+    return {
+        key: 'variant-analysis',
+        title: 'Variant analysis',
+        description:
+            'Compares what users in each experiment variant do, and shows the differences on the variants view.',
+        defaultName: scoutDefaultName(scannerName, 'variant analysis'),
+        cron: SCANNER_SCOUT_CRON,
+        body: buildScoutBody(scannerId, {
+            heading: 'Replay Vision variant analysis',
+            role: 'You compare the variants of the experiment one Replay Vision experiment scanner watches. Read its session summaries variant by variant, name the behaviors they share, and report what users in each variant do differently.',
+            reads: `- \`vision-scanners-get\` with id \`${scannerId}\` gives \`scanner_version\`. Read only observations of that version: a prompt edit changes what a summary looks at, so mixing versions compares two different questions.
+- \`vision-scanners-variants-list\` (scanner_id \`${scannerId}\`) gives the variant keys, each variant's observation and people counts, and its sampling rate. Those live counts are the trusted numbers: never restate them from your own reading.
+- \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`) with \`variant\` set to each key, \`status=succeeded\` and \`order_by=-completed_at\`: up to the 40 most recent summaries per variant. Read the same number from each variant where you can, so their shares compare. \`vision-observations-get\` reads one in full when its summary line is not enough.`,
+            notable: `Name the themes first, across all variants at once, so a theme means the same thing in every variant: one observable behavior each ("Reopens the pricing page before checking out"). Then count, per variant, how many of the summaries you read show each theme.
+
+A difference is a theme whose share differs between variants by enough to matter on the summaries you read. With 40 summaries a variant, a gap of a few sessions is noise.`,
+            quiet: 'Variants that behave the same is a real result. Say so in the report, and record no differences.',
+            skip: `- Restating the variants counts as findings: the variants view already shows them.
+- A difference resting on fewer than 5 sessions in either variant.
+- Claims about which variant wins. The experiment's metrics decide that; you describe what users do.`,
+            priority: 'Priority P3 by default.',
+            record: `Every run also records exactly one structured record with \`scout-record-output\`: the whole comparison, matching the schema in your instructions. It fills in the experiment's variants view in Replay Vision, so record it even when nothing differs.
+
+- \`scanner_version\`: the version you read from \`vision-scanners-get\`. A record for an older version is not shown.
+- \`observations_read\`: per variant key, how many summaries you read. Every count below is out of this number.
+- \`variants\`: per variant key, up to 5 themes, most common first. \`count\` is how many of that variant's summaries you read show the theme. Cite up to 2 observation ids of that variant that show it in \`example_observation_ids\`.
+- \`differences\`: up to 5, most meaningful first, each resting on one theme, with \`counts\` per variant key. Empty when the variants behave the same.
+- Use the same \`theme\` label in every variant and in \`differences\`, so the view can line them up.
+- Submit once per run. The newest record replaces the previous one in the view.`,
+        }),
+    }
+}
+
 /** Which templates each scanner type offers, in card order. Root cause needs outcomes to explain,
  * so summarizers get weekly themes instead, and trend watch has no metric to track on a summarizer. */
 const TEMPLATE_KEYS_BY_TYPE: Record<ScannerTypeEnumApi, ScannerScoutTemplateKey[]> = {
@@ -396,7 +444,8 @@ const TEMPLATE_KEYS_BY_TYPE: Record<ScannerTypeEnumApi, ScannerScoutTemplateKey[
     classifier: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'],
     scorer: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'],
     summarizer: ['daily-digest', 'weekly-themes', 'new-issues', 'scratch'],
-    experiment: ['daily-digest', 'trend-watch', 'new-issues', 'scratch'],
+    // Variant analysis leads: it is the template that compares the experiment's variants.
+    experiment: ['variant-analysis', 'daily-digest', 'trend-watch', 'new-issues', 'scratch'],
 }
 
 export function scannerScoutTemplates(
@@ -515,6 +564,7 @@ Be specific about the bar, so a quiet window stays quiet: how many distinct sess
         }),
         'root-cause': () => rootCauseTemplate(scannerId, scannerName, ROOT_CAUSE_LENSES[type]!),
         'weekly-themes': () => weeklyThemesTemplate(scannerId, scannerName),
+        'variant-analysis': () => variantAnalysisTemplate(scannerId, scannerName),
     }
     return TEMPLATE_KEYS_BY_TYPE[type].map((key) => builders[key]())
 }
@@ -557,9 +607,17 @@ export function scannerScoutTemplate(
  * form, seeded by the chosen template. */
 export function scannerScoutCreatePayload(
     scannerName: string,
-    overrides: { name: string; body: string; cron: string; outputDestinations?: SignalScoutOutputDestinationsApi }
+    overrides: {
+        name: string
+        body: string
+        cron: string
+        outputDestinations?: SignalScoutOutputDestinationsApi
+        templateKey?: ScannerScoutTemplateKey
+    }
 ): ScannerScoutCreateApi {
     return {
+        // Asks the server to attach the record schema the variants view reads.
+        ...(overrides.templateKey === 'variant-analysis' ? { variant_analysis: true } : {}),
         name: overrides.name,
         description:
             `Replay Vision scout for the scanner "${scannerName}". Reads the scanner's new observations on a schedule and files an inbox report when something is worth reporting.`.slice(
