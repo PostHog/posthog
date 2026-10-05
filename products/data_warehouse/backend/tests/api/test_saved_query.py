@@ -2569,6 +2569,18 @@ class TestSavedQuery(APIBaseTest):
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):
+    @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
+    def test_managed_models_namespace_reservation(self, _case: str, name: str) -> None:
+        instance = DataWarehouseSavedQuery(name=name, origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
+        with self.assertRaises(ValidationError):
+            instance.clean()
+        with self.assertRaises(ValidationError):
+            instance.save()
+
+    def test_models_root_is_not_a_model_name(self) -> None:
+        with self.assertRaises(ValidationError):
+            DataWarehouseSavedQuery._meta.get_field("name").run_validators("models")
+
     @parameterized.expand([("namespace", "system"), ("nested_name", "system.accounts")])
     def test_reserves_system_namespace(self, _name: str, saved_query_name: str) -> None:
         name_field = DataWarehouseSavedQuery._meta.get_field("name")
