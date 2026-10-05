@@ -27741,8 +27741,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly observed_value: number | null;
-      /** The HogQL that ran. Re-run it to see the offending rows. */
+      /** HogQL selecting the failing rows. Re-run it to see them. For a run that audited a staged refresh it inlines the view's definition, so it reads the source tables rather than the published table. Empty when there is nothing to replay: retention cleared it, or a staged run could not build its replay query. */
       readonly compiled_query: string;
+      /** True when the run audited a refresh that was staged but not yet published, under the materialization gate. */
+      readonly audited_staged_refresh: boolean;
       /** Compilation or execution failure, when status is 'errored'. */
       readonly error: string;
       /** @nullable */
@@ -44249,6 +44251,17 @@ export namespace Schemas {
       last_observation_at: string | null;
     }
 
+    export interface VariantAnalysisLine {
+      /** A short label for the theme, shared across variants. */
+      theme: string;
+      /** How the theme shows up for this variant. */
+      statement: string;
+      /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
+      count: number;
+      /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
+      example_observation_ids: string[];
+    }
+
     /**
      * * `configured` - Configured
      * * `inline` - Inline
@@ -44510,8 +44523,51 @@ export namespace Schemas {
          * @nullable
          */
       sampling_rate: number | null;
+      /**
+         * Summaries of this variant the analysis read: the denominator of its digest and difference counts. Null without a current analysis.
+         * @nullable
+         */
+      analysis_observations: number | null;
+      /**
+         * This variant's most notable themes from the variant analysis. Null without a current analysis.
+         * @nullable
+         */
+      digest: VariantAnalysisLine[] | null;
       /** This variant's most recent observations, newest first. */
       latest_observations: ReplayObservation[];
+    }
+
+    /**
+     * Summaries the analysis read that show the theme, per variant key, as the scout counted them.
+     */
+    export type VariantAnalysisDifferenceCounts = {[key: string]: number};
+
+    export interface VariantAnalysisDifference {
+      /** The theme the difference rests on. */
+      theme: string;
+      /** What differs between the variants. */
+      statement: string;
+      /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
+      counts: VariantAnalysisDifferenceCounts;
+    }
+
+    export interface VariantsAnalysisState {
+      /** The variant analysis scout's config id. */
+      scout_config_id: string;
+      /** Whether the scout runs on its schedule. */
+      scout_enabled: boolean;
+      /**
+         * When the run behind the newest analysis started; null before its first run.
+         * @nullable
+         */
+      recorded_at: string | null;
+      /**
+         * The scanner version the newest analysis covered.
+         * @nullable
+         */
+      scanner_version: number | null;
+      /** Whether the newest analysis covers the scanner's current version. When false, digests and differences are null until the scout's next run. */
+      current: boolean;
     }
 
     export interface ExperimentVariantsReadout {
@@ -44521,8 +44577,15 @@ export namespace Schemas {
       window: VariantsWindow;
       /** One entry per watched variant, plus any variant still holding observations. */
       variants: VariantReadout[];
+      /**
+         * What differs between variants, from the variant analysis. Null without a current analysis.
+         * @nullable
+         */
+      differences: VariantAnalysisDifference[] | null;
       /** Succeeded observations with no attributed variant. */
       unattributed_count: number;
+      /** The scanner's variant analysis scout and its newest run; null when none is set up. */
+      analysis: VariantsAnalysisState | null;
     }
 
     /**
@@ -54592,9 +54655,11 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
+      /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
+      minInterval?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsQueryResponse | null;
@@ -57286,6 +57351,11 @@ export namespace Schemas {
     export interface InterestingNote {
       text: string;
       line_refs: string;
+    }
+
+    export interface InternalFeedbackResponse {
+      /** True when the feedback reached Slack. */
+      success: boolean;
     }
 
     /**
@@ -89076,6 +89146,18 @@ export namespace Schemas {
       code_usage_billing_active: boolean;
     }
 
+    /**
+     * * `weighted-score` - weighted-score
+     * * `jev` - jev
+     */
+    export type RankerEnum = typeof RankerEnum[keyof typeof RankerEnum];
+
+
+    export const RankerEnum = {
+      WeightedScore: 'weighted-score',
+      Jev: 'jev',
+    } as const;
+
     export interface Rapid7InsightvmScannerFindingSignalExtra {
       severity: string | null;
       cvss_v3_score: string | null;
@@ -92441,6 +92523,8 @@ export namespace Schemas {
       body: string;
       /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
       config?: SignalScoutConfigOptions;
+      /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
+      variant_analysis?: boolean;
     }
 
     /**
@@ -100874,7 +100958,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -100886,7 +100970,7 @@ export namespace Schemas {
          * @maxItems 50
          */
       team_ids: number[];
-      /** Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering an organization from 2 leaves a gap in the events table for the time it spent on 2. */
+      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
@@ -100956,7 +101040,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -106854,6 +106938,11 @@ export namespace Schemas {
     export interface WatchFeedResponse {
       /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
       results: WatchFeedItem[];
+      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+       *
+       * * `weighted-score` - weighted-score
+       * * `jev` - jev */
+      ranker: RankerEnum;
     }
 
     export interface WebAnalyticsBotCondition {
@@ -111091,6 +111180,26 @@ export namespace Schemas {
       Json: 'json',
       Ndjson: 'ndjson',
     } as const;
+
+    export type InternalFeedbackCreateBody = {
+      /**
+         * What the person wants to tell the developers.
+         * @maxLength 4000
+         */
+      comment: string;
+      /**
+         * URL of the page the feedback is about.
+         * @maxLength 2000
+         */
+      page_url: string;
+      /**
+         * CSS selector of the element the person selected. Empty for feedback about the whole page.
+         * @maxLength 1000
+         */
+      element_identifier?: string;
+      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+      screenshot?: Blob;
+    };
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**

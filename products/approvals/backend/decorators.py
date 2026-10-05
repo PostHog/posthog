@@ -559,6 +559,7 @@ def approval_gate(action_refs: Union[type, str, list]):
             # would satisfy a single policy while the other policies' gated fields sail through
             # unapproved. Gating on only the first match reopens exactly that bypass.
             matches: list[tuple[Any, Any]] = []
+            detection_failed = False
             for action_class in actions:
                 try:
                     if action_class.detect(request, self, *args, **kwargs):
@@ -571,11 +572,19 @@ def approval_gate(action_refs: Union[type, str, list]):
                         extra={"action": action_class.key, "error": str(e)},
                         exc_info=True,
                     )
+                    detection_failed = True
 
-            if not matches:
+            if detection_failed:
+                # Unknown means deny. Carrying on would read a broken detect() as "no policy
+                # applies", which silently disables the policy that action implements.
+                result = GateResult(
+                    action="error",
+                    error_message="Could not determine whether this change needs approval. Try again.",
+                )
+            elif not matches:
                 return method(self, *args, **kwargs)
 
-            if len(matches) > 1:
+            elif len(matches) > 1:
                 # A single ChangeRequest can only carry one action's approval, but the apply path
                 # replays the whole payload — so we cannot safely gate a change that needs approval
                 # under several policies at once. Reject it (fail closed) and tell the caller to

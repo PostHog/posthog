@@ -5641,41 +5641,57 @@ class TestStripeIntegrationOAuthTokens:
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, access_token, refresh_token = self._create_integration_with_tokens()
+        unlinked_refresh_token = OAuthRefreshToken.objects.create(
+            application=self.oauth_app,
+            token="ph_refresh_unlinked",
+            user=self.user,
+            access_token=None,
+            revoked=timezone.now(),
+            scoped_teams=[self.team.pk],
+        )
         stripe_int = StripeIntegration(integration)
 
         stripe_int._destroy_posthog_oauth_tokens()
 
         assert not OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(pk=unlinked_refresh_token.pk).exists()
 
+    @pytest.mark.parametrize("other_credential", ["other_team_only", "shared_with_this_team"])
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_only_affects_same_team(self, mock_settings):
+    def test_destroy_oauth_tokens_only_affects_same_team(self, mock_settings, other_credential):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, _, _ = self._create_integration_with_tokens()
 
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_scoped_teams = {
+            "other_team_only": [other_team.pk],
+            "shared_with_this_team": [self.team.pk, other_team.pk],
+        }[other_credential]
         other_access_token = OAuthAccessToken.objects.create(
             application=self.oauth_app,
             token="ph_access_other",
             user=self.user,
             expires=timezone.now() + timedelta(days=365),
             scope=StripeIntegration.SCOPES,
-            scoped_teams=[other_team.pk],
+            scoped_teams=other_scoped_teams,
         )
         other_refresh_token = OAuthRefreshToken.objects.create(
             application=self.oauth_app,
             token="ph_refresh_other",
             user=self.user,
             access_token=other_access_token,
-            scoped_teams=[other_team.pk],
+            scoped_teams=other_scoped_teams,
         )
 
         stripe_int = StripeIntegration(integration)
         stripe_int._destroy_posthog_oauth_tokens()
 
-        assert OAuthAccessToken.objects.filter(pk=other_access_token.pk).exists()
-        assert OAuthRefreshToken.objects.filter(pk=other_refresh_token.pk).exists()
+        other_access_token.refresh_from_db()
+        other_refresh_token.refresh_from_db()
+        assert other_access_token.scoped_teams == [other_team.pk]
+        assert other_refresh_token.scoped_teams == [other_team.pk]
 
     @patch("posthog.models.integration.stripe.settings")
     def test_destroy_oauth_tokens_noop_when_no_oauth_app(self, mock_settings):
@@ -5732,11 +5748,11 @@ class TestStripeIntegrationOAuthTokens:
             assert minted.latest("id").application == self.oauth_app
         else:
             assert publication.unwritten == STRIPE_POSTHOG_SECRET_NAMES
-            assert publication.access_token_id is None
             assert not minted.exists()
 
+    @patch("posthog.models.integration.stripe.lock_oauth_connection")
     @patch("posthog.models.integration.stripe.settings")
-    def test_destroy_oauth_tokens_spans_the_pre_split_application(self, mock_settings):
+    def test_destroy_oauth_tokens_spans_the_pre_split_application(self, mock_settings, mock_lock):
         marketplace_app = OAuthApplication.objects.create(
             name="Stripe marketplace",
             client_id="marketplace_client_id",
@@ -5750,10 +5766,27 @@ class TestStripeIntegrationOAuthTokens:
 
         integration, legacy_access, legacy_refresh = self._create_integration_with_tokens()
 
+        def mint_while_waiting(**kwargs):
+            OAuthAccessToken.objects.get_or_create(
+                token="ph_access_minted_at_lock",
+                defaults={
+                    "application": self.oauth_app,
+                    "user": self.user,
+                    "expires": timezone.now() + timedelta(days=1),
+                    "scope": StripeIntegration.SCOPES,
+                    "scoped_teams": [self.team.pk],
+                },
+            )
+
+        mock_lock.side_effect = mint_while_waiting
+
         StripeIntegration(integration)._destroy_posthog_oauth_tokens()
 
         assert not OAuthAccessToken.objects.filter(pk=legacy_access.pk).exists()
         assert not OAuthRefreshToken.objects.filter(pk=legacy_refresh.pk).exists()
+        assert not OAuthAccessToken.objects.filter(token="ph_access_minted_at_lock").exists()
+        locked_pairs = {(call.kwargs["user_id"], call.kwargs["application_id"]) for call in mock_lock.call_args_list}
+        assert locked_pairs == {(self.user.pk, marketplace_app.id), (self.user.pk, self.oauth_app.id)}
 
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.oauth.settings")
@@ -5818,6 +5851,7 @@ class TestStripeIntegrationOAuthTokens:
         }
         assert not [scope for scope in token.scope.split() if scope.endswith(":write")]
         assert token.scoped_teams == [self.team.pk]
+        assert OAuthRefreshToken.objects.get(access_token=token).scoped_teams == [self.team.pk]
 
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.oauth.settings")
@@ -5903,14 +5937,52 @@ class TestStripeIntegrationOAuthTokens:
             created_by=self.user,
         )
         stripe_int = StripeIntegration(integration)
-        publication = stripe_int.write_posthog_secrets(self.team.pk, self.user)
+        stripe_int.write_posthog_secrets(self.team.pk, self.user)
 
         MockStripeClient.assert_not_called()
         mock_capture.assert_called_once()
-        assert publication.access_token_id is None
         assert not OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists()
         captured_exc = mock_capture.call_args.args[0]
         assert isinstance(captured_exc, NotImplementedError)
+
+    @pytest.mark.parametrize(
+        "failing_secrets,credential_kept",
+        [
+            (STRIPE_POSTHOG_SECRET_NAMES, False),
+            (("posthog_refresh_token",), True),
+        ],
+        ids=["every_write_fails", "refresh_token_write_fails"],
+    )
+    @patch("stripe.StripeClient")
+    @patch("posthog.models.integration.oauth.settings")
+    @patch("posthog.models.integration.stripe.settings")
+    def test_write_posthog_secrets_keeps_the_credential_only_when_a_secret_reaches_stripe(
+        self, mock_settings, mock_oauth_settings, MockStripeClient, failing_secrets, credential_kept
+    ):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = "orchestrator_client_id"
+        mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_oauth_settings.STRIPE_APP_CLIENT_ID = "stripe_app_client_id"
+        mock_oauth_settings.STRIPE_APP_SECRET_KEY = "sk_test"
+
+        def create_secret(params, options):
+            if params["name"] in failing_secrets:
+                raise Exception("simulated Stripe API failure")
+
+        MockStripeClient.return_value.apps.secrets.create.side_effect = create_secret
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={},
+            sensitive_config={},
+            integration_id="acct_write_failure",
+            created_by=self.user,
+        )
+        publication = StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+
+        assert publication.unwritten == failing_secrets
+        assert OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists() is credential_kept
+        assert OAuthRefreshToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists() is credential_kept
 
     @patch("posthog.models.integration.stripe.capture_exception")
     @patch("stripe.StripeClient")
