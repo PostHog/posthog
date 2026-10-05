@@ -68,9 +68,6 @@ def description_to_adf(description: str) -> dict[str, Any]:
     return {"type": "doc", "version": 1, "content": content}
 
 
-JIRA_USER_SCOPE = "read:jira-user"
-
-
 class JiraIntegration:
     integration: model.Integration
 
@@ -166,10 +163,6 @@ class JiraIntegration:
 
         Raises ReconnectRequired for a connection made before PostHog requested read:jira-user.
         """
-        granted_scope = self.integration.config.get("scope")
-        if isinstance(granted_scope, str) and JIRA_USER_SCOPE not in granted_scope.split():
-            raise ReconnectRequired()
-
         cloud_id = self.cloud_id()
         if not cloud_id:
             raise AssigneeLookupFailed("Jira integration missing cloud_id")
@@ -189,7 +182,7 @@ class JiraIntegration:
             },
             timeout=10,
         )
-        # A connection without a recorded scope can still lack the grant, which Jira reports as 401 or 403.
+        # Jira answers 401 or 403 when the connection's grant lacks read:jira-user.
         if response.status_code in (401, 403):
             raise ReconnectRequired()
         if response.status_code != 200:

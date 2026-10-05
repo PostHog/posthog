@@ -28,11 +28,11 @@ class GitLabIntegration:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
 
     @staticmethod
-    def get(hostname: str, endpoint: str, project_access_token: str) -> Any:
+    def _get_response(hostname: str, endpoint: str, project_access_token: str) -> requests.Response:
         url = f"{hostname}/api/v4/{endpoint}"
         GitLabIntegration._validate_api_url(url)
 
-        response = requests.get(
+        return requests.get(
             url,
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
@@ -40,7 +40,15 @@ class GitLabIntegration:
             timeout=10,
         )
 
-        return response.json()
+    @staticmethod
+    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        return GitLabIntegration._get_response(hostname, endpoint, project_access_token).json()
+
+    @staticmethod
+    def get_list(hostname: str, endpoint: str, project_access_token: str) -> list[dict[str, Any]] | None:
+        """GET an endpoint that answers with a JSON array. Returns None when GitLab sends anything else, such as an error object."""
+        body = GitLabIntegration._get_response(hostname, endpoint, project_access_token).json()
+        return body if isinstance(body, list) else None
 
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
@@ -100,8 +108,8 @@ class GitLabIntegration:
         if search.strip():
             params["query"] = search.strip()
         query = urlencode(params)
-        members = GitLabIntegration.get(hostname, f"projects/{project_id}/members/all?{query}", access_token)
-        if not isinstance(members, list):
+        members = GitLabIntegration.get_list(hostname, f"projects/{project_id}/members/all?{query}", access_token)
+        if members is None:
             raise AssigneeLookupFailed("Failed to list the GitLab project's members")
         # The state query filter only applies on paid GitLab tiers, so filter here as well.
         return [
