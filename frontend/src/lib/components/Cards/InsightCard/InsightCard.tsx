@@ -412,7 +412,7 @@ function InsightCardInternal(
                         titleStatus={apiError.status}
                         queryId={apiError.data?.queryId ?? queryId}
                         retryAfter={apiError.formattedRetryAfter}
-                        retryAfterTimestamp={apiError.retryAfterTimestamp}
+                        retryAfterTimestamp={capacityRetryAt}
                         retryLoading={loading || !!loadingQueued}
                         query={insight.query}
                         excludeActions={sharedView}

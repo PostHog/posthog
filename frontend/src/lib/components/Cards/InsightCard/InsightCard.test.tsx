@@ -97,6 +97,10 @@ describe('InsightCard', () => {
             expect(refresh).not.toHaveBeenCalled()
 
             act(() => jest.advanceTimersByTime(30_000))
+            if (cardWait !== null) {
+                expect(screen.getByText('PostHog is busy. You can retry in 15 seconds.')).toBeVisible()
+                expect(screen.getByTestId('insight-retry-button')).toHaveAttribute('aria-disabled', 'true')
+            }
             expect(headerRefresh).toHaveAttribute('aria-disabled', 'true')
             fireEvent.click(headerRefresh)
             expect(refresh).not.toHaveBeenCalled()
@@ -107,6 +111,12 @@ describe('InsightCard', () => {
             expect(refresh).not.toHaveBeenCalled()
             fireEvent.click(screen.getByTestId('dashboard-tile-refresh-data'))
             expect(refresh).toHaveBeenCalledTimes(1)
+            if (cardWait !== null) {
+                expect(screen.getByText('You can try this query again now.')).toBeVisible()
+                expect(screen.getByTestId('insight-retry-button')).toHaveAttribute('aria-disabled', 'false')
+                fireEvent.click(screen.getByTestId('insight-retry-button'))
+                expect(refresh).toHaveBeenCalledTimes(2)
+            }
         })
     })
 
