@@ -122,6 +122,7 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
 # also needs read access to that product. `alert:read` alone must not reveal it.
 SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
+    PlatformAlertConfigurationSourceKind.INSIGHT.value: "insight",
 }
 
 

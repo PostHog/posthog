@@ -9,7 +9,9 @@
  */
 import { z as zod } from 'zod'
 
-export const PlatformAlertConfigurationSourceKindEnumApi = zod.enum(['logs']).describe('\* `logs` - Logs')
+export const PlatformAlertConfigurationSourceKindEnumApi = zod
+    .enum(['logs', 'insight'])
+    .describe('\* `logs` - Logs\n\* `insight` - Insight')
 
 export type PlatformAlertConfigurationSourceKindEnumApi = zod.input<typeof PlatformAlertConfigurationSourceKindEnumApi>
 export type PlatformAlertConfigurationSourceKindEnumApiOutput = zod.output<
@@ -107,9 +109,9 @@ export const PlatformAlertConfigurationApi = zod.object({
     name: zod.string().describe('Human-readable name of the alert.'),
     enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
     source_kind: zod
-        .enum(['logs'])
-        .describe('\* `logs` - Logs')
-        .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs'),
+        .enum(['logs', 'insight'])
+        .describe('\* `logs` - Logs\n\* `insight` - Insight')
+        .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs\n\* `insight` - Insight'),
     source_config: zod
         .record(zod.string(), zod.unknown())
         .describe(
@@ -224,9 +226,9 @@ export const PaginatedPlatformAlertConfigurationListApi = zod.object({
             name: zod.string().describe('Human-readable name of the alert.'),
             enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
             source_kind: zod
-                .enum(['logs'])
-                .describe('\* `logs` - Logs')
-                .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs'),
+                .enum(['logs', 'insight'])
+                .describe('\* `logs` - Logs\n\* `insight` - Insight')
+                .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs\n\* `insight` - Insight'),
             source_config: zod
                 .record(zod.string(), zod.unknown())
                 .describe(
