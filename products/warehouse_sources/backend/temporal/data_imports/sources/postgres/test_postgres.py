@@ -5069,6 +5069,13 @@ class TestValidateCredentialsErrorMapping:
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
             ),
+            # Supavisor rejects a client IP outside the project's network restrictions.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: '
+                "FATAL:  (EADDRNOTALLOWED) address not in tenant allow_list: {192, 0, 2, 1}",
+                "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
+                "allow list. Add PostHog's IP addresses to that allow list, then try again.",
+            ),
             # A proxy/pooler in front of some providers rejects bad credentials during its own
             # database-identification step, wrapping the rejection in its own sentence instead of
             # libpq's "password authentication failed for user".
