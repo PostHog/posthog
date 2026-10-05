@@ -1,6 +1,8 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta, timezone
 from http import HTTPStatus
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -27,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 CONFIG = BuildiumSourceConfig(client_id="example-client", client_secret="example-secret")
 
 
-def response(rows: list[dict[str, object]], status: int = 200, total: int | None = None) -> Response:
+def response(rows: list[dict[str, Any]], status: int = 200, total: int | None = None) -> Response:
     result = Response()
     result.status_code = status
     result.reason = HTTPStatus(status).phrase
@@ -55,6 +57,10 @@ def source(
     return buildium_source(CONFIG, endpoint, "v1", 1, "test-job", manager, incremental, watermark)
 
 
+def source_items(result: SourceResponse) -> Iterable[list[dict[str, Any]]]:
+    return cast(Iterable[list[dict[str, Any]]], result.items())
+
+
 @pytest.mark.parametrize(
     ("endpoint", "path"),
     [
@@ -72,12 +78,14 @@ def source(
 )
 def test_request_path_and_auth(manager: MagicMock, endpoint: str, path: str) -> None:
     with patch("requests.Session.send", return_value=response([{"Id": 7}])) as send:
-        assert list(source(manager, endpoint).items()) == [[{"Id": 7}]]
+        assert list(source_items(source(manager, endpoint))) == [[{"Id": 7}]]
     request: PreparedRequest = send.call_args.args[0]
+    assert request.url is not None
     assert urlparse(request.url).path == f"/v1/{path}"
     assert request.headers["x-buildium-client-id"] == "example-client"
     assert request.headers["x-buildium-client-secret"] == "example-secret"
     assert parse_qs(urlparse(request.url).query) == {"limit": ["1000"], "offset": ["0"], "orderby": ["Id asc"]}
+    assert send.call_args.kwargs["timeout"] == (10, 30)
     send.assert_called_once()
 
 
@@ -101,7 +109,7 @@ def test_pagination(
         patch("products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium.PAGE_SIZE", 2),
         patch("requests.Session.send", side_effect=[response(page, total=total) for page in pages]) as send,
     ):
-        iterator = iter(source(manager).items())
+        iterator = iter(source_items(source(manager)))
         first = next(iterator, [])
         rows = first + [row for page in iterator for row in page]
         if len(expected_offsets) > 1:
@@ -125,15 +133,17 @@ def test_pagination(
 def test_incremental_filter_and_timestamp(
     manager: MagicMock, endpoint: str, incremental: bool, watermark: datetime | str | None, expected_filter: str | None
 ) -> None:
-    data = [{"Id": 1, "LastUpdatedDateTime": "2026-01-03T00:00:00Z"}, {"Id": 2, "LastUpdatedDateTime": None}]
+    data: list[dict[str, Any]] = [
+        {"Id": 1, "LastUpdatedDateTime": "2026-01-03T00:00:00Z"},
+        {"Id": 2, "LastUpdatedDateTime": None},
+    ]
     result = source(manager, endpoint, incremental, watermark)
     with patch("requests.Session.send", return_value=response(data)) as send:
-        rows = [row for page in result.items() for row in page]
+        rows = [row for page in source_items(result) for row in page]
     params = parse_qs(urlparse(send.call_args.args[0].url).query)
     assert params.get("lastupdatedfrom") == ([expected_filter] if expected_filter else None)
-    assert params["orderby"] == (["LastUpdatedDateTime asc,Id asc"] if incremental else ["Id asc"])
-    if incremental:
-        assert result.sort_mode == "asc"
+    assert params["orderby"] == ["Id asc"]
+    assert result.sort_mode == "desc"
     assert rows == [
         {"Id": 1, "LastUpdatedDateTime": datetime(2026, 1, 3, tzinfo=UTC)},
         {"Id": 2, "LastUpdatedDateTime": None},
@@ -145,7 +155,9 @@ def test_resume_keeps_filter_and_offset(manager: MagicMock, original_filter: str
     manager.can_resume.return_value = True
     manager.load_state.return_value = BuildiumResumeConfig(offset=1000, updated_from=original_filter)
     with patch("requests.Session.send", return_value=response([{"Id": 1001}])) as send:
-        assert list(source(manager, incremental=True, watermark="2026-01-05T00:00:00Z").items()) == [[{"Id": 1001}]]
+        assert list(source_items(source(manager, incremental=True, watermark="2026-01-05T00:00:00Z"))) == [
+            [{"Id": 1001}]
+        ]
     params = parse_qs(urlparse(send.call_args.args[0].url).query)
     assert params["offset"] == ["1000"]
     assert params.get("lastupdatedfrom") == ([original_filter] if original_filter else None)
@@ -155,6 +167,6 @@ def test_resume_keeps_filter_and_offset(manager: MagicMock, original_filter: str
 def test_sync_error_mapping(manager: MagicMock, status: int, message: str) -> None:
     with patch("requests.Session.send", return_value=response([], status=status)):
         with pytest.raises(HTTPError) as raised:
-            list(source(manager).items())
+            list(source_items(source(manager)))
     errors = BuildiumSource().get_non_retryable_errors()
     assert next(value for key, value in errors.items() if key in str(raised.value)) == message

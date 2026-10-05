@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -68,26 +69,26 @@ def buildium_source(
         # Keep the original filter because changing it would shift the saved offset.
         updated_from = resume.updated_from
 
-    params = {"orderby": "LastUpdatedDateTime asc,Id asc" if incremental else "Id asc"}
+    # Keep offset pagination stable when an object is updated during extraction. Ordering by the
+    # mutable update timestamp can move an already-read object to a later page and skip another one.
+    params = {"orderby": "Id asc"}
     if updated_from is not None:
         params["lastupdatedfrom"] = updated_from
 
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {"path": path, "data_selector": "$", "params": params},
+        "columns": {"LastUpdatedDateTime": {"data_type": "timestamp"}} if endpoint in INCREMENTAL_FIELDS else {},
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{BASE_URL}/{api_version}/",
+            "request_timeout": (10, 30),
             "headers": {"x-buildium-client-id": config.client_id},
             "auth": {"type": "api_key", "name": "x-buildium-client-secret", "api_key": config.client_secret},
             "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None, "total_header": "X-Total-Count"},
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {"path": path, "data_selector": "$", "params": params},
-                "columns": {"LastUpdatedDateTime": {"data_type": "timestamp"}}
-                if endpoint in INCREMENTAL_FIELDS
-                else {},
-            }
-        ],
+        "resources": [resource_config],
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
@@ -109,5 +110,7 @@ def buildium_source(
         items=lambda: resource,
         primary_keys=["Id"],
         column_hints=resource.column_hints,
-        sort_mode="asc" if incremental else "desc",
+        # Incremental rows are ID-ordered rather than timestamp-ordered, so only advance the
+        # timestamp watermark after a complete extraction.
+        sort_mode="desc",
     )
