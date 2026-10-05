@@ -318,6 +318,16 @@ def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list
     return targetable
 
 
+@dataclass(frozen=True, kw_only=True)
+class _ValidatedScope:
+    experiment: Experiment
+    flag: FeatureFlag
+    # Every requestable variant of the experiment.
+    variant_keys: list[str]
+    # The caller's narrowing of `variant_keys`, or all of them when it asked for none.
+    requested_variants: list[str]
+
+
 def _validated_scope(
     team: Team,
     *,
@@ -325,7 +335,7 @@ def _validated_scope(
     variant: str | None,
     variants: list[str] | None,
     require_launched: bool,
-) -> tuple[Experiment, FeatureFlag, list[str], list[str]]:
+) -> _ValidatedScope:
     try:
         experiment = Experiment.objects.get(id=experiment_id, team=team, deleted=False)
     except Experiment.DoesNotExist:
@@ -357,7 +367,9 @@ def _validated_scope(
                 raise ValidationError(f"'{requested_key}' is not a variant of this experiment.")
         # Keep the caller's order, drop duplicates, so the query's IN list stays minimal.
         requested_variants = list(dict.fromkeys(requested))
-    return experiment, flag, variant_keys, requested_variants
+    return _ValidatedScope(
+        experiment=experiment, flag=flag, variant_keys=variant_keys, requested_variants=requested_variants
+    )
 
 
 def validate_draft_experiment_scope(team: Team, *, experiment_id: int, variants: list[str] | None = None) -> None:
@@ -391,9 +403,10 @@ def resolve_exposure_linkage(
     exposure event was never captured with a session id and nothing stands in for it
     (custom criteria get no stand-in), because every session would then read as unexposed.
     """
-    experiment, flag, variant_keys, requested_variants = _validated_scope(
+    scope = _validated_scope(
         team, experiment_id=experiment_id, variant=variant, variants=variants, require_launched=True
     )
+    experiment = scope.experiment
 
     session_exposure: SessionExposure | None = None
     if in_session:
@@ -411,14 +424,14 @@ def resolve_exposure_linkage(
     )
     context = ExperimentQueryContext(
         team=team,
-        feature_flag_key=flag.key_without_tombstone(),
+        feature_flag_key=scope.flag.key_without_tombstone(),
         exposure_config=exposure_params.exposure_config,
         filter_test_accounts=exposure_params.filter_test_accounts,
         multiple_variant_handling=exposure_params.multiple_variant_handling,
         # The full variant list, not the requested one: variant attribution and multiple-variant
         # detection must see every variant, or a person exposed to two variants would pass as
         # cleanly exposed to the requested one. Narrowing happens in the WHERE below instead.
-        variants=tuple(variant_keys),
+        variants=tuple(scope.variant_keys),
         date_range_query=date_range_query,
         entity_key=get_entity_key(None),
         breakdowns=(),
@@ -429,7 +442,7 @@ def resolve_exposure_linkage(
     read = _resolve_exposure_read(team, experiment, context)
     return ExperimentExposureLinkage(
         context=context,
-        requested_variants=requested_variants,
+        requested_variants=scope.requested_variants,
         preaggregation_job_ids=read.preaggregation_job_ids,
         # The evidence scan always runs live whatever path the population resolves through, so a
         # narrowed listing carries the ceiling even where the population read needs none. Activation

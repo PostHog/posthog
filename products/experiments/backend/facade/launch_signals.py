@@ -7,7 +7,7 @@ from django.dispatch import Signal
 experiment_launched = Signal()
 
 
-def connect_experiment_launched(receiver: Callable[..., None], *, dispatch_uid: str) -> None:
+def connect_experiment_launched(receiver: Callable[..., object], *, dispatch_uid: str) -> None:
     """``receiver`` gets ``team_id=`` and ``experiment_id=`` once a launch saves. A receiver that
     raises is logged and never fails the launch."""
     experiment_launched.connect(receiver, dispatch_uid=dispatch_uid)
