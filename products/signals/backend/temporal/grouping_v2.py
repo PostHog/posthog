@@ -17,6 +17,7 @@ from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
@@ -55,9 +56,13 @@ class CollectedBatch:
 @activity.defn
 @scoped_temporal()
 async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
-    raw = await sync_to_async(object_storage.read, thread_sensitive=False)(input.object_key)
+    raw = await sync_to_async(object_storage.read, thread_sensitive=False)(input.object_key, missing_ok=True)
     if raw is None:
-        raise ValueError(f"Signal batch not found in S3: {input.object_key}")
+        # Nothing deletes these objects, so a missing one never comes back. Report the batch as
+        # skipped instead of failing, which would take the team's whole queue of batches with it.
+        logger.warning("signals_grouping_v2.batch_object_missing", object_key=input.object_key)
+        metrics.increment_missing_batch()
+        return ReadSignalsFromS3Output(signals=[], missing=True)
 
     data = json.loads(raw)
     signals = [EmitSignalInputs(**item) for item in data]
@@ -145,15 +150,16 @@ class TeamSignalGroupingV2Workflow:
             object_key = self._batch_key_buffer.pop(0)
             if self._batch_buffer_size_gauge is not None:
                 self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-            collected.object_keys.append(object_key)
-
             read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
                 read_signals_from_s3_activity,
                 ReadSignalsFromS3Input(object_key=object_key),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if read_result.missing:
+                continue
 
+            collected.object_keys.append(object_key)
             collected.signals.extend(read_result.signals)
 
         return collected
@@ -172,6 +178,8 @@ class TeamSignalGroupingV2Workflow:
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        if read_result.missing:
+            self._continue_as_new(input)
 
         signals: list[EmitSignalInputs] = read_result.signals
 
