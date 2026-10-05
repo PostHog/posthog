@@ -236,6 +236,37 @@ describe('TemporalService', () => {
             })
         })
 
+        it.each([
+            [
+                'run-evaluation',
+                (event: RawKafkaEvent) => service.startEvaluationRunWorkflow('eval-123', event, 'llm_judge'),
+            ],
+            ['run-tagger', (event: RawKafkaEvent) => service.startTaggerRunWorkflow('tagger-123', event)],
+        ])(
+            'starts %s with a reference when the worker would encode the event over the payload limit',
+            async (workflow, start) => {
+                const oversized = createMockEvent({
+                    properties: JSON.stringify({ $ai_trace_id: 'trace-1', $ai_output: 'é'.repeat(300_000) }),
+                })
+                const sameLengthAscii = createMockEvent({
+                    properties: JSON.stringify({ $ai_trace_id: 'trace-1', $ai_output: 'e'.repeat(300_000) }),
+                })
+
+                await start(oversized)
+                await start(sameLengthAscii)
+
+                const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+                expect(calls[0][0]).toBe(workflow)
+                expect(calls[0][1].args[0].event_data).toEqual({
+                    uuid: 'event-456',
+                    team_id: 1,
+                    timestamp: '2024-01-01T00:00:00Z',
+                    trace_id: 'trace-1',
+                })
+                expect(calls[1][1].args[0].event_data).toBe(sameLengthAscii)
+            }
+        )
+
         it('generates deterministic tagger workflow IDs', async () => {
             const mockEvent = createMockEvent()
 

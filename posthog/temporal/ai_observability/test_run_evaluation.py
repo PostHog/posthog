@@ -55,7 +55,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import hydrate_event_reference
+from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
@@ -1757,6 +1757,7 @@ class TestRunEvaluationWorkflow:
         assert raised.value.type == "generation_not_found"
         assert raised.value.non_retryable is not retryable
         assert isinstance(raised.value, NonReportableError) is retryable
+        assert (raised.value.next_retry_delay == GENERATION_NOT_FOUND_RETRY_DELAY) is retryable
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

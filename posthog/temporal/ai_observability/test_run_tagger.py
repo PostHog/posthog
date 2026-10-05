@@ -506,6 +506,73 @@ class TestRunTaggerWorkflow:
         await database_sync_to_async(tagger.refresh_from_db)()
         assert tagger.enabled is False
 
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("activity", ["llm", "hog", "emit"])
+    async def test_tagger_activities_hydrate_a_reference(self, setup_data, activity: str):
+        team = setup_data["team"]
+        full_event = create_mock_event_data(
+            team.id,
+            uuid="g1",
+            properties={
+                "$ai_input": [{"role": "user", "content": "How do I set up billing?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "In the settings."}],
+                "$ai_trace_id": "t1",
+            },
+        )
+        reference = {"uuid": "g1", "team_id": team.id, "timestamp": full_event["timestamp"], "trace_id": "t1"}
+        tagger = {
+            "id": str(setup_data["tagger"].id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event", return_value=full_event
+        ) as mock_fetch:
+            if activity == "llm":
+                mock_response = MagicMock(
+                    parsed=TagResult(tags=["billing"], reasoning="billing"),
+                    usage=MagicMock(input_tokens=1, output_tokens=1, total_tokens=2),
+                )
+                with (
+                    patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class,
+                    patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config,
+                ):
+                    mock_client_class.return_value.complete.return_value = mock_response
+                    mock_eval_config.objects.get_or_create.return_value = (_mock_config_with_active_key(), False)
+                    result = await database_sync_to_async(execute_tagger_activity)(
+                        ExecuteTaggerInputs(tagger=tagger, event_data=reference)
+                    )
+                assert result["tags"] == ["billing"]
+            elif activity == "hog":
+                hog_tagger = make_hog_tagger_dict(team.id, source="return ['billing']")
+                result = await execute_hog_tagger_activity(hog_tagger, reference)
+                assert result["tags"] == ["billing"]
+            else:
+                with (
+                    patch(
+                        "posthog.temporal.ai_observability.team_capture.get_team_api_token",
+                        return_value=team.api_token,
+                    ),
+                    patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture,
+                ):
+                    mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
+                    await emit_tagger_event_activity(
+                        EmitTaggerEventInputs(
+                            tagger=tagger,
+                            event_data=reference,
+                            result={"tags": ["billing"], "reasoning": "billing", "is_hog": True},
+                            start_time=datetime(2024, 1, 1, 12, 0, 0),
+                        )
+                    )
+                props = mock_capture.call_args[1]["properties"]
+                assert props["$ai_target_event_id"] == "g1"
+                assert props["$ai_trace_id"] == "t1"
+
+        assert mock_fetch.call_count == 1
+
     def test_parse_inputs(self):
         event_data = create_mock_event_data(team_id=1)
         inputs = ["tagger-123", json.dumps(event_data)]

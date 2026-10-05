@@ -12,6 +12,7 @@ import { Counter } from 'prom-client'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { isDevEnv } from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import { RawKafkaEvent } from '../../types'
@@ -31,6 +32,42 @@ export type TemporalServiceConfig = Pick<
 >
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
+
+export const EVENT_REFERENCE_THRESHOLD_BYTES = 1024 * 1024
+
+export interface EventReference {
+    uuid: string
+    team_id: number
+    timestamp: string
+    trace_id: string | null
+}
+
+export function asciiEscapedJsonSize(value: unknown): number {
+    const json = JSON.stringify(value)
+    let size = json.length
+    for (let i = 0; i < json.length; i++) {
+        if (json.charCodeAt(i) > 0x7f) {
+            size += 5
+        }
+    }
+    return size
+}
+
+function readTraceId(event: RawKafkaEvent): string | null {
+    try {
+        const traceId = parseJSON(event.properties ?? '{}')?.$ai_trace_id
+        return typeof traceId === 'string' ? traceId : null
+    } catch {
+        return null
+    }
+}
+
+export function toWorkflowEventData(event: RawKafkaEvent): RawKafkaEvent | EventReference {
+    if (asciiEscapedJsonSize(event) <= EVENT_REFERENCE_THRESHOLD_BYTES) {
+        return event
+    }
+    return { uuid: event.uuid, team_id: event.team_id, timestamp: event.timestamp, trace_id: readTraceId(event) }
+}
 
 const EVALUATION_WORKFLOW_PREFIXES = {
     hog: 'llma-hog-eval',
@@ -238,7 +275,7 @@ export class TemporalService {
             args: [
                 {
                     evaluation_id: evaluationId,
-                    event_data: event,
+                    event_data: toWorkflowEventData(event),
                 },
             ],
             taskQueue: EVALUATION_TASK_QUEUE,
@@ -335,7 +372,7 @@ export class TemporalService {
             args: [
                 {
                     tagger_id: taggerId,
-                    event_data: event,
+                    event_data: toWorkflowEventData(event),
                 },
             ],
             taskQueue: EVALUATION_TASK_QUEUE,
