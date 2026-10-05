@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     date_to_filter_clause,
     failure_rate_expr,
     run_scope_filter_clause,
+    run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
 
@@ -108,6 +109,7 @@ def query_job_aggregates(
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
         "job_created_floor": run_windowed_job_created_floor_constant(date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
     }
     # Each clause registers its own placeholder. The job template windows the job's created_at, and the
     # run-count template the run's run_started_at.
@@ -120,7 +122,7 @@ def query_job_aggregates(
             template.replace("__COST_SOURCE__", cost_source)
             .replace("__COST_RUN_SCOPE__", cost_run_scope_filter_clause(run_scope))
             .replace("__RUNS_RUN_SCOPE__", run_scope_filter_clause(run_scope))
-            .replace("__RUNS_SOURCE__", curated.run_source())
+            .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
             .replace("__DATE_TO__", date_to_clause)
             .replace("__RUNS_DATE_TO__", runs_date_to_clause)
             .replace("__BRANCH__", branch_clause)

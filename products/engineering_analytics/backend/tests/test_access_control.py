@@ -14,16 +14,20 @@ the bug under test, independent of object-storage availability for the real ware
 
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from unittest import mock
 
+from django.utils import timezone
+
 from rest_framework import status
 
+from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX, CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
@@ -47,6 +51,12 @@ _RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.Cura
 _EXECUTE_HOGQL = "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query"
 # Schema build reads this to decide whether per-table warehouse ACL is enforced.
 _FLAG = "posthog.hogql.database.database.feature_enabled_or_false"
+_STORED_READS_FLAG = "products.engineering_analytics.backend.logic.queries._curated.team_flag"
+_ENSURE_STORED = "products.engineering_analytics.backend.logic.ci_precompute.ensure_stored"
+
+
+def _warehouse_acl_enabled(key: str, *_args: Any, **_kwargs: Any) -> bool:
+    return key == "hogql-warehouse-access-control"
 
 
 @pytest.mark.ee
@@ -198,10 +208,7 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
                 "SELECT 1", query_type="engineering_analytics.test"
             )
 
-        def _flag_enabled(key: str, *_args: Any, **_kwargs: Any) -> bool:
-            return key == "hogql-warehouse-access-control"
-
-        with mock.patch(_FLAG, side_effect=_flag_enabled):
+        with mock.patch(_FLAG, side_effect=_warehouse_acl_enabled):
             database = Database.create_for(
                 team=self.team,
                 user=captured.get("user"),
@@ -209,6 +216,21 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
                 bypass_warehouse_access_control=captured.get("bypass_warehouse_access_control", False),
             )
         return database, captured
+
+    def _floored_ci_reads(self, user_access_control: UserAccessControl) -> list[str]:
+        with (
+            mock.patch(_FLAG, side_effect=_warehouse_acl_enabled),
+            mock.patch(_STORED_READS_FLAG, return_value=True),
+            mock.patch(_ENSURE_STORED, return_value=SimpleNamespace(ready=True, job_ids=[uuid4()])),
+            mock.patch(_EXECUTE_HOGQL, return_value=SimpleNamespace(results=[])) as execute,
+        ):
+            curated = CuratedGitHubSource.for_team(self.team, user_access_control=user_access_control)
+            curated.run(
+                f"SELECT count() FROM {curated.run_source(started_floor=True)} AS r",
+                query_type="engineering_analytics.test",
+                placeholders={"run_started_floor": ast.Constant(value=timezone.now().strftime("%Y-%m-%d"))},
+            )
+        return [call.kwargs["query_type"] for call in execute.call_args_list]
 
     def test_member_with_default_access_keeps_github_tables(self) -> None:
         # A normal member (no explicit restriction) defaults to editor on the warehouse tables, so the
@@ -220,6 +242,7 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
         assert tables.workflow_jobs is not None and database.has_table(tables.workflow_jobs)
+        assert self._floored_ci_reads(uac) == [f"engineering_analytics.test{STORED_QUERY_TYPE_SUFFIX}"]
 
     def test_member_denied_backing_table_cannot_query_it(self) -> None:
         # Deny one member the workflow_runs table specifically. Forwarding the user now honors that: the
@@ -237,6 +260,8 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
 
         assert not database.has_table(tables.workflow_runs)
         assert database.has_table(tables.pull_requests)
+        # The stored CI rows hold the rows of the denied table, and were stored with no user.
+        assert self._floored_ci_reads(uac) == ["engineering_analytics.test"]
 
     def test_userless_system_read_bypasses_acl_and_keeps_tables(self) -> None:
         # The facade documents a userless path (user_access_control=None) for system / Temporal / CLI
