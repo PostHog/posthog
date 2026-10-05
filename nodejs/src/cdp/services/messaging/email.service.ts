@@ -619,7 +619,7 @@ export class EmailService {
                 return result
             }
             if (isSandbox) {
-                if (!(await this.skipPausedSandboxSend(result, isTest))) {
+                if (!(await this.passesSandboxPauseGate(result, isTest))) {
                     return result
                 }
                 const cc = sandboxAddressList(params.cc)
@@ -1061,7 +1061,7 @@ export class EmailService {
         return false
     }
 
-    private async skipPausedSandboxSend(
+    private async passesSandboxPauseGate(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         isTest: boolean
     ): Promise<boolean> {

@@ -2,8 +2,10 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { PubSub } from '~/common/utils/pubsub'
 
+type SandboxSenderState = { sendingStatus: string }
+
 export class SandboxSenderStateService {
-    private lazyLoader: LazyLoader<{ sendingStatus: string }>
+    private lazyLoader: LazyLoader<SandboxSenderState>
 
     constructor(
         private postgres: PostgresRouter,
@@ -13,8 +15,7 @@ export class SandboxSenderStateService {
             name: 'sandbox_sender_state',
             refreshAgeMs: 30_000,
             refreshJitterMs: 5_000,
-            loader: async (tenantNames): Promise<Record<string, { sendingStatus: string } | null>> =>
-                await this.fetchStates(tenantNames),
+            loader: async (tenantNames) => await this.fetchStates(tenantNames),
         })
         pubSub.on<{ tenantName: string }>('reload-sandbox-sender-state', ({ tenantName }): void => {
             this.lazyLoader.markForRefresh(tenantName)
@@ -26,20 +27,14 @@ export class SandboxSenderStateService {
         return (await this.lazyLoader.get(tenantName))?.sendingStatus === 'DISABLED'
     }
 
-    private async fetchStates(tenantNames: string[]): Promise<Record<string, { sendingStatus: string } | null>> {
-        const result = await this.postgres.query<{ tenant_name: string; sending_status: string }>(
-            PostgresUse.COMMON_READ,
+    private async fetchStates(tenantNames: string[]): Promise<Record<string, SandboxSenderState>> {
+        const { rows } = await this.postgres.query<{ tenant_name: string; sending_status: string }>(
+            // The reload message fires right after the commit, so a lagging replica would cache the old state again.
+            PostgresUse.COMMON_WRITE,
             'SELECT tenant_name, sending_status FROM workflows_sandboxsendertenantstate WHERE tenant_name = ANY($1)',
             [tenantNames],
             'fetch-sandbox-sender-state'
         )
-        const states: Record<string, { sendingStatus: string } | null> = {}
-        for (const tenantName of tenantNames) {
-            states[tenantName] = null
-        }
-        for (const row of result.rows) {
-            states[row.tenant_name] = { sendingStatus: row.sending_status }
-        }
-        return states
+        return Object.fromEntries(rows.map((row) => [row.tenant_name, { sendingStatus: row.sending_status }]))
     }
 }
