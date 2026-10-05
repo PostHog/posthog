@@ -6,6 +6,8 @@ import { Spinner } from "./Spinner";
 
 // The chat area draws the sidebar's right edge, so its lines can join it.
 export const SIDEBAR_WIDTH = 31;
+// Narrowed with Ctrl+B: the logo's four stripes and a cell either side.
+export const NARROW_SIDEBAR_WIDTH = 6;
 
 // Blank rows under the header; clicks on the sidebar skip them.
 export const HEADER_GAP = 1;
@@ -111,6 +113,64 @@ function Row({
   }
 }
 
+// The same rows at the logo's width: glyphs stand in for names, and the dots and tree stay as they are.
+function NarrowRow({
+  row,
+  selected,
+}: {
+  row: SidebarRow;
+  selected: boolean;
+}): ReactElement {
+  switch (row.kind) {
+    case "heading":
+      return (
+        <Text>
+          {BRAND_STRIPES.map((color) => (
+            <Text key={color} backgroundColor={color}>
+              {" "}
+            </Text>
+          ))}
+        </Text>
+      );
+    case "section":
+      return <Text bold>≡</Text>;
+    case "gap":
+      return <Text> </Text>;
+    case "workspace":
+      return (
+        <Text bold inverse={selected}>
+          ▦
+        </Text>
+      );
+    case "task":
+      return (
+        <Text>
+          {row.nested && <Text dimColor>{row.last ? "└ " : "├ "}</Text>}
+          <Text inverse={selected}>
+            {row.taskId === null ? (
+              <Text dimColor>•</Text>
+            ) : (
+              <IndicatorGlyph indicator={row.indicator} local={row.local} />
+            )}
+          </Text>
+        </Text>
+      );
+    case "loading":
+      return <Spinner />;
+    case "viewMore":
+      return (
+        <Text dimColor={!selected} inverse={selected}>
+          …
+        </Text>
+      );
+    case "error":
+      return <Text color="red">!</Text>;
+    case "signedOut":
+    case "empty":
+      return <Text dimColor>·</Text>;
+  }
+}
+
 function rowKey(row: SidebarRow, index: number): string {
   if (row.kind === "task") return `${row.paneId ?? "work"}:${row.taskId}`;
   if (row.kind === "workspace") return row.workspaceId;
@@ -124,6 +184,7 @@ export function Sidebar({
   focused,
   selectedIndex,
   activePaneId,
+  narrow = false,
 }: {
   boxRef?: RefObject<DOMElement | null>;
   notice: string | null;
@@ -131,6 +192,7 @@ export function Sidebar({
   focused: boolean;
   selectedIndex: number;
   activePaneId: string | null;
+  narrow?: boolean;
 }): ReactElement {
   // With focus the bar follows the cursor; without it, it marks the focused pane's task.
   const highlighted = (row: SidebarRow, index: number): boolean =>
@@ -143,7 +205,7 @@ export function Sidebar({
   return (
     <Box
       ref={boxRef}
-      width={SIDEBAR_WIDTH}
+      width={narrow ? NARROW_SIDEBAR_WIDTH : SIDEBAR_WIDTH}
       flexShrink={0}
       flexDirection="column"
       paddingX={1}
@@ -155,7 +217,11 @@ export function Sidebar({
           marginBottom={row.kind === "heading" ? HEADER_GAP : 0}
         >
           <Text dimColor={!focused} wrap="truncate-end">
-            <Row row={row} selected={highlighted(row, index)} />
+            {narrow ? (
+              <NarrowRow row={row} selected={highlighted(row, index)} />
+            ) : (
+              <Row row={row} selected={highlighted(row, index)} />
+            )}
           </Text>
         </Box>
       ))}
@@ -165,7 +231,11 @@ export function Sidebar({
         color={notice ? posthogBlue() : undefined}
         wrap="truncate-end"
       >
-        {notice ?? "^N new · ^\\ split · ^Q quit"}
+        {narrow
+          ? notice
+            ? "●"
+            : "^B"
+          : (notice ?? "^N new · ^\\ split · ^Q quit")}
       </Text>
     </Box>
   );

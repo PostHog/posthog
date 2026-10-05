@@ -49,6 +49,7 @@ export function useKeys({
   scrollPane,
   control,
   paneAtDrop,
+  toggleSidebar,
   notice: { flashNotice, clearNotice },
 }: {
   layout: LayoutState;
@@ -61,6 +62,7 @@ export function useKeys({
   scrollPane: (paneId: string, lines: number) => void;
   control: ((taskId: string, runId: string) => PiControl) | undefined;
   paneAtDrop: () => string | undefined;
+  toggleSidebar: () => void;
   notice: Notice;
 }): Keys {
   const { exit } = useApp();
@@ -122,6 +124,10 @@ export function useKeys({
     if (search.open) return;
     if (shortcut === "newChat") {
       setLayout(newChat);
+      return;
+    }
+    if (shortcut === "toggleSidebar") {
+      toggleSidebar();
       return;
     }
     if (shortcut) {
