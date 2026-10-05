@@ -1,5 +1,24 @@
 # MCP tool-call query cookbook
 
+## Contents
+
+- [Conventions](#conventions)
+- [0. Field-coverage probe (run this first, every run)](#0-field-coverage-probe-run-this-first-every-run)
+- [1. Failure leaderboard (Tier-1 detection — always available)](#1-failure-leaderboard-tier-1-detection--always-available)
+- [2. Struggle / retry leaderboard (Tier-1 detection — always available, high value)](#2-struggle--retry-leaderboard-tier-1-detection--always-available-high-value)
+- [3a. Error-class composition — HONO regime (`pct_failures_classified` non-trivial)](#3a-error-class-composition--hono-regime-pct_failures_classified-non-trivial)
+- [3b. Error-message sampling — EXTERNAL-SDK regime (`pct_failures_with_message` high)](#3b-error-message-sampling--external-sdk-regime-pct_failures_with_message-high)
+- [4. Latency leaderboard (Tier-1 — always available)](#4-latency-leaderboard-tier-1--always-available)
+- [5. Intent lens (coverage-gated — only if `pct_with_intent` ≥ ~20)](#5-intent-lens-coverage-gated--only-if-pct_with_intent--20)
+- [6. Per-client / per-mode split (localize a partial break)](#6-per-client--per-mode-split-localize-a-partial-break)
+- [7. Observability-gap detection (a report-worthy finding)](#7-observability-gap-detection-a-report-worthy-finding)
+- [8. Output-size bloat — HONO regime only (`pct_with_tokens` high)](#8-output-size-bloat--hono-regime-only-pct_with_tokens-high)
+- [9. By-category rollup (the report grain — per-category mode)](#9-by-category-rollup-the-report-grain--per-category-mode)
+- [10. Session share — the "called too much" lens](#10-session-share--the-called-too-much-lens)
+- [11. Category metrics — the `category_rollup` record](#11-category-metrics--the-category_rollup-record)
+
+## Conventions
+
 All queries run via `execute-sql` over the `$mcp_tool_call` event. Conventions used
 throughout:
 
