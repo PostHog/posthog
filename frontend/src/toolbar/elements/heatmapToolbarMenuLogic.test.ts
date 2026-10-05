@@ -190,6 +190,19 @@ describe('heatmapToolbarMenuLogic', () => {
 
             expect(resolved?.dataset.testid ?? null).toBe(expectedTestId)
         })
+
+        it('follows a replaced node that lives inside a shadow root', () => {
+            document.body.innerHTML = '<div id="host"></div>'
+            const shadowRoot = (document.getElementById('host') as HTMLElement).attachShadow({ mode: 'open' })
+            shadowRoot.innerHTML = '<nav id="tracked"></nav>'
+            const tracked = shadowRoot.getElementById('tracked') as HTMLElement
+            tracked.remove()
+            shadowRoot.innerHTML = '<nav id="tracked" data-testid="replacement"></nav>'
+
+            const resolved = resolveAreaElement({ element: tracked, selector: 'nav#tracked' })
+
+            expect(resolved?.dataset.testid).toBe('replacement')
+        })
     })
 
     describe('stepAreaCandidate', () => {

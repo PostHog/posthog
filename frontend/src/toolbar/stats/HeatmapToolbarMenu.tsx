@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useState } from 'react'
 
-import { IconMagicWand, IconTarget } from '@posthog/icons'
+import { IconMagicWand, IconPencil, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSnack, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -12,14 +12,17 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import { SelectorCount } from '~/toolbar/actions/SelectorCount'
+import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/stats/heatmapCaptureLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { urls } from '~/toolbar/urls'
-import { joinWithUiHost } from '~/toolbar/utils'
+import { joinWithUiHost, toElementsChain } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
@@ -120,7 +123,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         startAreaSelection,
         cancelAreaSelection,
         selectHeatmapAreaFilter,
+        editHeatmapAreaSelector,
     } = useActions(heatmapToolbarMenuLogic)
+    const [editingAreaSelector, setEditingAreaSelector] = useState(false)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
@@ -212,18 +217,48 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     </LemonButton>
                 </div>
                 {heatmapAreaFilter && !areaSelectionActive ? (
-                    <div className="flex flex-row items-center gap-2 py-2 border-b">
-                        <span className="text-muted text-xs">Filtered to</span>
-                        <LemonSnack
-                            className="font-mono text-xs shrink min-w-0 truncate"
-                            title={
-                                heatmapAreaFilter.selector ??
-                                'No unique selector could be derived for this element, so the clickmap is filtered client-side only and may be limited to the loaded data.'
-                            }
-                            onClose={() => selectHeatmapAreaFilter(null)}
-                        >
-                            {heatmapAreaFilter.selector ?? `<${heatmapAreaFilter.element.tagName.toLowerCase()}>`}
-                        </LemonSnack>
+                    <div className="py-2 border-b">
+                        <div className="flex flex-row items-center gap-2">
+                            <span className="text-muted text-xs shrink-0">Filtered to</span>
+                            <LemonSnack
+                                className="font-mono text-xs shrink min-w-0 truncate"
+                                title={
+                                    heatmapAreaFilter.selector ??
+                                    'No unique selector could be derived for this element, so the clickmap is filtered client-side only and may be limited to the loaded data.'
+                                }
+                                onClose={() => selectHeatmapAreaFilter(null)}
+                            >
+                                {heatmapAreaFilter.selector ?? `<${heatmapAreaFilter.element.tagName.toLowerCase()}>`}
+                            </LemonSnack>
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                data-attr="heatmap-area-filter-edit-selector"
+                                tooltip="Edit the selector"
+                                onClick={() => setEditingAreaSelector(true)}
+                            />
+                            <span className="ml-auto shrink-0">
+                                <SelectorCount selector={heatmapAreaFilter.selector} />
+                            </span>
+                        </div>
+                        <SelectorQualityWarning selector={heatmapAreaFilter.selector} compact />
+                        {editingAreaSelector ? (
+                            <SelectorEditingModal
+                                isOpen
+                                setIsOpen={setEditingAreaSelector}
+                                activeElementChain={toElementsChain(heatmapAreaFilter.element).map((element) => ({
+                                    ...element,
+                                    // a container's text is the whole region, which buries the chain
+                                    text: undefined,
+                                }))}
+                                startingSelector={heatmapAreaFilter.selector}
+                                onChange={(selector) => {
+                                    if (selector) {
+                                        editHeatmapAreaSelector(selector)
+                                    }
+                                }}
+                            />
+                        ) : null}
                     </div>
                 ) : null}
             </ToolbarMenu.Header>

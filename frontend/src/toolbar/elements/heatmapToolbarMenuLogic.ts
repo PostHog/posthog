@@ -14,7 +14,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { PostHog } from 'posthog-js'
-import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+import { collectAllElementsDeep, querySelectorDeep } from 'query-selector-shadow-dom'
 
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -42,12 +42,13 @@ import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import {
     elementIsVisible,
-    elementToActionStep,
+    elementToAreaSelector,
     getParent,
     getToolbarRootElement,
     invalidateZoomCache,
     trimElement,
 } from '~/toolbar/utils'
+import { checkSelectorFragility } from '~/toolbar/utils/selectorQuality'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { HrefMatchType } from '../../lib/components/heatmaps/heatmapDataLogic'
@@ -224,12 +225,14 @@ export function containsInComposedTree(container: HTMLElement, element: HTMLElem
     return false
 }
 
-function findElementBySelector(selector: string | null): HTMLElement | null {
+// a deep query, like the uniqueness check in elementToAreaSelector, so an area inside a shadow
+// root can still be found after a re-render
+export function findElementBySelector(selector: string | null): HTMLElement | null {
     if (!selector) {
         return null
     }
     try {
-        return document.querySelector(selector) as HTMLElement | null
+        return querySelectorDeep(selector) as HTMLElement | null
     } catch {
         // toolbar-derived selectors are not guaranteed to be valid querySelector input
         return null
@@ -464,6 +467,9 @@ export interface heatmapToolbarMenuLogicActions {
     }
     disableHeatmap: () => {
         value: true
+    }
+    editHeatmapAreaSelector: (selector: string) => {
+        selector: string
     }
     enableHeatmap: () => {
         value: true
@@ -721,6 +727,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         stepAreaHover: (direction: 'up' | 'down') => ({ direction }),
         setAreaCandidates: (candidates: HTMLElement[]) => ({ candidates }),
         selectHeatmapAreaFilter: (element: HTMLElement | null) => ({ element }),
+        editHeatmapAreaSelector: (selector: string) => ({ selector }),
         setHeatmapAreaFilter: (element: HTMLElement | null, selector: string | null) => ({ element, selector }),
         // swap the tracked node for a re-resolved one without refetching: the selector is
         // unchanged, so the server response would be byte-identical
@@ -1266,16 +1273,32 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         selectHeatmapAreaFilter: ({ element }) => {
             const selector = element
-                ? elementToActionStep(element, toolbarConfigLogic.values.dataAttributes).selector || null
+                ? elementToAreaSelector(element, toolbarConfigLogic.values.dataAttributes) || null
                 : null
             const arrowStepped = values.areaHoverStepped
             actions.setHeatmapAreaFilter(element, selector)
             toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
                 enabled: !!element,
                 has_selector: !!selector,
+                selector_fragile: checkSelectorFragility(selector).isFragile,
                 tag_name: element?.tagName.toLowerCase() ?? null,
                 trigger: 'user',
                 arrow_stepped: arrowStepped,
+            })
+        },
+
+        editHeatmapAreaSelector: ({ selector }) => {
+            const element = findElementBySelector(selector)
+            if (!element) {
+                return
+            }
+            actions.setHeatmapAreaFilter(element, selector)
+            toolbarPosthogJS.capture('toolbar heatmap area filter changed', {
+                enabled: true,
+                has_selector: true,
+                selector_fragile: checkSelectorFragility(selector).isFragile,
+                tag_name: element.tagName.toLowerCase(),
+                trigger: 'selector_edited',
             })
         },
 
