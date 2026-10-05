@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
@@ -197,6 +198,8 @@ class OpenAIAdapter:
                     # The reply was cut off at the output limit, so the JSON it carries is truncated.
                     # Report the limit rather than the unreadable JSON it produced.
                     raise OutputTokenLimitError(str(e)) from e
+                except openai.ContentFilterFinishReasonError as e:
+                    raise ContentFilteredError(str(e)) from e
                 except ValidationError as e:
                     # json_schema does not enforce cross-field validators, so a schema-valid reply can
                     # still fail our model. Normalize it so callers skip invalid output.
@@ -252,6 +255,10 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
+                # Azure OpenAI rejects a prompt that its filter blocks with a 400, before any
+                # completion exists to carry a `content_filter` finish reason.
+                if error.code == "content_filter":
+                    return ContentFilteredError(str(error))
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
@@ -288,7 +295,11 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             **(self._build_analytics_kwargs(analytics, client)),
         )
 
-        content = create_response.choices[0].message.content or ""
+        choice = create_response.choices[0]
+        if choice.finish_reason == "content_filter":
+            # A refused reply has no content, so parsing it would report the refusal as malformed JSON.
+            raise ContentFilteredError("The request was rejected by the content filter.")
+        content = choice.message.content or ""
         usage = self._extract_usage(create_response.usage)
 
         # Parse the JSON response
