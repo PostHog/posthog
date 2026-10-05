@@ -714,6 +714,7 @@ type InsightErrorKind =
     | 'invalid_query'
     | 'permission'
     | 'transient'
+    | 'network'
     | 'server'
     | 'unknown'
 
@@ -723,6 +724,7 @@ const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: 
     invalid_query: HedgehogError,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
+    network: HedgehogConstruction2,
     server: HedgehogDoctor,
     unknown: HedgehogDoctor,
 }
@@ -732,7 +734,10 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+function getInsightErrorKind(status?: number | null, networkError?: boolean): InsightErrorKind {
+    if (networkError) {
+        return 'network'
+    }
     if (status === 429) {
         return 'rate_limit'
     }
@@ -771,6 +776,9 @@ function getInsightErrorTitle(
     if (kind === 'transient') {
         return "This query couldn't run right now"
     }
+    if (kind === 'network') {
+        return "We couldn't connect to PostHog"
+    }
     if (kind === 'server') {
         return "PostHog couldn't complete this query"
     }
@@ -801,6 +809,8 @@ function getInsightErrorRemediation(
             return 'Ask a project admin to grant you access to this insight.'
         case 'transient':
             return 'Try again in a moment.'
+        case 'network':
+            return 'Check your internet connection, then try again.'
         case 'server':
         case 'unknown':
             return 'Try again in a moment. If the problem continues, contact support.'
@@ -813,6 +823,8 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
     titleStatus?: number | null
+    /** The request never reached the server, so the user's connection is the likely cause */
+    networkError?: boolean
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
@@ -828,6 +840,7 @@ export interface InsightErrorStateProps {
 export function InsightErrorState({
     title,
     titleStatus,
+    networkError = false,
     query,
     queryId,
     retryAfter,
@@ -839,7 +852,7 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
-    const errorKind = getInsightErrorKind(titleStatus)
+    const errorKind = getInsightErrorKind(titleStatus, networkError)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
@@ -855,7 +868,7 @@ export function InsightErrorState({
     // query_id lets staff look the actual error up server-side
     useOnMountEffect(() => {
         posthog.capture('insight error message shown', {
-            error_type: 'server',
+            error_type: errorKind === 'network' ? 'network' : 'server',
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
         })
@@ -879,7 +892,8 @@ export function InsightErrorState({
             If this persists, submit a bug report.
         </Link>
     )
-    const showErrorIcon = errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown'
+    const showErrorIcon =
+        errorKind === 'transient' || errorKind === 'network' || errorKind === 'server' || errorKind === 'unknown'
 
     return (
         <div
