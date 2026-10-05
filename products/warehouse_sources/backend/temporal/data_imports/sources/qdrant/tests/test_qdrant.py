@@ -88,6 +88,9 @@ def test_paginated_full_refresh(
         assert all(request.headers["Authorization"] == "apikey fake-management-key" for request in http.request_history)
         assert all(request.method == "GET" for request in http.request_history)
         assert response.name == endpoint
+        assert response.on_complete is not None
+        response.on_complete()
+        manager.clear_state.assert_called_once_with()
 
 
 @pytest.mark.parametrize("resume", [None, QdrantResumeConfig(cursor="saved-token")])
@@ -135,6 +138,7 @@ def test_repeated_cursor_fails(config: QdrantSourceConfig, manager: Mock) -> Non
 @pytest.mark.parametrize("schema_name", [None, "clusters", "backups", "backup_schedules", "backup_restores"])
 def test_credentials_make_one_probe(config: QdrantSourceConfig, schema_name: str | None) -> None:
     with requests_mock.Mocker() as http:
+        body: dict[str, Any]
         if schema_name is None:
             url = ACCOUNTS_URL
             body = {"items": [{"id": ACCOUNT_ID}]}

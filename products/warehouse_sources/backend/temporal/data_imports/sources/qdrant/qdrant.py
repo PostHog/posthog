@@ -137,6 +137,7 @@ def qdrant_source(
     )
     return SourceResponse(
         name=endpoint,
+        on_complete=resumable_source_manager.clear_state,
         items=lambda: resource,
         primary_keys=PRIMARY_KEYS,
         partition_keys=[PARTITION_KEY],
