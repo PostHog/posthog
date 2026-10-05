@@ -2883,8 +2883,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 if (!reactFlowWrapper?.current || !reactFlowInstance) {
                     return
                 }
-                // Get the width of the wrapper
-                const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
+                const wrapperRect = reactFlowWrapper.current.getBoundingClientRect()
+                const wrapperWidth = wrapperRect?.width ?? 0
+                const wrapperHeight = wrapperRect?.height ?? 0
                 const panel = reactFlowWrapper.current.parentElement?.querySelector<HTMLElement>(
                     '[data-attr="workflow-editor-panel"]'
                 )
@@ -2892,12 +2893,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     panel && getComputedStyle(panel).position === 'absolute'
                         ? Math.min(panel.getBoundingClientRect().width, wrapperWidth)
                         : 0
-                // Get the width of the thing we are going to fit to the view
-                const nodesWidth =
-                    reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)
-                        ?.width ?? 0
-                // Adjust the width for the zoom factor to be relative to the wrapper width
-                const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
+                const nodesToFit = values.selectedNode ? [values.selectedNode] : values.nodes
+                const nodesBounds = reactFlowInstance.getNodesBounds(nodesToFit)
+                const visibleWidth = wrapperWidth - panelWidth
+                // Size the padding for the zoom this fit lands on. With the current zoom each fit depends
+                // on the previous one, so the resize observer and the mount timeout leave a different
+                // viewport depending on how often they fire.
+                const fitZoom =
+                    noZoom || !nodesBounds.width || !nodesBounds.height
+                        ? reactFlowInstance.getZoom()
+                        : Math.min(visibleWidth / nodesBounds.width, wrapperHeight / nodesBounds.height)
+                const nodesWidthAdjusted = nodesBounds.width * fitZoom
                 // Calculate the padding right to fit the panel width to the wrapper width
                 // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
                 const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - panelWidth) / 2
@@ -2906,7 +2912,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     padding: panelWidth > 0 ? { right: `${paddingRight}px` } : 0.2,
                     maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
                     minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                    nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
+                    nodes: nodesToFit,
                     duration: duration ?? 100,
                 })
             },
