@@ -1427,8 +1427,11 @@ async fn test_delete_tombstoned_persons_reports_each_outcome(
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::unspecified(DeletePersonsMode::Unspecified as i32)]
+#[case::tombstone(DeletePersonsMode::Tombstone as i32)]
 #[tokio::test]
-async fn test_delete_persons_tombstone_mode_reports_versions() {
+async fn test_delete_persons_tombstone_mode_reports_versions(#[case] mode: i32) {
     let ctx = ServiceTestContext::new().await;
     let person = ctx.insert_person("svc_tomb_mode", None).await.unwrap();
 
@@ -1437,7 +1440,7 @@ async fn test_delete_persons_tombstone_mode_reports_versions() {
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: ctx.team_id,
             person_uuids: vec![person.uuid.to_string()],
-            mode: DeletePersonsMode::Tombstone as i32,
+            mode,
         }))
         .await
         .expect("RPC failed")

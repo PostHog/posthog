@@ -188,7 +188,7 @@ message UpdatePersonPropertiesResponse {
 
 // How DeletePersons removes the rows.
 enum DeletePersonsMode {
-  // Same as HARD.
+  // Same as TOMBSTONE.
   DELETE_PERSONS_MODE_UNSPECIFIED = 0;
   // Remove the rows, tombstoned ones included. For callers that publish no
   // ClickHouse tombstones and want nothing left behind, such as a purge.
