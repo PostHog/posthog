@@ -12590,14 +12590,6 @@ snapshots:
         hash: v1.k794b7964.07148958cd17ddb6f5e92153e6020b88a5c0faadd1d30453af7dcd3842efe1be.mbfalsNTUY56lRXxDljiT-ZQ19WP2LSF7Ngnn21lRsw
     scenes-app-replay-vision--scanner-editor-configure--light:
         hash: v1.k794b7964.441d1f2092c34a7b98fc0cca4ce039b03fa223acfa0955672a8200e9c4f1df69.iNQCuJrorTIeH3ontcAYe7EQOqQk76GpO_vVgGVzT0s
-    scenes-app-replay-vision--scanner-editor-configure-lite-standard-pro--dark:
-        hash: v1.k794b7964.c64f713375523d7ceb2ecede91d394caf0379f096ee9302e92d64e2de87514bb.L1skjowXVC5Yf3TLDthgxBXlzjvQZa6-i1ISygC3ZFY
-    scenes-app-replay-vision--scanner-editor-configure-lite-standard-pro--light:
-        hash: v1.k794b7964.397bf5513fa081897ffcac43eb0844a05d197c04e5a4f9e35ea8c83310e2d2df.e0Iddg_OnMKpq0RdZfhX1gUbhmpA7MFhevyls-TqHgk
-    scenes-app-replay-vision--scanner-editor-configure-tier-names--dark:
-        hash: v1.k794b7964.617d560964eee64beb4858b6864ea2fcda8f414b464b96a9f96d9806a7672cde.a6-JwVJ7LCDaPGEEg3NLnnLSMcqUj-sgRFvdAQ_4N0o
-    scenes-app-replay-vision--scanner-editor-configure-tier-names--light:
-        hash: v1.k794b7964.c7f71e1e378d2f2a6b13caf0a33b134b725d638896c952544b4683b5797d65da.vn0RAITVyyM1_eKd6fHDrQHWx-jR9kbn_iqq1jeBL3w
     scenes-app-replay-vision--scanner-editor-details--dark:
         hash: v1.k794b7964.b432270f77e7780bf7c0d1a0cbabfe3a6dcc4fcebbf2311f64a92f113f5ec8c2.N1ufgn3U8jNJTWVtd9YsSvOK6qxo8Kb-7Jkux2YeVdk
     scenes-app-replay-vision--scanner-editor-details--light:
@@ -12642,14 +12634,6 @@ snapshots:
         hash: v1.k794b7964.ce428f09777c68f7877231238a3e19ae7cc6b8768d6079b1382fe7ec65235d2f.GB1dNfKiEDNWWpYOg6CSWBL9VrQGoRo1jNn0UucRUtY
     scenes-app-replay-vision--scanner-scouts-empty--light:
         hash: v1.k794b7964.96bc080fa28fe04f239d200ce847119cde120c2ca985ff09b88d12b9447a03e8.rqHm0-oLrDHCJOuxqUbyDoKyiJtxvtyCkTGMlTmsiI4
-    scenes-app-replay-vision--scanner-setup-lite-standard-pro--dark:
-        hash: v1.k794b7964.01214733bf87360833d13c97d4f03a1ad2cbc1d80ac0bb5802395cd5a085e2b6.ScGeo--6ncL7f9N7rTRpx3_Fw4zXLPezqSunKkrp4LA
-    scenes-app-replay-vision--scanner-setup-lite-standard-pro--light:
-        hash: v1.k794b7964.48b5ade3f742b62525eede9e36a08937d739f08b921f2edce466546019eec9cd.dJx49fK4AIHMEwrDzYCVtCKuK3H73NcTGRH9Ru_QFtA
-    scenes-app-replay-vision--scanner-setup-tier-names--dark:
-        hash: v1.k794b7964.da789beb88e4cdb0146beb89a354915b86592ba176398a755b030d5fec09c834.Wg9tPp30WdEqLKf5nj3_zapyIpFgj8CjpNyNO79ZQUU
-    scenes-app-replay-vision--scanner-setup-tier-names--light:
-        hash: v1.k794b7964.40dac9914816882c2a7d77de705723bfd90094ca3af16dca603e0e5d1a5fda60.US_zz15OeP_p4i9xQJvAnDTi4WqPMbVeuKTY8wRgNjw
     scenes-app-replay-vision--scanner-status-throttled--dark:
         hash: v1.k794b7964.4f38e9093649330d8d9a87e2e6730e153a4592e832e20a0be6880105ae463a1f.b7I0bi116aXSjdoVZS2oGx603tzGNNsUHLSUHYbzYyA
     scenes-app-replay-vision--scanner-status-throttled--light:

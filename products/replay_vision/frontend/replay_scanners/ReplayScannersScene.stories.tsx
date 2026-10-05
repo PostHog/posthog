@@ -1299,24 +1299,6 @@ export const ScannerOnDemand: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=run` },
 }
 
-// Test arms of the model tier-naming experiment: models labeled by capability tier instead of
-// provider names, as the Overview's Setup card shows them.
-export const ScannerSetupTierNames: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
-    },
-}
-
-export const ScannerSetupLiteStandardPro: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
-        },
-    },
-}
-
 const digestScoutConfig = {
     id: '00000000-0000-0000-0000-0000000000c1',
     skill_name: 'signals-scout-daily-digest-confused-checkout',
@@ -1553,22 +1535,6 @@ export const ScannerEditorDetails: StoryObj = {
 
 export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
-}
-
-export const ScannerEditorConfigureTierNames: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
-    },
-}
-
-export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
-        },
-    },
 }
 
 export const ScannerEditorTriggers: StoryObj = {
