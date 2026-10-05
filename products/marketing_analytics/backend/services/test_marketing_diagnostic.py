@@ -279,3 +279,37 @@ class TestGetMarketingDiagnostic(SimpleTestCase):
     async def test_include_conversion_goals_false_skips_goals_call(self):
         await get_marketing_diagnostic(self.team, include_conversion_goals=False)
         self.mock_goals.assert_not_awaited()
+
+    @parameterized.expand(
+        [
+            ("unfiltered", None, {"google_ads": "healthy", "bing_ads": "healthy"}),
+            ("filtered_to_bing", "BingAds", {"bing_ads": "healthy"}),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_source_type_filter_limits_integrations_to_connected_sources(
+        self, _name: str, source_type: str | None, expected: dict[str, str]
+    ) -> None:
+        ds_entries = {
+            "GoogleAds": _ds_entry(),
+            "BingAds": _ds_entry(source_type="BingAds", display_name="Bing Ads"),
+        }
+        attr_entries = {
+            "GoogleAds": _attr_entry(),
+            "BingAds": _attr_entry(integration_key="bing_ads", display_name="Bing Ads"),
+        }
+        selected = [source_type] if source_type else list(ds_entries)
+        self.mock_ds.return_value = DataSourceHealthResponse(
+            integrations=[ds_entries[s] for s in selected], has_any_data=True, overall_status="healthy"
+        )
+        self.mock_attr.return_value = AttributionHealthResponse(
+            lookback_days=7, integrations=[attr_entries[s] for s in selected]
+        )
+
+        response = await get_marketing_diagnostic(self.team, source_type=source_type, include_conversion_goals=False)
+
+        statuses = {i.integration_key: i.overall_status for i in response.integrations}
+        if source_type is None:
+            statuses = {k: v for k, v in statuses.items() if v != "not_connected"}
+        assert statuses == expected
+        assert response.overall_status == "healthy"

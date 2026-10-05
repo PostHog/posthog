@@ -157,7 +157,7 @@ async def get_marketing_diagnostic(
         else:
             goals = cast(ConversionGoalsListResponse, goals_result)
 
-    integrations = _build_integration_diagnostics(data_source, attribution)
+    integrations = _build_integration_diagnostics(data_source, attribution, source_type=source_type)
     overall = _compute_overall_status(integrations)
     summary = _build_summary(integrations, overall, goals)
     top_actions = _global_recommended_actions(integrations, goals)
@@ -174,6 +174,8 @@ async def get_marketing_diagnostic(
 def _build_integration_diagnostics(
     data_source: DataSourceHealthResponse,
     attribution: AttributionHealthResponse,
+    *,
+    source_type: str | None = None,
 ) -> list[IntegrationDiagnostic]:
     """For each integration that appears in either side, derive its overall_status,
     diagnosis text, and a small set of recommended next steps."""
@@ -189,6 +191,8 @@ def _build_integration_diagnostics(
 
     # Iterate through the canonical native list so output ordering is stable.
     for source_type_str, native in EXTERNAL_SOURCE_TYPE_TO_NATIVE.items():
+        if source_type is not None and source_type_str != source_type:
+            continue
         key = NATIVE_TO_KEY[native]
         seen_keys.add(key)
         ds_entry = ds_by_source_type.get(source_type_str)
