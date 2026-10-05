@@ -56,7 +56,8 @@ export function BroadcastContentStep(): JSX.Element {
                 from: {
                     ...email.from,
                     integrationId,
-                    ...(senderSetup === 'new' ? { integrationIds: undefined } : {}),
+                    integrationIds:
+                        senderSetup !== 'new' && remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
                 },
             })
         }
