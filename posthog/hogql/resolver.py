@@ -2445,7 +2445,6 @@ class Resolver(CloningVisitor):
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
-        # The number of leading chain segments that name the table or field found above.
         qualifier_length = 1
         if not type:
             nested_match = lookup_table_by_nested_name(scope, node)

@@ -918,9 +918,11 @@ def _suggest_table_names(
     elif node.chain[0] in posthog_table_names:
         pass
     else:
-        node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
-        node_chain = ".".join(node_chain_arr)
-        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+        *typed_segments, partial_segment = [str(x) for x in node.chain]
+        typed_prefix = "".join(f"{segment}." for segment in typed_segments)
+        match_prefix = typed_prefix + partial_segment.replace(MATCH_ANY_CHARACTER, "")
+        # The editor replaces only the text after the last dot, so the label drops the complete typed segments
+        filtered_table_names = [x[len(typed_prefix) :] for x in table_names if x.startswith(match_prefix)]
 
         extend_responses(
             keys=filtered_table_names,

@@ -739,7 +739,19 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         assert "stripe.some_table" in [x.label for x in results.suggestions]
 
-    def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
+    @parameterized.expand(
+        [
+            ("empty_word", "select * from ", "stripe.prefix.some_table"),
+            ("after_first_dot", "select * from stripe.", "prefix.some_table"),
+            ("after_second_dot", "select * from stripe.prefix.", "some_table"),
+            ("partial_second_segment", "select * from stripe.pre", "prefix.some_table"),
+            ("partial_last_segment", "select * from stripe.prefix.so", "some_table"),
+            ("typed_path_not_at_name_start", "select * from prefix.so", None),
+        ]
+    )
+    def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(
+        self, _name: str, query: str, expected_label: Optional[str]
+    ) -> None:
         credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, prefix="prefix"
@@ -752,10 +764,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             credential=credentials,
             external_data_source=source,
         )
-        query = "select * from "
-        results = self._select(query=query, start=14, end=14)
+        word_start = max(query.rfind("."), query.rfind(" ")) + 1
+        results = self._select(query=query, start=word_start, end=len(query))
 
-        assert "stripe.prefix.some_table" in [x.label for x in results.suggestions]
+        labels = [x.label for x in results.suggestions if "some_table" in x.label]
+        assert labels == ([expected_label] if expected_label else [])
 
     def test_autocomplete_warehouse_view(self):
         DataWarehouseSavedQuery.objects.create(

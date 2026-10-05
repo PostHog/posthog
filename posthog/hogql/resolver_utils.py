@@ -216,11 +216,10 @@ def lookup_table_by_name(
 def lookup_table_by_nested_name(
     scope: ast.SelectQueryType, node: ast.Field
 ) -> Optional[tuple[ast.TableOrSelectType, int]]:
-    """Match a qualifier that spells a nested table's name, like `models.a` in `models.a.event`.
+    """Match a qualifier like `models.a` in `models.a.event`, and return how many segments it used.
 
     `FROM models.a` puts the table in scope as `models__a`, so the qualifier spans several chain
-    segments, or one backquoted segment holding dots. Returns the table and the number of chain
-    segments the qualifier used. The longest match wins, and at least one segment must remain.
+    segments, or one backquoted segment that holds dots.
     """
     if not scope.tables:
         return None
