@@ -21,6 +21,8 @@ SPEC.loader.exec_module(script)
         pytest.param("running", "finished", ("completed", "success"), id="gate_done_tail_jobs_running"),
         pytest.param("running", "queued", ("in_progress", None), id="still_running"),
         pytest.param("failed", None, ("completed", "failure"), id="failed_before_the_gate"),
+        pytest.param("failed", "skipped", ("completed", "failure"), id="gate_skipped_after_a_failure"),
+        pytest.param("finished", "skipped", ("completed", "failure"), id="ran_no_tests"),
         pytest.param("cancelled", "cancelled", ("completed", "cancelled"), id="cancelled"),
     ],
 )

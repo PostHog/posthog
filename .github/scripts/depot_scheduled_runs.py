@@ -36,7 +36,7 @@ GATE_JOB_KEY = "ci-backend.yml:django_tests"
 CLI_TIMEOUT_SECONDS = 120
 # The Depot CLI returns at most 200 workflows, which is 8 days of hourly runs.
 MAX_LISTED = 200
-GITHUB_CONCLUSIONS = {"finished": "success", "failed": "failure", "cancelled": "cancelled", "skipped": "skipped"}
+GATE_CONCLUSIONS = {"finished": "success", "failed": "failure", "cancelled": "cancelled"}
 
 
 def depot_json(*args: str) -> Any:
@@ -112,11 +112,12 @@ def gate_run(listed: dict[str, Any]) -> dict[str, Any]:
     shown = depot_json("workflow", "show", listed["workflow_id"])
     gate = next((job for job in shown.get("jobs") or [] if job["job_key"] == GATE_JOB_KEY), None)
     workflow_ended = listed["status"] in ("finished", "failed", "cancelled")
-    if gate and gate["status"] in GITHUB_CONCLUSIONS:
-        status, conclusion = "completed", GITHUB_CONCLUSIONS[gate["status"]]
+    if gate and gate["status"] in GATE_CONCLUSIONS:
+        status, conclusion = "completed", GATE_CONCLUSIONS[gate["status"]]
     elif workflow_ended:
-        # The gate never ran, so the workflow's own state is the only verdict there is.
-        status, conclusion = "completed", GITHUB_CONCLUSIONS[listed["status"]]
+        # An hourly run that ended without a gate verdict ran no tests. The alerter drops
+        # skipped runs, so reporting one as skipped would hide a lane that tests nothing.
+        status, conclusion = "completed", "cancelled" if listed["status"] == "cancelled" else "failure"
     else:
         status, conclusion = "in_progress", None
     return {
