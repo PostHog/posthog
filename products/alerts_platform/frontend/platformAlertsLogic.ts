@@ -73,6 +73,7 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             1,
             {
                 setPage: (_, { page }) => page,
+                loadCurrentTeamSuccess: () => 1,
             },
         ],
     }),

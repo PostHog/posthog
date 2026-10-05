@@ -88,7 +88,7 @@ export function PlatformAlertsScene(): JSX.Element {
                     Couldn't load alert configurations. Try again in a moment.
                 </LemonBanner>
             ) : null}
-            {configurationsPage || !configurationsError ? (
+            {!configurationsError ? (
                 <LemonTable
                     dataSource={configurationsPage?.results ?? []}
                     columns={COLUMNS}
