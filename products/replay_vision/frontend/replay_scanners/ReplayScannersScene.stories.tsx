@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,6 +15,8 @@ import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
+import { expect } from 'storybook/test'
+
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
 import type {
     BackfillEstimateResponseApi,
@@ -23,7 +25,6 @@ import type {
     ReplayObservationApi,
     ReplayScannerApi,
     ReplayScannerBackfillApi,
-    ReplayScannerPromptSuggestionApi,
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
     UserBasicApi,
@@ -401,7 +402,6 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
-            verify_positives: 'off',
         },
         scanner_result: {
             model_output: {
@@ -549,18 +549,6 @@ const observationDetail = observation({
                 'The user spent most of the session in checkout, retrying an invalid coupon three times before abandoning the cart at the payment step.',
         },
         signals_count: 1,
-        verification: null,
-    },
-})
-
-// Rated wrong with no feedback written yet, the only state where the feedback placeholder shows.
-const thumbsDownObservationDetail = observation({
-    id: '00000000-0000-0000-0000-0000000000d3',
-    session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d12',
-    label: { is_correct: false, feedback: '' },
-    scanner_snapshot: {
-        ...observation().scanner_snapshot!,
-        scanner_config: { prompt: SUMMARIZER_DETAIL_PROMPT, length: 'medium' },
     },
 })
 
@@ -586,7 +574,6 @@ const monitorObservationDetail = observation({
             prompt: MONITOR_DETAIL_PROMPT,
             allow_inconclusive: true,
         },
-        verify_positives: 'off',
     },
     scanner_result: {
         model_output: {
@@ -604,54 +591,12 @@ const monitorObservationDetail = observation({
             ].join('\n'),
         },
         signals_count: 1,
-        verification: null,
     },
 })
 
 // The pinned strip's default pins, in order: three session columns then a geo event property.
 // The values are invented.
 const sessionPropertiesRow = ['google.com', 'Paid Search', 'google', 'US']
-
-const promptSuggestion: ReplayScannerPromptSuggestionApi = {
-    id: '00000000-0000-0000-0000-0000000000e1',
-    status: 'pending',
-    suggested_prompt:
-        'Summarize this session, calling out any checkout friction: coupon failures, payment retries, or abandoned carts. Keep it under three sentences.',
-    base_prompt: 'Summarize this session.',
-    base_config: { prompt: 'Summarize this session.', length: 'medium' },
-    suggested_config: {
-        prompt: 'Summarize this session, calling out any checkout friction: coupon failures, payment retries, or abandoned carts. Keep it under three sentences.',
-        length: 'short',
-    },
-    changes: [
-        {
-            field: 'prompt',
-            kind: 'prompt',
-            op: 'set',
-            before: 'Summarize this session.',
-            after: 'Summarize this session, calling out any checkout friction: coupon failures, payment retries, or abandoned carts. Keep it under three sentences.',
-            rationale: 'Thumbs-down ratings cluster on summaries that missed coupon and payment issues.',
-        },
-        {
-            field: 'length',
-            kind: 'length',
-            op: 'set',
-            before: 'medium',
-            after: 'short',
-            rationale: 'Raters marked longer summaries as less helpful.',
-        },
-    ],
-    rationale:
-        'Ratings show summaries skip checkout friction; the rewrite calls it out explicitly and shortens the output.',
-    based_on_up: 8,
-    based_on_down: 4,
-    scanner_version: 1,
-    created_at: '2026-05-11T10:00:00Z',
-    created_by: alice,
-    applied_at: null,
-    applied_by: null,
-    evaluation: null,
-} as ReplayScannerPromptSuggestionApi
 
 const estimate = {
     matched_sessions_in_window: 1840,
@@ -784,7 +729,6 @@ const meta: Meta = {
                                     provider: 'google',
                                     emits_signals: true,
                                     scanner_config: { prompt: 'Did the user hesitate at checkout?' },
-                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -800,7 +744,6 @@ const meta: Meta = {
                                         key_moment_ms: 154000,
                                     },
                                     signals_count: 2,
-                                    verification: null,
                                 },
                                 viewed: false,
                             }),
@@ -819,7 +762,6 @@ const meta: Meta = {
                                     provider: 'google',
                                     emits_signals: false,
                                     scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
-                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -834,7 +776,6 @@ const meta: Meta = {
                                         ],
                                     },
                                     signals_count: 0,
-                                    verification: null,
                                 },
                                 viewed: false,
                             }),
@@ -861,7 +802,6 @@ const meta: Meta = {
                                         summary: 'Hit an error dialog and filed feedback from the toast.',
                                     },
                                     signals_count: 0,
-                                    verification: null,
                                 },
                                 viewed: true,
                             }),
@@ -883,18 +823,6 @@ const meta: Meta = {
                     params.id === rootCauseFormScanner.id || params.id === monitorOverviewScanner.id
                         ? monitorOverviewStats
                         : summarizerStats,
-                '/api/projects/:team_id/vision/scanners/:scannerId/prompt_suggestions/': {
-                    count: 1,
-                    next: null,
-                    previous: null,
-                    results: [promptSuggestion],
-                },
-                '/api/projects/:team_id/vision/scanners/:scannerId/prompt_suggestions/current/': {
-                    suggestion: promptSuggestion,
-                    stale: false,
-                    rated_count: 12,
-                    evaluation_session_cap: 25,
-                },
                 '/api/projects/:team_id/vision/observations/:id/': observationDetail,
                 // Real bytes, so the poster in the table and on the detail page renders as a reader sees it.
                 '/api/projects/:team_id/vision/observations/:id/thumbnail/': () => sessionFrameResponse(),
@@ -1262,7 +1190,6 @@ const observationDetailFor = (
         scanner_result: {
             model_output: { scanner_type: scannerResponse.scanner_type, ...output },
             signals_count: 0,
-            verification: null,
         },
     })
 
@@ -1317,7 +1244,12 @@ const failedObservationDetail = observation({
     scanner_result: null,
 })
 
-export const ObservationDetailFailed: StoryObj = observationDetailStory(failedObservationDetail)
+export const ObservationDetailFailed: StoryObj = {
+    ...observationDetailStory(failedObservationDetail),
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).toBeVisible())
+    },
+}
 
 // The session had no screen data to watch, so no model ran and a later retry may still succeed.
 const notScannedObservationDetail = observation({
@@ -1365,65 +1297,6 @@ export const ObservationDetailScorer: StoryObj = observationDetailStory(scorerOb
 
 export const ScannerOnDemand: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=run` },
-}
-
-// Test arms of the model tier-naming experiment: models labeled by capability tier instead of
-// provider names, as the Overview's Setup card shows them.
-export const ScannerSetupTierNames: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
-    },
-}
-
-export const ScannerSetupLiteStandardPro: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
-        },
-    },
-}
-
-// Renders the pending recommendation's diff and change cards plus the rating list.
-export const ScannerCalibration: StoryObj = {
-    parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
-}
-
-export const ScannerCalibrationTestNudge: StoryObj = {
-    parameters: {
-        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration`,
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE]: 'test' },
-    },
-}
-
-const neverRatedStats = {
-    ...summarizerStats,
-    labels: { ...summarizerStats.labels, up_total: 0, down_total: 0 },
-}
-
-export const ScannerCalibrationActivationBadge: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'badge' },
-    },
-    decorators: [
-        mswDecorator({
-            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
-        }),
-    ],
-}
-
-export const ScannerCalibrationActivationPrompt: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'prompt' },
-    },
-    decorators: [
-        mswDecorator({
-            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
-        }),
-    ],
 }
 
 const digestScoutConfig = {
@@ -1664,22 +1537,6 @@ export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
 
-export const ScannerEditorConfigureTierNames: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
-    },
-}
-
-export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
-        },
-    },
-}
-
 export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
@@ -1717,7 +1574,6 @@ const inconclusiveObservationDetail = observation({
                 'The user added two items to the cart and opened the payment step, where the card fields are masked. The recording ends about ten seconds later with the page still loading, so it does not show whether the payment went through or whether the user gave up. There is no retry, error message or backtracking before the recording stops.',
         },
         signals_count: 0,
-        verification: null,
     },
 })
 
@@ -1767,23 +1623,10 @@ const inlineScanObservationDetail = observation({
                 'The user opened the pricing page twice, expanded the plan comparison, and left the app from there both times without starting a checkout.',
         },
         signals_count: 0,
-        verification: null,
     },
 })
 
 export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inlineScanObservationDetail)
-
-export const ObservationDetailFeedbackPrompt: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionObservation(thumbsDownObservationDetail.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT]: 'test' },
-    },
-    decorators: [
-        mswDecorator({
-            get: { '/api/projects/:team_id/vision/observations/:id/': thumbsDownObservationDetail },
-        }),
-    ],
-}
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
@@ -1881,10 +1724,10 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                     id: 11,
                     name: 'AI-based scanner creation',
                     description: 'Does the goal flow beat the template gallery?',
-                    feature_flag_key: 'vision-goal-based-creation-flow',
+                    feature_flag_key: 'ai-scanner-creation-flow',
                     feature_flag: {
                         id: 11,
-                        key: 'vision-goal-based-creation-flow',
+                        key: 'ai-scanner-creation-flow',
                         filters: {
                             multivariate: {
                                 variants: [

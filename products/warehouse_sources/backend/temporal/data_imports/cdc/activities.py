@@ -104,22 +104,17 @@ SLOT_INVALIDATION_RECOVERY_MESSAGE = (
 )
 
 
-def _merge_pending_reset(
-    config: dict[str, typing.Any], *, clear_deferred_runs: bool, awaiting_slot: bool
-) -> dict[str, typing.Any]:
+def _merge_pending_reset(config: dict[str, typing.Any], *, awaiting_slot: bool) -> None:
     """Merge a reset into the table's pending one. Read under the row lock, so a request's fields survive.
 
-    `clear_deferred_runs` accumulates: a reset that owes the drop keeps owing it until one happens.
     `awaiting_slot` is this reset's own answer, because only the reset that is waiting for a slot
     holds the table back, and slot recovery clears the wait.
     """
     current = config.get(CDC_RESET_PENDING_KEY)
     fields = dict(current) if isinstance(current, dict) else {}
-    fields["clear_deferred_runs"] = clear_deferred_runs or bool(fields.get("clear_deferred_runs"))
     fields["awaiting_slot"] = awaiting_slot
     fields["generation"] = next_reset_generation(fields)
     config[CDC_RESET_PENDING_KEY] = fields
-    return fields
 
 
 # The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
@@ -942,9 +937,7 @@ class CDCExtractActivity:
             return None
         return pending if isinstance(pending, dict) else {}
 
-    def _reset_schema_to_snapshot(
-        self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False, awaiting_slot: bool = False
-    ) -> bool:
+    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, awaiting_slot: bool = False) -> bool:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch.
 
         Returns False when a sync of the table could still hand over, which leaves the reset pending.
@@ -957,12 +950,7 @@ class CDCExtractActivity:
         self._pause_schema_schedule(schema)
         stopping = cancel_running_sync(schema)
         if stopping is not None or has_queued_batches(schema):
-            self._defer_reset(
-                schema,
-                clear_deferred_runs=clear_deferred_runs,
-                awaiting_slot=awaiting_slot,
-                stopping_workflow_id=stopping,
-            )
+            self._defer_reset(schema, awaiting_slot=awaiting_slot, stopping_workflow_id=stopping)
             return False
         # The re-seeding snapshot starts after this run, so it covers every change this run read.
         # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
@@ -976,9 +964,7 @@ class CDCExtractActivity:
 
         # Pending until the schedule is unpaused, so a failed unpause repeats on the next run.
         def _merge_pending(config: dict[str, typing.Any]) -> None:
-            merged = _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
-            if merged["clear_deferred_runs"]:
-                config.pop("cdc_deferred_runs", None)
+            _merge_pending_reset(config, awaiting_slot=awaiting_slot)
 
         # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
         # preventing pre-truncate rows from surviving a TRUNCATE or lost-slot re-snapshot. Later runs
@@ -995,12 +981,7 @@ class CDCExtractActivity:
         return True
 
     def _defer_reset(
-        self,
-        schema: ExternalDataSchema,
-        *,
-        clear_deferred_runs: bool,
-        awaiting_slot: bool,
-        stopping_workflow_id: str | None,
+        self, schema: ExternalDataSchema, *, awaiting_slot: bool, stopping_workflow_id: str | None
     ) -> None:
         """Leave the table out of capture until a later run can reset it."""
         if self.batcher is not None:
@@ -1008,7 +989,7 @@ class CDCExtractActivity:
         self._tables_awaiting_reset.add(schema.name)
 
         def _merge_pending(config: dict[str, typing.Any]) -> None:
-            _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
+            _merge_pending_reset(config, awaiting_slot=awaiting_slot)
 
         self._update_schema_sync_type_config(schema, mutate=_merge_pending)
         self._schema_log(schema).info("cdc_reset_waits_for_running_sync", stopping_workflow_id=stopping_workflow_id)
@@ -1220,7 +1201,7 @@ class CDCExtractActivity:
         # free to start a snapshot before capture has a point to resume from.
         reset_schemas = []
         for schema in self.cdc_schemas:
-            if self._reset_schema_to_snapshot(schema, clear_deferred_runs=True, awaiting_slot=True):
+            if self._reset_schema_to_snapshot(schema, awaiting_slot=True):
                 reset_schemas.append(schema)
             schema.status = ExternalDataSchema.Status.FAILED
             schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE

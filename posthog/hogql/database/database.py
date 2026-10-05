@@ -3584,12 +3584,6 @@ def serialize_fields(
                     schema_valid=schema_valid,
                     table=field.to_printed_hogql(),
                     fields=list(field.fields.keys()),
-                    fields_schema={
-                        child.name: child
-                        for child in serialize_fields(
-                            field.fields, context, [*table_chain, field_key], table_type=table_type
-                        )
-                    },
                 )
             )
         elif isinstance(field, FieldTraverser):

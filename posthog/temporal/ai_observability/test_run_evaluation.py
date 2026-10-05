@@ -2,7 +2,7 @@ import json
 import uuid
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from ipaddress import ip_address
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Any, cast
 
 import pytest
@@ -33,6 +33,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
@@ -55,7 +56,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import hydrate_event_reference
+from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
@@ -665,6 +666,56 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
 
 
+def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) -> EvaluationActivityResult:
+    key = MagicMock(
+        provider="openai_compatible",
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value=resolved_ips),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai_compatible", model="example-judge-v1", provider_key=key, is_byok=True
+        )
+        return call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+
+
+def test_endpoint_on_a_disallowed_address_is_a_terminal_user_error() -> None:
+    result = _call_openai_compatible_judge({ip_address("10.0.0.1")})
+
+    assert result["skip_reason"] == "endpoint_blocked"
+    assert result["terminal_user_error"] is True
+    assert result["provider_key_state"] == "error"
+    assert "Base URL must be a public https:// URL" in result["reasoning"]
+
+
+@pytest.mark.parametrize("attempt", [1, 2])
+def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
+
+    with pytest.raises(TransientJudgeError):
+        env.run(_call_openai_compatible_judge, set())
+
+
+def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=3)
+
+    result = env.run(_call_openai_compatible_judge, set())
+
+    assert result["skip_reason"] == "host_unresolved"
+    assert "Could not resolve the base URL host" in result["reasoning"]
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+
+
 @pytest.mark.parametrize(
     "provider, success_payload",
     [
@@ -1212,6 +1263,38 @@ class TestRunEvaluationWorkflow:
         assert "model" not in result
         mock_client.complete.assert_called_once()
 
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_skips_on_content_filter(self, setup_data, active_key_config):
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client_class.return_value.complete.side_effect = ContentFilteredError(
+                "Could not parse response content as the request was rejected by the content filter"
+            )
+
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "content_filtered"
+        assert result.get("terminal_user_error") is not True
+        assert result["model"]
+
     @pytest.mark.parametrize(
         "output_config,expected_verdict,expected_applicable",
         [
@@ -1739,6 +1822,7 @@ class TestRunEvaluationWorkflow:
 
         assert mock_fetch.call_count == 1
 
+    @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
     @pytest.mark.parametrize(
         "attempt,retryable",
         [
@@ -1747,16 +1831,21 @@ class TestRunEvaluationWorkflow:
             pytest.param(3, False, id="last attempt"),
         ],
     )
-    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(self, attempt: int, retryable: bool):
+    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
+        self, attempt: int, retryable: bool, live: bool
+    ):
+        reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
         env.info = dataclasses.replace(env.info, attempt=attempt)
         with patch(HYDRATE_FETCH, return_value=None):
             with pytest.raises(ApplicationError) as raised:
-                env.run(hydrate_event_reference, dict(THIN_REFERENCE))
+                env.run(hydrate_event_reference, reference)
 
         assert raised.value.type == "generation_not_found"
         assert raised.value.non_retryable is not retryable
         assert isinstance(raised.value, NonReportableError) is retryable
+        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
+        assert raised.value.next_retry_delay == expected_delay
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

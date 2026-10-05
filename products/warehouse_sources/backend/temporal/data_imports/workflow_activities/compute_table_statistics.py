@@ -548,7 +548,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     delta_version = delta_table.version()
     stored_version = _most_recent_computed_version(existing, columns)
-    # Delta versions are only monotonic within one incarnation (see vacuum_if_stale's identical
+    # Delta versions are only monotonic within one incarnation (see decide_vacuum's identical
     # caveat): reset_table() purges the log and restarts numbering at 0 for full-refresh/reset tables,
     # so a stored version ahead of the table's current one means the table was recreated since the
     # last computation. Treat that stored version as stale rather than a match, or a table whose

@@ -249,3 +249,5 @@ connection path in queries and shelf labels, such as `person.company.name`.
 Connections expand on demand, including repeated links to the same table. Search filters the fields
 inside expanded connections, and a failed field load has a Retry button.
 Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
+Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
+not include their field types or nested link definitions, so these connections do not infer measures or further links.

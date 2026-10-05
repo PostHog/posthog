@@ -561,7 +561,7 @@ const createVirtualTableField = (
     tableLookup?: TableLookup
 ): DatabaseSchemaField => {
     const referencedTable = parentField.table ? tableLookup?.[parentField.table] : undefined
-    const referencedField = parentField.fields_schema?.[fieldName] ?? referencedTable?.fields?.[fieldName]
+    const referencedField = referencedTable?.fields?.[fieldName]
 
     if (referencedField) {
         return referencedField

@@ -898,10 +898,6 @@ export const searchLogic = kea<searchLogicType>([
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
-                const productSearchKeywords: Record<string, string[]> = {
-                    'Product analytics': ['insights'],
-                    Support: ['tickets'],
-                }
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
@@ -923,7 +919,7 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: product.category || null,
                     href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
-                    searchKeywords: productSearchKeywords[product.path],
+                    searchKeywords: product.searchKeywords,
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
                     record: {
@@ -987,12 +983,6 @@ export const searchLogic = kea<searchLogicType>([
                     CDP: ['data pipelines', 'data pipeline', 'pipeline'],
                 }
 
-                // Synonyms people search for that don't appear in the item name.
-                const pathSearchKeywords: Record<string, string[]> = {
-                    Destinations: ['batch exports', 'export data'],
-                    Sources: ['data warehouse', 'warehouse', 'connectors', 'import data'],
-                }
-
                 const items = filteredMetadata.map((item) => ({
                     id: `data-management-${item.path}`,
                     name: item.path,
@@ -1003,7 +993,7 @@ export const searchLogic = kea<searchLogicType>([
                     itemType: item.iconType || item.type || null,
                     searchKeywords: [
                         ...(item.category ? (categorySearchKeywords[item.category] ?? []) : []),
-                        ...(pathSearchKeywords[item.path] ?? []),
+                        ...(item.searchKeywords ?? []),
                     ],
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(item),

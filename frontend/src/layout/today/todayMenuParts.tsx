@@ -19,6 +19,7 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
     ItemMenuItem,
+    ItemSeparator,
     cn,
 } from '@posthog/quill'
 
@@ -107,7 +108,7 @@ function SheetItem({ children, dataAttr, onClick, to, disabled, variant }: Today
     return (
         <ItemMenuItem
             className={cn(
-                'text-base no-underline',
+                'no-underline',
                 variant === 'destructive' ? 'text-destructive-foreground' : 'text-foreground'
             )}
             disabled={disabled}
@@ -125,7 +126,7 @@ function SheetItem({ children, dataAttr, onClick, to, disabled, variant }: Today
 
 export const SHEET_PARTS: TodayMenuParts = {
     Item: SheetItem,
-    Separator: () => <div role="separator" className="my-1 border-t border-border" />,
+    Separator: () => <ItemSeparator className="my-1" />,
     Shortcut: () => <></>,
     Sub: ({ label, title, dataAttr, children }) => (
         <TodaySheetSub label={label} title={title} dataAttr={dataAttr}>

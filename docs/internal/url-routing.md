@@ -29,13 +29,13 @@ A product declares its root paths in `products/<product>/backend/routes.py`, bes
 - `webhook_urlpatterns`, mounted at `webhooks/<product>/`
 
 `<product>` is the product directory name, underscores included.
-Routes in each list are relative to the mount, so `path("vapi_webhook/", ...)` in `products/user_interviews/` serves `/api/user_interviews/vapi_webhook/`.
+Routes in each list are relative to the mount, so `path("pandadoc", ...)` in `products/legal_documents/` serves `/api/legal_documents/pandadoc`.
 
 `posthog/product_urls.py` turns each list into a `path(<prefix>, include(<list>))` mount, and `posthog/urls.py` splices every product's mounts into one slot: after every core `api/` route, and before the `^api.+` fallback and the frontend catch-all.
 Precedence stays one list to read, and a product that adds a path does not touch core.
 
 The prefix holds by construction: a route inside the mount cannot address anything outside it, so a product cannot shadow a core route outside its own prefix.
-Inside its prefix, a core route listed above the slot still wins, which is how `api/user_interviews/share/<token>/start_call/` stays in core.
+Inside its prefix, a core route listed above the slot still wins.
 `include()` receives the list, not the module, so Django sets no application namespace and `reverse("<name>")` keeps working unchanged.
 A routes module that declares any other url patterns list raises `ImproperlyConfigured` when the URL conf loads, rather than having its routes dropped silently. That covers the old flat `urlpatterns` and a near miss such as `webhooks_urlpatterns`, and the error names both valid lists.
 
