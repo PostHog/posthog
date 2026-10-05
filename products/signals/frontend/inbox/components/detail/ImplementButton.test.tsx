@@ -2,10 +2,14 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
@@ -179,5 +183,93 @@ describe('ImplementButton', () => {
             expect.stringContaining('report ID: report-1'),
             'prompt for your agent'
         )
+    })
+
+    describe('a start refused over a run the pane never saw', () => {
+        let artefactRequests: number
+
+        beforeEach(() => {
+            artefactRequests = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': () => {
+                        artefactRequests += 1
+                        return {
+                            results:
+                                artefactRequests > 1
+                                    ? [
+                                          {
+                                              id: 'implementation-artefact',
+                                              type: 'task_run',
+                                              content: {
+                                                  task_id: 'task-9',
+                                                  run_id: 'task-9-run',
+                                                  product: 'signals',
+                                                  type: 'implementation',
+                                              },
+                                              created_at: '2026-01-01T00:00:00Z',
+                                          },
+                                      ]
+                                    : [],
+                        }
+                    },
+                    '/api/projects/:team_id/tasks/task-9/': mockTask('task-9', TaskRunStatus.IN_PROGRESS),
+                    '/api/projects/:team_id/tasks/@me/config/': [
+                        200,
+                        { ai_run_preferences: {}, resolved_ai_run_defaults: null },
+                    ],
+                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+                post: {
+                    // The report cap refuses task creation and names the task holding the slot.
+                    '/api/projects/:team_id/tasks/': () => [
+                        429,
+                        {
+                            code: 'signal_report_task_cap',
+                            error: 'A pull request run is already in progress for this report. Open the run to follow it.',
+                            task_id: 'task-9',
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            inboxTaskKickoffLogic.mount()
+            inboxReportDetailLogic({ reportId: 'report-1', report: makeReport() }).mount()
+        })
+
+        afterEach(() => {
+            cleanup()
+            jest.restoreAllMocks()
+        })
+
+        it('offers the run and replaces Implement with View task', async () => {
+            const toast = jest.spyOn(lemonToast, 'error')
+            const user = userEvent.setup()
+            render(<ImplementButton report={makeReport()} />)
+            await waitFor(() => expect(artefactRequests).toBeGreaterThan(0))
+            const beforeRefusal = artefactRequests
+
+            await user.click(screen.getByTestId('inbox-report-create-pr'))
+
+            // The refusal reaches the person as a toast that offers the run it names.
+            const capToast = await waitFor(() => {
+                const call = toast.mock.calls.find(([message]) =>
+                    String(message).includes('already in progress for this report')
+                )
+                expect(call).not.toBeUndefined()
+                return call!
+            })
+            expect(capToast[1]?.button?.label).toBe('Open run')
+
+            // The pane re-reads the artefact log, so the run it never saw now lists and the button
+            // becomes View task instead of a press the server keeps refusing.
+            await waitFor(() => expect(artefactRequests).toBe(beforeRefusal + 1))
+            expect(await screen.findByTestId('inbox-report-open-task')).toBeInTheDocument()
+            expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
+
+            void capToast[1]?.button?.action()
+            expect(router.values.location.pathname).toContain('/tasks/task-9')
+        })
     })
 })
