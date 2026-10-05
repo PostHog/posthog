@@ -29,9 +29,6 @@ class TestPlatformAlertAPI(APIBaseTest):
                 name=name,
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={"service": "api"},
-                threshold_count=10,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=10,
                 legacy_configuration_id=legacy_configuration_id,
             )
