@@ -259,8 +259,9 @@ operations = [
 
 The read table uses `Distributed(data_table=..., cluster=settings.CLICKHOUSE_AUX_CLUSTER)`. Find a
 current example of this layout with the live check above, and its HCL layers with `hclexp locate`.
-A job that fills the table runs against `NodeRole.AUX`; tables on other clusters stay readable from
-there through their own `Distributed` tables.
+Inserts can go through the `Distributed` table on `DATA`, which forwards them to `AUX`. Operations
+that must run where the storage table lives (partition swaps, `ALTER`s, recreating a staging table) go
+to an `AUX` host through `ClickhouseCluster` with `NodeRole.AUX`.
 
 ## Replicated, sharded tables
 
