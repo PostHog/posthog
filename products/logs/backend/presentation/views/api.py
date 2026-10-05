@@ -57,6 +57,7 @@ from products.logs.backend.log_attributes_query_runner import LogAttributesQuery
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import (
+    COLUMN_FILTER_FACET_FIELDS,
     MAX_CUSTOM_COLUMNS,
     CachedLogsQueryResponse,
     LogsQueryResponse,
@@ -262,7 +263,11 @@ class _LogsValuesQuerySerializer(serializers.Serializer):
         child=_LogPropertyFilterSerializer(),
         required=False,
         default=[],
-        help_text="Property filters to narrow which logs are scanned for values.",
+        help_text=(
+            "Property filters to narrow which logs are scanned for values. Supports service_name and "
+            "severity_level filters of type log, and log_resource_attribute filters. Rejects message, "
+            "trace_id, span_id, pattern and log_attribute filters, because the values rollup does not store them."
+        ),
     )
 
 
@@ -1332,6 +1337,37 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _values_filter_group(self, raw: str | None) -> PropertyGroupFilter | None:
+        """Parse the values endpoint's filterGroup, and reject flat filters the rollup cannot apply.
+
+        The values rollup holds service, severity and resource attributes, but no log bodies,
+        trace ids or log attributes. The nested form from the web app keeps its old lenient handling.
+        """
+        try:
+            data = json.loads(raw or "{}")
+        except json.JSONDecodeError:
+            return None
+        if isinstance(data, list):
+            for log_filter in data:
+                if not isinstance(log_filter, dict):
+                    continue
+                filter_type, key = log_filter.get("type"), log_filter.get("key")
+                if filter_type == "log_resource_attribute" or (
+                    filter_type == "log" and key in COLUMN_FILTER_FACET_FIELDS
+                ):
+                    continue
+                raise ParseError(
+                    f'filterGroup cannot use a {filter_type} filter on "{key}" here. Attribute values come '
+                    "from a rollup that only supports service_name and severity_level log filters and "
+                    "log_resource_attribute filters. To scope by message or log attributes, use query-logs "
+                    "with a narrow dateRange."
+                )
+            data = self._normalize_filter_group(data)
+        try:
+            return self.get_model(data, PropertyGroupFilter)
+        except ParseError:
+            return None
+
     @staticmethod
     def _require_dict_query(query_data: object) -> None:
         """Guard against a non-object `query` field crashing on the first `.get()` call below."""
@@ -1970,10 +2006,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
             except json.JSONDecodeError:
                 serviceNames = []
-            try:
-                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-                filterGroup = None
+            filterGroup = self._values_filter_group(request.GET.get("filterGroup"))
 
             attributeType = request.GET.get("attribute_type", "log")
             # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'

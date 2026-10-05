@@ -120144,7 +120144,7 @@ export namespace Schemas {
      */
     dateRange?: _DateRange;
     /**
-     * Property filters to narrow which logs are scanned for values.
+     * Property filters to narrow which logs are scanned for values. Supports service_name and severity_level filters of type log, and log_resource_attribute filters. Rejects message, trace_id, span_id, pattern and log_attribute filters, because the values rollup does not store them.
      */
     filterGroup?: _LogPropertyFilter[];
     /**
