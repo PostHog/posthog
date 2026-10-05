@@ -1,7 +1,6 @@
 import dagster
 
 from posthog.dags import (
-    delete_persons_from_trigger_log,
     detach_distinct_id,
     distinct_id_usage,
     ingestion_assets,
@@ -10,7 +9,6 @@ from posthog.dags import (
     personhog_shadow_drift,
     personhog_shadow_lane,
     persons_new_backfill,
-    persons_without_distinct_ids_cleanup,
 )
 
 from . import loggers, resources
@@ -20,7 +18,6 @@ defs = dagster.Definitions(
         ingestion_assets.postgres_env_check,
     ],
     jobs=[
-        delete_persons_from_trigger_log.delete_persons_from_trigger_log_job,
         detach_distinct_id.detach_distinct_id_job,
         distinct_id_usage.distinct_id_usage_monitoring,
         person_property_reconciliation.person_property_reconciliation_job,
@@ -28,7 +25,6 @@ defs = dagster.Definitions(
         personhog_shadow_drift.personhog_shadow_lane_stop_and_compare_job,
         personhog_shadow_lane.personhog_shadow_lane_start_job,
         persons_new_backfill.persons_new_backfill_job,
-        persons_without_distinct_ids_cleanup.persons_without_distinct_ids_cleanup_job,
     ],
     schedules=[
         distinct_id_usage.distinct_id_usage_monitoring_schedule,
