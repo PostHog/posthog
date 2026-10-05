@@ -6,9 +6,12 @@ else closes it: the coordinator does not read the run's summary, and an agent th
 then says nothing leaves a check its report can see is unanswered. That is deliberate. A verdict is
 a claim recorded on the report, so it has to be a claim the run made on purpose.
 
-The binding is what keeps the tool narrow. A run may only close a check that its own lane was
-dispatched for and that is still waiting on a dispatch, so the broadest thing a compromised or
-confused run can do is answer the question it was actually asked.
+The binding is what keeps the tool narrow. A run may close the check it was dispatched for, which
+the dispatch stamps on the run row as `check_id`. A run on the check's own lane may also close one
+that is waiting on a run or is due now, so a scout that measures a due check in passing can record
+what it found. A due check the coordinator would not dispatch, because its report is suppressed or
+its horizon passed, is paused, and no run closes it. The broadest thing a compromised or confused run can do is answer a question its own
+scout owes.
 
 The authoring tools are the other direction: a run that surfaces something whose fix will show in
 data writes the re-measurement down instead of leaving a note for a future run to find. They write
@@ -21,24 +24,33 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import get_args
 
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
-from products.signals.backend.report_check_agent import resolve_check_skill_name
+from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW, resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
 from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
-from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
+from products.signals.backend.report_checks import (
+    AgentCheckConfig,
+    CheckInconclusiveReason,
+    CheckOutcome,
+    parse_check_config,
+)
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
 # Rows one `scout-report-check-list` call returns. A report carries at most five open checks, so
 # this only bounds the terminal ones a long-lived report accumulates.
 MAX_CHECKS_LISTED = 50
+_OUTCOMES = get_args(CheckOutcome)
+_INCONCLUSIVE_REASONS = get_args(CheckInconclusiveReason)
 
 
 class InvalidCheckResultError(ValueError):
@@ -59,6 +71,19 @@ class RecordCheckResultResult:
     runs_remaining: int
 
 
+def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -> str | None:
+    """Why the coordinator would not dispatch this check even when it is due, or None.
+
+    These are the filters `collect_due_checks` applies besides the clock, so an undispatched check
+    is `due` to a run only when the coordinator would dispatch it too.
+    """
+    if report_status != SignalReport.Status.RESOLVED:
+        return f"its report is `{report_status}`"
+    if check.expires_at <= now:
+        return "its horizon passed"
+    return None
+
+
 def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) -> SignalReportCheck:
     """The check this run is allowed to close, or a refusal saying why it is not that check.
 
@@ -71,7 +96,7 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
         uuid.UUID(str(check_id))
     except (ValueError, TypeError):
         raise InvalidCheckResultError(f"check {check_id} not found")
-    check = SignalReportCheck.all_teams.select_related("team__organization").filter(id=check_id).first()
+    check = SignalReportCheck.all_teams.select_related("team__organization", "report").filter(id=check_id).first()
     if check is None:
         raise InvalidCheckResultError(f"check {check_id} not found")
     canonical_team_id = team.parent_team_id or team.id
@@ -79,14 +104,38 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
         raise InvalidCheckResultError(f"check {check_id} not found")
     if check.kind != SignalReportCheck.Kind.AGENT:
         raise InvalidCheckResultError(f"check {check_id} is a `{check.kind}` check, which the coordinator measures")
+    if check.status == SignalReportCheck.Status.PENDING:
+        raise InvalidCheckResultError(
+            f"check {check_id} waits for its report to resolve, so there is no fix to measure yet"
+        )
     if check.status != SignalReportCheck.Status.ACTIVE:
         raise InvalidCheckResultError(f"check {check_id} already finished as `{check.status}`")
+    # The dispatch stamps the check on the run it starts, so that run answers its check even when
+    # the lane resolves differently now. It answers once: its verdict clears `dispatched_at`, and a
+    # retry after a recurring check re-arms must not spend another run.
+    if (run.metadata or {}).get("check_id") == str(check.id):
+        if check.dispatched_at is None:
+            raise InvalidCheckResultError(
+                f"check {check_id} already has the verdict for the run dispatched to answer it"
+            )
+        return check
     if check.dispatched_at is None:
-        raise InvalidCheckResultError(f"check {check_id} is not waiting on a run, so it is not yours to close")
+        now = timezone.now()
+        if check.next_run_at > now:
+            raise InvalidCheckResultError(
+                f"check {check_id} is not due until {check.next_run_at.isoformat()}, so it is not yours to close yet"
+            )
+        pause_reason = _pause_reason(check, check.report.status, now)
+        if pause_reason is not None:
+            raise InvalidCheckResultError(
+                f"check {check_id} is paused because {pause_reason}, so nothing is owed on it"
+            )
 
     config = parse_check_config(check.kind, check.config)
     assert isinstance(config, AgentCheckConfig)
-    if resolve_check_skill_name(config) != run.skill_name:
+    # Resolved with the project, exactly as the dispatch resolved it, so a run correctly sent to
+    # the fallback lane because the named scout was retired can still record what it found.
+    if resolve_check_skill_name(config, canonical_team_id) != run.skill_name:
         raise InvalidCheckResultError(f"check {check_id} runs on another scout")
     return check
 
@@ -99,19 +148,29 @@ def record_check_result(
     outcome: str,
     explanation: str,
     observed_value: float | None = None,
+    reason: str | None = None,
 ) -> RecordCheckResultResult:
     """Close one dispatched `agent` check with the verdict this run reached.
 
     The verdict goes through the executor's funnel, the same one the deterministic lane writes
     through, so an agent result advances or retires its check by exactly the rules a measured one
     does: a breach is terminal, an error retries and retires after three, and a pass re-arms a
-    recurring check.
+    recurring check. An `inconclusive` verdict needs a `reason`, and only `awaiting_data` keeps the
+    check open for another look.
     """
     trimmed = explanation.strip()
     if not trimmed:
         raise InvalidCheckResultError("explanation must say what you established")
-    if outcome not in {"passed", "failed", "errored"}:
-        raise InvalidCheckResultError(f"outcome must be `passed`, `failed`, or `errored`, not `{outcome}`")
+    if outcome not in _OUTCOMES:
+        raise InvalidCheckResultError(
+            f"outcome must be `passed`, `failed`, `errored`, or `inconclusive`, not `{outcome}`"
+        )
+    if outcome == "inconclusive" and reason not in _INCONCLUSIVE_REASONS:
+        raise InvalidCheckResultError(
+            f"an `inconclusive` outcome needs a reason: one of {', '.join(f'`{r}`' for r in _INCONCLUSIVE_REASONS)}"
+        )
+    if outcome != "inconclusive" and reason is not None:
+        raise InvalidCheckResultError(f"a `{outcome}` outcome takes no reason, only `inconclusive` does")
 
     check = _resolve_dispatched_check(team, run, check_id)
     record_check_verdict(
@@ -122,6 +181,7 @@ def record_check_result(
             # Only meaningful when the run measured something; an investigation that read a stack
             # trace has no number and says so by leaving it out.
             observed_value=observed_value,
+            reason=reason,  # type: ignore[arg-type]
         ),
         # Attributed to the run's task, the way every other artefact an agent writes is, so the
         # report's log names what produced the verdict rather than the system that scheduled it.
@@ -148,9 +208,42 @@ class ScoutCheckSummary:
     status: str
     next_run_at: datetime
     last_outcome: str | None
+    # Where the check is in its run cycle. See `_run_state`.
+    run_state: str
+    # True while an `agent` check waits on a dispatched run to record its verdict.
+    waiting_on_run: bool = False
+    # The run the coordinator dispatched, once that run has started. Null while it is queued.
+    dispatched_run_id: str | None = None
+    # When the coordinator last dispatched a run for the check.
+    dispatched_at: datetime | None = None
 
 
-def _summarize(check: SignalReportCheck) -> ScoutCheckSummary:
+def _run_state(check: SignalReportCheck, report_status: str, dispatched_run_id: str | None, now: datetime) -> str:
+    """One word for where a check is, so a scout can tell a check it may answer from one it may not.
+
+    `waiting_on_report`: pending, and no fix to measure yet. `paused`: active, but its report is
+    suppressed or its horizon passed, so the coordinator does not dispatch it. `scheduled`: active,
+    not due yet. `due`: active and due now, so a run on its lane may record the verdict. `queued`:
+    dispatched, and the run has not started. `running`: the dispatched run started and has time
+    left. `stale`: the dispatched run had its whole window and recorded nothing, so the coordinator
+    records an errored run and dispatches again. Any other value is the terminal status.
+    """
+    if check.status == SignalReportCheck.Status.PENDING:
+        return "waiting_on_report"
+    if check.status != SignalReportCheck.Status.ACTIVE:
+        return check.status
+    if check.dispatched_at is None:
+        if _pause_reason(check, report_status, now) is not None:
+            return "paused"
+        return "due" if check.next_run_at <= now else "scheduled"
+    if check.dispatched_at + AGENT_CHECK_RESULT_WINDOW <= now:
+        return "stale"
+    return "running" if dispatched_run_id else "queued"
+
+
+def _summarize(
+    check: SignalReportCheck, report_status: str, dispatched_run_id: str | None = None, now: datetime | None = None
+) -> ScoutCheckSummary:
     return ScoutCheckSummary(
         check_id=str(check.id),
         report_id=str(check.report_id),
@@ -160,7 +253,35 @@ def _summarize(check: SignalReportCheck) -> ScoutCheckSummary:
         # Provisional on a pending check, whose clock the report's resolve starts.
         next_run_at=check.next_run_at,
         last_outcome=check.last_outcome,
+        run_state=_run_state(check, report_status, dispatched_run_id, now or timezone.now()),
+        # Cancel and expiry leave `dispatched_at` set, so only an open check can still owe a run.
+        waiting_on_run=check.status == SignalReportCheck.Status.ACTIVE and check.dispatched_at is not None,
+        dispatched_run_id=dispatched_run_id,
+        dispatched_at=check.dispatched_at,
     )
+
+
+def _dispatched_run_ids(team_id: int, checks: list[SignalReportCheck]) -> dict[str, str]:
+    """The newest run each active dispatched check was stamped on, keyed by check id.
+
+    Bounded to runs created after the oldest dispatch, because the run row carries the check only
+    in its metadata and the table grows with every scout run. Terminal checks keep their dispatch
+    timestamps, so exclude them to prevent old checks from extending the scan into old run history.
+    """
+    dispatched = {
+        str(check.id): check.dispatched_at
+        for check in checks
+        if check.status == SignalReportCheck.Status.ACTIVE and check.dispatched_at is not None
+    }
+    if not dispatched:
+        return {}
+    runs = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(created_at__gte=min(dispatched.values()), metadata__check_id__in=list(dispatched))
+        .order_by("created_at")
+        .values_list("id", "metadata__check_id")
+    )
+    return {str(check_id): str(run_id) for run_id, check_id in runs}
 
 
 def _assert_run_may_write_checks(team: Team, run: SignalScoutRun) -> None:
@@ -234,15 +355,21 @@ def create_report_check(
         )
     except CheckCreationError as error:
         raise InvalidCheckWriteError(str(error)) from None
-    return _summarize(check)
+    return _summarize(check, report.status)
 
 
 def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]:
     """Every check on one report, newest first. Read it before writing: a report already carrying a
     check for the claim needs no second one, and the cap is five."""
     report = _resolve_report(team, report_id)
-    checks = SignalReportCheck.objects.for_team(report.team_id).filter(report_id=report.id).order_by("-created_at")
-    return [_summarize(check) for check in checks[:MAX_CHECKS_LISTED]]
+    checks = list(
+        SignalReportCheck.objects.for_team(report.team_id)
+        .filter(report_id=report.id)
+        .order_by("-created_at")[:MAX_CHECKS_LISTED]
+    )
+    run_ids = _dispatched_run_ids(team.parent_team_id or team.id, checks)
+    now = timezone.now()
+    return [_summarize(check, report.status, run_ids.get(str(check.id)), now) for check in checks]
 
 
 def _run_attribution(run: SignalScoutRun) -> ArtefactAttribution:
@@ -258,7 +385,7 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
         uuid.UUID(str(check_id))
     except (ValueError, TypeError):
         raise InvalidCheckWriteError(f"check {check_id} not found")
-    check = SignalReportCheck.all_teams.select_related("team").filter(id=check_id).first()
+    check = SignalReportCheck.all_teams.select_related("team", "report").filter(id=check_id).first()
     if check is None:
         raise InvalidCheckWriteError(f"check {check_id} not found")
     canonical_team_id = team.parent_team_id or team.id
@@ -266,4 +393,4 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
         raise InvalidCheckWriteError(f"check {check_id} not found")
     if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
         raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
-    return _summarize(check)
+    return _summarize(check, check.report.status)

@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -34,6 +35,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_pr_snapshot,
 )
 from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
 
@@ -77,6 +79,7 @@ def _issues_review(count: int) -> IssuesReview:
 class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
     def _report(
@@ -501,6 +504,61 @@ class TestRecentReviewsAPI(APIBaseTest):
             "done": 2,
             "total": 2,
         }
+
+    @parameterized.expand(
+        [
+            ("active", "sha1", False, True),
+            ("idle", "sha1", False, False),
+            ("active", "another-head", False, False),
+            ("active", "sha1", True, False),
+        ]
+    )
+    def test_activity_heartbeat_keeps_only_its_active_review_visible(
+        self, status: str, heartbeat_head: str, another_team: bool, visible: bool
+    ) -> None:
+        now = timezone.now()
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            running = self._report(
+                pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1", status=status
+            )
+        heartbeat_team_id = self.team.id
+        if another_team:
+            heartbeat_team_id = Team.objects.create(organization=self.organization, name="another project").id
+        heartbeat = ReviewActivityHeartbeater(
+            team_id=heartbeat_team_id, report_id=str(running.id), head_sha=heartbeat_head
+        )
+
+        with time_machine.travel(now, tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+            before_pulse = running.updated_at
+            heartbeat.touch_report()
+            running.refresh_from_db()
+            assert running.updated_at == (now if visible else before_pulse)
+            rows = self.client.get(self.url).json()["results"]
+            assert bool(rows) is visible
+            if visible:
+                assert rows[0]["pr_number"] == 2
+                assert rows[0]["in_progress"] is True
+                assert rows[0]["run_count"] == 0
+
+        with time_machine.travel(now + IN_PROGRESS_STALE_AFTER + timedelta(seconds=1), tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+
+    def test_heartbeating_first_turn_outranks_newer_stale_first_turns(self) -> None:
+        # Crashed first turns stay ACTIVE. More of them than the probe slice, all newer than a live
+        # run, must not push that live run out of the list.
+        now = timezone.now()
+        with time_machine.travel(now - timedelta(hours=2), tick=False):
+            live = self._report(pr_number=1, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            for pr_number in range(2, 5):
+                self._report(pr_number=pr_number, acting_user=self.user, completed=False, run_count=0)
+
+        with time_machine.travel(now, tick=False):
+            ReviewActivityHeartbeater(team_id=self.team.id, report_id=str(live.id), head_sha="sha1").touch_report()
+            rows = self.client.get(self.url, {"limit": 1}).json()["results"]
+
+        assert [(row["pr_number"], row["in_progress"]) for row in rows] == [(1, True)]
 
     def _resolution_run(self, report: ReviewReport, thread_ids: list[str], *, skipped: int = 0) -> None:
         ReviewReportArtefact.append_resolution_run(

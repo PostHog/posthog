@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
 import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
-import { aiDraftAction } from './aiDraftAction'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -20,12 +19,10 @@ export interface MessageListProps {
     maxHeight?: string
     /** When true, flips alignment so customer messages appear on the right (for customer-facing views) */
     isCustomerView?: boolean
-    /** Number of team messages that haven't been read by the customer */
-    unreadCustomerCount?: number
-    /** Whether to show delivery status on team messages */
-    showDeliveryStatus?: boolean
+    deliveryStatusByMessageId?: Map<string, MessageDeliveryStatus>
     /** ID of the latest AI message eligible for reviewer feedback */
     latestAiMessageId?: string | null
+    latestAiDraftId?: string | null
     /** Recorded reviewer feedback keyed by message id */
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     /** Whether AI reply feedback controls are enabled */
@@ -54,6 +51,11 @@ export interface TimelineExtra {
     element: JSX.Element
 }
 
+const EMPTY_EXTRAS: TimelineExtra[] = []
+const EMPTY_FEEDBACK_BY_MESSAGE_ID: Record<string, AiReplyFeedbackRating> = {}
+const EMPTY_AI_SOURCES: AITriageSource[] = []
+const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
+
 export function MessageList({
     messages,
     messagesLoading,
@@ -65,21 +67,21 @@ export function MessageList({
     minHeight = '300px',
     maxHeight = '400px',
     isCustomerView = false,
-    unreadCustomerCount = 0,
-    showDeliveryStatus = false,
+    deliveryStatusByMessageId = EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID,
     latestAiMessageId = null,
-    feedbackByMessageId = {},
+    latestAiDraftId = null,
+    feedbackByMessageId = EMPTY_FEEDBACK_BY_MESSAGE_ID,
     showAiReplyFeedback = false,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
-    extras = [],
+    extras = EMPTY_EXTRAS,
     currentUserId = null,
     canEditTicket = false,
     onEditMessage,
     onDeleteMessage,
     fullEmailLoadingMessageId = null,
     onViewFullEmail,
-    aiSources = [],
+    aiSources = EMPTY_AI_SOURCES,
     aiDraftApplying = false,
     onApplyAiDraft,
 }: MessageListProps): JSX.Element {
@@ -183,96 +185,89 @@ export function MessageList({
         }
     }
 
-    // Compute delivery status for team messages (non-customer, non-private messages)
-    // The last unreadCustomerCount team messages are "sent", the rest are "read"
-    const getDeliveryStatusMap = (): Map<string, MessageDeliveryStatus> => {
-        if (!showDeliveryStatus) {
-            return new Map()
-        }
-
-        const statusMap = new Map<string, MessageDeliveryStatus>()
-        const teamMessages = messages.filter((m) => m.authorType !== 'customer' && !m.isPrivate)
-
-        let unreadRemaining = unreadCustomerCount
-        for (let i = teamMessages.length - 1; i >= 0; i--) {
-            const msg = teamMessages[i]
-            if (unreadRemaining > 0) {
-                statusMap.set(msg.id, 'sent')
-                unreadRemaining--
-            } else {
-                statusMap.set(msg.id, 'read')
-            }
-        }
-
-        return statusMap
-    }
-
-    const deliveryStatusMap = getDeliveryStatusMap()
-
-    // Applying a draft records the outcome against the ticket's current AI run, so only the
-    // newest draft offers it. An older one would mark the wrong run as used.
-    const latestAiDraftId =
-        messages
-            .filter((message) => aiDraftAction(message) !== null)
-            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-            .at(-1)?.id ?? null
-
     // Messages and extras share one chronological stream, so an agent's findings sit at the point in
     // the conversation they arrived rather than always at the bottom. Ties keep messages first, and
     // the original order within each kind, so a same-second reply never reshuffles.
-    const timeline: JSX.Element[] = [
-        ...messages.map((message) => {
-            const isCustomer = message.authorType === 'customer'
-            const canModify =
-                canEditTicket &&
-                !!message.isPrivate &&
-                message.authorType === 'human' &&
-                !!currentUserId &&
-                message.createdBy?.id === currentUserId
-            return {
-                at: message.createdAt,
-                rank: 0,
-                element: (
-                    <Message
-                        key={`${message.id}-${message.version ?? 0}`}
-                        message={message}
-                        isCustomer={isCustomerView ? !isCustomer : isCustomer}
-                        deliveryStatus={deliveryStatusMap.get(message.id)}
-                        showAiReplyFeedback={
-                            showAiReplyFeedback && message.id === latestAiMessageId && message.authorType === 'AI'
-                        }
-                        aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
-                        aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
-                        onSubmitAiReplyFeedback={
-                            onSubmitAiReplyFeedback
-                                ? (rating, feedbackText) => onSubmitAiReplyFeedback(message.id, rating, feedbackText)
-                                : undefined
-                        }
-                        onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
-                        onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
-                        fullEmailLoading={fullEmailLoadingMessageId === message.id}
-                        onViewFullEmail={
-                            onViewFullEmail && message.hasFullEmailContent
-                                ? () => onViewFullEmail(message.id)
-                                : undefined
-                        }
-                        aiSources={aiSources}
-                        aiDraftApplying={aiDraftApplying}
-                        onApplyAiDraft={
-                            canEditTicket && onApplyAiDraft && message.id === latestAiDraftId
-                                ? () => onApplyAiDraft(message)
-                                : undefined
-                        }
-                    />
-                ),
-            }
-        }),
-        ...extras.map((extra) => ({ at: extra.at, rank: 1, element: extra.element })),
-    ]
-        // Array.prototype.sort is stable, so equal (time, rank) pairs keep the order they were
-        // concatenated in; only the message-before-extra tiebreak needs stating.
-        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || a.rank - b.rank)
-        .map(({ element }) => element)
+    const timeline = useMemo(
+        () =>
+            [
+                ...messages.map((message) => {
+                    const isCustomer = message.authorType === 'customer'
+                    const canModify =
+                        canEditTicket &&
+                        !!message.isPrivate &&
+                        message.authorType === 'human' &&
+                        !!currentUserId &&
+                        message.createdBy?.id === currentUserId
+                    return {
+                        at: message.createdAt,
+                        rank: 0,
+                        element: (
+                            <Message
+                                key={`${message.id}-${message.version ?? 0}`}
+                                message={message}
+                                isCustomer={isCustomerView ? !isCustomer : isCustomer}
+                                deliveryStatus={deliveryStatusByMessageId.get(message.id)}
+                                showAiReplyFeedback={
+                                    showAiReplyFeedback &&
+                                    message.id === latestAiMessageId &&
+                                    message.authorType === 'AI'
+                                }
+                                aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                                aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
+                                onSubmitAiReplyFeedback={
+                                    onSubmitAiReplyFeedback
+                                        ? (rating, feedbackText) =>
+                                              onSubmitAiReplyFeedback(message.id, rating, feedbackText)
+                                        : undefined
+                                }
+                                onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
+                                onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                                fullEmailLoading={fullEmailLoadingMessageId === message.id}
+                                onViewFullEmail={
+                                    onViewFullEmail && message.hasFullEmailContent
+                                        ? () => onViewFullEmail(message.id)
+                                        : undefined
+                                }
+                                aiSources={aiSources}
+                                aiDraftApplying={aiDraftApplying}
+                                onApplyAiDraft={
+                                    canEditTicket && onApplyAiDraft && message.id === latestAiDraftId
+                                        ? () => onApplyAiDraft(message)
+                                        : undefined
+                                }
+                            />
+                        ),
+                    }
+                }),
+                ...extras.map((extra) => ({ at: extra.at, rank: 1, element: extra.element })),
+            ]
+                // Array.prototype.sort is stable, so equal (time, rank) pairs keep the order they were
+                // concatenated in; only the message-before-extra tiebreak needs stating.
+                .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || a.rank - b.rank)
+                .map(({ element }) => element),
+        [
+            aiDraftApplying,
+            aiReplyFeedbackDisabledReason,
+            aiSources,
+            canEditTicket,
+            currentUserId,
+            deliveryStatusByMessageId,
+            extras,
+            feedbackByMessageId,
+            fullEmailLoadingMessageId,
+            isCustomerView,
+            latestAiDraftId,
+            latestAiMessageId,
+            messages,
+            onApplyAiDraft,
+            onDeleteMessage,
+            onEditMessage,
+            onSubmitAiReplyFeedback,
+            onViewFullEmail,
+            showAiReplyFeedback,
+        ]
+    )
 
     return (
         // The wrapper is the component root, so it keeps the contract the scroll container used to

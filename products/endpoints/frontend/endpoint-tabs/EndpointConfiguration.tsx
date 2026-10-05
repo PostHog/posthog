@@ -369,6 +369,9 @@ function MaterializationContent(): JSX.Element {
     const cannotMaterializeReason =
         materializationPreview?.reason ?? freshMaterialization?.reason ?? endpoint.materialization?.reason ?? null
     const isMaterialized = effectiveIsMaterialized || effectiveMaterializationStatus?.toLowerCase() === 'running'
+    // Eligibility gates turning materialization on. A version materialized before its query became
+    // ineligible still needs the switch, or there is no way to turn it off.
+    const showMaterializationSwitch = canMaterialize || baseIsMaterialized
 
     const handleToggleMaterialization = (): void => {
         setIsMaterialized(!isMaterialized)
@@ -392,11 +395,13 @@ function MaterializationContent(): JSX.Element {
             </p>
 
             {!canMaterialize && cannotMaterializeReason && (
-                <div className="flex flex-col gap-4 items-start">
+                <div className="flex flex-col gap-4 items-start mb-4">
                     <LemonBanner type="warning" hideIcon={false} className="w-full">
                         <div className="flex flex-col gap-1">
                             <span className="font-semibold">
-                                This endpoint can't be materialized yet, so every execution runs the full query.
+                                {baseIsMaterialized
+                                    ? "This endpoint is materialized, but its query isn't supported for materialization anymore. You can turn materialization off. To turn it back on, change the query first."
+                                    : "This endpoint can't be materialized yet, so every execution runs the full query."}
                             </span>
                             <span className="font-normal">Reason: {cannotMaterializeReason}</span>
                         </div>
@@ -420,7 +425,7 @@ function MaterializationContent(): JSX.Element {
                 </div>
             )}
 
-            {canMaterialize && (
+            {showMaterializationSwitch && (
                 <div className="flex flex-col gap-4">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.Endpoint}

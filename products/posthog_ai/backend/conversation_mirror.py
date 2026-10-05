@@ -333,7 +333,7 @@ def _ensure_import_target(
         created = tasks_facade.create_imported_task(
             team.id,
             user.id,
-            title=conversation.title or "Imported chat",
+            title=conversation.title or "(no title)",
             origin_key=origin_key,
             internal=bool(conversation.is_internal),
             created_at=created_at,

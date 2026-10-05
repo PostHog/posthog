@@ -71,10 +71,10 @@ pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop";
 
 /// Detail tag for events dropped by an AI-mode deployment because they are not
-/// on the AI lane.
-pub(super) const DETAIL_NON_AI_EVENT: &str = "non_ai_event";
+/// on the AI lane. Same tag as the `misrouted_event` ingestion warning it emits.
+pub(super) const DETAIL_MISROUTED_EVENT: &str = "misrouted_event";
 
-/// Detail tag for events dropped due to uncoercible options fields.
+/// Detail tag for events dropped because an expected option's value is unreadable.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
 
 /// Detail tag for AI-lane events dropped because the project is over its

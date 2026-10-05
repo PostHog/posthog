@@ -182,6 +182,19 @@ class PropertyUsageMetricsResponseSerializer(serializers.Serializer):
     )
 
 
+# Sent as JSON instead of duplicate parameters like event_names[] to work with the frontend's combineUrl
+def parse_json_encoded_list(value: str) -> list[str]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        raise ValidationError("Must be a JSON-encoded list of strings")
+
+    if not isinstance(decoded, list) or any(isinstance(item, list | dict) or item is None for item in decoded):
+        raise ValidationError("Must be a JSON-encoded list of strings")
+
+    return [str(item) for item in decoded]
+
+
 class PropertyDefinitionQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         help_text="Searches properties by name",
@@ -263,6 +276,12 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=None,
     )
 
+    def validate_event_names(self, value: str) -> list[str]:
+        return parse_json_encoded_list(value)
+
+    def validate_excluded_properties(self, value: str) -> list[str]:
+        return parse_json_encoded_list(value)
+
     def validate(self, attrs):
         type_ = attrs.get("type", "event")
 
@@ -281,7 +300,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class QueryContext:
     """
     The raw query is used to both query and count these results
@@ -399,17 +418,15 @@ class QueryContext:
                 },
             )
 
-    def with_event_property_filter(self, event_names: Optional[str], filter_by_event_names: Optional[bool]) -> Self:
+    def with_event_property_filter(
+        self, event_names: Optional[list[str]], filter_by_event_names: Optional[bool]
+    ) -> Self:
         event_property_filter = ""
         event_name_filter = ""
         event_property_field = "NULL"
         event_name_join_filter = ""
 
-        # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
-        if event_names:
-            event_names = json.loads(event_names)
-
-        if event_names and len(event_names) > 0 and self.should_join_event_property:
+        if event_names and self.should_join_event_property:
             event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
             event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
@@ -420,7 +437,7 @@ class QueryContext:
             event_name_join_filter=event_name_join_filter,
             event_name_filter=event_name_filter,
             event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": list(map(str, event_names or []))},
+            params={**self.params, "event_names": event_names or []},
         )
 
     def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
@@ -431,10 +448,8 @@ class QueryContext:
             params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
-    def with_excluded_properties(self, excluded_properties: Optional[str]) -> Self:
-        excluded_list = []
-        if excluded_properties:
-            excluded_list = list(set(json.loads(excluded_properties)))
+    def with_excluded_properties(self, excluded_properties: Optional[list[str]]) -> Self:
+        excluded_list = list(set(excluded_properties)) if excluded_properties else []
 
         return dataclasses.replace(
             self,
@@ -762,8 +777,7 @@ class PropertyDefinitionViewSet(
 
             span.set_attribute("property_type", prop_type or "")
             span.set_attribute("has_search", search is not None and search != "")
-            parsed_event_names = json.loads(event_names) if event_names else []
-            span.set_attribute("event_names_count", len(parsed_event_names))
+            span.set_attribute("event_names_count", len(event_names or []))
             span.set_attribute("filter_by_event_names", bool(filter_by_event_names))
             span.set_attribute("limit", limit or 0)
             span.set_attribute("offset", offset or 0)
@@ -968,7 +982,7 @@ class PropertyDefinitionViewSet(
             return False
 
         # exclusion lists
-        excluded = set(json.loads(v["excluded_properties"])) if v.get("excluded_properties") else set()
+        excluded = set(v["excluded_properties"]) if v.get("excluded_properties") else set()
         if v.get("exclude_core_properties", False):
             excluded |= set(EXCLUDED_EVENT_CORE_PROPERTIES)
         if prop["name"] in excluded:

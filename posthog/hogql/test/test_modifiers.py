@@ -10,6 +10,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgM
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import json_dynamic_read_sql
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -17,7 +18,7 @@ from products.cohorts.backend.models.cohort import Cohort
 class TestModifiers(BaseTest):
     def _expected_browser_select(self, materialization_mode: MaterializationMode) -> str:
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            column = "nullIf(events.properties.`$browser`, '')"
+            column = json_dynamic_read_sql("events.properties", ["$browser"])
             source = "events_json AS events"
             return f"SELECT {column} AS `$browser` FROM {source}"
         elif materialization_mode == MaterializationMode.DISABLED:
@@ -40,7 +41,7 @@ class TestModifiers(BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             # Whole-blob person_properties reads are reconstructed from the JSON column; assert the
             # reconstruction reads the on-events column rather than pinning the full expression.
-            return "JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties)) AS properties"
+            return "JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties))"
         return "events.person_properties AS properties"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)

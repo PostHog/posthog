@@ -1,5 +1,4 @@
 import json
-import asyncio
 import datetime as dt
 from random import randint
 from uuid import uuid4
@@ -22,7 +21,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -40,7 +38,15 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     insert_into_http_activity,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
+)
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    NeverFinishingActivity,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -79,7 +85,7 @@ async def assert_clickhouse_records_in_mock_server(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     backfill_details: BackfillDetails | None = None,
-    filters: list[dict[str, str | list[str] | None]] | None = None,
+    filters: list[dict[str, str | bool | list[str] | None]] | None = None,
 ):
     """Assert expected records are written to a MockServer instance."""
     posted_records = mock_server.records
@@ -141,6 +147,10 @@ async def assert_clickhouse_records_in_mock_server(
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.skipif(
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+    reason="the native-JSON events table serializes its typed array paths as [] on every event, so the export gains keys the legacy table never had",
+)
 async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     clickhouse_client, activity_environment, http_config, exclude_events
 ):
@@ -816,11 +826,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
         **http_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_http_activity")
-    async def never_finish_activity(_: HttpInsertInputs) -> str:
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_http_activity")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -829,7 +835,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
             workflows=[HttpBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                never_finish_activity,
+                never_finish.defn,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -841,7 +847,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            await asyncio.sleep(5)
+            await never_finish.wait_until_started()
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

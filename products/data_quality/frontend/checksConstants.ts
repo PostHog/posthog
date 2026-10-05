@@ -1,5 +1,8 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import { CheckTypeEnumApi } from './generated/api.schemas'
 import type { DataQualityCheckApi, DataQualityCheckRunApi } from './generated/api.schemas'
@@ -122,4 +125,74 @@ export function checkRunDisplayName(
     run: Pick<DataQualityCheckRunApi, 'check_name' | 'check_type' | 'column_name'>
 ): string {
     return checkDisplayName({ name: run.check_name, check_type: run.check_type, column_name: run.column_name })
+}
+
+const SECONDS_PER_MINUTE = 60
+const DURATION_UNITS = 2
+
+const FAILING_ROW_NOUNS: Partial<Record<CheckTypeEnumApi, [string, string]>> = {
+    [CheckTypeEnumApi.NotNull]: ['null row', 'null rows'],
+    [CheckTypeEnumApi.Unique]: ['duplicate value', 'duplicate values'],
+    [CheckTypeEnumApi.AcceptedValues]: ['row outside the set', 'rows outside the set'],
+    [CheckTypeEnumApi.Relationships]: ['row with no match', 'rows with no match'],
+    [CheckTypeEnumApi.CustomSql]: ['row returned', 'rows returned'],
+}
+
+export interface RunResultCell {
+    label: string
+    tooltip: string | null
+}
+
+export function runResultCell(
+    run: Pick<DataQualityCheckRunApi, 'check_type' | 'observed_value' | 'check_config'>
+): RunResultCell {
+    if (run.observed_value === null) {
+        return { label: '-', tooltip: null }
+    }
+    if (run.check_type === CheckTypeEnumApi.Freshness) {
+        return freshnessCell(run.observed_value, run.check_config)
+    }
+    if (run.check_type === CheckTypeEnumApi.RowCount) {
+        return rowCountCell(run.observed_value, run.check_config)
+    }
+    const nouns = FAILING_ROW_NOUNS[run.check_type]
+    if (!nouns) {
+        return { label: humanFriendlyNumber(run.observed_value), tooltip: null }
+    }
+    return { label: pluralize(run.observed_value, nouns[0], nouns[1]), tooltip: null }
+}
+
+function freshnessCell(stalenessSeconds: number, config: DataQualityCheckRunApi['check_config']): RunResultCell {
+    const maxAgeMinutes = config?.max_age_minutes
+    const limit =
+        typeof maxAgeMinutes === 'number'
+            ? ` The limit is ${humanFriendlyDuration(maxAgeMinutes * SECONDS_PER_MINUTE, { maxUnits: DURATION_UNITS })}.`
+            : ''
+    const direction = stalenessSeconds < 0 ? 'in the future' : 'old'
+    const magnitude = Math.abs(stalenessSeconds)
+    return {
+        label: `${humanFriendlyDuration(magnitude, { maxUnits: DURATION_UNITS })} ${direction}`,
+        tooltip: `Newest row is ${humanFriendlyNumber(magnitude)} seconds ${direction}.${limit}`,
+    }
+}
+
+function rowCountCell(rowCount: number, config: DataQualityCheckRunApi['check_config']): RunResultCell {
+    const label = pluralize(rowCount, 'row')
+    const limit = rowCountLimit(config?.min, config?.max)
+    return { label, tooltip: limit ? `${label}. The limit is ${limit}.` : null }
+}
+
+function rowCountLimit(min: unknown, max: unknown): string | null {
+    const hasMin = typeof min === 'number'
+    const hasMax = typeof max === 'number'
+    if (hasMin && hasMax) {
+        return `between ${humanFriendlyNumber(min)} and ${pluralize(max, 'row')}`
+    }
+    if (hasMin) {
+        return `at least ${pluralize(min, 'row')}`
+    }
+    if (hasMax) {
+        return `at most ${pluralize(max, 'row')}`
+    }
+    return null
 }

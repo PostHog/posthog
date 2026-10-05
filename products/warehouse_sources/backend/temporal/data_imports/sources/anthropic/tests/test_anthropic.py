@@ -535,6 +535,25 @@ class TestWorkspaceMembersFanOut:
 
         assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_2", "u2")]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_workspace_with_no_member_list_of_its_own_is_skipped(self, MockSession) -> None:
+        # The organization's Default Workspace "has no member list of its own" (Anthropic's own
+        # words), and answers 400 rather than 404 for this sub-resource. Skip only that workspace
+        # instead of failing the whole schema, same as the 404 case above.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
+                _response({"error": "bad_request"}, status=400),
+                _entity_page([{"user_id": "u2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="u2"),
+            ],
+        )
+
+        rows = _rows(_source("workspace_members", _make_manager()))
+
+        assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_2", "u2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.

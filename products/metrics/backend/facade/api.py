@@ -47,7 +47,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
@@ -243,7 +243,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     rows_by_clause: dict[str, list[dict[str, Any]]] = {}
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
-        runner = MetricQueryRunner(
+        runner = build_metric_query_runner(
             team=team,
             metric_name=clause.metric_name,
             aggregation=runner_aggregation,
@@ -303,8 +303,7 @@ def list_metric_names(
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
-    Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
-    most-recently-seen, with exact-name matches floated to the top.
+    Returns a list of `{"name": str, "metric_type": str}` dicts.
     Passing `services` narrows the list to names those services reported.
     Raises `ValueError` for an out-of-range limit or too many services.
 
@@ -360,7 +359,7 @@ def list_metric_attribute_keys(
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
-    The window defaults to the last 7 days. Returns `{"name": str,
+    The window defaults to the last 24 hours. Returns `{"name": str,
     "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
     """
@@ -388,7 +387,7 @@ def list_metric_attribute_values(
     for the filter bar's value autocomplete.
 
     `service_name`/`service.name` read the first-class column, matching how
-    filters on it execute. The window defaults to the last 7 days. Returns
+    filters on it execute. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """

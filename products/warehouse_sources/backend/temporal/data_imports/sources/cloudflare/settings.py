@@ -138,6 +138,10 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         parent=ZONES_PARENT,
         parent_key="_zone_id",
         pagination=SINGLE_PAGE,
+        # Cloudflare is replacing Page Rules with the Ruleset Engine; a zone that doesn't
+        # serve the legacy API gets a 400 rather than an empty list, same as the firewall
+        # rules and filters above.
+        extra_skip_status_codes=(400,),
     ),
     "snippets": CloudflareEndpointConfig(
         name="snippets",

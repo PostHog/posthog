@@ -93,7 +93,9 @@ function FreeformEditControls({
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
   const openChat = useCanvasChatPanelStore((state) => state.openChat);
+  const openBlocks = useCanvasChatPanelStore((state) => state.openBlocks);
   const { dashboard } = useDashboard(dashboardId);
+  const builtByAgent = !!dashboard?.generationTaskId;
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
@@ -250,7 +252,8 @@ function FreeformEditControls({
             dashboard_id: dashboardId,
             editing: !editing,
           });
-          if (!editing) openChat();
+          if (!editing && builtByAgent) openChat();
+          if (!editing && !builtByAgent) openBlocks();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -284,18 +287,16 @@ function CanvasBreadcrumb({
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
   const commentTarget = {
-    scope: "desktop_canvas" as const,
+    scope: "canvas" as const,
     itemId: dashboardId,
   };
   const commentTaskId = canvasCommentTaskId(
     dashboard?.generationTaskId,
     versions,
   );
-  const comments = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
-    commentTaskId ?? "",
-    { live: true },
-  );
+  const comments = useCommentsQuery(commentTarget, commentTaskId ?? "", {
+    live: true,
+  });
   const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
     (thread) => !thread.resolved,
   ).length;
@@ -318,15 +319,13 @@ function CanvasBreadcrumb({
       }
       trailing={
         <>
-          {commentTaskId && (
-            <Button size="sm" variant="outline" onClick={openComments}>
-              <ChatCircleIcon />
-              Comments
-              {openCommentCount > 0 && (
-                <span className="tabular-nums">{openCommentCount}</span>
-              )}
-            </Button>
-          )}
+          <Button size="sm" variant="outline" onClick={openComments}>
+            <ChatCircleIcon />
+            Comments
+            {openCommentCount > 0 && (
+              <span className="tabular-nums">{openCommentCount}</span>
+            )}
+          </Button>
           {trailing}
         </>
       }
@@ -408,7 +407,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <ChromeBar inset="control">
+        <ChromeBar inset="title">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}

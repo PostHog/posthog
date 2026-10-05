@@ -37,7 +37,7 @@ export const keyBinds: Record<string, string[]> = {
     newChat: ['g', 'then', 'n'],
     maxHandsFree: ['h', 'then', 'f'],
     allChats: ['g', 'then', '1'],
-    allTools: ['g', 'then', '2'],
+    allProducts: ['g', 'then', '2'],
     theme: ['g', 'then', 't'],
     jumpToTimestamp: ['j', 'then', 't'],
 }
