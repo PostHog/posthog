@@ -1236,7 +1236,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "below yes_threshold), inputs: {context: {value: {<field name>: '<hog template>'}}}}. "
             "question and options are plain text; "
             "only the context is templated. Branch edge N is answer N, then Unsure when unsure_enabled; the "
-            "'continue' edge is taken when the decision fails. Each run uses AI credits. "
+            "'continue' edge is taken when the decision fails or the step's filters skip the person, and only a step "
+            "without filters and with on_error 'abort' may leave it out. Each run uses AI credits. "
             "exit: {reason}."
         ),
     )

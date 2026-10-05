@@ -84,7 +84,8 @@ def _without_lone_surrogates(state: JsonValue) -> JsonValue:
 
 
 def _state_size_bytes(state: JsonValue) -> int:
-    return len(json.dumps(state, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    # A lone surrogate takes 3 bytes, the same as the U+FFFD that replaces it, so the size holds before the repair.
+    return len(json.dumps(state, separators=(",", ":"), ensure_ascii=False).encode("utf-8", "surrogatepass"))
 
 
 def _is_over_ai_credit_budget(team: Team) -> bool:
@@ -227,9 +228,9 @@ def decide(call: AIDecisionCall) -> AIDecisionOutcome:
         return AIDecisionFailed(code=AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED)
     if _is_over_ai_credit_budget(team):
         return AIDecisionFailed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
-    state = _without_lone_surrogates(call.state)
-    if _state_size_bytes(state) > MAX_AI_DECISION_STATE_BYTES:
+    if _state_size_bytes(call.state) > MAX_AI_DECISION_STATE_BYTES:
         return AIDecisionFailed(code=AIDecisionErrorCode.STATE_TOO_LARGE)
+    state = _without_lone_surrogates(call.state)
     try:
         request = _decision_request(call, state)
     except ValueError:
