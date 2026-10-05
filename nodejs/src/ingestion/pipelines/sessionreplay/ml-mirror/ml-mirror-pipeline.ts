@@ -31,6 +31,7 @@ import { MlBatchHandle, MlDeferrableInput } from './batch-handle'
 import { MlKeyBatchController } from './keys/batch-controller'
 import { MlSessionKeys } from './keys/key-store'
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
+import { ProducedImageRefs, ProducedRefs, ProducedTransportUrls } from './produced-refs'
 import { mlSessionIdDropReason } from './session-identifier-format'
 
 export interface MlMirrorPipelineOptions {
@@ -215,6 +216,11 @@ export function createMlMirrorAnonymizePipeline(
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
+    const producedImageRefs = imageScrub ? new ProducedImageRefs(imageScrub.producedRefCacheMax) : undefined
+    const producedTransportUrls = urlFetch
+        ? new ProducedTransportUrls(urlFetch.producedRefCacheMax, urlFetch.producedRefCacheWindowMs)
+        : undefined
+    const producedRefs: ProducedRefs = { images: producedImageRefs, urls: producedTransportUrls }
     // The deferred step runs at commit time with the recorder current then, so it is typed on the full recorder while the element it is queued from only carries the retention lookup.
     function deferPublication<T extends MlDeferrableInput & { mlBatch: MlBatchHandle }>(
         step: ProcessingStep<T & SessionBatchContext, T & SessionBatchContext>
@@ -265,7 +271,8 @@ export function createMlMirrorAnonymizePipeline(
                                                         createParseAndAnonymizeMessageStep(
                                                             collection?.collectImages || collection?.collectUrls
                                                                 ? collection
-                                                                : undefined
+                                                                : undefined,
+                                                            producedRefs
                                                         ),
                                                         [
                                                             timer('parse_time_ms_by_session_id', (input) => ({
@@ -275,28 +282,30 @@ export function createMlMirrorAnonymizePipeline(
                                                         ]
                                                     )
                                                 )
-                                                const withImagesProduced = imageScrub
-                                                    ? parsed.pipe(
-                                                          deferPublication(
-                                                              createProduceCollectedImagesStep(
-                                                                  imageScrub.outputs,
-                                                                  imageScrub.producedRefCacheMax
+                                                const withImagesProduced =
+                                                    imageScrub && producedImageRefs
+                                                        ? parsed.pipe(
+                                                              deferPublication(
+                                                                  createProduceCollectedImagesStep(
+                                                                      imageScrub.outputs,
+                                                                      producedImageRefs
+                                                                  )
                                                               )
                                                           )
-                                                      )
-                                                    : parsed
-                                                const withUrlsProduced = urlFetch
-                                                    ? withImagesProduced.pipe(
-                                                          deferPublication(
-                                                              createProduceCollectedUrlsStep(urlFetch.outputs, topHog, {
-                                                                  producedRefCacheMax: urlFetch.producedRefCacheMax,
-                                                                  producedRefCacheWindowMs:
-                                                                      urlFetch.producedRefCacheWindowMs,
-                                                                  crawlHistory: urlFetch.crawlHistory,
-                                                              })
+                                                        : parsed
+                                                const withUrlsProduced =
+                                                    urlFetch && producedTransportUrls
+                                                        ? withImagesProduced.pipe(
+                                                              deferPublication(
+                                                                  createProduceCollectedUrlsStep(
+                                                                      urlFetch.outputs,
+                                                                      topHog,
+                                                                      producedTransportUrls,
+                                                                      { crawlHistory: urlFetch.crawlHistory }
+                                                                  )
+                                                              )
                                                           )
-                                                      )
-                                                    : withImagesProduced
+                                                        : withImagesProduced
                                                 return withUrlsProduced.pipe(
                                                     deferRecording(
                                                         withSessionReplayRecordingMetrics(

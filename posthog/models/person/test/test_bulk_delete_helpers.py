@@ -4,10 +4,9 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import override_settings
-
 from confluent_kafka import KafkaError
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -22,10 +21,27 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.util import TOMBSTONE_DELIVERY_TIMEOUT_SECONDS, tombstone_persons_in_postgres
+from posthog.models.person.util import (
+    TOMBSTONE_DELIVERY_TIMEOUT_SECONDS,
+    PersonTombstone,
+    tombstone_persons_in_postgres,
+)
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.personhog_client.proto import DeletePersonsMode
 from posthog.test.persons import create_person
+
+
+def _sample(name: str, **labels: str) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+def _no_publish():
+    # Keeps the Kafka produce out of the test; the fake personhog client still tombstones and acks.
+    return patch("posthog.models.person.util.publish_person_tombstone", return_value=[])
+
+
+def _rpc():
+    return patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", wraps=tombstone_persons_in_postgres)
 
 
 def _person_with_distinct_ids(*distinct_ids: str) -> Person:
@@ -88,112 +104,15 @@ class QueueEventDeletionTests(BaseTest):
 
 
 class DeletePersonsProfileTests(BaseTest):
-    def test_deletes_persons_via_helpers(self):
-        p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        with (
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
-        ):
-            result = delete_persons_profile(self.team.pk, [p], actor=self.user)
-        assert result.deleted_count == 1
-        assert result.errors == []
-        ch_delete.assert_called_once()
-        assert ch_delete.call_args.kwargs["person"] == p
-        assert [d.id for d in ch_delete.call_args.kwargs["distinct_ids"]] == ["a"]
-        pg_delete.assert_called_once_with(self.team.pk, [p])
-
-    @parameterized.expand(
-        [
-            ("batch_fetch_fails", {"side_effect": RuntimeError("personhog down")}),
-            ("person_missing_from_batch", {"return_value": {}}),
-        ]
-    )
-    def test_falls_back_to_per_person_lookup(self, _name, batch_behavior):
-        p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        with (
-            patch("posthog.models.person.bulk_delete._batched_get_distinct_ids_for_persons", **batch_behavior),
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
-        ):
-            result = delete_persons_profile(self.team.pk, [p], actor=self.user)
-        assert result.deleted_count == 1
-        assert result.errors == []
-        assert ch_delete.call_args.kwargs["distinct_ids"] is None
-        pg_delete.assert_called_once_with(self.team.pk, [p])
-
-    def test_reports_a_failed_postgres_delete_per_person_instead_of_raising(self):
-        p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
-        p2 = create_person(team=self.team, distinct_ids=["b"], properties={})
-        with (
-            patch("posthog.models.person.bulk_delete.delete_person"),
-            patch(
-                "posthog.models.person.bulk_delete.delete_persons_from_postgres",
-                side_effect=RuntimeError("personhog down"),
-            ),
-        ):
-            result = delete_persons_profile(
-                self.team.pk, [p1, p2], actor=self.user, organization_id=self.organization.id
-            )
-        assert result.deleted_count == 0
-        assert [(f.step, f.person_uuid) for f in result.failures] == [
-            (PersonDeletionStep.DELETE_POSTGRES, p1.uuid),
-            (PersonDeletionStep.DELETE_POSTGRES, p2.uuid),
-        ]
-        assert result.errors == [p1.uuid, p2.uuid]
-        assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person").exists()
-
-    def test_reports_a_failed_activity_log_write_per_person_and_keeps_the_deletion(self):
-        p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
-        p2 = create_person(team=self.team, distinct_ids=["b"], properties={})
-        with (
-            patch("posthog.models.person.bulk_delete.delete_person"),
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
-            patch(
-                "posthog.models.person.bulk_delete.bulk_log_activity",
-                side_effect=RuntimeError("activity log down"),
-            ),
-        ):
-            result = delete_persons_profile(
-                self.team.pk, [p1, p2], actor=self.user, organization_id=self.organization.id
-            )
-        pg_delete.assert_called_once_with(self.team.pk, [p1, p2])
-        assert result.deleted_count == 2
-        assert [(f.step, f.person_uuid) for f in result.failures] == [
-            (PersonDeletionStep.LOG_ACTIVITY, p1.uuid),
-            (PersonDeletionStep.LOG_ACTIVITY, p2.uuid),
-        ]
-        assert result.errors == [p1.uuid, p2.uuid]
-
-    def test_collects_errors_and_skips_failed_persons_in_pg_batch(self):
-        p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
-        p2 = create_person(team=self.team, distinct_ids=["b"], properties={})
-        with (
-            patch(
-                "posthog.models.person.bulk_delete.delete_person",
-                side_effect=[None, RuntimeError("boom")],
-            ),
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
-        ):
-            result = delete_persons_profile(self.team.pk, [p1, p2], actor=self.user)
-        assert result.deleted_count == 1
-        assert [str(e) for e in result.errors] == [str(p2.uuid)]
-        pg_delete.assert_called_once_with(self.team.pk, [p1])
-
-
-@override_settings(PERSON_DELETE_TOMBSTONE=True)
-class TombstoneDeletePersonsProfileTests(BaseTest):
     def test_tombstones_postgres_first_then_publishes_clickhouse_at_the_returned_versions_and_acks(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         fake = get_active_fake()
-        with (
-            patch("posthog.models.person.bulk_delete.delete_person") as legacy_ch_delete,
-            patch("posthog.models.person.util.publish_person_tombstone", return_value=[]) as publish,
-        ):
+        acked_before = _sample("posthog_person_tombstone_acks_total", outcome="acked")
+        with _no_publish() as publish:
             result = delete_persons_profile(self.team.pk, [p], actor=self.user)
 
         assert result.deleted_count == 1
         assert result.errors == []
-        legacy_ch_delete.assert_not_called()
         request = next(call.request for call in reversed(fake.calls) if call.method == "delete_persons")
         assert request.mode == DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE
         publish.assert_called_once()
@@ -203,6 +122,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         assert [(d.id, d.version) for d in tombstone.distinct_ids] == [("a", 1)]
         assert publish.call_args.kwargs["created_at"] == p.created_at
         assert fake.tombstone_queue == {}
+        assert _sample("posthog_person_tombstone_acks_total", outcome="acked") == acked_before + 1
 
     @parameterized.expand([("produce_raises",), ("delivery_fails",)])
     def test_counts_and_logs_a_person_whose_clickhouse_publish_failed_and_keeps_it_queued(self, case):
@@ -232,6 +152,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         producer = MagicMock()
         if delivered:
             producer.flush.side_effect = lambda timeout: pending.set_result(None, None)
+        waits_before = _sample("posthog_person_tombstone_delivery_wait_seconds_count", source="delete")
         with (
             patch("posthog.models.person.util.publish_person_tombstone", return_value=[pending]),
             patch("posthog.models.person.util.get_producer", return_value=producer),
@@ -241,6 +162,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         # Both person topics resolve to this one producer, so it is flushed once, inside the delivery timeout.
         producer.flush.assert_called_once()
         assert 0 < producer.flush.call_args.args[0] <= TOMBSTONE_DELIVERY_TIMEOUT_SECONDS
+        assert _sample("posthog_person_tombstone_delivery_wait_seconds_count", source="delete") == waits_before + 1
         assert result.deleted_count == 1
         if delivered:
             assert result.failures == []
@@ -273,20 +195,23 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         )
         with (
             patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", side_effect=tombstone_then_fail),
-            patch("posthog.models.person.util.publish_person_tombstone", return_value=[]) as publish,
+            _no_publish() as publish,
             check,
         ):
-            result = delete_persons_profile(self.team.pk, [p], actor=self.user)
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
 
+        logged = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
         if committed and not check_fails:
             assert result.deleted_count == 1
             assert result.failures == []
             assert publish.call_args.args[1].uuid == p.uuid
+            assert logged
             return
 
         assert result.deleted_count == 0
         assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.TOMBSTONE_POSTGRES, p.uuid)]
         publish.assert_not_called()
+        assert not logged
         if check_fails:
             # The error names the unknown state, and the queue row leaves the publish to the weekly sweep.
             assert result.failures[0].error.startswith("PersonTombstoneStateUnknown: RuntimeError: personhog down")
@@ -307,11 +232,6 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         ]
         with (
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", budget),
-            # Sizing reads the distinct IDs the resolve loaded, so a failed fetch cannot shrink a person to one.
-            patch(
-                "posthog.models.person.bulk_delete._batched_get_distinct_ids_for_persons",
-                side_effect=RuntimeError("personhog down"),
-            ),
             patch(
                 "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
                 wraps=tombstone_persons_in_postgres,
@@ -327,6 +247,7 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
 
     def test_a_failed_queue_ack_is_only_logged(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        failed_before = _sample("posthog_person_tombstone_acks_total", outcome="ack_failed")
         with (
             patch("posthog.models.person.util.publish_person_tombstone", return_value=[]),
             patch("posthog.models.person.util.ack_person_tombstones", side_effect=RuntimeError("personhog down")),
@@ -337,16 +258,37 @@ class TombstoneDeletePersonsProfileTests(BaseTest):
         assert result.deleted_count == 1
         assert result.failures == []
         assert list(get_active_fake().tombstone_queue) == [(self.team.pk, str(p.uuid))]
+        assert _sample("posthog_person_tombstone_acks_total", outcome="ack_failed") == failed_before + 1
+
+    def test_reports_a_failed_activity_log_write_per_person_and_keeps_the_deletion(self):
+        p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["b"], properties={})
+        with (
+            _no_publish(),
+            patch(
+                "posthog.models.person.bulk_delete.bulk_log_activity",
+                side_effect=RuntimeError("activity log down"),
+            ),
+        ):
+            result = delete_persons_profile(
+                self.team.pk, [p1, p2], actor=self.user, organization_id=self.organization.id
+            )
+        assert result.deleted_count == 2
+        assert [(f.step, f.person_uuid) for f in result.failures] == [
+            (PersonDeletionStep.LOG_ACTIVITY, p1.uuid),
+            (PersonDeletionStep.LOG_ACTIVITY, p2.uuid),
+        ]
+        assert result.errors == [p1.uuid, p2.uuid]
+        assert get_active_fake().tombstone_queue == {}
 
 
 class ProcessQueuedPersonDeletionTests(BaseTest):
-    def test_walks_every_page_of_distinct_ids_and_logs_activity(self):
+    def test_walks_every_page_of_distinct_ids_tombstones_at_exact_versions_and_logs_activity(self):
         p = create_person(team=self.team, distinct_ids=["a", "b", "c", "d", "e"], properties={})
         fake = get_active_fake()
         with (
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _no_publish() as publish,
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -359,47 +301,23 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         assert result.deleted_count == 1
         assert result.errors == []
-        assert sorted(d.id for d in ch_delete.call_args.kwargs["distinct_ids"]) == ["a", "b", "c", "d", "e"]
         assert fake is not None
         fake.assert_called("get_distinct_ids_for_person", times=3)
-        pg_delete.assert_called_once()
-        assert [person.uuid for person in pg_delete.call_args.args[1]] == [p.uuid]
-        log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", item_id=str(p.pk))
-        assert log.activity == "deleted"
-        assert log.was_impersonated is True
-
-    @override_settings(PERSON_DELETE_TOMBSTONE=True)
-    def test_tombstones_at_exact_versions_with_every_paged_distinct_id(self):
-        p = create_person(team=self.team, distinct_ids=["a", "b", "c", "d", "e"], properties={})
-        fake = get_active_fake()
-        with (
-            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
-            patch("posthog.models.person.bulk_delete.delete_person") as legacy_ch_delete,
-            patch("posthog.models.person.util.publish_person_tombstone", return_value=[]) as publish,
-        ):
-            result = process_queued_person_deletion(
-                self.team.pk,
-                [str(p.uuid)],
-                delete_profile=True,
-                delete_recordings=False,
-                actor=self.user,
-                was_impersonated=False,
-                organization_id=self.organization.id,
-            )
-        assert result.deleted_count == 1
-        assert result.errors == []
-        legacy_ch_delete.assert_not_called()
         request = next(call.request for call in reversed(fake.calls) if call.method == "delete_persons")
         assert request.mode == DeletePersonsMode.DELETE_PERSONS_MODE_TOMBSTONE
         assert sorted(d.id for d in publish.call_args.args[1].distinct_ids) == ["a", "b", "c", "d", "e"]
         assert fake.tombstone_queue == {}
-        assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", item_id=str(p.pk))
+        assert log.activity == "deleted"
+        assert log.was_impersonated is True
 
     def test_does_not_log_a_deletion_twice_when_a_stale_read_resolves_the_person_again(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        # The fake hides a tombstoned person, so leave it live and report the tombstone from the patch.
+        stale_tombstones = [PersonTombstone(uuid=p.uuid, version=1, distinct_ids=[])]
         with (
-            patch("posthog.models.person.bulk_delete.delete_person"),
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres"),
+            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", return_value=stale_tombstones),
+            _no_publish(),
         ):
             for _attempt in range(2):
                 process_queued_person_deletion(
@@ -415,10 +333,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
 
     def test_logs_deletion_without_a_user_when_the_actor_is_gone(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        with (
-            patch("posthog.models.person.bulk_delete.delete_person"),
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres"),
-        ):
+        with _no_publish():
             process_queued_person_deletion(
                 self.team.pk,
                 [str(p.uuid)],
@@ -431,14 +346,11 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", item_id=str(p.pk))
         assert log.user is None
 
-    def test_failed_postgres_delete_is_named_and_not_logged_as_deleted(self):
+    def test_failed_postgres_tombstone_is_named_and_not_logged_as_deleted(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
-        with (
-            patch("posthog.models.person.bulk_delete.delete_person"),
-            patch(
-                "posthog.models.person.bulk_delete.delete_persons_from_postgres",
-                side_effect=RuntimeError("personhog down"),
-            ),
+        with patch(
+            "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
+            side_effect=RuntimeError("personhog down"),
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -450,13 +362,12 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                 organization_id=self.organization.id,
             )
         assert result.deleted_count == 0
-        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.DELETE_POSTGRES, p.uuid)]
+        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.TOMBSTONE_POSTGRES, p.uuid)]
         assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person").exists()
 
     def test_skips_persons_that_no_longer_exist(self):
         with (
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _rpc() as rpc,
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -469,8 +380,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         assert result.deleted_count == 0
         assert result.errors == []
-        ch_delete.assert_not_called()
-        pg_delete.assert_not_called()
+        rpc.assert_not_called()
 
     def test_failed_page_fetch_is_an_error_not_an_unbounded_fallback(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
@@ -479,8 +389,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                 "posthog.models.person.bulk_delete._paginated_get_distinct_ids_for_person",
                 side_effect=RuntimeError("personhog down"),
             ),
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _rpc() as rpc,
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -494,8 +403,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert result.deleted_count == 0
         assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.FETCH_DISTINCT_IDS, p.uuid)]
         assert "RuntimeError: personhog down" in result.failures[0].error
-        ch_delete.assert_not_called()
-        pg_delete.assert_not_called()
+        rpc.assert_not_called()
 
     def test_unmatched_distinct_ids_queue_training_deletion_and_fail_without_a_person(self):
         with patch(
@@ -551,8 +459,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         with (
             patches["queue_person_training_deletion"],
             patches["_start_recording_workflows"],
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _rpc() as rpc,
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -565,8 +472,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         assert result.deleted_count == 0
         assert [(f.step, f.person_uuid) for f in result.failures] == [(step, p.uuid)]
-        ch_delete.assert_not_called()
-        pg_delete.assert_not_called()
+        rpc.assert_not_called()
 
     def test_runs_the_steps_per_batch_once_the_distinct_id_cap_is_reached(self):
         p1 = create_person(team=self.team, distinct_ids=["a1", "a2", "a3"], properties={})
@@ -575,8 +481,8 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         with (
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 4),
             patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
-            patch("posthog.models.person.bulk_delete.delete_person"),
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _rpc() as rpc,
+            _no_publish(),
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -590,10 +496,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert result.deleted_count == 3
         assert result.failures == []
         # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is one call per batch.
-        assert [[person.uuid for person in call.args[1]] for call in pg_delete.call_args_list] == [
-            [p1.uuid, p2.uuid],
-            [p3.uuid],
-        ]
+        assert sorted(u for call in rpc.call_args_list for u in call.args[1]) == sorted([p1.uuid, p2.uuid, p3.uuid])
         assert [sorted(call.args[1]) for call in training.call_args_list] == [
             ["a1", "a2", "a3", "b1", "b2", "b3"],
             ["c1"],
@@ -627,8 +530,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             patch(
                 "posthog.models.person.bulk_delete.queue_person_training_deletion", side_effect=RuntimeError("down")
             ) as training,
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _rpc() as rpc,
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -643,8 +545,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert training.call_count == 1 + 3
         assert {f.person_uuid for f in result.failures} == {p.uuid for p in persons}
         assert {f.step for f in result.failures} == {PersonDeletionStep.QUEUE_TRAINING_DELETION}
-        ch_delete.assert_not_called()
-        pg_delete.assert_not_called()
+        rpc.assert_not_called()
 
     def test_failed_training_deletion_for_one_person_does_not_block_the_others(self):
         p1 = create_person(team=self.team, distinct_ids=["bad"], properties={})
@@ -656,8 +557,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
 
         with (
             patch("posthog.models.person.bulk_delete.queue_person_training_deletion", side_effect=training),
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _rpc() as rpc,
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -672,8 +572,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert [(f.step, f.person_uuid) for f in result.failures] == [
             (PersonDeletionStep.QUEUE_TRAINING_DELETION, p1.uuid)
         ]
-        assert ch_delete.call_args.kwargs["person"].uuid == p2.uuid
-        assert [person.uuid for person in pg_delete.call_args.args[1]] == [p2.uuid]
+        assert rpc.call_args.args[1] == [p2.uuid]
 
     def test_recordings_only_pages_distinct_ids_into_workflows_without_deleting(self):
         p = create_person(team=self.team, distinct_ids=["a", "b", "c"], properties={})
@@ -686,8 +585,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                 "posthog.models.person.bulk_delete._start_recording_workflows",
                 side_effect=lambda _t, persons, *_a: started.extend(sorted(p.distinct_ids) for p in persons),
             ),
-            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
-            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+            _rpc() as rpc,
         ):
             result = process_queued_person_deletion(
                 self.team.pk,
@@ -702,8 +600,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert result.errors == []
         assert sorted(training.call_args.args[1]) == ["a", "b", "c"]
         assert started == [["a", "b", "c"]]
-        ch_delete.assert_not_called()
-        pg_delete.assert_not_called()
+        rpc.assert_not_called()
 
 
 class QueueRecordingDeletionTests(BaseTest):

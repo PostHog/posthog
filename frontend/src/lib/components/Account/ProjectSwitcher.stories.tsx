@@ -8,15 +8,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import { ProjectSwitcher } from './ProjectSwitcher'
 
-type StoryProps = { hasPendingInvite: boolean; hasDataFreshness?: boolean }
-
-const PENDING_INVITE = {
-    id: '018f0000-0000-0000-0000-000000000001',
-    target_email: MOCK_DEFAULT_USER.email,
-    organization_id: '018f0000-0000-0000-0000-00000000abcd',
-    organization_name: 'Acme Corp',
-    created_at: '2026-04-17T12:00:00Z',
-}
+type StoryProps = { hasDataFreshness?: boolean }
 
 // The case this feature exists for: a pile of similarly named leftovers around one product,
 // where only one is real and the names alone can't tell you which.
@@ -79,7 +71,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'centered',
         viewMode: 'story',
     },
-    render: ({ hasPendingInvite, hasDataFreshness }: StoryProps) => {
+    render: ({ hasDataFreshness }: StoryProps) => {
         const organization = hasDataFreshness
             ? { ...MOCK_DEFAULT_ORGANIZATION, teams: [MOCK_DEFAULT_TEAM, ...FRESHNESS_TEAMS] }
             : MOCK_DEFAULT_ORGANIZATION
@@ -91,7 +83,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     {
                         ...MOCK_DEFAULT_USER,
                         organization,
-                        pending_invites: hasPendingInvite ? [PENDING_INVITE] : [],
                     },
                 ],
                 '/api/organizations/@current/': () => [200, organization],
@@ -115,14 +106,10 @@ export default meta
 
 type Story = StoryObj<(props: StoryProps) => JSX.Element>
 
-export const NoPendingInvite: Story = {
-    args: { hasPendingInvite: false },
-}
-
-export const WithPendingInvite: Story = {
-    args: { hasPendingInvite: true },
+export const Default: Story = {
+    args: { hasDataFreshness: false },
 }
 
 export const WithDataFreshness: Story = {
-    args: { hasPendingInvite: false, hasDataFreshness: true },
+    args: { hasDataFreshness: true },
 }

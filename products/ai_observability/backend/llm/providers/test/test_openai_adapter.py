@@ -13,6 +13,7 @@ from posthoganalytics.ai.openai import (
 from pydantic import BaseModel, ValidationError, model_validator
 
 from products.ai_observability.backend.llm.errors import (
+    ContentFilteredError,
     ContextWindowExceededError,
     OutputTokenLimitError,
     QuotaExceededError,
@@ -113,6 +114,13 @@ def _make_bad_request_error(message: str) -> openai.BadRequestError:
     return openai.BadRequestError(message, response=response, body={"error": {"message": message}})
 
 
+def _content_filter_bad_request_error() -> openai.BadRequestError:
+    body = {"message": "The response was filtered by the content management policy.", "code": "content_filter"}
+    request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+    response = httpx.Response(status_code=400, request=request, json={"error": body})
+    return openai.BadRequestError("Error code: 400", response=response, body=body)
+
+
 class _Verdict(BaseModel):
     verdict: bool
 
@@ -163,16 +171,21 @@ class TestOpenAIAdapterErrorMapping:
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
 
-    def test_non_402_status_error_is_not_swallowed(self, request_no_structured_output: CompletionRequest):
+    @parameterized.expand([("server_error", 500), ("precondition_failed", 412)])
+    def test_non_quota_status_error_is_not_swallowed(self, _name: str, status_code: int):
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = _make_api_status_error(500, "server error")
+        mock_client.chat.completions.create.side_effect = _make_api_status_error(status_code, "provider error")
+        request = CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(openai.APIStatusError):
-                adapter.complete(
-                    request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
-                )
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
     @parameterized.expand(
         [
@@ -250,6 +263,38 @@ class TestOpenAIAdapterErrorMapping:
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(OutputTokenLimitError):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+    @parameterized.expand(
+        [
+            ("finish_reason", openai.ContentFilterFinishReasonError, None),
+            ("prompt_rejected_400", _content_filter_bad_request_error, None),
+            (
+                "json_fallback_finish_reason",
+                lambda: _make_bad_request_error("Invalid parameter: 'response_format' of type 'json_schema'"),
+                "content_filter",
+            ),
+        ]
+    )
+    def test_content_filter_refusal_maps_to_content_filtered(
+        self, _name: str, make_parse_error: Callable[[], Exception], fallback_finish_reason: str | None
+    ) -> None:
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = make_parse_error()
+        fallback_choice = mock_client.chat.completions.create.return_value.choices[0]
+        fallback_choice.finish_reason = fallback_finish_reason
+        fallback_choice.message.content = None
+        request = CompletionRequest(
+            model="gpt-5-mini",
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(ContentFilteredError):
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
 

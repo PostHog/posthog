@@ -146,7 +146,7 @@
       GROUP BY
           raw_sessions_v3.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_2)s)), s__session.session_id_v7)
   WHERE
-      and(equals(s.team_id, <TEAM_ID>), equals(s__session.`$entry_pathname`, %(hogql_val_4)s), greaterOrEquals(s.min_first_timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)), less(s.min_first_timestamp, now64(6, %(hogql_val_7)s)))
+      and(equals(s.team_id, <TEAM_ID>), equals(s__session.`$entry_pathname`, %(hogql_val_4)s), greaterOrEquals(s.min_first_timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)), less(s.min_first_timestamp, toDateTime64(now64(6, %(hogql_val_7)s), 6, %(hogql_val_8)s)))
   GROUP BY
       s.session_id
   LIMIT 50000
@@ -209,10 +209,10 @@
       FROM
           events
       WHERE
-          and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, today()))
+          and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, toDateTime64(today(), 6, %(hogql_val_0)s)))
       LIMIT 50000) AS events
       LEFT JOIN (SELECT
-          dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions_v3.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+          dateDiff(%(hogql_val_1)s, min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_2)s)), max(toTimeZone(raw_sessions_v3.max_timestamp, %(hogql_val_3)s))) AS `$session_duration`,
           raw_sessions_v3.session_id_v7 AS session_id_v7
       FROM
           raw_sessions_v3

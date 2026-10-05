@@ -1,5 +1,3 @@
-"""Validation for experiment retention metric configurations."""
-
 from posthog.schema import ExperimentExposureNode, ExperimentRetentionMetric, StartHandling
 
 

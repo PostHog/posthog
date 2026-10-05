@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     API_VERSION,
     DEFAULT_DATABASE_ID,
     FIRESTORE_INDEX_REQUIRED_ERROR,
+    REALTIME_DATABASE_NOT_FOUND_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
     parse_realtime_database_paths,
 )
@@ -65,6 +66,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
             "private key could not be read": "The uploaded key file does not contain a usable private key. Upload the JSON key exactly as Google generated it.",
             "401 Client Error: Unauthorized": "Firebase rejected the access token. The service account key may have been revoked — please reconnect.",
             "403 Client Error: Forbidden": "This service account cannot read the requested Firebase data. Grant it the Firebase Viewer, Cloud Datastore Viewer, or Firebase Realtime Database Viewer role.",
+            REALTIME_DATABASE_NOT_FOUND_ERROR: "No Realtime Database exists at this source's URL. Copy the URL from the Firebase console's Realtime Database page into the source, then re-enable the sync.",
             RESPONSE_TOO_LARGE_ERROR: "Firebase returned a page too large to process. Reduce the size of the documents in this collection or path, then re-run the sync.",
             # Firestore indexes every field on its own by default, so this only appears once someone
             # exempts the chosen field from indexing. Google's message carries a console link that
@@ -87,7 +89,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
 Create a service account key in the Firebase console under Project settings, Service accounts, Generate new private key, then upload that JSON file here. Grant the service account **Firebase Viewer** to read Auth users, **Cloud Datastore Viewer** to read Firestore, and **Firebase Realtime Database Viewer** to read the Realtime Database.""",
             iconPath="/static/services/firebase.png",
             docsUrl="https://posthog.com/docs/cdp/sources/firebase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["firestore", "rtdb", "gcp", "nosql"],
             fields=cast(
                 list[FieldType],

@@ -16,6 +16,7 @@ from django.utils.timezone import now
 
 import structlog
 from dateutil.parser import isoparse
+from prometheus_client import Counter, Histogram
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
@@ -703,27 +704,6 @@ def get_person_uuids_and_matched_distinct_ids(team_id: int, distinct_ids: list[s
     )
 
 
-def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
-    """Remove Person rows (and associated PersonDistinctId rows) via the personhog RPC.
-
-    Processes in batches of 1000 (the RPC maximum). Asks for a hard delete explicitly: the
-    caller has already published ClickHouse tombstones at version + 100, so the replica's own
-    default must not turn this into a tombstone.
-    """
-
-    def personhog_fn() -> None:
-        uuids = [str(p.uuid) for p in persons]
-        for i in range(0, len(uuids), 1000):
-            batch = uuids[i : i + 1000]
-            _get_client().delete_persons(
-                DeletePersonsRequest(
-                    team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_HARD
-                )
-            )
-
-    personhog_call("delete_persons", personhog_fn)
-
-
 @frozen
 class PersonTombstone:
     """The versions the replica wrote when it tombstoned one person."""
@@ -857,6 +837,23 @@ def publish_person_tombstone(
 
 TOMBSTONE_DELIVERY_TIMEOUT_SECONDS = 10
 
+# source: "delete" for the person delete paths, "orphan_repair" for the fix_orphaned_ch_persons command.
+PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS = Histogram(
+    "posthog_person_tombstone_delivery_wait_seconds",
+    "Time a caller waits for Kafka to deliver the ClickHouse tombstones it published, before acking the queue.",
+    labelnames=["source"],
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, float("inf")),
+)
+
+# Acks go out in calls of 1000 persons, the RPC maximum. "acked" counts queue rows a call cleared, which
+# can be fewer than the persons sent because an ack is idempotent. "ack_failed" counts the persons in a
+# call that raised; they stay queued for the weekly sweep, and earlier calls' rows stay counted as acked.
+PERSON_TOMBSTONE_ACKS_COUNTER = Counter(
+    "posthog_person_tombstone_acks_total",
+    "Tombstone queue rows cleared after Kafka delivery, or persons left queued because the ack call failed.",
+    labelnames=["outcome"],
+)
+
 
 @frozen
 class PersonTombstonePublishFailure:
@@ -878,6 +875,7 @@ class PersonTombstonePublication:
     """
 
     team_id: int
+    source: str = "delete"
     failures: list[PersonTombstonePublishFailure] = field(default_factory=list)
     _pending: list[tuple[PersonTombstone, list[ProduceResult]]] = field(default_factory=list, init=False, repr=False)
 
@@ -895,8 +893,10 @@ class PersonTombstonePublication:
         if not pending:
             return
 
+        started = time.monotonic()
         if not all(result.done() for _, results in pending for result in results):
             _flush_person_producers(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
+        PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS.labels(source=self.source).observe(time.monotonic() - started)
 
         delivered: list[tuple[UUID, int]] = []
         for tombstone, results in pending:
@@ -907,14 +907,17 @@ class PersonTombstonePublication:
                 self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
                 continue
             delivered.append((tombstone.uuid, tombstone.version))
-        if not delivered:
-            return
-        try:
-            ack_person_tombstones(self.team_id, delivered)
-        except Exception:
-            logger.warning(
-                "person_tombstones.ack_failed", team_id=self.team_id, person_count=len(delivered), exc_info=True
-            )
+        for i in range(0, len(delivered), 1000):
+            chunk = delivered[i : i + 1000]
+            try:
+                cleared = ack_person_tombstones(self.team_id, chunk)
+            except Exception:
+                PERSON_TOMBSTONE_ACKS_COUNTER.labels(outcome="ack_failed").inc(len(chunk))
+                logger.warning(
+                    "person_tombstones.ack_failed", team_id=self.team_id, person_count=len(chunk), exc_info=True
+                )
+                continue
+            PERSON_TOMBSTONE_ACKS_COUNTER.labels(outcome="acked").inc(cleared)
 
 
 def _flush_person_producers(timeout: float) -> None:
@@ -927,49 +930,6 @@ def _flush_person_producers(timeout: float) -> None:
     producers = {id(p): p for p in (get_producer(topic=KAFKA_PERSON), get_producer(topic=KAFKA_PERSON_DISTINCT_ID))}
     for producer in producers.values():
         producer.flush(max(0.0, deadline - time.monotonic()))
-
-
-def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None = None) -> None:
-    """Produce ClickHouse deletion tombstones for a person and its distinct_ids.
-
-    ``distinct_ids`` can be prefetched in batch (see ``delete_persons_profile``) to
-    avoid one RPC per person; when omitted it is fetched here.
-    """
-    # This is racy https://github.com/PostHog/posthog/issues/11590
-    if distinct_ids is None:
-        distinct_ids = _get_distinct_ids_with_version(person)
-    _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at)
-    for distinct_id in distinct_ids:
-        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id.id, distinct_id.version)
-
-
-def _delete_person(
-    team_id: int,
-    uuid: UUID,
-    version: int,
-    created_at: Optional[datetime.datetime] = None,
-) -> None:
-    create_person(
-        uuid=str(uuid),
-        team_id=team_id,
-        # Version + 100 ensures delete takes precedence over normal updates.
-        # Keep in sync with:
-        # - plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
-        # - posthog/models/person/person.py:112 (split_person uses version + 101 to override deletes)
-        version=version + 100,
-        created_at=created_at,
-        is_deleted=True,
-    )
-
-
-def _get_distinct_ids_with_version(person: Person) -> list[DistinctIdForPerson]:
-    def personhog_fn() -> list[DistinctIdForPerson]:
-        resp = _get_client().get_distinct_ids_for_person(
-            GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
-        )
-        return [DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)) for d in resp.distinct_ids]
-
-    return personhog_call("get_distinct_ids_with_version", personhog_fn)
 
 
 def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int) -> None:

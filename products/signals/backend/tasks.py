@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
+from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -647,6 +648,29 @@ def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: 
 
 
 @shared_task(
+    name="products.signals.backend.tasks.start_dependent_stack_layers",
+    ignore_result=True,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=210,
+    time_limit=240,
+)
+@with_team_scope()
+def start_dependent_stack_layers(team_id: int, report_id: str) -> None:
+    """Start the stack layers that wait on this report, now that it has a pull request.
+
+    Runs on a worker because auto-start creates tasks and must not hold up the pull request sync
+    that queued it. A failed layer start retries with backoff, because the next pull request event
+    on the report may come only at merge, when the layer can no longer stack. A retry skips the
+    layers that already started.
+    """
+    from products.signals.backend.stack_plan import start_dependent_layers  # noqa: PLC0415
+
+    start_dependent_layers(team_id=team_id, report_id=report_id)
+
+
+@shared_task(
     name="products.signals.backend.tasks.open_implementation_pr_for_review",
     ignore_result=True,
     max_retries=0,
@@ -965,6 +989,22 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         capture_exception(exc, {"team_id": team_id, "repository": repository})
     finally:
         cache.delete(lock_key)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_signal_scout_background_bands",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def refresh_signal_scout_background_bands() -> None:
+    """Daily: recompute which projects can get a background scout, and their activity band.
+
+    Runs here rather than on the coordinator tick, because it reads a week of fleet-wide event
+    volume and activity bands do not change by the half hour.
+    """
+    outcome = refresh_background_bands()
+    logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
 
 
 @shared_task(
