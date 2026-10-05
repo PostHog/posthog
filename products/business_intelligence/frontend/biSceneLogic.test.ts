@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { DatabaseSchemaQuery, EventPropertyFilter, NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaQuery, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -186,7 +186,7 @@ describe('biSceneLogic', () => {
     })
 
     it('reruns unchanged SQL for a date change while preserving dashboard properties', async () => {
-        const properties: EventPropertyFilter[] = [
+        const properties: HogQLFilters['properties'] = [
             { type: PropertyFilterType.Event, key: 'plan', value: 'pro', operator: PropertyOperator.Exact },
         ]
         const node = worksheet()
