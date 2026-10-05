@@ -55,8 +55,10 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
     provider_error_detail,
@@ -64,8 +66,6 @@ from products.ai_observability.backend.llm.errors import (
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
     SystemOneEndpointBlockedError,
-    SystemOneRateLimitError,
-    SystemOneRequestRejectedError,
     system_one_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.types import CompletionResponse
@@ -735,7 +735,7 @@ def call_llm_judge(
             key_id=key_id,
             is_byok=is_byok,
         )
-    except SystemOneRequestRejectedError as e:
+    except ProviderRequestRejectedError as e:
         increment_user_errors("request_rejected", provider=provider)
         return build_skipped_evaluation_result(
             output_type=output_type,
@@ -743,7 +743,7 @@ def call_llm_judge(
             reasoning=str(e),
             skip_reason="request_rejected",
         )
-    except SystemOneRateLimitError as e:
+    except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
         raise ApplicationError(
             str(e),

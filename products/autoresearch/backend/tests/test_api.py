@@ -850,6 +850,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
         assert resp.json()["results"][0]["role"] == "champion"
+        assert resp.json()["results"][0]["in_shadow_set"] is True
         # The agent brief tells agents to look up a champion's bundle via source_training_run.
         assert resp.json()["results"][0]["source_training_run"] == str(training_run.id)
 
@@ -886,6 +887,64 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.get(f"{self.base_url}/{pipeline.id}/runs/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
+
+    def test_online_performance_keeps_an_archived_former_champion(self):
+        pipeline = self._make_pipeline()
+        former = AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.ARCHIVED, model_recipe={}, recipe_hash="old"
+        )
+        champion = AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={}, recipe_hash="new"
+        )
+        now = django_timezone.now()
+
+        def validation(prediction_date: str, per_model: dict, *, completed_minutes_ago: int, run_status="completed"):
+            return AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.VALIDATION,
+                status=run_status,
+                completed_at=now - timedelta(minutes=completed_minutes_ago),
+                metrics={"prediction_date": prediction_date, "horizon_days": 7, "per_model": per_model},
+            )
+
+        def metrics(role: str, auc: float) -> dict:
+            return {"emitted_role": role, "model_role": role, "n_scored": 10, "n_positive": 2, "realized_auc": auc}
+
+        validation("2026-09-01", {str(former.pk): metrics("champion", 0.6)}, completed_minutes_ago=30)
+        populated = {
+            **metrics("champion", 0.7),
+            "mean_p_y": 0.4,
+            "realized_auc_ci_low": 0.65,
+            "realized_auc_ci_high": 0.75,
+            "calibration_bins": [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}],
+        }
+        latest = validation("2026-09-01", {str(former.pk): populated}, completed_minutes_ago=20)
+        validation(
+            "2026-09-02", {str(champion.pk): metrics("champion", 0.9)}, completed_minutes_ago=5, run_status="failed"
+        )
+        validation("2026-09-03", {str(champion.pk): metrics("champion", 0.8)}, completed_minutes_ago=10)
+
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        rows = resp.json()["rows"]
+        assert [(r["prediction_date"], r["model_id"], r["realized_auc"]) for r in rows] == [
+            ("2026-09-03", str(champion.pk), 0.8),
+            ("2026-09-01", str(former.pk), 0.7),
+        ]
+        assert rows[1]["validation_run_id"] == str(latest.pk)
+        assert (rows[1]["emitted_role"], rows[1]["current_role"]) == ("champion", "archived")
+        assert rows[1]["weekday"] == 2
+        assert (rows[1]["mean_p_y"], rows[1]["realized_auc_ci_low"], rows[1]["realized_auc_ci_high"]) == (
+            0.4,
+            0.65,
+            0.75,
+        )
+        assert rows[1]["calibration_bins"] == [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}]
+        assert rows[0]["realized_auc_ci_low"] is None and rows[0]["calibration_bins"] is None
+
+        limited = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/?limit=1").json()["rows"]
+        assert [r["prediction_date"] for r in limited] == ["2026-09-03"]
 
     def test_models_not_leaked_across_pipelines(self):
         pipeline_a = self._make_pipeline(name="Pipeline A")

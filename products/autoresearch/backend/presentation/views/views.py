@@ -66,6 +66,8 @@ from .serializers import (
     CreateSuggestionSerializer,
     MaterializeFeaturesRequestSerializer,
     MaterializeFeaturesResponseSerializer,
+    OnlinePerformanceQuerySerializer,
+    OnlinePerformanceSerializer,
     OpenTrainingRunSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
@@ -212,7 +214,14 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
     # The HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
-    scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "validate_definition",
+        "list_templates",
+        "resolve_template",
+        "online_performance",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -589,6 +598,34 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchRunSerializer(instance=runs, many=True).data)
 
+    @validated_request(
+        query_serializer=OnlinePerformanceQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OnlinePerformanceSerializer,
+                description="Realized metrics per model per validated prediction date, newest date first.",
+            ),
+            404: OpenApiResponse(description="The pipeline does not exist."),
+        },
+        summary="Read realized performance history",
+        description=(
+            "Return the realized metrics online validation recorded for each model on each validated "
+            "prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, "
+            "calibration error, quantile calibration bins, mean predicted probability against the base rate, "
+            "lift, and the model's role when it emitted and now. The rows come from the validation runs, so a "
+            "former champion that a promotion archived keeps its history. Read-only; it runs no queries."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="online_performance", pagination_class=None)
+    def online_performance(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            performance = api.online_performance(
+                self.team_id, self.kwargs["pk"], limit=request.validated_query_data["limit"]
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        return Response(OnlinePerformanceSerializer(instance=performance).data)
+
     @extend_schema(
         request=None,
         responses={
@@ -942,6 +979,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 model_explanation=data.get("model_explanation") or {},
                 recommended_next=data.get("recommended_next") or "",
                 distillation=data.get("distillation") or "",
+                report_notebook_short_id=data.get("report_notebook_short_id") or "",
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")

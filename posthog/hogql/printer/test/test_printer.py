@@ -61,6 +61,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models import PropertyDefinition
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
@@ -1422,21 +1423,33 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            (expression, properties)
+            (expression, properties, expected)
             for expression in ["properties", "toJSONString(properties)"]
-            for properties in [{}, {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []}]
+            for properties, expected in [
+                ({}, {}),
+                (
+                    {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
+                    {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
+                ),
+                ({"$exception_types": [], "custom_empty": []}, {"custom_empty": []}),
+            ]
         ]
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_to_json_string_strips_empty_values(
-        self, expression: str, properties: dict[str, object]
+        self, expression: str, properties: dict[str, object], expected: dict[str, object]
     ) -> None:
         printed = self._expr(expression)
         [(serialized,)] = sync_execute(
-            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
-            {"raw": json.dumps(properties), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties, "
+            "CAST('{}', %(temporary_type)s) AS temporary_properties) AS events",
+            {
+                "raw": json.dumps(properties),
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+            },
         )
-        self.assertEqual(json.loads(serialized), {key: value for key, value in properties.items() if value != []})
+        self.assertEqual(json.loads(serialized), expected)
 
     @parameterized.expand(
         [

@@ -47,7 +47,6 @@ class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = True,
         schema_name: str | None = None,
     ) -> bool:
         endpoint = ATTIO_ENDPOINTS.get(schema_name or "")
