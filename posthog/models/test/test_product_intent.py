@@ -648,7 +648,7 @@ class TestProductIntent(BaseTest):
         assert user_product_lists.count() == 3
 
         product_paths = {upl.product_path for upl in user_product_lists}
-        assert product_paths == {"Data warehouse", "SQL editor", "ETL"}
+        assert product_paths == {"Data warehouse", "SQL editor", "ELT"}
 
         enabled = [upl.enabled for upl in user_product_lists]
         assert all(enabled)
