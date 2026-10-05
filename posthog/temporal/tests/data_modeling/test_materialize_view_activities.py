@@ -1865,9 +1865,11 @@ class TestMaterializeViewPromptJev:
                 team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
             )
             result = await activity_environment.run(materialize_view_activity, inputs)
-            materialized = deltalake.DeltaTable(
-                result.table_uri, storage_options=get_aws_storage_options()
-            ).to_pyarrow_table()
+            materialized = await asyncio.to_thread(
+                lambda: deltalake.DeltaTable(
+                    result.table_uri, storage_options=get_aws_storage_options()
+                ).to_pyarrow_table()
+            )
 
         rows = sorted(materialized.to_pylist(), key=lambda row: row["text"])
         assert rows == [

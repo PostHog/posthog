@@ -564,7 +564,7 @@ async def test_apost_query_sends_external_tables(clickhouse_client, django_db_se
     table = {
         "name": "_jev_result",
         "structure": [
-            ("text", "String"),
+            ("my `text`", "String"),
             ("at", "DateTime64(6, 'America/New_York')"),
             (
                 "decision",
@@ -574,14 +574,14 @@ async def test_apost_query_sends_external_tables(clickhouse_client, django_db_se
         ],
         "data": [
             {
-                "text": 'say "refund"',
+                "my `text`": 'say "refund"',
                 "at": dt.datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=dt.UTC),
                 "decision": ["billing", [["billing", 0.9], ["other", 0.1]], 0.9],
             }
         ],
     }
     query = (
-        "SELECT text, toString(toTimeZone(at, 'UTC')) AS at, decision.choice AS choice, "
+        "SELECT `my \\`text\\`` AS text, toString(toTimeZone(at, 'UTC')) AS at, decision.choice AS choice, "
         "decision.probabilities[1].probability AS p FROM _jev_result FORMAT JSONEachRow"
     )
 

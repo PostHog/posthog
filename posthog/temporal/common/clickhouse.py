@@ -20,6 +20,8 @@ import pyarrow as pa
 from structlog import get_logger
 from temporalio import activity
 
+from posthog.hogql.escape_sql import backquote_clickhouse_identifier
+
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
@@ -122,7 +124,10 @@ def _external_tables_form(
         name = table["name"]
         form.add_field(
             f"{name}_structure",
-            ", ".join(f"`{column}` {clickhouse_type}" for column, clickhouse_type in table["structure"]),
+            ", ".join(
+                f"{backquote_clickhouse_identifier(column)} {clickhouse_type}"
+                for column, clickhouse_type in table["structure"]
+            ),
         )
         form.add_field(f"{name}_format", "JSONEachRow")
         rows = b"\n".join(json.dumps(row, default=_encode_external_value).encode() for row in table["data"])
