@@ -62,8 +62,9 @@ def build_job_log_insights(
             return cached
     try:
         log_text = _fetch_log(curated.team, curated.repository, curated.source_id, job_id)
-    except Exception:
-        logger.warning("engineering_analytics_job_log_fetch_failed", job_id=job_id, exc_info=True)
+    except Exception as error:
+        # GitHub serves a log from a signed URL, and an HTTP error carries that URL, so only its type is logged.
+        logger.warning("engineering_analytics_job_log_fetch_failed", job_id=job_id, error_type=type(error).__name__)
         return _LOG_NOT_READ
     if log_text is None:
         return _LOG_NOT_READ

@@ -7,6 +7,7 @@ the step a line belongs to. When that count differs from the steps the job repor
 attributed to a step and the badges are reported for the job as a whole only.
 """
 
+import io
 import re
 from collections.abc import Sequence
 
@@ -22,6 +23,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _TIMESTAMP = re.compile(r"^﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ")
 _MAX_DETAILS = 20
+_MAX_DETAIL_CHARS = 300
 
 _Rule = tuple[JobLogBadgeKind, JobLogBadgeState, re.Pattern[str]]
 # Matched at the start of a line. The pattern's group, when it has one, is the badge's detail.
@@ -39,24 +41,40 @@ _RULE_HINTS = ("Cache ", "Failed to restore", "igrations to apply", "Applying ")
 _RUNNER_STEPS = ("Set up job", "Complete job")
 _POST_PREFIX = "Post "
 
-_Found = dict[tuple[JobLogBadgeKind, JobLogBadgeState], list[str]]
+_BadgeKey = tuple[JobLogBadgeKind, JobLogBadgeState]
+
+
+class _Found:
+    """The matches of one job or one step. The pull request's author writes the log, so what is kept
+    of it is bounded while it is read: every match is counted, and only the first few details are held."""
+
+    def __init__(self) -> None:
+        self.counts: dict[_BadgeKey, int] = {}
+        self.details: dict[_BadgeKey, list[str]] = {}
+
+    def add(self, key: _BadgeKey, detail: str) -> None:
+        self.counts[key] = self.counts.get(key, 0) + 1
+        details = self.details.setdefault(key, [])
+        if len(details) < _MAX_DETAILS:
+            details.append(detail[:_MAX_DETAIL_CHARS])
 
 
 def parse_job_log(log_text: str, steps: Sequence[WorkflowJobStep]) -> JobLogInsights:
     assigner = _StepAssigner(steps)
-    whole: _Found = {}
+    whole = _Found()
     by_step: dict[int, _Found] = {}
-    for raw_line in log_text.splitlines():
-        line = _ANSI.sub("", _TIMESTAMP.sub("", raw_line))
+    # StringIO yields one line at a time, where splitlines would hold a second copy of the whole log.
+    for raw_line in io.StringIO(log_text):
+        line = _ANSI.sub("", _TIMESTAMP.sub("", raw_line.rstrip("\r\n")))
         step = assigner.step_of(line)
         if not any(hint in line for hint in _RULE_HINTS):
             continue
         for kind, state, pattern in _RULES:
             if match := pattern.match(line):
                 detail = match.group(1) if match.groups() else ""
-                whole.setdefault((kind, state), []).append(detail)
+                whole.add((kind, state), detail)
                 if step is not None:
-                    by_step.setdefault(step, {}).setdefault((kind, state), []).append(detail)
+                    by_step.setdefault(step, _Found()).add((kind, state), detail)
                 break
     attributed = assigner.matches_job_steps()
     return JobLogInsights(
@@ -108,11 +126,11 @@ class _StepAssigner:
 
 def _badges(found: _Found) -> list[JobLogBadge]:
     # A restore that fails logs a hit, then the failure, then a miss. Only the failure is worth showing.
-    failed = len(found.get((JobLogBadgeKind.CACHE, JobLogBadgeState.FAILED), []))
+    failed = found.counts.get((JobLogBadgeKind.CACHE, JobLogBadgeState.FAILED), 0)
     badges: list[JobLogBadge] = []
-    for (kind, state), details in found.items():
+    for (kind, state), matches in found.counts.items():
         masked = kind is JobLogBadgeKind.CACHE and state in (JobLogBadgeState.HIT, JobLogBadgeState.MISS)
-        count = len(details) - (failed if masked else 0)
+        count = matches - (failed if masked else 0)
         if count > 0:
-            badges.append(JobLogBadge(kind=kind, state=state, count=count, detail=details[:_MAX_DETAILS]))
+            badges.append(JobLogBadge(kind=kind, state=state, count=count, detail=found.details[(kind, state)]))
     return badges
