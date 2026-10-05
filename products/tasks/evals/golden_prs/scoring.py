@@ -13,7 +13,7 @@ DEFAULT_JUDGE_MODEL = "claude-opus-5"
 
 # Generated or binary files: an agent cannot regenerate them without running the test suite,
 # so they must not count against it.
-ARTIFACT_SUFFIXES = (".ambr", ".snap", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico")
+ARTIFACT_SUFFIXES = (".ambr", ".snap", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg")
 ARTIFACT_DIRS = ("__snapshots__/",)
 
 DIFF_HEADER = re.compile(r"^diff --git a/(.*?) b/(.*)$", re.MULTILINE)
@@ -54,16 +54,29 @@ def changed_files(diff: str) -> set[str]:
     return {new_path for _, new_path in DIFF_HEADER.findall(diff) if not is_artifact(new_path)}
 
 
+def without_artifacts(diff: str) -> str:
+    sections = re.split(r"(?=^diff --git a/)", diff, flags=re.MULTILINE)
+    return "".join(
+        section
+        for section in sections
+        if not (header := DIFF_HEADER.match(section)) or not is_artifact(header.group(2))
+    )
+
+
 def added_lines(diff: str) -> Counter[str]:
     lines: Counter[str] = Counter()
     counting = False
+    in_hunk = False
     for line in diff.splitlines():
         header = DIFF_HEADER.match(line)
         if header:
             counting = not is_artifact(header.group(2))
-        elif counting and line.startswith("+") and not line.startswith("+++"):
-            content = line[1:].strip()
-            if content:
+            in_hunk = False
+        elif line.startswith("@@ "):
+            in_hunk = True
+        elif counting and in_hunk and line.startswith("+"):
+            content = line[1:].rstrip()
+            if content.strip():
                 lines[content] += 1
     return lines
 
@@ -106,8 +119,8 @@ def judge(
         return Verdict(score=0.0, reasoning="The agent changed no files.")
     request = (
         f"<task>\n{task}\n</task>\n\n"
-        f"<golden_diff>\n{_bounded(golden)}\n</golden_diff>\n\n"
-        f"<candidate_diff>\n{_bounded(candidate)}\n</candidate_diff>"
+        f"<golden_diff>\n{_bounded(without_artifacts(golden))}\n</golden_diff>\n\n"
+        f"<candidate_diff>\n{_bounded(without_artifacts(candidate))}\n</candidate_diff>"
     )
     if client is None and not os.environ.get("ANTHROPIC_API_KEY"):
         return _judge_with_claude_cli(model, request)

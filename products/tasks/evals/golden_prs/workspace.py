@@ -157,8 +157,14 @@ def checkout_parent(repo: Path, pr: GoldenPR) -> Iterator[Path]:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def candidate_diff(workdir: Path) -> str:
+def baseline_commit(workdir: Path) -> str:
+    return _git(workdir, "rev-parse", "--verify", BASELINE_REF).stdout.strip()
+
+
+def candidate_diff(workdir: Path, baseline_sha: str | None = None) -> str:
     _git(workdir, "add", "-A", deny_secrets=True)
+    if baseline_sha is not None:
+        return _diff(workdir, "--cached", baseline_sha)
     baseline = _git(workdir, "rev-parse", "--verify", "--quiet", BASELINE_REF, check=False)
     if baseline.returncode == 0:
         return _diff(workdir, "--cached", BASELINE_REF)

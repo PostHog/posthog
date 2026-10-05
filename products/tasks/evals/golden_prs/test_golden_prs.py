@@ -13,8 +13,8 @@ from parameterized import parameterized
 from products.tasks.evals.golden_prs.__main__ import report, verdict_for
 from products.tasks.evals.golden_prs.agents import AgentRun, agent_environment, agent_failure
 from products.tasks.evals.golden_prs.cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
-from products.tasks.evals.golden_prs.scoring import added_lines, changed_files, judge, score_diffs
-from products.tasks.evals.golden_prs.workspace import candidate_diff, checkout_parent
+from products.tasks.evals.golden_prs.scoring import added_lines, changed_files, judge, score_diffs, without_artifacts
+from products.tasks.evals.golden_prs.workspace import baseline_commit, candidate_diff, checkout_parent
 
 GOLDEN_AUTHORS = {"pauldambra", "benjackwhite", "mariusandra", "Twixes"}
 
@@ -82,6 +82,7 @@ def test_build_prompt_strips_pr_template_noise(_name: str, body: str, must_not_c
         ("rename keeps new path", "diff --git a/old/x.py b/new/x.py\n", {"new/x.py"}),
         ("snapshot ignored", "diff --git a/t/__snapshots__/a.ambr b/t/__snapshots__/a.ambr\n", set()),
         ("image ignored", "diff --git a/frontend/__snapshots__/a.png b/frontend/__snapshots__/a.png\n", set()),
+        ("svg ignored", "diff --git a/frontend/icon.svg b/frontend/icon.svg\n", set()),
     ]
 )
 def test_changed_files_reads_diff_headers(_name: str, diff: str, expected: set[str]):
@@ -90,7 +91,18 @@ def test_changed_files_reads_diff_headers(_name: str, diff: str, expected: set[s
 
 def test_added_lines_skips_artifacts_and_blank_lines():
     diff = diff_for("posthog/x.py", ["  x = 1", ""]) + diff_for("t/__snapshots__/a.ambr", ["ignored"])
-    assert added_lines(diff) == Counter({"x = 1": 1})
+    assert added_lines(diff) == Counter({"  x = 1": 1})
+
+
+def test_added_lines_preserves_indentation_and_counts_increment_lines():
+    diff = diff_for("posthog/x.py", ["    return value", "++counter"])
+    assert added_lines(diff) == Counter({"    return value": 1, "++counter": 1})
+
+
+def test_judge_input_excludes_artifacts_before_bounding():
+    diff = diff_for("frontend/icon.svg", ["x" * 120_000]) + diff_for("posthog/x.py", ["fixed = True"])
+    assert "fixed = True" in without_artifacts(diff)
+    assert "frontend/icon.svg" not in without_artifacts(diff)
 
 
 GOLDEN = diff_for("posthog/a.py", ["a = 1", "b = 2"]) + diff_for("posthog/b.py", ["c = 3"])
@@ -203,10 +215,23 @@ def test_checkout_parent_keeps_the_export_ignored_gitignore_so_build_output_stay
             subprocess.run([*git, "commit", "-q", "--no-verify", "-m", message], cwd=repo, check=True)
         merge_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout
         with checkout_parent(repo, golden_pr(merge_commit_sha=merge_sha.strip())) as workdir:
+            captured = baseline_commit(workdir)
             (workdir / "build").mkdir()
             (workdir / "build" / "out.txt").write_text("built\n")
             (workdir / "a.py").write_text("a = 2\n")
             assert changed_files(candidate_diff(workdir)) == {"a.py"}
+            tree = subprocess.run(
+                ["git", "write-tree"], cwd=workdir, capture_output=True, text=True, check=True
+            ).stdout.strip()
+            moved = subprocess.run(
+                [*git, "commit-tree", tree, "-p", captured, "-m", "agent"],
+                cwd=workdir,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            subprocess.run(["git", "update-ref", "refs/golden-eval/baseline", moved], cwd=workdir, check=True)
+            assert "+a = 2" in candidate_diff(workdir, captured)
 
 
 def test_agent_environment_drops_github_credentials_and_the_other_provider_key():
@@ -246,6 +271,6 @@ def test_report_lists_each_case_and_the_mean():
     ]
     rendered = report(results)
     assert "| #1 | fix: a | pauldambra | claude m | 1.00 | 0.50 | 0.80 | 2.0 | 1.50 |" in rendered
-    assert "| 30.0 (timed out) | 0.00 |" in rendered
+    assert "| 30.0 (timed out) | — |" in rendered
     assert "| **Mean** | | | | 0.50 | 0.25 | 0.40 | | |" in rendered
     assert report([]) == "No results found.\n"

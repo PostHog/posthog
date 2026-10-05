@@ -6,11 +6,12 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
+from uuid import uuid4
 
 from .agents import DEFAULT_MODELS, AgentRun, Runtime, agent_failure, agent_usage, run_agent
 from .cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
 from .scoring import DEFAULT_JUDGE_MODEL, DiffScores, Verdict, changed_files, judge, score_diffs
-from .workspace import candidate_diff, checkout_parent, ensure_golden_commits, golden_diff
+from .workspace import baseline_commit, candidate_diff, checkout_parent, ensure_golden_commits, golden_diff
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_RESULTS_DIR = Path(__file__).with_name("results")
@@ -53,8 +54,9 @@ def evaluate(
     prompt = build_prompt(pr)
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
     with checkout_parent(repo, pr) as workdir:
+        baseline_sha = baseline_commit(workdir)
         run = run_agent(runtime, model, prompt, workdir, timeout_seconds)
-        candidate = candidate_diff(workdir)
+        candidate = candidate_diff(workdir, baseline_sha)
     verdict = verdict_for(run, prompt, candidate, golden, judge_model)
     result = CaseResult(
         pr=pr.number,
@@ -89,6 +91,10 @@ def load_results(results_dir: Path) -> list[dict]:
     return sorted((json.loads(path.read_text()) for path in results_dir.rglob("*.json")), key=lambda r: r["pr"])
 
 
+def _cost(usage: dict[str, float | int]) -> str:
+    return f"{usage['total_cost_usd']:.2f}" if "total_cost_usd" in usage else "—"
+
+
 def report(results: list[dict]) -> str:
     if not results:
         return "No results found.\n"
@@ -97,7 +103,7 @@ def report(results: list[dict]) -> str:
         f"| #{r['pr']} | {r['title']} | {r['author']} | {r['runtime']} {r['model']} "
         f"| {r['scores']['file_recall']:.2f} | {r['scores']['added_line_f1']:.2f} | {r['judge_score']:.2f} "
         f"| {r['duration_seconds'] / 60:.1f}{' (timed out)' if r['timed_out'] else ''} "
-        f"| {r['usage'].get('total_cost_usd', 0):.2f} |"
+        f"| {_cost(r['usage'])} |"
         for r in results
     ]
     means = (
@@ -144,7 +150,8 @@ def main(argv: list[str]) -> int:
         return 0
     selected = select_golden_prs(golden_prs, args.pr) if args.pr else golden_prs
     model = args.model or DEFAULT_MODELS[args.runtime]
-    results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{args.runtime}-{model}"
+    results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{args.runtime}-{uuid4().hex}"
+    results_dir.mkdir(parents=True, exist_ok=False)
     for pr in selected:
         print(f"#{pr.number} {pr.title}: running {args.runtime} {model}", flush=True)
         result, candidate, agent_log = evaluate(pr, args.runtime, model, args.judge_model, args.case_timeout, args.repo)
