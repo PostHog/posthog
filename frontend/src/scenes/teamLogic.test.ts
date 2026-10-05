@@ -9,10 +9,21 @@ import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
 
 import { projectLogic } from './projectLogic'
-import { teamLogic } from './teamLogic'
+import { teamLogic, toggleSettingMessage } from './teamLogic'
 
 describe('teamLogic', () => {
     let logic: ReturnType<typeof teamLogic.build>
+
+    it.each([
+        ['session_recording_opt_in', true, 'Session recording enabled'],
+        ['session_recording_opt_in', false, 'Session recording disabled'],
+        ['autocapture_opt_out', true, 'Autocapture disabled'],
+        ['autocapture_opt_out', false, 'Autocapture enabled'],
+        ['capture_console_log_opt_in', null, 'Console log capture disabled'],
+        ['name', 'New name', null],
+    ] as const)('toggleSettingMessage(%s, %s) returns %s', (attr, value, expected) => {
+        expect(toggleSettingMessage(attr as keyof TeamType, value)).toBe(expected)
+    })
 
     describe('when team is loaded', () => {
         beforeEach(() => {
