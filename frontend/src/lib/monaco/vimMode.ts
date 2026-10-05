@@ -157,6 +157,24 @@ function patchSubstituteHighlight(cmAdapter: any, statusBar: any): () => void {
     }
 }
 
+// monaco-vim sets a solid block cursor in normal mode. A solid block is hard to
+// see against the editor theme, so we keep the block but make it blink.
+function patchNormalModeCursorBlinking(cmAdapter: any, editor: monacoEditor.IStandaloneCodeEditor): () => void {
+    const originalEnterVimMode = cmAdapter.enterVimMode
+
+    cmAdapter.enterVimMode = function (...args: unknown[]): void {
+        originalEnterVimMode.apply(this, args)
+        editor.updateOptions({ cursorBlinking: 'blink' })
+    }
+
+    // initVimMode already entered normal mode before this patch.
+    editor.updateOptions({ cursorBlinking: 'blink' })
+
+    return () => {
+        cmAdapter.enterVimMode = originalEnterVimMode
+    }
+}
+
 function setupClipboardSync(editor: monacoEditor.IStandaloneCodeEditor, statusBarEl: HTMLElement): () => void {
     const regController = (VimMode as any).Vim.getRegisterController()
     const origPushText = regController.pushText.bind(regController)
@@ -251,6 +269,7 @@ export function setupVimMode(
     const restoreCloseInput = patchCloseInput(cmAdapter.statusBar)
     const restoreArrowKeys = patchStatusBarArrowKeys(statusBarEl)
     const restoreSetSec = patchSubstituteHighlight(cmAdapter, cmAdapter.statusBar)
+    const restoreCursorBlinking = patchNormalModeCursorBlinking(cmAdapter, editor)
     const cleanupClipboard = setupClipboardSync(editor, statusBarEl)
 
     let cleanupHistoryPersistence: (() => void) | undefined
@@ -266,6 +285,7 @@ export function setupVimMode(
         dispose: () => {
             cleanupHistoryPersistence?.()
             cleanupClipboard()
+            restoreCursorBlinking()
             restoreSetSec()
             restoreArrowKeys()
             restoreCloseInput()
