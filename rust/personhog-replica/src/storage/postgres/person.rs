@@ -1368,11 +1368,15 @@ impl PersonLookup for PostgresStorage {
         let uuids: Vec<Uuid> = floors.iter().map(|(uuid, _)| *uuid).collect();
         let mut before = lock_persons_by_uuids(&mut tx, team_id, &uuids).await?;
 
-        let (absent_uuids, absent_mins): (Vec<Uuid>, Vec<i64>) = floors
+        // Insert in uuid order, so two calls racing on the same new uuids wait on each
+        // other's inserts in one order and cannot deadlock.
+        let mut absent: Vec<(Uuid, i64)> = floors
             .iter()
             .filter(|(uuid, _)| !before.contains_key(uuid))
             .copied()
-            .unzip();
+            .collect();
+        absent.sort_unstable_by_key(|(uuid, _)| *uuid);
+        let (absent_uuids, absent_mins): (Vec<Uuid>, Vec<i64>) = absent.into_iter().unzip();
         let inserted =
             insert_person_tombstones(&mut tx, team_id, &absent_uuids, &absent_mins).await?;
 
