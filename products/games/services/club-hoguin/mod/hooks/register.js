@@ -4,8 +4,10 @@
 
 const PANE = 'club-hoguin'
 const DEFAULT_URL = 'http://localhost:8642'
-const PICTURE_COLUMNS = 72
-const PICTURE_ROWS = 22
+// The picture is as wide as the pane. A terminal cell is about twice as tall as it is wide,
+// so a 16:9 picture takes this many rows for each column.
+const MAX_PICTURE_COLUMNS = 160
+const ROWS_PER_COLUMN = (9 / 16) * 0.47
 const AUTO_OPEN_AFTER_MS = 10_000
 // A terminal that cannot draw pictures refuses every new frame. This many refusals in a row is the answer.
 const REFUSED_FRAMES_MEAN_NO_PICTURES = 10
@@ -16,7 +18,7 @@ const KEYS = [
     { key: 'a', label: 'left' },
     { key: 's', label: 'down' },
     { key: 'd', label: 'right' },
-    { key: 'e', label: 'use' },
+    { key: 'e', label: 'use the building next to you' },
 ]
 
 // CLUB_HOGUIN_URL in the environment of `claude` wins over the default.
@@ -321,6 +323,7 @@ export function register(on) {
             return next(e)
         }
         const { Box, Text, Button, Image } = $.ui.resolve(e)
+        const columns = Math.max(20, Math.min(MAX_PICTURE_COLUMNS, e.props.bodyColumns))
         if (!viewer || !Image) {
             return Box({ flexDirection: 'column', children: [Text({ dimColor: true, children: ['Waddling in…'] })] })
         }
@@ -330,8 +333,8 @@ export function register(on) {
               ? Image({
                     key: 'picture',
                     source: { file: viewer.frame, format: 'png', generation: viewer.generation },
-                    columns: PICTURE_COLUMNS,
-                    rows: PICTURE_ROWS,
+                    columns,
+                    rows: Math.round(columns * ROWS_PER_COLUMN),
                     alt: NO_PICTURES,
                 })
               : Text({ dimColor: true, children: ['Starting the town… (Chrome opens it without a window)'] })

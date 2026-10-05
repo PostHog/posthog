@@ -12,8 +12,9 @@ import { join } from 'node:path'
 const [url, workDir] = process.argv.slice(2)
 const FRAME_EVERY_MS = 66
 const KEY_HELD_MS = 260
-const VIEW_WIDTH = 960
-const VIEW_HEIGHT = 540
+// The size of an ordinary browser window, so the page lays out as it does on the web. The terminal scales it.
+const VIEW_WIDTH = 1280
+const VIEW_HEIGHT = 720
 
 const CHROME_CANDIDATES = [
     process.env.CLUB_HOGUIN_CHROME,
@@ -142,6 +143,13 @@ async function main() {
     })
     const devtools = new Devtools(socket)
     await devtools.send('Page.enable')
+    // The window size of Chrome includes its own frame, so the page is given its size directly.
+    await devtools.send('Emulation.setDeviceMetricsOverride', {
+        width: VIEW_WIDTH,
+        height: VIEW_HEIGHT,
+        deviceScaleFactor: 1,
+        mobile: false,
+    })
 
     // Frames: Chrome sends one when the page changed; at most one in FRAME_EVERY_MS reaches the pane.
     let frameNumber = 0

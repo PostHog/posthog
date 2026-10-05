@@ -110,7 +110,8 @@ test('/hoguin shows the club page in the pane and sends the keys to it', async (
     expect(spawns[0][2]).toBe('http://club.test/?pane=1')
 
     const ui = await $.ui.mount(PANE)
-    expect(await ui.find({ type: 'Image' })).toBeDefined()
+    // The picture is as wide as the pane (80 columns here) and keeps the shape of the page.
+    expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ columns: 80, rows: 21 })
     expect(await ui.find({ type: 'Button', text: 'Hi hogs! 👋' })).toBeDefined()
     await ui.press({ key: 'key-w' })
     await ui.press({ key: 'key-1' })
