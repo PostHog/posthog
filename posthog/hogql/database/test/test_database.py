@@ -4582,6 +4582,43 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with pytest.raises(TableAccessDeniedError):
                 database.get_table("system.data_deletion_requests")
 
+    @parameterized.expand(
+        [
+            ("managed_root", "models", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, False),
+            ("managed_nested", "models.revenue", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, False),
+            ("endpoint_nested", "models.revenue", DataWarehouseSavedQuery.Origin.ENDPOINT, False),
+            ("authored_nested", "models.revenue", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, True),
+            ("legacy_authored_nested", "models.revenue", None, True),
+            ("ordinary_prefix", "models_v2", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, True),
+        ]
+    )
+    def test_models_namespace_saved_query_reservation(
+        self, _case: str, name: str, origin: str | None, expected_visible: bool
+    ) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            origin=origin,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table(name) is expected_visible
+        assert (name in database.get_view_names()) is expected_visible
+
+    @parameterized.expand(
+        [("root", "models", False), ("nested", "models.revenue", False), ("ordinary_prefix", "models_v2", True)]
+    )
+    def test_models_namespace_warehouse_table_reservation(self, _case: str, name: str, expected_visible: bool) -> None:
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        self._create_warehouse_table(name=name, url_pattern="s3://example/*", credential=credential)
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table(name) is expected_visible
+        assert (name in database.get_warehouse_table_names()) is expected_visible
+
     def test_existing_saved_query_cannot_fill_denied_system_table_name(self) -> None:
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
