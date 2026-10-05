@@ -1369,8 +1369,10 @@ def cleanup_old_events_by_partition(
     # Both events tables partition by toYYYYMM(timestamp), so the same partition list applies;
     # deleting IN PARTITION on a partition a table doesn't have is a no-op.
     #
-    # Events only, deliberately: this enforces a multi-year retention floor for a named set of
-    # teams, and every other personal-data table already expires sooner under its own TTL.
+    # Events only: this enforces a multi-year retention floor for a named set of teams, and every
+    # other personal-data table except person-account membership expires sooner under its own TTL.
+    # Membership has no TTL and this job does not reconcile it, so a membership row can outlive the
+    # events it came from. docs/internal/clickhouse-deletion-coverage.md records this open gap.
     event_tables = events_data_tables(cluster)
 
     for idx, partition in enumerate(partitions, 1):

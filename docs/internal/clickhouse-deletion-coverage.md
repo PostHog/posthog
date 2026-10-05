@@ -192,6 +192,11 @@ Writers must honor team deletion and must not race deletion or reconciliation wi
 Stop live writes before rolling back the hooks.
 Keep the hooks until stored membership is gone or the tables are dropped.
 
+`cleanup_old_events_by_partition` does not reconcile membership.
+It removes old events for a named set of teams to enforce a retention floor, and membership has no TTL.
+A membership row whose only evidence was in those events keeps its `distinct_id`, `group_key`, `first_seen`, and `last_seen`.
+This is an open coverage gap.
+
 ## Tables on TTL alone
 
 Listed in `TTL_ONLY_TABLES`.
@@ -354,7 +359,11 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
-`cleanup_old_events_by_partition` stays events-only. It enforces a multi-year retention floor for a named set of teams, and every other personal-data table already expires sooner under its own TTL.
+`cleanup_old_events_by_partition` stays events-only.
+It enforces a multi-year retention floor for a named set of teams.
+Every other personal-data table except person-account membership already expires sooner under its own TTL.
+Membership has no TTL, and this job does not reconcile it.
+[Person-account membership](#person-account-membership) records that open gap.
 
 ## Adding a table
 
