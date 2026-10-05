@@ -23,6 +23,7 @@ from posthog.ingress.contracts import WebhookDelivery
 from products.workflows.backend.facade.api import accept_ses_event
 
 TOPIC = "arn:aws:sns:us-east-1:123456789012:ses-tenant-events"
+SANDBOX_TENANT = "sandbox-team-1"
 WEBHOOK_PATH = "/webhooks/workflows/ses-events"
 SUBSCRIBE_URL = "https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=tok"
 _CERT_URL = "https://sns.us-east-1.amazonaws.com/SimpleNotificationService-01d088a6f77103d0fe307c0069e40ed6.pem"
@@ -106,6 +107,9 @@ class TestAcceptSesEvent(SimpleTestCase):
         sync = patch("products.workflows.backend.services.ses_tenant_events.sync_ses_tenant_state_task")
         self.sync_mock = sync.start()
         self.addCleanup(sync.stop)
+        sandbox_sync = patch("products.workflows.backend.services.ses_tenant_events.sync_sandbox_tenant_state_task")
+        self.sandbox_sync_mock = sandbox_sync.start()
+        self.addCleanup(sandbox_sync.stop)
 
     def test_enqueues_a_sync_for_the_tenant_named_in_the_event(self) -> None:
         accept_ses_event(_delivery(_notification(_eventbridge_event())))
@@ -118,6 +122,31 @@ class TestAcceptSesEvent(SimpleTestCase):
         accept_ses_event(_delivery(_notification(event)))
 
         self.sync_mock.delay.assert_called_once_with(7)
+
+    @parameterized.expand(
+        [
+            ("sandbox_tenant_by_name", {"tenantName": SANDBOX_TENANT}, [], "sandbox"),
+            (
+                "sandbox_tenant_by_arn",
+                {},
+                [f"arn:aws:ses:us-east-1:123456789012:tenant/{SANDBOX_TENANT}/abc"],
+                "sandbox",
+            ),
+            ("team_tenant", {"tenantName": "team-42"}, [], "team"),
+        ]
+    )
+    @override_settings(SES_SANDBOX_TENANT_NAME=SANDBOX_TENANT)
+    def test_routes_the_sandbox_tenant_to_its_own_sync(
+        self, _name: str, detail: dict[str, Any], resources: list[str], expected_sync: str
+    ) -> None:
+        accept_ses_event(_delivery(_notification(_eventbridge_event(detail=detail, resources=resources))))
+
+        if expected_sync == "sandbox":
+            self.sandbox_sync_mock.delay.assert_called_once_with()
+            self.sync_mock.delay.assert_not_called()
+        else:
+            self.sync_mock.delay.assert_called_once_with(42)
+            self.sandbox_sync_mock.delay.assert_not_called()
 
     def test_ignores_events_from_other_sources(self) -> None:
         accept_ses_event(_delivery(_notification(_eventbridge_event(source="aws.health"))))

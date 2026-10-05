@@ -6,7 +6,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.ses_tenant_state import sync_ses_tenant_state
+from products.workflows.backend.services.ses_tenant_state import sync_sandbox_tenant_state, sync_ses_tenant_state
 
 logger = get_logger(__name__)
 
@@ -27,6 +27,19 @@ def sync_ses_tenant_state_task(team_id: int) -> None:
     sync_ses_tenant_state(team_id)
 
 
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=600,
+    max_retries=5,
+    retry_jitter=True,
+)
+def sync_sandbox_tenant_state_task() -> None:
+    sync_sandbox_tenant_state()
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 @skip_team_scope_audit
 def reconcile_ses_tenant_states() -> None:
@@ -44,6 +57,10 @@ def reconcile_ses_tenant_states() -> None:
     # One provider for the whole sweep: a fresh SESProvider per team would rebuild its boto3
     # clients (and re-resolve credentials) thousands of times.
     provider = SESProvider()
+    try:
+        sync_sandbox_tenant_state(provider=provider)
+    except Exception:
+        logger.exception("SES sandbox tenant reconciliation failed")
     synced = 0
     failed = 0
     for team_id in team_ids.iterator(chunk_size=500):
