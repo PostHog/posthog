@@ -7759,7 +7759,7 @@
         "feature": "llm_analytics",
         "summary": "Get evaluation config",
         "title": "Get evaluation config",
-        "required_scopes": ["evaluation:read"],
+        "required_scopes": ["llm_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7899,7 +7899,7 @@
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
         "title": "List supported llm_judge models",
-        "required_scopes": ["evaluation:read"],
+        "required_scopes": ["llm_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
