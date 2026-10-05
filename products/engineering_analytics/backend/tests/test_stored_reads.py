@@ -89,6 +89,7 @@ class TestStoredReads(BaseTest):
             if answered:
                 assert [read(), read()] == [[(1,)], [(1,)]]
             else:
+                assert stored_error is not None
                 with self.assertRaises(type(stored_error)):
                     read()
 
