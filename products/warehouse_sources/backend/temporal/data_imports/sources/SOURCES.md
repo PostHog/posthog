@@ -360,6 +360,7 @@ the row lists both.
 | gnews                            | HTTP                        | requests                                                        | ✅                          |
 | gocardless                       | HTTP                        | requests                                                        | ✅                          |
 | goldcast                         | HTTP                        | requests                                                        | ✅                          |
+| gologin                          | HTTP                        | requests                                                        | ✅                          |
 | gong                             | HTTP                        | requests                                                        | ✅                          |
 | google_ads                       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics                 | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
@@ -750,6 +751,7 @@ the row lists both.
 | survicate                        | HTTP                        | requests                                                        | ✅                          |
 | svix                             | HTTP                        | requests                                                        | ✅                          |
 | swarmia                          | HTTP                        | requests                                                        | ✅                          |
+| systeme                          | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
 | tally                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1134,7 +1136,6 @@ doesn't conflict with concurrent PRs.
 - gnews
 - gojiberry
 - goldcast
-- gologin
 - google_ad_manager
 - google_adsense
 - google_analytics
@@ -1433,7 +1434,6 @@ doesn't conflict with concurrent PRs.
 - swan
 - swonkie
 - synthesia
-- systeme
 - tackle_io
 - talkdesk
 - tana
