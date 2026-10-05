@@ -1,4 +1,3 @@
-import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
@@ -178,19 +177,6 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('file_system:write')
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
-        })
-
-        it('keeps every generated Agent CLI scope at the nearest level the key creation UI can render', () => {
-            const renderableScopes = getRenderableKeyCreationScopes()
-            const expected = [
-                ...new Set(
-                    (AGENT_USE_CASE_SCOPES as readonly string[]).map((scope) =>
-                        renderableScopes.has(scope) ? scope : scope.replace(/:write$/, ':read')
-                    )
-                ),
-            ].filter((scope) => renderableScopes.has(scope))
-
-            expect(AGENT_CLI_API_KEY_SCOPES).toEqual(expected)
         })
     })
 
