@@ -124,6 +124,8 @@ const fileSystemEntryToSearchItem = (
 const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet): boolean =>
     !flag || !!(featureFlags as Record<string, boolean>)[flag]
 
+const displayNameOf = (item: SearchItem): string => item.displayName || item.name
+
 const toSearchTabItems = (
     parents: SearchItem[],
     sources: FileSystemImport[],
@@ -135,10 +137,10 @@ const toSearchTabItems = (
             .filter((tab) => isEnabledByFlag(tab.flag, featureFlags))
             .map((tab) => ({
                 id: `${parent.id}-tab-${tab.name}`,
-                name: tab.name,
+                name: `${displayNameOf(parent)} ${tab.name}`,
                 displayName: tab.name,
                 category: parent.category,
-                parentName: parent.displayName || parent.name,
+                parentName: displayNameOf(parent),
                 href: tab.href,
                 itemType: parent.itemType,
                 searchKeywords: tab.searchKeywords,

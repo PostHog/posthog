@@ -191,6 +191,7 @@ describe('searchLogic', () => {
         ['data quality', true, true],
         ['dataquality', true, true],
         ['Data-Quality', true, true],
+        ['models data quality', true, true],
         ['data quality', false, false],
         ['', true, false],
     ])('lists the Models data quality tab for search %j with the flag on=%s: %s', (search, flagEnabled, listed) => {
@@ -199,8 +200,8 @@ describe('searchLogic', () => {
 
         const dataManagement = logic.values.allCategories.find((category) => category.key === 'data-management')
         const tabRow = dataManagement?.items.find((item) => item.href === urls.models('data-quality'))
-        expect(tabRow ? { name: tabRow.name, parentName: tabRow.parentName } : undefined).toEqual(
-            listed ? { name: 'Data quality', parentName: 'Models' } : undefined
+        expect(tabRow ? { displayName: tabRow.displayName, parentName: tabRow.parentName } : undefined).toEqual(
+            listed ? { displayName: 'Data quality', parentName: 'Models' } : undefined
         )
     })
 
