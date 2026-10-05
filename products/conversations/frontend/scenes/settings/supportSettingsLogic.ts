@@ -1731,7 +1731,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     config_id: configId,
                 })
                 actions.sendTestEmailDone(configId)
-                lemonToast.success(`Test email sent to ${response.sent_to}`)
+                const fromEmail = values.emailConfigs.find((config) => config.id === configId)?.from_email
+                lemonToast.success(
+                    fromEmail
+                        ? `Test email sent from ${fromEmail} to ${response.sent_to}`
+                        : `Test email sent to ${response.sent_to}`
+                )
             } catch {
                 lemonToast.error('Failed to send test email. Check SMTP settings.')
                 actions.sendTestEmailDone(configId)
