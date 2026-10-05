@@ -238,7 +238,9 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetsRequestSerializer,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
-from products.workflows.backend.presentation.views.workflow_classifications import WorkflowClassificationRequestSerializer
+from products.workflows.backend.presentation.views.workflow_classifications import (
+    WorkflowClassificationRequestSerializer,
+)
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
@@ -1407,11 +1409,11 @@ class HogFlowActionSerializer(serializers.Serializer):
             )
 
     def _validate_jev_classify_action(self, inputs: dict) -> None:
-        categories = (inputs.get("categories") or {}).get("value")
+        data = {key: (inputs.get(key) or {}).get("value") for key in ("question", "categories")}
         # Reuses the endpoint's serializer so the save-time and runtime limits cannot drift apart.
-        serializer = WorkflowClassificationRequestSerializer(data={"categories": categories}, partial=True)
+        serializer = WorkflowClassificationRequestSerializer(data=data, partial=True)
         if not serializer.is_valid():
-            raise serializers.ValidationError({"inputs": {"categories": serializer.errors["categories"]}})
+            raise serializers.ValidationError({"inputs": serializer.errors})
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")

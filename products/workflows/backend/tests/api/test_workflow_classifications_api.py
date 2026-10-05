@@ -113,6 +113,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("one_category", {"categories": {"spam": "Spam"}}),
+            ("blank_category_name", {"categories": {" ": "Spam", "support": "Help"}}),
             ("too_many_categories", {"categories": {f"c{i}": "x" for i in range(17)}}),
             ("oversized_context", {"context": {"message": "x" * 65_536}}),
         ]

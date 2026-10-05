@@ -62,6 +62,12 @@ describe('postHogClassify', () => {
 
     it.each([
         ['a blank question', { ...payload, question: ' ' }, /Enter a question/],
+        ['a long question', { ...payload, question: 'x'.repeat(2001) }, /2000 characters or fewer/],
+        [
+            'a blank category name',
+            { ...payload, categories: { ' ': 'Spam', support: 'Help' } },
+            /Give every category a name/,
+        ],
         ['one category', { ...payload, categories: { spam: 'Spam' } }, /at least two categories/],
         [
             'seventeen categories',

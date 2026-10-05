@@ -6716,7 +6716,7 @@ class TestJevClassifyActionValidation(APIBaseTest):
         ]
         sync_template_to_db(template)
 
-    def _post_flow(self, categories: dict):
+    def _post_flow(self, categories: dict, question: str = "Which team?"):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -6732,7 +6732,7 @@ class TestJevClassifyActionValidation(APIBaseTest):
             "type": "function",
             "config": {
                 "template_id": "template-posthog-jev-classify",
-                "inputs": {"question": {"value": "Which team?"}, "categories": {"value": categories}},
+                "inputs": {"question": {"value": question}, "categories": {"value": categories}},
             },
         }
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
@@ -6747,9 +6747,12 @@ class TestJevClassifyActionValidation(APIBaseTest):
             ("sixteen_categories", {f"c{i}": "x" for i in range(16)}, status.HTTP_201_CREATED),
             ("seventeen_categories", {f"c{i}": "x" for i in range(17)}, status.HTTP_400_BAD_REQUEST),
             ("long_description", {"spam": "x" * 501, "support": "help"}, status.HTTP_400_BAD_REQUEST),
+            ("long_question", {"spam": "x", "support": "help"}, status.HTTP_400_BAD_REQUEST, "x" * 2001),
         ]
     )
-    def test_applies_the_classification_endpoint_category_limits_at_save(self, _name, categories, expected):
-        response = self._post_flow(categories)
+    def test_applies_the_classification_endpoint_limits_at_save(
+        self, _name, categories, expected, question="Which team?"
+    ):
+        response = self._post_flow(categories, question)
 
         assert response.status_code == expected, response.json()

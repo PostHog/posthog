@@ -62,6 +62,8 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
     def validate_categories(self, value: dict[str, str]) -> dict[str, str]:
         if not 2 <= len(value) <= MAX_CATEGORIES:
             raise serializers.ValidationError(f"Enter between 2 and {MAX_CATEGORIES} categories.")
+        if any(not name.strip() for name in value):
+            raise serializers.ValidationError("Give every category a name.")
         return value
 
 
