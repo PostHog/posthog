@@ -90,6 +90,8 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { FlagDependencyCountCaveat } from './FlagDependencyCountCaveat'
+import { FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
 import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
@@ -228,9 +230,12 @@ function ConditionHeader({
                 <span className="text-sm break-all">{summary}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-                <span className="text-sm text-muted mr-2 tabular-nums">
-                    ({rollout}%{group.variant && ` · ${group.variant}`}
-                    {countSummary !== null && ` · ${countSummary}`})
+                <span className="flex items-center gap-0.5 mr-2">
+                    <span className="text-sm text-muted tabular-nums">
+                        ({rollout}%{group.variant && ` · ${group.variant}`}
+                        {countSummary !== null && ` · ${countSummary}`})
+                    </span>
+                    {countSummary !== null && <FlagDependencyCountCaveat properties={group.properties} />}
                 </span>
                 <LemonMenu
                     items={[
@@ -772,6 +777,10 @@ const ConditionContent = ({
                                                                 </b>{' '}
                                                                 - <b className="tabular-nums">{rolloutPct}%</b>
                                                             </span>
+                                                            <FlagDependencyEstimateCaveat
+                                                                properties={group.properties}
+                                                                targetName={resolvedTargetName}
+                                                            />
                                                             <MatchingActorsLink
                                                                 properties={group.properties}
                                                                 resolvedGroupTypeIndex={resolvedGroupTypeIndex}
