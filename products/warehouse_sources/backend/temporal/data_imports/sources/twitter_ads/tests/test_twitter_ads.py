@@ -1,12 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import (
-    UTC,
-    date,
-    datetime,
-    timedelta,
-    timezone as fixed_timezone,
-)
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -190,7 +184,7 @@ def test_stats_limits_daily_rows_currency_and_dst(
 
 
 def test_stats_backfill_caps_start_date_for_old_accounts(client: TwitterAdsClient, manager: MagicMock) -> None:
-    timezone = fixed_timezone(timedelta(hours=-8))
+    account_timezone = ZoneInfo("America/Los_Angeles")
     starts = []
 
     def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
@@ -202,7 +196,7 @@ def test_stats_backfill_caps_start_date_for_old_accounts(client: TwitterAdsClien
         if "/stats/" not in path:
             return response({"data": {"timezone": "America/Los_Angeles", "created_at": "2015-01-01T00:00:00Z"}})
         params = parse_qs(urlparse(request_url(request)).query)
-        starts.append(datetime.fromisoformat(params["start_time"][0]).astimezone(timezone).date())
+        starts.append(datetime.fromisoformat(params["start_time"][0]).astimezone(account_timezone).date())
         return response({"data": [{"id": "campaign-00", "id_data": [{"segment": None, "metrics": {}}]}]})
 
     with (
