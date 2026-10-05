@@ -32,7 +32,9 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'ELT',
+            // Keep the persisted product identifier stable while showing the corrected label.
+            path: 'ETL',
+            displayLabel: 'ELT',
             // Reuses the warehouse product key rather than minting a new one: this is a surface
             // over the same sources and destinations, so setup state and Quick Start tracking
             // should read as the same product.

@@ -2087,10 +2087,10 @@ export type ProductTreePath =
     | 'Data warehouse'
     | 'Datasets'
     | 'Early access features'
-    | 'ELT'
     | 'Endpoints'
     | 'Engineering analytics'
     | 'Error tracking'
+    | 'ETL'
     | 'Evaluations'
     | 'Experiments'
     | 'Feature flags'
@@ -2338,7 +2338,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
-        path: 'ELT',
+        path: 'ETL',
+        displayLabel: 'ELT',
         intents: [ProductKey.DATA_WAREHOUSE],
         category: ProductItemCategory.TOOLS,
         iconType: 'data_pipeline',
