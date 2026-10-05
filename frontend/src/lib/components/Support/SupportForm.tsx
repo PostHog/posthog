@@ -74,7 +74,7 @@ export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormPro
             {!user && (
                 <>
                     <LemonField name="name" label="Name">
-                        <LemonInput data-attr="name" placeholder="Jane" />
+                        <LemonInput data-attr="name" placeholder="Your name" />
                     </LemonField>
                     <LemonField name="email" label="Email">
                         <LemonInput data-attr="email" placeholder="your@email.com" />

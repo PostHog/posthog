@@ -384,6 +384,19 @@ describe('supportLogic', () => {
             expect(sendMessage).not.toHaveBeenCalled()
         })
 
+        it('blocks the form submit when the name is only spaces', async () => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            conversationsMock(sendMessage)
+            logic.actions.setSendSupportRequestValues({ ...LOGGED_OUT_FIELDS, name: '   ' })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitSendSupportRequest()
+            }).toFinishAllListeners()
+
+            expect(logic.values.sendSupportRequestErrors.name).toBe('Please enter your name')
+            expect(sendMessage).not.toHaveBeenCalled()
+        })
+
         // Over-blocking would be the worse regression: it would take away the only support channel
         // someone locked out of their account has. Pasted addresses often carry stray whitespace,
         // so those must pass too — trimmed, since restore-by-email matches the stored value exactly.
