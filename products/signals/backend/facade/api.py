@@ -1402,3 +1402,87 @@ def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     if not team_is_enrolled(canonical_team.id):
         return False
     return can_create_scout(user, canonical_team)
+
+
+def enable_scout_for_product(
+    *,
+    team: "Team",
+    skill_name: str,
+    source_product: str,
+    acting_user: "User",
+    write_scopes: Sequence[str] = (),
+) -> bool:
+    """Switch a canonical scout on for a project because a person asked for it in another product.
+
+    The project gets that one skill and an enabled config the product owns. `acting_user` becomes
+    the person the runs act as, because they turned the feature on. `write_scopes` is limited to
+    `SCOUT_GRANTABLE_WRITE_SCOPES`. The caller must already have checked that this person may
+    grant those scopes. Returns False without writing when the organization has not approved AI
+    data processing, when a person paused the scout, or when another product owns its config.
+    """
+    from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
+        SCOUT_GRANTABLE_WRITE_SCOPES,
+    )
+
+    from products.signals.backend.scout_harness.lazy_seed import (  # noqa: PLC0415 — keeps the skill seeding modules off the facade's import path
+        canonical_config_tags_for,
+        canonical_display_name_for,
+        canonical_skill_names,
+        canonical_structured_output_schema_for,
+        sync_canonical_skills,
+    )
+
+    if skill_name not in canonical_skill_names():
+        raise ValueError(f"{skill_name} is not a canonical scout")
+    if team.organization.is_ai_data_processing_approved is not True:
+        return False
+    scopes = sorted(set(write_scopes) & SCOUT_GRANTABLE_WRITE_SCOPES)
+
+    sync_canonical_skills(team, withheld_skill_names=canonical_skill_names() - {skill_name})
+    defaults: dict[str, Any] = {
+        "source_product": source_product,
+        "enabled": True,
+        "write_scopes": scopes,
+        "created_by": acting_user,
+        "enabled_by": acting_user,
+    }
+    if tags := canonical_config_tags_for(skill_name):
+        defaults["tags"] = list(tags)
+    if display_name := canonical_display_name_for(skill_name):
+        defaults["display_name"] = display_name
+    if schema := canonical_structured_output_schema_for(skill_name):
+        defaults["structured_output_schema"] = schema
+    config, created = SignalScoutConfig.objects.for_team(team.id).get_or_create(
+        team_id=team.id, skill_name=skill_name, defaults=defaults
+    )
+    if created:
+        return True
+    if config.source_product not in (None, source_product) or config.status == SignalScoutConfig.Status.PAUSED_BY_USER:
+        return False
+
+    update_fields = ["updated_at"]
+    if not config.enabled:
+        config.enabled = True
+        config.enabled_by = acting_user
+        update_fields += ["enabled", "enabled_by"]
+    granted = sorted(set(config.write_scopes or []) | set(scopes))
+    if granted != sorted(config.write_scopes or []):
+        config.write_scopes = granted
+        update_fields.append("write_scopes")
+    if len(update_fields) > 1:
+        config.save(update_fields=update_fields)
+    return True
+
+
+def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: str) -> bool:
+    """Remove the config a product created when it switched a scout on.
+
+    A config the product did not create is left alone, so a scout a person set up keeps running.
+    The run history stays. Returns False when the product owns no config for the scout.
+    """
+    deleted, _ = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name, source_product=source_product)
+        .delete()
+    )
+    return deleted > 0

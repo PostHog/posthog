@@ -76,10 +76,11 @@ from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.permissions import AccessControlPermission, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import AccessControlPermission, get_authenticator_scopes, is_service_auth, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -278,6 +279,7 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
 )
+from products.workflows.backend.services.suggestions_scout import PROPOSAL_WRITE_SCOPE, sync_suggestions_scout
 
 logger = structlog.get_logger(__name__)
 
@@ -5494,10 +5496,27 @@ class HogFlowViewSet(
                 self._report_workflow_action(
                     "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
                 )
+                self._sync_suggestions_scout(request, enabled=enabled)
         else:
             enabled = is_optimization_enabled(instance.id)
 
         return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
+
+    def _sync_suggestions_scout(self, request: Request, *, enabled: bool) -> None:
+        # Switching the scout on grants it a write scope that its runs use as this person, so a scoped
+        # API key has to carry that scope itself. A failure never fails the toggle: the next toggle syncs again.
+        token_scopes = get_authenticator_scopes(request.successful_authenticator)
+        if (
+            enabled
+            and token_scopes is not None
+            and "*" not in token_scopes
+            and PROPOSAL_WRITE_SCOPE not in token_scopes
+        ):
+            return
+        try:
+            sync_suggestions_scout(self.team, acting_user=cast(User, request.user))
+        except Exception as error:
+            capture_exception(error)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])

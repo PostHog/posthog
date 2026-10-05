@@ -14,6 +14,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.signals.backend.models import SignalScoutConfig
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
@@ -63,7 +64,7 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
-    def _create_active_flow(self) -> str:
+    def _create_active_flow(self, optimize: bool = True) -> str:
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
             {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action()]},
@@ -72,7 +73,8 @@ class TestWorkflowProposals(APIBaseTest):
         flow_id = create.json()["id"]
         activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
         assert activate.status_code == 200, activate.json()
-        self._optimize(flow_id)
+        if optimize:
+            self._optimize(flow_id)
         return flow_id
 
     def _propose(self, flow_id: str, **overrides) -> dict:
@@ -572,6 +574,59 @@ class TestWorkflowProposals(APIBaseTest):
         assert refused.status_code == 409, refused.json()
         assert refused.json()["code"] == "workflow_not_optimized"
         assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
+
+    def _suggestions_scout(self) -> SignalScoutConfig | None:
+        return SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name="signals-scout-workflows").first()
+
+    def _toggle(self, flow_id: str, enabled: bool, headers: dict | None = None) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization",
+            {"enabled": enabled},
+            format="json",
+            headers=headers or {},
+        )
+        assert response.status_code == 200, response.json()
+
+    def test_suggestions_scout_runs_while_any_workflow_asks_for_suggestions(self, _mock_flag):
+        first, second = self._create_active_flow(optimize=False), self._create_active_flow(optimize=False)
+        assert self._suggestions_scout() is None
+
+        self._toggle(first, True)
+        scout = self._suggestions_scout()
+        assert scout is not None
+        assert (scout.enabled, scout.write_scopes, scout.enabled_by_id) == (
+            True,
+            ["hog_flow_proposal:write"],
+            self.user.id,
+        )
+
+        self._toggle(second, True)
+        self._toggle(first, False)
+        assert self._suggestions_scout() is not None
+
+        self._toggle(second, False)
+        assert self._suggestions_scout() is None
+
+    @parameterized.expand([("paused by a person", "paused"), ("api key without the proposal scope", "key")])
+    def test_suggestions_scout_is_not_switched_on(self, _mock_flag, _name: str, case: str):
+        flow_id = self._create_active_flow(optimize=False)
+        headers = {}
+        if case == "paused":
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team, skill_name="signals-scout-workflows", enabled=False
+            )
+        else:
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="toggle", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
+            )
+            headers = {"authorization": f"Bearer {key}"}
+            self.client.logout()
+
+        self._toggle(flow_id, True, headers)
+
+        scout = self._suggestions_scout()
+        assert scout is None or not scout.enabled
 
     def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
         flow_id = self._create_active_flow()
