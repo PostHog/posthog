@@ -11,7 +11,6 @@ from posthog.test.base import BaseTest
 
 from django.conf import settings
 
-import yaml
 from parameterized import parameterized
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -98,17 +97,19 @@ def test_flag_lookup_tools_match_mcp_names_the_parser_normalizes(tool: str) -> N
 
 
 def _declared_tools() -> dict[str, Any]:
-    tools_yaml = Path(settings.BASE_DIR) / "products/feature_flags/mcp/tools.yaml"
-    return yaml.safe_load(tools_yaml.read_text())["tools"]
+    # tools.yaml may omit annotations (GET, DELETE and PATCH default), so read the generated
+    # definitions, which hold the resolved values for every enabled tool.
+    generated = json.loads(
+        (Path(settings.BASE_DIR) / "services/mcp/schema/generated-tool-definitions.json").read_text()
+    )
+    return {name: spec for name, spec in generated.items() if spec["feature"] == "flags"}
 
 
 def test_flag_mutation_tools_match_the_declared_write_surface() -> None:
     # FLAG_MUTATION_TOOLS is a literal so the guarded set stays a reviewed choice, but a
     # write verb added to tools.yaml must not slip past the suite silently. Bind the two.
     declared_write_verbs = {
-        name
-        for name, spec in _declared_tools().items()
-        if spec.get("enabled") and spec.get("annotations", {}).get("readOnly") is False
+        name for name, spec in _declared_tools().items() if spec["annotations"]["readOnlyHint"] is False
     }
 
     assert FLAG_MUTATION_TOOLS == declared_write_verbs
@@ -127,7 +128,7 @@ def test_read_tool_sets_name_enabled_read_only_tools() -> None:
         if spec is None:
             assert name in hand_written, name
             continue
-        assert spec.get("enabled") and spec.get("annotations", {}).get("readOnly") is True, name
+        assert spec["annotations"]["readOnlyHint"] is True, name
 
 
 class TestFlagStateUnchanged(BaseTest):
