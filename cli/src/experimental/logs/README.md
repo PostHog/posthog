@@ -114,5 +114,9 @@ Widening `range.from` discards the checkpoint and re-imports everything, and say
 
 ## Retention
 
-Imported records take their retention from when they were imported, not from their own timestamp,
-so a backfill expires the configured number of retention days after the import finishes.
+PostHog keeps only the records that are still inside the project's retention. A record whose
+timestamp plus the retention is already in the past is dropped at intake, even though the request
+succeeds, so a range older than the retention adds nothing but transfer time.
+
+Records that are kept take their retention from when they were imported, not from their own
+timestamp, so they expire the configured number of retention days after the import finishes.
