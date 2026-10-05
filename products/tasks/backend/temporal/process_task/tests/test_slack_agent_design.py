@@ -15,8 +15,11 @@ from posthog.models.user import User
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
+    RotateSlackAgentDesignStreamInput,
     StartSlackAgentDesignStreamInput,
     StopSlackAgentDesignStreamInput,
+    TaskUpdateChunk,
+    rotate_slack_agent_design_stream,
     start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
@@ -172,3 +175,23 @@ class TestSlackAgentDesignStream(TestCase):
 
         assert mock_start.call_args.args[0].actor_slack_user_id == expected_target
         assert stream is not None and stream.actor_slack_user_id == expected_target
+
+    @parameterized.expand([("new_stream_opened", "3.0", ["2.0"]), ("no_new_stream", None, [])])
+    @patch.object(SlackThreadHandler, "delete_message", autospec=True)
+    @patch.object(SlackThreadHandler, "start_status_stream", autospec=True)
+    def test_rotating_deletes_the_sealed_message_only_once_a_new_stream_holds_the_plan(
+        self, _name, new_ts, deleted_ts, mock_start, mock_delete
+    ) -> None:
+        mock_start.return_value = new_ts
+
+        stream = rotate_slack_agent_design_stream(
+            RotateSlackAgentDesignStreamInput(
+                slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
+                sealed_ts="2.0",
+                task_updates=[TaskUpdateChunk(id="line-1", title="Ran SQL", status="in_progress")],
+                run_id=str(self.task_run.id),
+            )
+        )
+
+        assert (stream.ts if stream else None) == new_ts
+        assert [c.args[1] for c in mock_delete.call_args_list] == deleted_ts
