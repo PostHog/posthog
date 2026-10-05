@@ -778,7 +778,20 @@ class CuratedGitHubSource:
                 if self._queries_remaining <= 0:
                     raise QueryWorkLimitExceededError
                 self._queries_remaining -= 1
-        stored_sql = self._with_stored_ci_sources(sql, placeholders or {})
+        try:
+            stored_sql = self._with_stored_ci_sources(sql, placeholders or {})
+        except Exception:
+            # The stored rows only make a read faster, so a failure to find them must not fail the read.
+            stored_sql = None
+            with self._stored_reader_lock:
+                self._stored_reader = None
+                self._stored_reader_resolved = True
+            logger.warning(
+                "engineering_analytics_stored_read_unavailable",
+                team_id=self._team.pk,
+                query_type=query_type,
+                exc_info=True,
+            )
         if stored_sql is not None:
             try:
                 return self._execute(

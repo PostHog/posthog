@@ -5,6 +5,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -45,6 +46,7 @@ class TestStoredReads(BaseTest):
             ("every_day_is_stored", True, True, None, [_STORED_READ, _STORED_READ], True),
             ("flag_off", False, True, None, [_RAW_READ, _RAW_READ], True),
             ("a_day_is_not_stored", True, False, None, [_RAW_READ, _RAW_READ], True),
+            ("the_stored_days_lookup_fails", True, OperationalError("down"), None, [_RAW_READ, _RAW_READ], True),
             (
                 "stored_rows_reject_the_query",
                 True,
@@ -60,7 +62,7 @@ class TestStoredReads(BaseTest):
         self,
         _name: str,
         flag: bool,
-        days_stored: bool,
+        days_stored: bool | Exception,
         stored_error: Exception | None,
         expected_reads: list[str],
         answered: bool,
@@ -78,12 +80,15 @@ class TestStoredReads(BaseTest):
             placeholders: dict[str, ast.Expr] = {"run_started_floor": ast.Constant(value=floor)}
             return curated.run(sql, query_type=_RAW_READ, placeholders=placeholders).results
 
+        lookup: dict[str, Any] = (
+            {"side_effect": days_stored}
+            if isinstance(days_stored, Exception)
+            else {"return_value": SimpleNamespace(ready=days_stored, job_ids=[uuid4()])}
+        )
+
         with (
             patch(f"{_CURATED}.team_flag", return_value=flag),
-            patch(
-                f"{_CI_PRECOMPUTE}.ensure_stored",
-                return_value=SimpleNamespace(ready=days_stored, job_ids=[uuid4()]),
-            ),
+            patch(f"{_CI_PRECOMPUTE}.ensure_stored", **lookup),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=execute) as mock_execute,
         ):
             if answered:
