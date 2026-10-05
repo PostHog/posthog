@@ -7,6 +7,7 @@ import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { DashboardModalLoading } from 'scenes/dashboard/DashboardModalLoading'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -197,7 +198,7 @@ export const MarketingAnalyticsTable = ({
     return (
         <div className="bg-surface-primary">
             {recordings && (
-                <Suspense fallback={null}>
+                <Suspense fallback={<DashboardModalLoading isOpen onClose={() => setConversionRecordings(null)} />}>
                     <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />
                 </Suspense>
             )}
