@@ -9466,6 +9466,10 @@ snapshots:
         hash: v1.k794b7964.25fd8a22fa490bf3e3e600a984b131b28202b8172e46e1a35e090694dfe63e2f.UBgi2bw3KLPn9F1RDJIVKYgfFlzVDD2yZj4iUPufRVA
     scenes-app-data-warehouse-sql-editor--bi-calculated-measure-editor--light:
         hash: v1.k794b7964.66016e766d5d3b78aae28be29d15e9bbf7ebb60b48de6d488eb7b10ea4676afd.wpa1Nkk9kYDByTPyA-MjGrtArnLDfzP4S6zkO34CMfo
+    scenes-app-data-warehouse-sql-editor--bi-connections--dark:
+        hash: v1.k794b7964.1f2ab2237c64512591fa64ede2d01c957272510b58e8d280d03f972947127f18.FGHAY9evifk4UKdQC7B9nSpLfbdJH9G26TeeACebtLY
+    scenes-app-data-warehouse-sql-editor--bi-connections--light:
+        hash: v1.k794b7964.6cc3f998d8be9bf398eaaa215c3f8eaa9dc6557a2008361d3ba9bf3bf9d91da2.ddofcjJWgAQ_QZYP6WkNgJIp_TeW5k1Wmc_NTG1M7ZQ
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--dark:
         hash: v1.k794b7964.5a7a0a5291dae3a67320c33fe0d7e087ab35dcd5738ee99f101735cd7fe6895d.v84-mZ0JtjVV_28syxCq0lC0DPMk7Z4LPSKq_seARBg
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--light:
@@ -9479,9 +9483,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-quick-filters--light:
         hash: v1.k794b7964.7d055020d8b9cdc001efc8b5ca146f2d22e7c916af54b7361f2d8f61d59b940f.11bvglysenXe98m_innE4VvTdCUKMhRuSS62QGmFscM
     scenes-app-data-warehouse-sql-editor--bi-quick-filters-narrow--dark:
-        hash: v1.k794b7964.3a3d179dc8ec4fed037e1e0737ddad5dea4f828b262e35d07ae5c0dcfec1447d.dqy-xY-ApF2QSGtDMf_HIMrtyrPbFAnhhWHB8cmi4M8
+        hash: v1.k794b7964.9438ec9789fe83709762909669ffa2b2377eab421066004a257c7467ea941ad1.zz_SahLmEDK9GozyYfPrB5ydS01sT-n0L9kpHjIPCd0
     scenes-app-data-warehouse-sql-editor--bi-quick-filters-narrow--light:
-        hash: v1.k794b7964.46ca9e07669ba124d6d051b6b0cf1dbbf30b441533a9eaa064c3492577893e93.KhY5WMXImePUoV5bH-nrNztp1axD08hcOl4kfH-uaYQ
+        hash: v1.k794b7964.27d42f80122f06e2159d402c8887260e3a057bae29102b96b66f6de97c4116c3.04u1T8VmDQZWOP90QHr9sO19BElmuaemVAxK-394fHc
     scenes-app-data-warehouse-sql-editor--edited-insight--dark:
         hash: v1.k794b7964.94eba9d351ec4c6b649fc4b09f5d4a69fed2995448c0cc1dac5d63d3df0ad20c.U6hnpHxuk9RKFoPU8bc536a9dTuzluwHE0pF4J0nPYc
     scenes-app-data-warehouse-sql-editor--edited-insight--light:
