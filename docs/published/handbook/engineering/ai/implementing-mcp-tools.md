@@ -28,7 +28,15 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 # 4. Generate handlers and schemas
 hogli build:openapi
 
-# 5. Merge to master – CI builds and distributes automatically
+# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
+# A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
+# true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
+
+# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+pnpm --filter=@posthog/mcp run generate:ui-apps
+
+# 7. Merge to master – CI builds and distributes automatically
 ```
 
 ## Tool design principles

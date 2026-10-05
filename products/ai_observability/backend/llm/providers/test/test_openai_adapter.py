@@ -171,16 +171,21 @@ class TestOpenAIAdapterErrorMapping:
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
 
-    def test_non_402_status_error_is_not_swallowed(self, request_no_structured_output: CompletionRequest):
+    @parameterized.expand([("server_error", 500), ("precondition_failed", 412)])
+    def test_non_quota_status_error_is_not_swallowed(self, _name: str, status_code: int):
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = _make_api_status_error(500, "server error")
+        mock_client.chat.completions.create.side_effect = _make_api_status_error(status_code, "provider error")
+        request = CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(openai.APIStatusError):
-                adapter.complete(
-                    request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
-                )
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
     @parameterized.expand(
         [
