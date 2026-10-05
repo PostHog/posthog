@@ -29,6 +29,7 @@ from products.workflows.backend.services.email_sending_controls import (
     unsuspend_email_sending,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.services.sandbox_sender import SandboxSenderUnavailable, ensure_sandbox_email_sender
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
@@ -42,8 +43,10 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
+    "SandboxSenderUnavailable",
     "compute_next_occurrences",
     "create_batch_job",
+    "ensure_sandbox_email_sender",
     "ensure_workflows_config",
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
