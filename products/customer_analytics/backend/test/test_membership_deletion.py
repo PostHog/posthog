@@ -146,7 +146,10 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
             self.operation_id,
             [("events", False, "team_id = %(team_id)s AND event = 'only'", {"team_id": self.team.pk})],
         )
-        with patch("posthog.models.person.bulk_delete.queue_person_training_deletion"):
+        with (
+            patch("posthog.models.person.bulk_delete.queue_person_training_deletion"),
+            self.assertLogs("posthog.clickhouse.cluster", level="INFO") as logs,
+        ):
             if queued:
                 result = process_queued_person_deletion(
                     self.team.pk,
@@ -161,6 +164,7 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
                 result = delete_persons_profile(self.team.pk, [self.person_a], actor=None)
         assert result.deleted_count == 1
         assert result.failures == []
+        assert "a-alias" not in "\n".join(logs.output)
         reconcile_membership_deletion(self.cluster, self.operation_id, [("events", False)])
         assert [(key, did) for key, did, *_ in self._rows()] == [("acme", "b"), ("other", "b")]
         retry = process_queued_person_deletion(

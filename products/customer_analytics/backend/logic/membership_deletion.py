@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from functools import partial
 from hashlib import sha256
 
@@ -71,8 +72,24 @@ def _exists(client: Client, table: str) -> bool:
     )
 
 
+def _redact(parameters: Mapping[str, object] | None) -> dict[str, object]:
+    return {key: "[REDACTED]" if key == "distinct_ids" else value for key, value in (parameters or {}).items()}
+
+
+# ClickhouseCluster logs every task with %r, and distinct IDs can be email addresses.
+# These reprs hide the bound distinct IDs. The executed statements still bind the real values.
+class _RedactedDeleteRunner(LightweightDeleteMutationRunner):
+    def __repr__(self) -> str:
+        return LightweightDeleteMutationRunner.__repr__(replace(self, parameters=_redact(self.parameters)))
+
+
+class _RedactedQuery(Query):
+    def __repr__(self) -> str:
+        return Query.__repr__(replace(self, parameters=_redact(self.parameters)))
+
+
 def _delete(placement: TargetPlacement, predicate: str, parameters: Mapping[str, object]) -> None:
-    runner = LightweightDeleteMutationRunner(
+    runner = _RedactedDeleteRunner(
         table=placement.target.data_table,
         predicate=predicate,
         parameters=dict(parameters),
@@ -87,7 +104,9 @@ def _delete(placement: TargetPlacement, predicate: str, parameters: Mapping[str,
 
 def _verify_empty(cluster: ClickhouseCluster, table: str, predicate: str, parameters: Mapping[str, object]) -> None:
     survivors = cluster.any_host_by_role(
-        Query(f"SELECT count() FROM {_name(table)} WHERE {predicate}", dict(parameters), settings=QUERY_SETTINGS),
+        _RedactedQuery(
+            f"SELECT count() FROM {_name(table)} WHERE {predicate}", dict(parameters), settings=QUERY_SETTINGS
+        ),
         NodeRole.DATA,
     ).result()[0][0]
     if survivors:
