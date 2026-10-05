@@ -104,6 +104,9 @@ export function SourceConnectScene(): JSX.Element {
                             showPrefix={false}
                             showDescription={false}
                             showAccessMethodSelector={false}
+                            // This page only stores credentials. buildCredentialsPayload keeps the source's
+                            // declared credential fields and drops everything else, so CDC choices made here
+                            // would never reach the source the agent creates later. The agent sets CDC up.
                             showCdcConfig={false}
                             setSourceConnectionDetailsValue={setCredentialsFormValue}
                             oauthRedirectUrl={urls.dataWarehouseSourceConnect(sourceConfig.name)}
