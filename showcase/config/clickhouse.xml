@@ -1,0 +1,200 @@
+<clickhouse>
+    <logger>
+        <level>fatal</level>
+        <console_log_level>fatal</console_log_level>
+        <console>1</console>
+    </logger>
+    <background_message_broker_schedule_pool_size>0</background_message_broker_schedule_pool_size>
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    <interserver_http_port>9009</interserver_http_port>
+    <listen_host>127.0.0.1</listen_host>
+    <timezone>UTC</timezone>
+
+    <!-- Rootless user-space execution memory limits:
+         Prevent ClickHouse from confusing user-session cgroup RAM usage with its own -->
+    <max_server_memory_usage>0</max_server_memory_usage>
+    <max_server_memory_usage_to_ram_ratio>0</max_server_memory_usage_to_ram_ratio>
+    <cgroups_memory_usage_observer_wait_time>0</cgroups_memory_usage_observer_wait_time>
+    <memory_worker_use_cgroup>0</memory_worker_use_cgroup>
+    <memory_worker_dynamic_hard_limit>0</memory_worker_dynamic_hard_limit>
+
+    <user_scripts_path from_env="CLICKHOUSE_USER_SCRIPTS_DIR" replace="true">/dev/shm/clickhouse/data/user_scripts/</user_scripts_path>
+    <user_defined_executable_functions_config from_env="CLICKHOUSE_UDF_CONFIG" replace="true">user_defined_function.xml</user_defined_executable_functions_config>
+
+    <path from_env="CLICKHOUSE_DATA_DIR" replace="true">/dev/shm/clickhouse/data/</path>
+    <tmp_path from_env="CLICKHOUSE_TMP_DIR" replace="true">/dev/shm/clickhouse/tmp/</tmp_path>
+    <user_files_path from_env="CLICKHOUSE_USER_FILES_DIR" replace="true">/dev/shm/clickhouse/user_files/</user_files_path>
+    <format_schema_path from_env="CLICKHOUSE_FORMAT_SCHEMA_DIR" replace="true">/dev/shm/clickhouse/format_schemas/</format_schema_path>
+
+    <merge_tree>
+        <allow_dimensions_outside_sorting_key>1</allow_dimensions_outside_sorting_key>
+    </merge_tree>
+
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>500</flush_interval_milliseconds>
+    </query_log>
+
+    <query_thread_log>
+        <database>system</database>
+        <table>query_thread_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>1000</flush_interval_milliseconds>
+    </query_thread_log>
+
+    <users_config>users.xml</users_config>
+    <user_directories>
+        <users_xml>
+            <path>users.xml</path>
+        </users_xml>
+        <local_directory>
+            <path from_env="CLICKHOUSE_ACCESS_DIR" replace="true">/dev/shm/clickhouse/access/</path>
+        </local_directory>
+    </user_directories>
+
+    <macros>
+        <shard>01</shard>
+        <replica>ch1</replica>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole>data</hostClusterRole>
+    </macros>
+
+    <keeper_server>
+        <tcp_port>9181</tcp_port>
+        <server_id>1</server_id>
+        <log_storage_path from_env="CLICKHOUSE_KEEPER_LOG_DIR" replace="true">/dev/shm/clickhouse/keeper/log</log_storage_path>
+        <snapshot_storage_path from_env="CLICKHOUSE_KEEPER_SNAPSHOT_DIR" replace="true">/dev/shm/clickhouse/keeper/snapshots</snapshot_storage_path>
+        <coordination_settings>
+            <operation_timeout_ms>10000</operation_timeout_ms>
+            <session_timeout_ms>30000</session_timeout_ms>
+            <raft_logs_level>warning</raft_logs_level>
+        </coordination_settings>
+        <raft_configuration>
+            <server>
+                <id>1</id>
+                <hostname>127.0.0.1</hostname>
+                <port>9234</port>
+            </server>
+        </raft_configuration>
+    </keeper_server>
+
+    <zookeeper>
+        <node>
+            <host>127.0.0.1</host>
+            <port>9181</port>
+        </node>
+    </zookeeper>
+
+    <distributed_ddl>
+        <path>/clickhouse/task_queue/ddl</path>
+    </distributed_ddl>
+
+    <remote_servers>
+        <posthog>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog>
+        <posthog_single_shard>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_single_shard>
+        <posthog_migrations>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_migrations>
+        <posthog_writable>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_writable>
+        <posthog_primary_replica>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_primary_replica>
+        <ai_events>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ai_events>
+        <aux>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </aux>
+        <ops>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ops>
+        <sessions>
+            <shard>
+                <replica>
+                    <host>127.0.0.1</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </sessions>
+    </remote_servers>
+
+    <named_collections>
+        <msk_cluster>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+            <kafka_auto_offset_reset>earliest</kafka_auto_offset_reset>
+        </msk_cluster>
+        <warpstream_ingestion>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_ingestion>
+        <warpstream_calculated_events>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_calculated_events>
+        <warpstream_replay>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_replay>
+        <warpstream_shared>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_shared>
+        <warpstream_cyclotron>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_cyclotron>
+        <warpstream_logs>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_logs>
+        <warpstream_traces>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_traces>
+        <warpstream_metrics>
+            <kafka_broker_list from_env="KAFKA_HOSTS" default="127.0.0.1:19092"/>
+        </warpstream_metrics>
+    </named_collections>
+</clickhouse>
