@@ -57,7 +57,7 @@ class EmailIntegration:
         return self.integration.config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
 
     @staticmethod
-    def _shared_mail_from_subdomain(config: dict) -> str:
+    def _shared_mail_from_subdomain(config: dict[str, Any]) -> str:
         return config.get("mail_from_subdomain") or DEFAULT_MAIL_FROM_SUBDOMAIN
 
     @classmethod

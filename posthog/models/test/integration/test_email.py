@@ -1,6 +1,6 @@
 """Tests for the native email-sending integration."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import pytest
 from posthog.test.base import BaseTest
@@ -16,7 +16,7 @@ from posthog.models.team.team import Team
 
 
 def email_domain_flag(*, organization_id: str | None = None, distinct_id: str | None = None) -> Callable[..., bool]:
-    def feature_enabled(key: str, flag_distinct_id: str, groups: dict | None = None, **_kwargs) -> bool:
+    def feature_enabled(key: str, flag_distinct_id: str, groups: Mapping[str, str] | None = None, **_kwargs) -> bool:
         return key == "workflows-email-domain-agent-setup" and (
             (groups or {}).get("organization") == organization_id or flag_distinct_id == distinct_id
         )
