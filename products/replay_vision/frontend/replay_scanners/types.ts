@@ -310,19 +310,19 @@ export function homeRedesignVariant(flagValue: unknown): HomeRedesignVariant | n
     return flagValue === 'control' || flagValue === 'test' ? flagValue : null
 }
 
-export function getModelOptions(): { value: ScannerModelEnumApi; label: string }[] {
-    return Object.values(ScannerModelEnumApi).map((value) => ({
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
+    (value) => ({
         value,
-        label: `${modelName(value)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
-    }))
-}
+        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+    })
+)
 
 // Falls back to the raw id for models retired before they were named here.
 export function modelLabel(model: string | null | undefined): string {
     if (!model) {
         return '—'
     }
-    return getModelOptions().find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
+    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */

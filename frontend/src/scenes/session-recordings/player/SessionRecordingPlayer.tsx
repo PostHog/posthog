@@ -112,16 +112,14 @@ function SessionRecordingPlayerInternal({
             <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                 {visionSurfaceShown(logicProps) && (
-                    <>
-                        <ObservationsDock
-                            // The player modal covers the side panel, so the conversation would open out of sight.
-                            extraActions={
-                                featureFlags[FEATURE_FLAGS.REPLAY_DEBUG_WITH_AI] && logicProps.playerKey !== 'modal' ? (
-                                    <DebugReplayButton />
-                                ) : null
-                            }
-                        />
-                    </>
+                    <ObservationsDock
+                        // The player modal covers the side panel, so the conversation would open out of sight.
+                        extraActions={
+                            featureFlags[FEATURE_FLAGS.REPLAY_DEBUG_WITH_AI] && logicProps.playerKey !== 'modal' ? (
+                                <DebugReplayButton />
+                            ) : null
+                        }
+                    />
                 )}
             </div>
             {withSidebar && <PlayerSidebar />}

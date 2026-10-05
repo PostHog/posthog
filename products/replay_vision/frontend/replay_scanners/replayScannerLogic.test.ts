@@ -64,8 +64,8 @@ describe('replayScannerLogic', () => {
                 '/api/projects/:team/vision/scanners/draft/': draftSpy,
             },
         })
-        // The draft layer persists form edits to localStorage and the nudge hand-off marker to
-        // sessionStorage; without a reset, one test's state bleeds into the next.
+        // The draft layer persists form edits to localStorage and the cross-product hand-off
+        // marker to sessionStorage; without a reset, one test's state bleeds into the next.
         localStorage.clear()
         sessionStorage.clear()
         initKeaTests()
