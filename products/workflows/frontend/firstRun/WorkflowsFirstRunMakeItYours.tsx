@@ -15,15 +15,8 @@ import { TemplateStartsOnLine } from './TemplateStartsOnLine'
 
 export function WorkflowsFirstRunMakeItYours({ templateId }: { templateId: string }): JSX.Element {
     const logic = firstRunMakeItYoursLogic({ templateId })
-    const {
-        galleryTemplates,
-        galleryLoadFailed,
-        pickedTemplate,
-        templateEmails,
-        openEmail,
-        openEmailPosition,
-        firstRunSender,
-    } = useValues(logic)
+    const { galleryTemplates, galleryLoadFailed, pickedTemplate, templateEmails, openEmail, openEmailPosition } =
+        useValues(logic)
     const { editEmail } = useActions(logic)
     const { loadEmailTemplates } = useActions(firstRunGalleryLogic)
     const backToGallery = (): void => router.actions.push(urls.workflows())
@@ -48,10 +41,6 @@ export function WorkflowsFirstRunMakeItYours({ templateId }: { templateId: strin
 
     const { template } = pickedTemplate
     const hasSeveralEmails = templateEmails.length > 1
-    const editorValue = {
-        ...openEmail.email,
-        from: firstRunSender ? { integrationId: firstRunSender.id } : openEmail.email.from,
-    }
 
     return (
         <div className="@container/first-run flex flex-col gap-4" data-attr="workflows-first-run-make-it-yours">
@@ -79,14 +68,16 @@ export function WorkflowsFirstRunMakeItYours({ templateId }: { templateId: strin
                             Email {openEmailPosition.index} of {openEmailPosition.total}
                         </span>
                     )}
+                    {/* The template type hides the From and To fields: the first-run sender is fixed, and the
+                        recipient comes from the trigger. The editor remounts per email, so a canvas export can
+                        never land on the email opened after it. */}
                     <div className="flex min-h-[40rem] flex-col overflow-hidden rounded border bg-surface-primary">
                         <EmailTemplater
                             key={openEmail.id}
-                            type="native_email"
+                            type="native_email_template"
                             layout="inline"
                             templating="liquid"
-                            sandboxSenderAllowed
-                            value={editorValue}
+                            value={openEmail.email}
                             onChange={(value) => editEmail(openEmail.id, value)}
                         />
                     </div>

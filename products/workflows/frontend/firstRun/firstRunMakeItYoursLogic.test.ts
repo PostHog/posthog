@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 import { urls } from 'scenes/urls'
 
@@ -235,6 +236,7 @@ describe('firstRunMakeItYoursLogic', () => {
         logic.actions.openEmail('email_second')
         logic.actions.editEmail('email_second', editedEmail('Still there?'))
         logic.actions.openEmail('email_first')
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.openEmail).toMatchObject({
             id: 'email_first',
@@ -292,6 +294,7 @@ describe('firstRunMakeItYoursLogic', () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         await open('onboarding-sequence')
         logic.actions.openEmail('email_second')
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.editEmail('email_second', editedEmail('Still there?'))
 
         logic.actions.sendTest()
@@ -356,6 +359,64 @@ describe('firstRunMakeItYoursLogic', () => {
         expect(logic.values.createdWorkflowLoading).toBe(false)
         expect(router.values.location.pathname).toBe(pathnameBefore)
         expect(window.localStorage.getItem('workflows-first-run-workflow-id')).toBeNull()
+    })
+
+    describe('while the editor still holds a canvas edit it has not exported', () => {
+        let templater: ReturnType<typeof emailTemplaterLogic.build>
+
+        beforeEach(async () => {
+            useMocks({ get: { '/api/projects/:team_id/messaging_templates/': { count: 0, results: [] } } })
+            await open('onboarding-sequence')
+            templater = emailTemplaterLogic({ type: 'native_email_template', value: null, onChange: () => {} })
+            templater.mount()
+            templater.cache.pendingDesignEdit = true
+        })
+
+        afterEach(() => {
+            templater.unmount()
+        })
+
+        function editorExportsTheEdit(): void {
+            templater.cache.pendingDesignEdit = false
+            logic.actions.editEmail('email_first', editedEmail('Welcome!'))
+        }
+
+        it('switches emails only after the edit arrived, and keeps it', async () => {
+            logic.actions.openEmail('email_second')
+            await expectLogic(logic).toDispatchActions(['openEmail'])
+
+            expect(logic.values.openEmail?.id).toBe('email_first')
+
+            editorExportsTheEdit()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.openEmail?.id).toBe('email_second')
+            expect(logic.values.edits.email_first.text).toBe('Welcome! edited')
+        })
+
+        it.each([
+            {
+                action: 'sendTest',
+                requests: () => invocations,
+                text: (body: any) => emailStepsOf(body.configuration).send_test_email.text,
+            },
+            {
+                action: 'createWorkflow',
+                requests: () => createdWorkflows,
+                text: (body: any) => emailStepsOf(body).email_first.text,
+            },
+        ] as const)('$action waits for the edit and sends it', async ({ action, requests, text }) => {
+            logic.actions[action]()
+            await expectLogic(logic).toDispatchActions([action])
+
+            expect(requests()).toHaveLength(0)
+
+            editorExportsTheEdit()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests()).toHaveLength(1)
+            expect(text(requests()[0])).toBe('Welcome! edited')
+        })
     })
 
     it('disables test and create for a user without editor access to workflows', async () => {

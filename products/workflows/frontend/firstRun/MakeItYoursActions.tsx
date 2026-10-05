@@ -35,7 +35,7 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
                 type="secondary"
                 center
                 fullWidth
-                onClick={sendTest}
+                onClick={() => sendTest()}
                 loading={testSendResultLoading}
                 disabledReason={sendTestDisabledReason}
                 data-attr="first-run-send-test"
@@ -52,7 +52,7 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
                 size="large"
                 center
                 fullWidth
-                onClick={createWorkflow}
+                onClick={() => createWorkflow()}
                 loading={createdWorkflowLoading}
                 disabledReason={createDisabledReason}
                 data-attr="first-run-create-workflow"
@@ -68,13 +68,19 @@ export function MakeItYoursActions({ templateId }: { templateId: string }): JSX.
                 fullWidth
                 data-attr="first-run-enable-switch"
             />
-            <span className="text-xs text-secondary">
-                {enableWorkflow && firstRunSender
-                    ? `It starts sending right away, from ${firstRunSender.display_name}.`
-                    : 'It opens as a draft and sends nothing until you enable it.'}
-            </span>
+            <span className="text-xs text-secondary">{enableHelp(enableWorkflow, firstRunSender?.display_name)}</span>
         </div>
     )
+}
+
+function enableHelp(enableWorkflow: boolean, senderName: string | undefined): string {
+    if (enableWorkflow && senderName) {
+        return `It starts sending right away, from ${senderName}.`
+    }
+    if (senderName) {
+        return `It opens as a draft and sends nothing until you enable it. Then it sends from ${senderName}.`
+    }
+    return 'It opens as a draft and sends nothing until you enable it.'
 }
 
 function TestSendOutcomeBanner({ outcome }: { outcome: TestSendOutcome }): JSX.Element {
