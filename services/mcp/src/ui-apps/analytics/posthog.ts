@@ -12,9 +12,8 @@ declare const __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__: string | undefined
 
 const POSTHOG_TOKEN = typeof __POSTHOG_UI_APPS_TOKEN__ !== 'undefined' ? __POSTHOG_UI_APPS_TOKEN__ : undefined
 const POSTHOG_HOST =
-    typeof __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__ !== 'undefined'
-        ? __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__
-        : 'https://us.posthog.com'
+    (typeof __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__ !== 'undefined' && __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__) ||
+    undefined
 
 let client: PostHog | null = null
 let currentDistinctId: string | null = null

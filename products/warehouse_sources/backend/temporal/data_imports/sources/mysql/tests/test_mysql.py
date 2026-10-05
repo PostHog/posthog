@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_connect_reset,
     _is_transient_connect_timeout,
     _is_transient_metadata_query_reset,
+    _is_transient_no_available_tidb_instances,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
     _is_transient_tiproxy_unavailable,
@@ -1786,6 +1787,24 @@ class TestConnectTransientRetry:
         assert mock_connect.call_count == 2
         sleep.assert_called_once_with(2)
 
+    def test_retries_no_available_tidb_instances_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql._SourceConnection",
+            side_effect=[
+                pymysql.err.OperationalError(1105, "No available TiDB instances, please make sure TiDB is available"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
     def test_does_not_retry_connection_refused(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
@@ -1944,6 +1963,34 @@ class TestIsTransientTiproxyUnavailable:
 
     def test_does_not_match_non_operational_error(self):
         assert not _is_transient_tiproxy_unavailable(ValueError("TiProxy fails to connect to TiDB"))
+
+
+class TestIsTransientNoAvailableTidbInstances:
+    def test_matches_no_available_tidb_instances(self):
+        assert _is_transient_no_available_tidb_instances(
+            pymysql.err.OperationalError(1105, "No available TiDB instances, please make sure TiDB is available")
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Other 1105 payloads (Vitess cases, TiProxy's own wording) are not this class.
+            (1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available"),
+            (1105, "vttablet: rpc error: code = Unavailable desc = node is shutting down"),
+            (1045, "Access denied for user"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_no_available_tidb_instances(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_no_available_tidb_instances(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_no_available_tidb_instances(
+            ValueError("No available TiDB instances, please make sure TiDB is available")
+        )
 
 
 class TestIsTransientMetadataQueryReset:
@@ -2747,6 +2794,23 @@ class TestMySQLSourceNonRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Vitess reparent error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (1105, 'No available TiDB instances, please make sure TiDB is available')",
+            "No available TiDB instances, please make sure TiDB is available",
+        ],
+    )
+    def test_no_available_tidb_instances_is_classified_retryable(self, source, error_msg):
+        # `_connect_with_transient_retry` already retries this in-process at connect time (see
+        # `_is_transient_no_available_tidb_instances` in mysql.py); once exhausted it re-raises for
+        # Temporal to retry the whole activity. Without this classification `_handle_import_error`
+        # logs it at `exception` on every occurrence, flooding error tracking with a self-recovering
+        # gateway condition.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"No-available-TiDB-instances error should be classified retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

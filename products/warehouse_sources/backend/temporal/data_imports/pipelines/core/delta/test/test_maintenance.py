@@ -4,6 +4,7 @@ import time
 import datetime as dt
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,9 +14,16 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
+import deltalite
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    DeltaLiteHandleCache,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (
     _COMPACT_RATIO_SAMPLE_FILES,
     COMPACT_OFFSET_OVERFLOW_RETRIES,
@@ -98,15 +106,15 @@ def _dead_files(root: str) -> set[str]:
 class TestCompactIfFragmented:
     @pytest.mark.asyncio
     async def test_skips_when_no_delta_table(self):
-        ran = await _make_maintenance(None).compact_if_fragmented(partition_count=10)
+        ran = await _make_maintenance(None).compact_if_fragmented()
         assert ran is False
 
-    # (case_name, file_count, partition_count, threshold_kw, expected_ran). Every file is small, so a
-    # count trigger can always remove files here.
+    # (case_name, file_count, partition directories or None for unpartitioned, threshold_kw,
+    # expected_ran). Every file is small, so a count trigger can always remove files here.
     _THRESHOLD_CASES: list[tuple[str, int, int | None, int | None, bool]] = [
         ("below_default_threshold", 100, 10, None, False),
         ("above_default_threshold", 5_000, 10, None, True),
-        # partition_count=None on an unpartitioned layout derives 1 partition; 250 fpp >> 200 -> fire
+        # An unpartitioned layout is one partition: 250 fpp >> 200 -> fire
         ("unpartitioned_above_default", 250, None, None, True),
         ("custom_threshold_fires", 100, 10, 5, True),
         # Boundary: exactly at threshold -> `>` not `>=`, so skip
@@ -122,18 +130,23 @@ class TestCompactIfFragmented:
         self,
         _name: str,
         file_count: int,
-        partition_count: int | None,
+        partitions: int | None,
         threshold_kw: int | None,
         expected_ran: bool,
     ):
-        mock_delta = _mock_table({f"f{i}.parquet": _MB for i in range(file_count)})
+        layout = (
+            {f"f{i}.parquet": _MB for i in range(file_count)}
+            if partitions is None
+            else _layout([(partitions, [_MB] * (file_count // partitions))])
+        )
+        mock_delta = _mock_table(layout)
         maintenance = _make_maintenance(mock_delta)
         with (
             patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)),
             patch.object(maintenance, "_compact", AsyncMock(return_value=True)) as mock_compact,
             patch.object(maintenance, "_vacuum", AsyncMock()) as mock_vacuum,
         ):
-            kwargs: dict = {"partition_count": partition_count}
+            kwargs: dict = {}
             if threshold_kw is not None:
                 kwargs["threshold"] = threshold_kw
             ran = await maintenance.compact_if_fragmented(**kwargs)
@@ -143,29 +156,28 @@ class TestCompactIfFragmented:
         # Compaction tombstones are younger than the vacuum retention, so a vacuum right after it is wasted.
         mock_vacuum.assert_not_called()
 
-    # (case_name, file layout, partition_count, expected_ran)
-    _COUNT_TRIGGER_CASES: list[tuple[str, list[tuple[int, list[int]]], int | None, bool]] = [
+    # (case_name, file layout, expected_ran)
+    _COUNT_TRIGGER_CASES: list[tuple[str, list[tuple[int, list[int]]], bool]] = [
         # An hourly-partitioned table: one file in each of 13,215 partitions, and a few partitions
         # with a second file. It stays over the total-files bar after any compaction, so a count
         # trigger that ignores removable files compacts and commits on every pass.
-        ("one_file_per_partition_never_compacts", [(13_215, [300_000]), (6, [300_000, 300_000])], None, False),
+        ("one_file_per_partition_never_compacts", [(13_215, [300_000]), (6, [300_000, 300_000])], False),
         # The same table once many partitions hold a second small file: compaction removes thousands.
-        ("many_partitions_with_two_small_files_compacts", [(6_000, [300_000, 300_000])], None, True),
+        ("many_partitions_with_two_small_files_compacts", [(6_000, [300_000, 300_000])], True),
         # One partition far over the per-partition bar, with files compaction cannot merge.
-        ("over_per_partition_bar_with_large_files_skips", [(1, [60 * _MB] * 250)], None, False),
-        ("over_per_partition_bar_with_small_files_compacts", [(1, [_MB] * 250)], None, True),
-        # md5 buckets each hold many small files: the persisted count gives files per partition.
-        ("md5_buckets_fragmented_compacts", [(16, [_MB] * 300)], 16, True),
+        ("over_per_partition_bar_with_large_files_skips", [(1, [60 * _MB] * 250)], False),
+        ("over_per_partition_bar_with_small_files_compacts", [(1, [_MB] * 250)], True),
+        ("md5_buckets_fragmented_compacts", [(16, [_MB] * 300)], True),
         # md5 buckets over the total bar, but each bucket already compacted to large files.
-        ("md5_buckets_compacted_skips", [(150, [60 * _MB] * 40)], 150, False),
+        ("md5_buckets_compacted_skips", [(150, [60 * _MB] * 40)], False),
         # Below the removable thresholds in every partition and in total, though over the total bar.
-        ("few_removable_files_skips", [(5_100, [300_000]), (50, [300_000, 300_000])], None, False),
+        ("few_removable_files_skips", [(5_100, [300_000]), (50, [300_000, 300_000])], False),
     ]
 
     @parameterized.expand(_COUNT_TRIGGER_CASES)
     @pytest.mark.asyncio
     async def test_count_trigger_needs_removable_files(
-        self, _name: str, layout: list[tuple[int, list[int]]], partition_count: int | None, expected_ran: bool
+        self, _name: str, layout: list[tuple[int, list[int]]], expected_ran: bool
     ):
         mock_delta = _mock_table(_layout(layout))
         maintenance = _make_maintenance(mock_delta)
@@ -173,7 +185,7 @@ class TestCompactIfFragmented:
             patch.object(maintenance, "_compact", AsyncMock(return_value=True)) as mock_compact,
             patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)) as plan,
         ):
-            ran = await maintenance.compact_if_fragmented(partition_count=partition_count)
+            ran = await maintenance.compact_if_fragmented()
 
         assert ran is expected_ran
         assert mock_compact.await_count == (1 if expected_ran else 0)
@@ -182,9 +194,8 @@ class TestCompactIfFragmented:
 
     # (case_name, files_per_dir, dir_count, expected_ran)
     _DERIVATION_CASES: list[tuple[str, int, int, bool]] = [
-        # 300 files / 3 derived partitions = 100 fpp < 200 and total < 5,000 -> skip.
-        # Before derivation, None meant 1 partition (300 fpp) and this healthy table
-        # compacted on every run.
+        # 300 files / 3 partitions = 100 fpp < 200 and total < 5,000 -> skip. Read as one
+        # partition (300 fpp), this healthy table compacts on every run.
         ("healthy_partitioned_table_skips", 100, 3, False),
         ("fragmented_partitioned_table_fires", 250, 3, True),
     ]
@@ -194,16 +205,13 @@ class TestCompactIfFragmented:
     async def test_partition_count_derived_from_layout(
         self, _name: str, files_per_dir: int, dir_count: int, expected_ran: bool
     ):
-        # Only md5 partitioning persists a partition_count; datetime/numerical schemas pass
-        # None. The count must come from the layout or every >200-file partitioned table
-        # would defensively compact at the start of every sync run.
         mock_delta = _mock_table(_layout([(dir_count, [_MB] * files_per_dir)]))
         maintenance = _make_maintenance(mock_delta)
         with (
             patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)),
             patch.object(maintenance, "_compact", AsyncMock(return_value=True)) as mock_compact,
         ):
-            ran = await maintenance.compact_if_fragmented(partition_count=None)
+            ran = await maintenance.compact_if_fragmented()
 
         assert ran is expected_ran
         assert mock_compact.await_count == (1 if expected_ran else 0)
@@ -251,7 +259,6 @@ class TestCompactIfFragmented:
             patch.object(maintenance, "_compact", AsyncMock(return_value=True)) as mock_compact,
         ):
             ran = await maintenance.compact_if_fragmented(
-                partition_count=None,
                 compact_small_files=compact_small_files,
                 table_wide_small_files=table_wide_small_files,
             )
@@ -281,7 +288,7 @@ class TestCompactIfFragmented:
             files_before = len(table.file_uris())
             rows_before = table.to_pyarrow_table().num_rows
 
-            ran = await _make_maintenance(table).compact_if_fragmented(partition_count=None, compact_small_files=True)
+            ran = await _make_maintenance(table).compact_if_fragmented(compact_small_files=True)
 
             assert ran is expected_ran
             files_after = len(table.file_uris())
@@ -313,7 +320,7 @@ class TestCompactIfFragmented:
             version_before = table.version()
             rows_before = table.to_pyarrow_table().num_rows
 
-            ran = await _make_maintenance(table).compact_if_fragmented(partition_count=None, total_threshold=10)
+            ran = await _make_maintenance(table).compact_if_fragmented(total_threshold=10)
 
             assert ran is expected_ran
             table.update_incremental()
@@ -340,7 +347,7 @@ class TestCompactConflictRetry:
 
         maintenance = _make_maintenance(mock_delta)
         with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)):
-            compacted = await maintenance.compact_if_fragmented(partition_count=1, threshold=1)
+            compacted = await maintenance.compact_if_fragmented(threshold=1)
 
         assert compacted is True
         assert mock_delta.optimize.compact.call_count == 2
@@ -449,7 +456,7 @@ class TestCompactionMemoryBounds:
             patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)),
             patch.object(maintenance, "_compact", AsyncMock()) as compact,
         ):
-            ran = await maintenance.compact_if_fragmented(partition_count=1, compact_small_files=True)
+            ran = await maintenance.compact_if_fragmented(compact_small_files=True)
 
         assert ran is False
         compact.assert_not_awaited()
@@ -553,6 +560,184 @@ class TestCompactionMemoryBounds:
         first, second = (call.kwargs for call in mock_delta.optimize.compact.call_args_list)
         assert first["max_concurrent_tasks"] == 6
         assert second == {"target_size": first["target_size"] // 2, "max_concurrent_tasks": 1}
+
+
+class TestDeltaliteCompaction:
+    _URI = "s3://bucket/table"
+    _SLOT_MB = 1356.8
+
+    def _setup(self, compact: MagicMock | None, *, table_id: object = "table-id") -> tuple[DeltaMaintenance, Any, Any]:
+        # 300 small files in one partition trip the per-partition count trigger.
+        delta_table = _mock_table({f"f{i}.parquet": _MB for i in range(300)})
+        delta_table.metadata.return_value.id = table_id
+        table_ref = MagicMock()
+        table_ref.logger = make_logger()
+        table_ref.get_delta_table = AsyncMock(return_value=delta_table)
+        table_ref.get_table_uri = AsyncMock(return_value=self._URI)
+        table_ref.get_storage_options = MagicMock(return_value={"AWS_REGION": "us-east-1"})
+        table_ref.latest_known_version = MagicMock(return_value=150)
+        table_ref.note_deltalite_commit = MagicMock()
+        table_ref.job.id = "job-1"
+
+        handle = MagicMock()
+        handle.version.return_value = 151
+        attributes: dict[str, Any] = {"open": staticmethod(MagicMock(return_value=handle))}
+        if compact is not None:
+            handle.compact = compact
+            attributes["compact"] = compact
+        fake_class = type("FakeDeltaLiteTable", (), attributes)
+        return DeltaMaintenance(table_ref, clock=lambda: _NOW), table_ref, fake_class
+
+    async def _run(
+        self, maintenance: DeltaMaintenance, fake_class: Any, *, enabled: bool = True
+    ) -> tuple[bool, AsyncMock, AsyncMock, MagicMock]:
+        cache = DeltaLiteHandleCache(maxsize=2, opener=fake_class.open)
+        with (
+            override_settings(DATA_WAREHOUSE_DELTALITE_COMPACTION=enabled),
+            patch.object(deltalite, "DeltaLiteTable", fake_class),
+            patch(f"{_MAINTENANCE_MODULE}.get_handle_cache", return_value=cache),
+            patch(f"{_MAINTENANCE_MODULE}.get_governor") as governor,
+            patch(f"{_MAINTENANCE_MODULE}.os.cpu_count", return_value=7),
+            patch(f"{_MAINTENANCE_MODULE}.capture_exception") as capture,
+            patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)) as plan,
+            patch.object(maintenance, "_compact", AsyncMock(return_value=True)) as delta_rs_compact,
+        ):
+            governor.return_value.slot_budget_mb.return_value = self._SLOT_MB
+            governor.return_value.pod.current_mb.return_value = 4096.0
+            ran = await maintenance.compact_if_fragmented()
+        return ran, delta_rs_compact, plan, capture
+
+    @staticmethod
+    def _info_calls(table_ref: Any, message: str) -> list[dict[str, Any]]:
+        return [call.kwargs for call in table_ref.logger.ainfo.call_args_list if call.args[:1] == (message,)]
+
+    @parameterized.expand(
+        [
+            ("committed", 1, 152, [152]),
+            ("nothing_to_rewrite", 0, 150, []),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compacts_through_a_leased_deltalite_handle(
+        self, _name: str, commits: int, version: int, expected_noted: list[int]
+    ) -> None:
+        compact = MagicMock(
+            return_value={"commits": commits, "version": version, "numFilesAdded": 3, "numFilesRemoved": 300}
+        )
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        with patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")):
+            ran, delta_rs_compact, plan, capture = await self._run(maintenance, fake_class)
+
+        assert ran is True
+        delta_rs_compact.assert_not_awaited()
+        plan.assert_not_awaited()
+        capture.assert_not_called()
+        fake_class.open.assert_called_once_with(self._URI, {"AWS_REGION": "us-east-1"})
+        compact.assert_called_once_with(
+            target_file_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+            max_parallel_bins=7,
+            slot_budget_bytes=int(self._SLOT_MB * _MB),
+            commit_metadata={"compact_engine": "deltalite", "job_id": "job-1"},
+            min_partition_removable_files=1,
+        )
+        assert [call.args[0] for call in table_ref.note_deltalite_commit.call_args_list] == expected_noted
+        [done] = self._info_calls(table_ref, "compact: done")
+        assert done["compact_engine"] == "deltalite"
+        assert (done["compact_files_added"], done["compact_files_removed"]) == (3, 300)
+
+    @pytest.mark.asyncio
+    async def test_opens_a_fresh_handle_when_the_table_identity_is_unknown(self) -> None:
+        compact = MagicMock(return_value={"commits": 1, "version": 151})
+        maintenance, _, fake_class = self._setup(compact, table_id=None)
+
+        with patch.object(DeltaLiteHandleCache, "lease") as lease:
+            ran, _, _, _ = await self._run(maintenance, fake_class)
+
+        assert ran is True
+        lease.assert_not_called()
+        compact.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("setting_off", False, True, None, None, False),
+            ("wheel_without_compact", True, False, None, "deltalite_compact_unavailable", False),
+            (
+                "unsupported_table",
+                True,
+                True,
+                deltalite.DeltaLiteUnsupportedTableError("deletion vectors are not supported"),
+                "unsupported_table",
+                False,
+            ),
+            (
+                "unexpected_deltalite_error",
+                True,
+                True,
+                deltalite.DeltaLiteError("parquet decode failed"),
+                "deltalite_error",
+                True,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_falls_back_to_delta_rs(
+        self,
+        _name: str,
+        enabled: bool,
+        has_compact: bool,
+        error: Exception | None,
+        expected_reason: str | None,
+        expect_capture: bool,
+    ) -> None:
+        compact = MagicMock(side_effect=error) if has_compact else None
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class, enabled=enabled)
+
+        assert ran is True
+        delta_rs_compact.assert_awaited_once_with(table_ref.get_delta_table.return_value, _DEFAULT_PLAN)
+        fallbacks = self._info_calls(table_ref, "compact: falling back to delta-rs")
+        assert [call["compact_fallback_reason"] for call in fallbacks] == ([expected_reason] if expected_reason else [])
+        assert capture.called is expect_capture
+        if not enabled and compact is not None:
+            compact.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_commit_conflict_skips_the_pass_without_reporting(self) -> None:
+        compact = MagicMock(side_effect=deltalite.DeltaLiteCommitConflictError("schema changed"))
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class)
+
+        assert ran is False
+        delta_rs_compact.assert_not_awaited()
+        capture.assert_not_called()
+        table_ref.note_deltalite_commit.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "permission_denied",
+                "Generic S3 error: Access Denied for _delta_log/00001.json",
+                ObjectStorePermissionDeniedError,
+            ),
+            ("transient", "Generic S3 error: Please reduce your request rate", TransientObjectStoreError),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_object_store_errors_use_the_existing_classifiers(
+        self, _name: str, message: str, expected: type[Exception]
+    ) -> None:
+        compact = MagicMock(side_effect=deltalite.DeltaLiteError(message))
+        maintenance, table_ref, fake_class = self._setup(compact)
+
+        with pytest.raises(expected) as raised:
+            await self._run(maintenance, fake_class)
+
+        assert "_delta_log" not in str(raised.value)
+        assert "_delta_log" not in str(table_ref.logger.method_calls)
+        assert isinstance(raised.value.__cause__, deltalite.DeltaLiteError)
 
 
 class TestVacuum:
@@ -756,7 +941,6 @@ class TestRunScheduled:
         schema: MagicMock,
         *,
         is_cdc_companion: bool = False,
-        partition_count_fallback: int | None = None,
         compact_small_files: bool = False,
         compact: AsyncMock | None = None,
         vacuum: AsyncMock | None = None,
@@ -774,50 +958,77 @@ class TestRunScheduled:
             await maintenance.run_scheduled(
                 schema,
                 is_cdc_companion=is_cdc_companion,
-                partition_count_fallback=partition_count_fallback,
                 compact_small_files=compact_small_files,
             )
         return compact, vacuum, update_config, capture
 
     @parameterized.expand(
         [
-            # (name, is_cdc_companion, schema_partition_count, fallback, expected_count, expected_key)
-            # The schema's persisted count wins over the source's fallback.
-            ("main_schema_count_wins", False, 10, 72, 10, "last_vacuum_version"),
-            # md5-less schemas persist no count; the source-provided fallback applies.
-            ("main_falls_back_to_source_count", False, None, 72, 72, "last_vacuum_version"),
-            ("main_both_none_derives_downstream", False, None, None, None, "last_vacuum_version"),
+            ("main", False, "last_vacuum_version"),
             # The snapshot and _cdc companion are different delta tables with unrelated versions, so
-            # the companion must use its own keys — sharing a key corrupts both cadences — and must
-            # ignore schema.partition_count, which describes the snapshot table's layout.
-            ("companion_own_key_and_layout", True, 10, 72, None, "last_vacuum_version_cdc"),
+            # the companion must use its own keys. Sharing a key corrupts both cadences.
+            ("companion_own_key", True, "last_vacuum_version_cdc"),
         ]
     )
     @pytest.mark.asyncio
-    async def test_partition_count_and_watermark_key_selection(
-        self,
-        _name: str,
-        is_cdc_companion: bool,
-        schema_count: int | None,
-        fallback: int | None,
-        expected_count: int | None,
-        expected_key: str,
-    ):
+    async def test_watermark_key_selection(self, _name: str, is_cdc_companion: bool, expected_key: str):
         schema = self._schema()
-        schema.partition_count = schema_count
         # 150 - 41 and 150 - 7 are both past the 100-commit cadence.
         table = MagicMock(version=MagicMock(side_effect=[150, 152]))
         compact, vacuum, update_config, _ = await self._run(
-            _make_maintenance(table), schema, is_cdc_companion=is_cdc_companion, partition_count_fallback=fallback
+            _make_maintenance(table), schema, is_cdc_companion=is_cdc_companion
         )
 
-        assert compact.await_args is not None
-        assert compact.await_args.kwargs["partition_count"] == expected_count
+        compact.assert_awaited_once()
         vacuum.assert_awaited_once()
         suffix = "_cdc" if is_cdc_companion else ""
         expected_updates = {expected_key: 152, f"last_vacuum_at{suffix}": _NOW.isoformat()}
         update_config.assert_called_once_with(schema.id, schema.team_id, updates=expected_updates)
         assert schema.sync_type_config[expected_key] == 152
+
+    # (name, schema.partition_count, is_cdc_companion, layout or None for 250 unpartitioned files,
+    # expected_ran). Two small files in each of 1,000 partitions: 2 files per partition, and 2,000
+    # files in total, under both count bars.
+    _STORED_PARTITION_COUNT_CASES: list[tuple[str, int | None, bool, list[tuple[int, list[int]]] | None, bool]] = [
+        # Every partition mode stores the source's count, so a datetime table can store 1. Read as
+        # one partition, the table compacts every one of its partitions on every sync.
+        ("stored_count_below_partition_directories_skips", 1, False, [(1_000, [300_000, 300_000])], False),
+        ("md5_count_matching_directories_fragmented_compacts", 16, False, [(16, [_MB] * 300)], True),
+        ("md5_count_matching_directories_healthy_skips", 16, False, [(16, [_MB] * 100)], False),
+        # A table that existed unpartitioned keeps its layout, whatever count the schema stores.
+        ("unpartitioned_table_ignores_stored_count", 10, False, None, True),
+        ("unpartitioned_table_without_stored_count", None, False, None, True),
+        # The schema's count describes the snapshot table, not the companion.
+        ("cdc_companion_ignores_snapshot_count", 1_000, True, None, True),
+        ("cdc_companion_ignores_low_snapshot_count", 1, True, [(1_000, [300_000, 300_000])], False),
+    ]
+
+    @parameterized.expand(_STORED_PARTITION_COUNT_CASES)
+    @pytest.mark.asyncio
+    async def test_compaction_counts_partitions_from_the_layout(
+        self,
+        _name: str,
+        stored_partition_count: int | None,
+        is_cdc_companion: bool,
+        layout: list[tuple[int, list[int]]] | None,
+        expected_ran: bool,
+    ):
+        schema = self._schema()
+        schema.partition_count = stored_partition_count
+        file_sizes = _layout(layout) if layout is not None else {f"f{i}.parquet": _MB for i in range(250)}
+        maintenance = _make_maintenance(_mock_table(file_sizes))
+        with (
+            patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=_DEFAULT_PLAN)),
+            patch.object(maintenance, "_compact", AsyncMock(return_value=True)) as mock_compact,
+        ):
+            await self._run(
+                maintenance,
+                schema,
+                is_cdc_companion=is_cdc_companion,
+                compact=AsyncMock(side_effect=maintenance.compact_if_fragmented),
+            )
+
+        assert mock_compact.await_count == (1 if expected_ran else 0)
 
     @parameterized.expand(
         [

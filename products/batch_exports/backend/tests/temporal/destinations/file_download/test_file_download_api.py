@@ -27,19 +27,19 @@ from posthog.models.scoping import team_scope
 from posthog.temporal.tests.utils.events import generate_test_events
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.batch_exports.backend.api.file_download import (
-    COUNT_ROWS_TIMEOUT_MESSAGE,
-    DEFAULT_MAX_SIZE_MB,
-    _calculate_expiration_for_file_download,
-    _generate_s3_pre_signed_url,
-    _get_file_download_for_run,
-)
 from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportFileDownload,
     BatchExportOnDemand,
     BatchExportRun,
     BatchExportSource,
+)
+from products.batch_exports.backend.presentation.views.file_download import (
+    COUNT_ROWS_TIMEOUT_MESSAGE,
+    DEFAULT_MAX_SIZE_MB,
+    _calculate_expiration_for_file_download,
+    _generate_s3_pre_signed_url,
+    _get_file_download_for_run,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
@@ -165,7 +165,7 @@ def override_file_download_settings(aws_role_arn, s3_bucket):
 def mock_start_file_download_export():
     """Mock starting the Temporal workflow so create tests don't reach Temporal."""
     with unittest.mock.patch(
-        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+        "products.batch_exports.backend.presentation.views.file_download.start_file_download_batch_export"
     ) as mock_start:
         yield mock_start
 
@@ -606,7 +606,9 @@ async def test_file_download_cancel_mocked(
     mocked_handle = unittest.mock.AsyncMock()
     mocked_client.get_workflow_handle.return_value = mocked_handle
 
-    with unittest.mock.patch("products.batch_exports.backend.api.file_download.sync_connect") as mocked_connect:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.presentation.views.file_download.sync_connect"
+    ) as mocked_connect:
         mocked_connect.return_value = mocked_client
         status_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",
@@ -625,7 +627,7 @@ async def test_file_download_cancel_mocked(
 class TestFileDownloadHogQL:
     """File download batch exports created from a user-defined HogQL query."""
 
-    HOGQL_FLAG_PATCH_TARGET = "products.batch_exports.backend.api.utils.posthoganalytics.feature_enabled"
+    HOGQL_FLAG_PATCH_TARGET = "products.batch_exports.backend.presentation.views.utils.posthoganalytics.feature_enabled"
 
     @pytest.fixture
     def enable_hogql_flag(self):
@@ -1138,7 +1140,9 @@ class TestFileDownloadHogQL:
     ):
         await async_client.aforce_login(user)
 
-        with unittest.mock.patch("products.batch_exports.backend.api.file_download.execute_hogql_query") as execute:
+        with unittest.mock.patch(
+            "products.batch_exports.backend.presentation.views.file_download.execute_hogql_query"
+        ) as execute:
             response = await async_client.post(
                 f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
                 body,
@@ -1170,7 +1174,7 @@ class TestFileDownloadHogQL:
         await async_client.aforce_login(user)
 
         with unittest.mock.patch(
-            "products.batch_exports.backend.api.file_download.execute_hogql_query",
+            "products.batch_exports.backend.presentation.views.file_download.execute_hogql_query",
             side_effect=ClickHouseQueryTimeOut(),
         ):
             response = await async_client.post(

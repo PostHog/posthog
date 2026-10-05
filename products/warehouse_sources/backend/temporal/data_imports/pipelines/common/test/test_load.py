@@ -132,22 +132,7 @@ class TestRunPostLoadDeltaMaintenance:
 
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
 
-        run_scheduled.assert_awaited_once_with(
-            schema, is_cdc_companion=False, partition_count_fallback=None, compact_small_files=compact_small_files
-        )
-
-    @pytest.mark.asyncio
-    async def test_forwards_resource_partition_count_as_fallback(self) -> None:
-        # A first sync has no schema.partition_count persisted yet; the fallback comes from the
-        # synced resource instead, so this must actually reach run_scheduled and not silently drop.
-        schema = _make_schema(is_cdc=False, sync_type_config={"last_vacuum_version": 41}, partition_count=None)
-        resource = MagicMock(partition_count=12)
-
-        run_scheduled, _ = await _run_post_load(schema, _make_helper(), resource=resource)
-
-        run_scheduled.assert_awaited_once_with(
-            schema, is_cdc_companion=False, partition_count_fallback=12, compact_small_files=True
-        )
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, compact_small_files=compact_small_files)
 
     @pytest.mark.asyncio
     async def test_cdc_companion_write_runs_companion_maintenance(self):
@@ -158,9 +143,7 @@ class TestRunPostLoadDeltaMaintenance:
 
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode="scd2_append")
 
-        run_scheduled.assert_awaited_once_with(
-            schema, is_cdc_companion=True, partition_count_fallback=None, compact_small_files=False
-        )
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=True, compact_small_files=False)
 
     @parameterized.expand([("non_cdc", False), ("cdc", True)])
     @pytest.mark.asyncio
