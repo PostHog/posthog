@@ -1,1 +1,1 @@
-0034_drop_orphaned_endpoint_saved_query_fk
+0035_drop_redundant_endpoint_version_idx
