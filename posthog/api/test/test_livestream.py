@@ -1,0 +1,88 @@
+from datetime import timedelta
+
+from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import OrganizationDomain, OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
+
+
+class TestLivestreamAuthorization(APIBaseTest):
+    def _token(self, audience: PosthogJwtAudience = PosthogJwtAudience.LIVESTREAM) -> str:
+        return encode_jwt(
+            {
+                "user_id": self.user.id,
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "api_token": self.team.api_token,
+            },
+            timedelta(days=7),
+            audience,
+        )
+
+    @parameterized.expand(
+        [
+            ("membership", 403),
+            ("project_access", 403),
+            ("user", 401),
+            ("project_token", 401),
+            ("inactive_organization", 403),
+            ("organization_with_unknown_active_state", 403),
+            ("organization_pending_deletion", 403),
+            ("unverified_email_domain", 403),
+        ]
+    )
+    def test_rechecks_current_access(self, revoked: str, expected_status: int) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        authorization = f"Bearer {self._token()}"
+        initial = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
+        self.assertEqual(initial.status_code, 204)
+        self.assertEqual(initial["Cache-Control"], "no-store")
+
+        if revoked == "membership":
+            self.organization_membership.delete()
+        elif revoked == "project_access":
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+        elif revoked == "user":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        elif revoked == "project_token":
+            self.team.api_token = "test-rotated-project-token"
+            self.team.save(update_fields=["api_token"])
+        elif revoked == "inactive_organization":
+            self.organization.is_active = False
+            self.organization.save(update_fields=["is_active"])
+        elif revoked == "organization_with_unknown_active_state":
+            self.organization.is_active = None
+            self.organization.save(update_fields=["is_active"])
+        elif revoked == "organization_pending_deletion":
+            self.organization.is_pending_deletion = True
+            self.organization.save(update_fields=["is_pending_deletion"])
+        else:
+            OrganizationDomain.objects.create(
+                domain="example.com", organization=self.organization, verified_at=timezone.now()
+            )
+            self.organization.enforce_verified_domains = True
+            self.organization.save(update_fields=["enforce_verified_domains"])
+
+        self.assertEqual(
+            self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, expected_status
+        )
+
+    @parameterized.expand([(None,), (PosthogJwtAudience.IMPERSONATED_USER,)])
+    def test_rejects_other_authentication(self, audience: PosthogJwtAudience | None) -> None:
+        authorization = f"Bearer {self._token(audience)}" if audience else ""
+        self.assertEqual(
+            self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, 401
+        )

@@ -11,7 +11,6 @@ export enum ReplayScannerTab {
     Overview = 'overview',
     Observations = 'observations',
     Search = 'search',
-    Calibration = 'calibration',
     Run = 'run',
     Scouts = 'scouts',
     Alerts = 'alerts',

@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
     APPLE_ADS_API_VERSION_V1,
@@ -67,6 +68,20 @@ logger = structlog.get_logger(__name__)
 
 class AppleSearchAdsAuthError(Exception):
     pass
+
+
+def token_exchange_error_message(error: requests.RequestException) -> str:
+    """Setup-form text for a token exchange that raised, without Apple's raw URL and status."""
+    response = error.response
+    # Apple answers a client secret it can't verify with `invalid_client`, which only says one of
+    # the four values is wrong or they come from different API users.
+    if response is not None and 400 <= response.status_code < 500 and response.status_code != 429:
+        return (
+            "Apple rejected these API credentials. Check that the client ID, team ID, key ID, and "
+            "private key all belong to the same Apple Ads API user, then reconnect."
+        )
+    capture_exception(error)
+    return "PostHog couldn't reach Apple to check these credentials. Wait a few minutes, then connect again."
 
 
 @dataclasses.dataclass(frozen=True)
@@ -311,7 +326,7 @@ def validate_credentials(
     except AppleSearchAdsAuthError as e:
         return False, str(e)
     except requests.RequestException as e:
-        return False, f"Could not exchange the Apple Ads credentials for an access token: {e}"
+        return False, token_exchange_error_message(e)
 
     # Checked after the token exchange so a bad key pair is reported as such, and so the
     # message can name the ids this API client can actually read.

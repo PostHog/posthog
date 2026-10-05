@@ -105,14 +105,22 @@ the row lists both.
 | aws_batch                        | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
 | aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
+| aws_compute_optimizer            | HTTP                        | requests                                                        | ✅                          |
+| aws_config                       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
+| aws_guardduty                    | HTTP                        | requests                                                        | ✅                          |
+| aws_iam_access_analyzer          | HTTP                        | requests                                                        | ✅                          |
 | aws_inspector                    | HTTP                        | requests                                                        | ✅                          |
+| aws_macie                        | HTTP                        | requests                                                        | ✅                          |
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
 | aws_sagemaker                    | HTTP                        | requests                                                        | ✅                          |
+| aws_savings_plans                | HTTP                        | requests                                                        | ✅                          |
 | aws_security_hub                 | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
+| aws_step_functions               | HTTP                        | requests                                                        | ✅                          |
+| aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
@@ -920,19 +928,11 @@ doesn't conflict with concurrent PRs.
 - automox
 - aws_athena
 - aws_cloudformation
-- aws_compute_optimizer
-- aws_config
 - aws_connect
 - aws_cost_and_usage_report
-- aws_guardduty
 - aws_health
-- aws_iam_access_analyzer
-- aws_macie
 - aws_rds_performance_insights
-- aws_savings_plans
-- aws_step_functions
 - aws_support
-- aws_systems_manager
 - aws_trusted_advisor
 - aws_xray
 - axiom
