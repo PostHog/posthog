@@ -55,7 +55,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import hydrate_event_reference
+from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
@@ -1739,6 +1739,7 @@ class TestRunEvaluationWorkflow:
 
         assert mock_fetch.call_count == 1
 
+    @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
     @pytest.mark.parametrize(
         "attempt,retryable",
         [
@@ -1747,16 +1748,21 @@ class TestRunEvaluationWorkflow:
             pytest.param(3, False, id="last attempt"),
         ],
     )
-    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(self, attempt: int, retryable: bool):
+    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
+        self, attempt: int, retryable: bool, live: bool
+    ):
+        reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
         env.info = dataclasses.replace(env.info, attempt=attempt)
         with patch(HYDRATE_FETCH, return_value=None):
             with pytest.raises(ApplicationError) as raised:
-                env.run(hydrate_event_reference, dict(THIN_REFERENCE))
+                env.run(hydrate_event_reference, reference)
 
         assert raised.value.type == "generation_not_found"
         assert raised.value.non_retryable is not retryable
         assert isinstance(raised.value, NonReportableError) is retryable
+        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
+        assert raised.value.next_retry_delay == expected_delay
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""
