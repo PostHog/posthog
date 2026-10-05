@@ -624,6 +624,13 @@ def test_drop_field_indexes_drops_only_the_like_companion_of_a_unique_field(key_
             "No other btree index",
             id="the_automatic_index_is_already_gone",
         ),
+        pytest.param(
+            models.DO_NOTHING,
+            False,
+            'ALTER TABLE "{child}" ADD CONSTRAINT "{child}_fk" FOREIGN KEY (owner_id) REFERENCES "{parent}" (id) NOT VALID',
+            "No other btree index",
+            id="a_database_key_that_state_does_not_track",
+        ),
     ],
 )
 def test_drop_foreign_key_index_refuses_and_keeps_the_indexes(key_tables, on_delete, db_constraint, setup_sql, error):
@@ -632,7 +639,7 @@ def test_drop_foreign_key_index_refuses_and_keeps_the_indexes(key_tables, on_del
     (automatic,) = _indexes_on_only(child, "owner_id")
     if setup_sql:
         with connection.cursor() as cursor:
-            cursor.execute(setup_sql.format(child=child, automatic=automatic))
+            cursor.execute(setup_sql.format(parent=parent, child=child, automatic=automatic))
     before = _indexes_on_only(child, "owner_id")
     op = DropFieldIndexesConcurrently(model_name="TempFkChild", name="owner")
 

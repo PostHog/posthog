@@ -452,9 +452,10 @@ class DropFieldIndexesConcurrently(NotInTransactionMixin, FieldOperation):
       its index, and state does not change, so a fresh database still gets the companion.
 
     The op raises instead of guessing when another single-column index on the column exists
-    that no Meta index or constraint names. On a foreign key, it also raises when a parent delete still reads
-    the column and no other btree index leads with it: the foreign key check at COMMIT and
-    every `on_delete` but `DO_NOTHING` would then scan the whole table.
+    that no Meta index or constraint names. It also raises when a parent delete still reads
+    the column and no other btree index leads with it. That holds while the database keeps a
+    foreign key constraint on the column, which Postgres checks at COMMIT, and on a Django
+    relation with any `on_delete` but `DO_NOTHING`. Both would then scan the whole table.
     """
 
     def state_forwards(self, app_label, state) -> None:
@@ -521,8 +522,10 @@ class DropFieldIndexesConcurrently(NotInTransactionMixin, FieldOperation):
                 f"field ({', '.join(sorted(automatic))}), and no Meta index or constraint names it. "
                 "Find out what created it first."
             )
-        # Also checked when the indexes are already gone, so db_index=False never hides a missing cover.
-        if field.is_relation and (field.db_constraint or field.remote_field.on_delete is not DO_NOTHING):
+        # Read the key from the database, not from state: AddForeignKeyNotValid adds one under
+        # db_constraint=False. Also checked when the indexes are already gone.
+        database_key = bool(schema_editor._constraint_names(model, [field.column], foreign_key=True))
+        if database_key or (field.is_relation and field.remote_field.on_delete is not DO_NOTHING):
             with schema_editor.connection.cursor() as cursor:
                 cursor.execute(_LEADING_INDEXES_SQL, {"table": table, "column": field.column})
                 covering = {name for (name,) in cursor.fetchall()} - automatic
