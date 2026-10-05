@@ -41,6 +41,7 @@ import {
     categoricalOutputConfigError,
     categoricalEvaluationPassedHogQL,
     EVALUATION_CATEGORICAL_GRADED_HOGQL,
+    EVALUATION_RUNS_QUERY_LIMIT,
 } from './constants'
 import {
     evaluationCanResolveModel,
@@ -313,6 +314,7 @@ export interface llmEvaluationLogicValues {
     evaluationRuns: EvaluationRun[]
     evaluationRunsError: boolean
     evaluationRunsFilter: EvaluationRunsFilter
+    evaluationRunsHasMore: boolean
     evaluationRunsLoading: boolean
     filteredEvaluationRuns: EvaluationRun[]
     formValid: boolean
@@ -380,6 +382,21 @@ export interface llmEvaluationLogicActions {
         evaluationRuns: EvaluationRun[]
         payload?: void
     }
+    loadOlderEvaluationRuns: (_?: void) => void
+    loadOlderEvaluationRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOlderEvaluationRunsSuccess: (
+        evaluationRuns: EvaluationRun[],
+        payload?: void
+    ) => {
+        evaluationRuns: EvaluationRun[]
+        payload?: void
+    }
     loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => {
         evaluation: EvaluationConfig | null
         requestedTab: string | null
@@ -422,6 +439,9 @@ export interface llmEvaluationLogicActions {
     }
     refreshEvaluationRuns: () => {
         value: true
+    }
+    setEvaluationRunsHasMore: (hasMore: boolean) => {
+        hasMore: boolean
     }
     resetEvaluation: () => {
         value: true
@@ -653,6 +673,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Evaluation runs actions
         refreshEvaluationRuns: true,
+        setEvaluationRunsHasMore: (hasMore: boolean) => ({ hasMore }),
 
         // Model selection actions
         selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
@@ -747,7 +768,33 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         forceRefresh: values.isForceRefresh,
                     })
                     breakpoint?.()
+                    actions.setEvaluationRunsHasMore(runs.length >= EVALUATION_RUNS_QUERY_LIMIT)
                     return runs
+                },
+                loadOlderEvaluationRuns: async () => {
+                    const loadedRuns = values.evaluationRuns
+                    const oldestTimestamp = loadedRuns[loadedRuns.length - 1]?.timestamp
+                    if (!oldestTimestamp || !props.evaluationId || props.evaluationId === 'new') {
+                        return loadedRuns
+                    }
+
+                    const olderRuns = await queryEvaluationRuns({
+                        evaluationId: props.evaluationId,
+                        backfillId: values.runsBackfillId ?? undefined,
+                        dateRange: values.runsBackfillId ? undefined : values.runsDateRange,
+                        before: {
+                            timestamp: oldestTimestamp,
+                            excludeIds: loadedRuns
+                                .filter((run) => run.timestamp === oldestTimestamp)
+                                .map((run) => run.id),
+                        },
+                    })
+                    // A reload for new filters can finish first. Do not append to rows of a different query.
+                    if (values.evaluationRuns !== loadedRuns) {
+                        return values.evaluationRuns
+                    }
+                    actions.setEvaluationRunsHasMore(olderRuns.length >= EVALUATION_RUNS_QUERY_LIMIT)
+                    return [...loadedRuns, ...olderRuns]
                 },
             },
         ],
@@ -1048,6 +1095,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
+            },
+        ],
+        evaluationRunsHasMore: [
+            false,
+            {
+                setEvaluationRunsHasMore: (_, { hasMore }) => hasMore,
             },
         ],
         evaluationRunsFilter: [

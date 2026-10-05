@@ -49,8 +49,10 @@ export function EvaluationRunsTable(): JSX.Element {
         evaluationRunsLoading,
         runsDateRange,
         runsBackfillId,
+        evaluationRunsHasMore,
+        runsSummary,
     } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns, setRunsDates } = useActions(llmEvaluationLogic)
+    const { refreshEvaluationRuns, setRunsDates, loadOlderEvaluationRuns } = useActions(llmEvaluationLogic)
     const showOutcomeFilters =
         evaluation?.output_type === 'numeric' ||
         evaluation?.output_type === 'categorical' ||
@@ -195,6 +197,25 @@ export function EvaluationRunsTable(): JSX.Element {
                 }}
                 emptyState={emptyState}
             />
+
+            {evaluationRunsHasMore && !evaluationRunsError && (
+                <div className="flex flex-wrap gap-2 justify-center items-center">
+                    <span className="text-muted text-sm">
+                        {runsSummary && runsSummary.total > evaluationRuns.length
+                            ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${runsSummary.total.toLocaleString()} runs.`
+                            : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadOlderEvaluationRuns()}
+                        loading={evaluationRunsLoading}
+                        data-attr="llma-evaluation-runs-load-older"
+                    >
+                        Load older runs
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }

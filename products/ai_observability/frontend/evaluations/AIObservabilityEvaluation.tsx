@@ -49,12 +49,7 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import {
-    EVALUATION_RUNS_QUERY_LIMIT,
-    formatNumericEvaluationScore,
-    numericOutputConfigError,
-    categoricalOutputConfigError,
-} from './constants'
+import { formatNumericEvaluationScore, numericOutputConfigError, categoricalOutputConfigError } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -374,12 +369,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <div className="min-w-0">
                                         <p className="text-muted text-sm m-0">
                                             History of when this evaluation has been executed.
-                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
-                                                <>
-                                                    {' '}
-                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
-                                                </>
-                                            )}
                                         </p>
 
                                         {isReportableEvaluation && (
