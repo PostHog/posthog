@@ -255,7 +255,13 @@ export const organizationLogic = kea<organizationLogicType>([
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use retrieve() from 'products/platform_features/frontend/generated/api' instead.
                         return await api.get('api/organizations/@current')
                     } catch (error) {
-                        if (error instanceof ApiError && error.status && error.status < 500) {
+                        if (
+                            error instanceof ApiError &&
+                            error.status &&
+                            error.status < 500 &&
+                            error.status !== 401 &&
+                            error.status !== 403
+                        ) {
                             // The organization is gone or out of reach, so let the
                             // unavailable-organization screen take over.
                             return null
@@ -263,6 +269,8 @@ export const organizationLogic = kea<organizationLogicType>([
                         // A transient failure keeps the organization we already have. Dropping it leaves
                         // every reader of `currentOrganization.teams` with nothing for the rest of the
                         // session, which is why the project switcher then lists one project.
+                        // A 401 or 403 means the session lost access, not that the organization is gone.
+                        // Dropping it sends the user to organization creation, and some create a duplicate.
                         return values.currentOrganization
                     }
                 },

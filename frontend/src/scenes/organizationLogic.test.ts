@@ -108,13 +108,24 @@ describe('organizationLogic', () => {
         })
 
         it('drops the organization when the server says it is out of reach', async () => {
-            useMocks({ get: { '/api/organizations/@current': () => [403, { detail: 'nope' }] } })
+            useMocks({ get: { '/api/organizations/@current': () => [404, { detail: 'nope' }] } })
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
 
             logic.actions.loadCurrentOrganization()
 
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             expect(logic.values.currentOrganization).toBeNull()
+        })
+
+        it.each([401, 403])('keeps the organization when the session loses access with a %s', async (status) => {
+            useMocks({ get: { '/api/organizations/@current': () => [status, { detail: 'nope' }] } })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            logic.actions.loadCurrentOrganization()
+
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.currentOrganization).toEqual(ORGANIZATION_WITH_TEAMS)
+            expect(logic.values.isCurrentOrganizationUnavailable).toBe(false)
         })
     })
 
