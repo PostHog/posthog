@@ -1,8 +1,11 @@
 """Which canvases a caller may reach through the canvas API."""
 
+from uuid import UUID
+
+from django.core.exceptions import ValidationError
 from django.db.models import Q, QuerySet
 
-from products.canvas.backend.facade.contracts import CanvasViewer
+from products.canvas.backend.facade.contracts import CanvasHiddenBySpaceError, CanvasNotFoundError, CanvasViewer
 from products.canvas.backend.facade.enums import CanvasAccess
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import api as tasks_facade
@@ -50,3 +53,30 @@ def authorized_canvases(viewer: CanvasViewer, access: CanvasAccess) -> QuerySet[
             return queryset.none()
         queryset = queryset.filter(created_by_id=viewer.user_id)
     return queryset.order_by("-created_at", "-id")
+
+
+def unreachable_canvas_error(viewer: CanvasViewer, access: CanvasAccess, canvas_id: UUID | str) -> CanvasNotFoundError:
+    """The error for a canvas that `authorized_canvases(viewer, access)` did not return.
+
+    A real user who reads a live canvas of their own team, hidden only by its space, gets
+    CanvasHiddenBySpaceError, so the client can explain the dead end. Every other miss stays
+    an opaque CanvasNotFoundError.
+    """
+    if access != CanvasAccess.READ or viewer.sandboxed or viewer.user_id is None:
+        return CanvasNotFoundError()
+    try:
+        hidden = (
+            Canvas.objects.unscoped()
+            .filter(
+                team_id=viewer.team_id,
+                id=canvas_id,
+                deleted=False,
+                channel__deleted=False,
+                source_policy=Canvas.SOURCE_POLICY_STANDARD,
+            )
+            .exclude(tasks_facade.visible_channels_q(viewer.user_id, relation="channel"))
+            .exists()
+        )
+    except (ValueError, ValidationError):
+        hidden = False
+    return CanvasHiddenBySpaceError() if hidden else CanvasNotFoundError()

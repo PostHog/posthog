@@ -342,6 +342,10 @@ class CanvasNotFoundError(Exception):
     pass
 
 
+class CanvasHiddenBySpaceError(CanvasNotFoundError):
+    """The canvas is live in the viewer's team, but its space is not visible to the viewer."""
+
+
 class CanvasVersionNotFoundError(Exception):
     pass
 

@@ -15,13 +15,12 @@ from posthog.models.user import User
 from products.canvas.backend.facade.contracts import (
     CanvasAccessDeniedError,
     CanvasFieldChange,
-    CanvasNotFoundError,
     CanvasRecord,
     CanvasUpdateResult,
     CanvasViewer,
 )
 from products.canvas.backend.facade.enums import CanvasAccess
-from products.canvas.backend.logic.access import authorized_canvases
+from products.canvas.backend.logic.access import authorized_canvases, unreachable_canvas_error
 from products.canvas.backend.logic.records import canvas_record
 from products.canvas.backend.models import Canvas, CanvasHomePreference
 from products.canvas.backend.welcome import seed_home_canvas
@@ -138,13 +137,16 @@ def get_canvas(
     user_access_control: "UserAccessControl | None",
     required_level: str | None,
 ) -> CanvasRecord:
-    """The canvas, or CanvasNotFoundError when `access` cannot reach it, or CanvasAccessDeniedError."""
+    """The canvas, or CanvasNotFoundError when `access` cannot reach it, or CanvasAccessDeniedError.
+
+    A read of a canvas hidden only by its space raises CanvasHiddenBySpaceError, a CanvasNotFoundError.
+    """
     try:
         canvas = authorized_canvases(viewer, access).select_related(*_RECORD_RELATIONS).filter(id=canvas_id).first()
     except (ValueError, ValidationError):
         canvas = None
     if canvas is None:
-        raise CanvasNotFoundError
+        raise unreachable_canvas_error(viewer, access, canvas_id)
     check_object_access(canvas, user_access_control, required_level)
     return canvas_record(canvas)
 

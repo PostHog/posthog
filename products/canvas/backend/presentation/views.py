@@ -52,6 +52,7 @@ from products.canvas.backend.facade.contracts import (
     CanvasBuildCapacityExceeded,
     CanvasBuildNotFoundError,
     CanvasFieldChange,
+    CanvasHiddenBySpaceError,
     CanvasNotFoundError,
     CanvasRecord,
     CanvasRequestRejected,
@@ -354,6 +355,9 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 CANVAS_LIST_ORDERINGS = ["-created_at", "-updated_at"]
 
 
+HIDDEN_BY_SPACE_DETAIL = "This canvas is in a space that has not been shared with you."
+
+
 class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -464,7 +468,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         return self.user_access_control, AccessControlPermission()._get_required_access_level(self.request, self)
 
     def _canvas(self) -> CanvasRecord:
-        """The canvas in the URL, or 404 when the current action may not reach it."""
+        """The canvas in the URL, or 404 when the current action may not reach it (403 for a retrieve hidden by its space)."""
         user_access_control, required_level = self._object_access()
         try:
             return canvas_api.get_canvas(
@@ -474,6 +478,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 user_access_control=user_access_control,
                 required_level=required_level,
             )
+        except CanvasHiddenBySpaceError:
+            # Only the canvas record names the reason. Its sub-resources stay an opaque 404.
+            if self.action == "retrieve":
+                raise PermissionDenied(HIDDEN_BY_SPACE_DETAIL)
+            raise NotFound()
         except CanvasNotFoundError:
             raise NotFound()
         except CanvasAccessDeniedError as denied:
@@ -706,6 +715,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 user_access_control=user_access_control,
                 required_level=required_level,
             )
+        except CanvasHiddenBySpaceError:
+            raise PermissionDenied(HIDDEN_BY_SPACE_DETAIL)
         except CanvasNotFoundError:
             raise NotFound()
         except CanvasAccessDeniedError as denied:

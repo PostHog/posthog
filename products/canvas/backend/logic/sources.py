@@ -20,7 +20,6 @@ from products.canvas.backend.facade.contracts import (
     CanvasDraftResult,
     CanvasLayoutPublishResult,
     CanvasLayoutState,
-    CanvasNotFoundError,
     CanvasOpenState,
     CanvasPublishResult,
     CanvasRecord,
@@ -30,7 +29,7 @@ from products.canvas.backend.facade.contracts import (
 )
 from products.canvas.backend.facade.enums import CanvasAccess
 from products.canvas.backend.layout import default_layout
-from products.canvas.backend.logic.access import authorized_canvases
+from products.canvas.backend.logic.access import authorized_canvases, unreachable_canvas_error
 from products.canvas.backend.logic.canvases import canvas_row, check_object_access, user_or_none
 from products.canvas.backend.logic.records import (
     build_record,
@@ -418,7 +417,7 @@ def open_canvas(
     except (ValueError, ValidationError):
         canvas = None
     if canvas is None:
-        raise CanvasNotFoundError
+        raise unreachable_canvas_error(viewer, CanvasAccess.READ, canvas_id)
     check_object_access(canvas, user_access_control, required_level)
     live_build = _renderable_build(canvas.published_build)
     newest_active = (
