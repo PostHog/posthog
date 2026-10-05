@@ -32,6 +32,33 @@ describe('operators utils', () => {
         })
     })
 
+    describe('offering semver operators', () => {
+        it.each([
+            ['$app_version', true],
+            ['$lib_version', true],
+            ['version', true],
+            ['sdk.version', true],
+            ['appVersion', true],
+            ['$geoip_city_name', false],
+            ['conversion', false],
+            ['email', false],
+            [undefined, false],
+        ])('offers semver operators on %s: %s', (propertyKey, expected) => {
+            const operators = Object.keys(chooseOperatorMap(PropertyType.String, propertyKey))
+
+            expect(operators.includes(PropertyOperator.SemverGt)).toBe(expected)
+            expect(operators).toContain(PropertyOperator.IContains)
+        })
+
+        it('keeps the semver operator a saved filter already holds', () => {
+            const operators = Object.keys(
+                chooseOperatorMap(PropertyType.String, '$geoip_city_name', PropertyOperator.SemverGt)
+            )
+
+            expect(operators).toContain(PropertyOperator.SemverGt)
+        })
+    })
+
     describe('isOperatorMulti', () => {
         it('returns true for operators that support multiple values', () => {
             expect(isOperatorMulti(PropertyOperator.Exact)).toBe(true)
