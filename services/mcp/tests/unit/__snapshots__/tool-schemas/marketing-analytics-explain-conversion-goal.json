@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conversion_goal_id": {
+            "description": "conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_from": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO start; defaults to 30 days ago"
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ISO end; defaults to now"
+        }
+    },
+    "required": ["conversion_goal_id"],
+    "type": "object"
+}

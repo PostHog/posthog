@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "min_count": {
+            "default": 50,
+            "description": "Minimum 30d event count to be a candidate",
+            "type": "number"
+        },
+        "top_n": {
+            "default": 10,
+            "description": "Max candidates to return",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}
