@@ -99,12 +99,12 @@ def insert_archive_rows(rows: list[dict[str, Any]], client: Client) -> None:
 def read_rollup(team_id: int, day: date, subject_ids: list[str], client: Client) -> list[tuple]:
     return client.execute(
         f"""
-        SELECT read_kind, subject_id, workflow_id, names_only_this_subject,
+        SELECT read_kind, subject_id, workflow_id, read_alone,
             uniqMerge(requests), uniqMerge(users), sum(read_count), sum(duration_ms_sum), sum(read_bytes_sum)
         FROM {SAVED_QUERY_READS_DAILY_TABLE}
         WHERE team_id = %(team_id)s AND day = %(day)s AND subject_id IN %(subject_ids)s
-        GROUP BY read_kind, subject_id, workflow_id, names_only_this_subject
-        ORDER BY read_kind, names_only_this_subject
+        GROUP BY read_kind, subject_id, workflow_id, read_alone
+        ORDER BY read_kind, read_alone
         """,
         {"team_id": team_id, "day": day, "subject_ids": subject_ids},
     )

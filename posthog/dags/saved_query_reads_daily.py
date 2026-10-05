@@ -172,7 +172,7 @@ FROM (
         notEmpty(known_queried_names) AND arrayAll(
             name -> (reads.team_id, subject_id, name) IN (SELECT team_id, subject_id, name FROM {SUBJECT_NAMES_TABLE}),
             known_queried_names
-        ) AS names_only_this_subject,
+        ) AS read_alone,
         reads.request_id AS request_id,
         reads.user_id AS user_id,
         reads.query_duration_ms AS query_duration_ms,
