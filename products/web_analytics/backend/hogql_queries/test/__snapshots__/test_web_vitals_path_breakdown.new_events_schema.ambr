@@ -12,7 +12,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -46,7 +46,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -80,7 +80,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -114,7 +114,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_LCP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -148,7 +148,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -182,7 +182,7 @@
        (SELECT replaceRegexpAll(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))), '\\/cleaned\\/\\d+', '/cleaned/<id>') AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -216,7 +216,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.9)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -250,7 +250,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.99)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -284,7 +284,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -318,7 +318,7 @@
        (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))) AS path,
                quantile(0.75)(accurateCastOrNull(events.properties.`$web_vitals_INP_value`, 'Float64')) AS value
         FROM events_json AS events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))), '/path1'), 0)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`)))), '/path1'), 0)))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,

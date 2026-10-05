@@ -244,6 +244,8 @@ Today this coupling is consistent because the settings are applied unconditional
 ### DateTime And Timezones
 
 Review DateTime parsing, DateTime64 precision, timezone display, and typed property range comparisons.
+Timestamp range filters preserve the precision of bounds constructed with `toDateTime`, `toDateTime64`, or `toTimeZone`.
+Computed Date bounds use a six-decimal anchor in the project timezone.
 The datetime materialized-column range rewrite converts string literals to `toDateTime64(..., 6, timezone)`.
 That is only safe for literal comparisons where the physical source is DateTime-like and the planner has approved the comparison.
 
