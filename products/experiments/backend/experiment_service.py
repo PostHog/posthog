@@ -161,15 +161,29 @@ DEFAULT_VARIANTS = [
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
 
-# Synchronous freeze-exposure bounds. The snapshot is built inline in the request, so we cap both the
-# time spent scanning $feature_flag_called events (ClickHouse) and the number of exposed users we
-# materialize — the Postgres cohort sync is size-linear and is NOT covered by the query timeout.
-# The user cap is sized to the cohort insert (batches of 1000, sequential): 100k keeps the whole
-# freeze comfortably inside a web request. Long-running / very-high-traffic experiments that exceed
-# either bound are rejected rather than frozen synchronously (they would need a future async
-# populate path).
+# Synchronous freeze-exposure bounds. The freeze builds the snapshot inline in the web request, so the
+# request must finish before the ingress ends it at 120 seconds. After that the caller gets an error.
+#
+# The query timeout bounds the ClickHouse scan of the exposure events only. The user cap bounds the
+# two steps that the timeout does NOT cover. Both are linear in the number of exposed users, and
+# together they are almost all of the freeze duration:
+# - the personhog lookup: one RPC per PERSONHOG_BATCH_SIZE users, FREEZE_EXPOSURE_RESOLVE_CONCURRENCY at a time
+# - the cohort write: sequential batches of 1000, each with a ClickHouse read, a ClickHouse insert
+#   and a personhog insert
+#
+# The cap is sized so that the slowest freeze stays below the ingress limit. As of October 2026 the
+# slowest measured cost in production is about 0.5 ms per exposed user, which is about 105 seconds
+# at the cap. Every freeze logs its user count and step durations as experiment_freeze_exposure_timing.
+# Read those logs and repeat this calculation before you raise the cap.
+#
+# A longer build also widens the gap between the scan and the flag save. A user who is first exposed
+# in that gap is not in the snapshot and loses their variant when the flag narrows.
+#
+# Flag evaluation does not depend on the cap. It does one indexed lookup per person, whatever the
+# cohort size. An experiment over either bound is rejected. To freeze such an experiment, populate
+# the cohort in a background task and narrow the flag only after the cohort is complete.
 FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
-FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
+FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 200_000
 # Cohort membership is person-keyed, so exposed users without a person profile (anonymous
 # "personless" traffic, or since-deleted persons) can never match the snapshot cohort and would
 # silently lose their variant at freeze time. A small unresolvable share is tolerated as
