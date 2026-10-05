@@ -1,5 +1,3 @@
-import type { GroupType } from '@/api/client'
-import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
@@ -43,6 +41,7 @@ export interface ResolvedState {
     toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
     isImpersonated?: boolean
+    suppressAnalytics?: boolean
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -64,18 +63,6 @@ export interface ResolvedState {
     gatewayToolsEnabled: boolean
     distinctId: string
     renderUiEnabled: boolean
-    // Active project/user environment prompt and group types. Rendered into the
-    // `instructions` payload, and (for clients that don't surface instructions to
-    // the model like Codex, or ignore it like Claude web/desktop) the exec command
-    // reference. Resolved once here so every render path reads the same source.
-    metadata: string | undefined
-    // Variant of `metadata` without the product/integration context lines, for the
-    // claude.ai exec command reference: that surface counts against the ~16 KiB
-    // connector-registry cap on the serialized inputSchema, which already sits
-    // within tens of characters of the worst-case env context. Every uncapped
-    // surface renders the full `metadata`.
-    metadataCompact: string | undefined
-    groupTypes: GroupType[] | undefined
 }
 
 // ─── Pure helpers ───
@@ -148,25 +135,20 @@ export class RequestStateResolver {
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
 
         const { features, tools, organizationId, projectId, readOnly } = props
-        const contextPromise = reqCtx.getContext()
-        const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
-
         await this.applyPinnedContext(reqCtx, { organizationId, projectId })
 
+        // Start Redis reads only when Promise.all can observe their timeout rejections.
         // Read the active project back from the token cache (the source every tool
-        // resolves through) rather than the request pin, so the banner and group
-        // types reflect an in-session switch instead of the resent pin value.
-        let cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
-        if (!cachedProjectId) {
-            const contextForDefault = await contextPromise
-            await contextForDefault.stateManager.setDefaultOrganizationAndProject()
-            cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
-        }
-
-        const [context, sessionContext] = await Promise.all([
-            contextPromise,
-            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext),
+        // resolves through) rather than the request pin, so an in-session switch wins.
+        const [context, sessionContext, storedProjectId] = await Promise.all([
+            reqCtx.getContext(),
+            this.resolveSessionContext(requestContext),
+            reqCtx.tokenCache.get('projectId'),
         ])
+        const cachedProjectId = storedProjectId || projectId
+        if (!cachedProjectId) {
+            await context.stateManager.setDefaultOrganizationAndProject()
+        }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
@@ -182,6 +164,7 @@ export class RequestStateResolver {
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
+        props.suppressAnalytics = _apiKey?.suppress_analytics === true
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
@@ -255,14 +238,6 @@ export class RequestStateResolver {
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
-        const [groupTypes, metadata, metadataCompact] = await Promise.all([
-            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
-                ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
-                : undefined,
-            context.stateManager.getEnvironmentPrompt(),
-            context.stateManager.getEnvironmentPrompt({ includeProductContext: false }),
-        ])
-
         return {
             reqCtx,
             context,
@@ -270,6 +245,7 @@ export class RequestStateResolver {
             toolFeatureFlags,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
+            suppressAnalytics: props.suppressAnalytics,
             oauthClientId,
             clientProfile,
             requestContext,
@@ -284,9 +260,6 @@ export class RequestStateResolver {
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
-            metadata,
-            metadataCompact,
-            groupTypes,
         }
     }
 

@@ -19,6 +19,9 @@ interface OpenDismissReportDialogParams {
     /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
      * so the person only has to write the note. */
     initialReason?: DismissalReasonValue
+    /** Replaces the default title, description and submit label. Today uses them to ask for a reason
+     * after the report was already dismissd, so the copy must not ask to dismiss it again. */
+    copy?: { title: string; description: string; submitLabel: string }
     /** Called with the chosen reason, note and optional repo correction once the user confirms. */
     onConfirm: (result: DismissalFeedback) => void | Promise<void>
 }
@@ -41,6 +44,7 @@ export function openDismissReportDialog({
     hasOpenPr = false,
     hotkeys = false,
     initialReason,
+    copy,
     onConfirm,
 }: OpenDismissReportDialogParams): void {
     // The selection bar knows the count and no titles, so its copy counts reports even when one
@@ -59,8 +63,8 @@ export function openDismissReportDialog({
           }`
 
     LemonDialog.openForm({
-        title,
-        description,
+        title: copy?.title ?? title,
+        description: copy?.description ?? description,
         maxWidth: '36rem',
         overlayClassName: '!items-center',
         initialValues: {
@@ -101,7 +105,7 @@ export function openDismissReportDialog({
         errors: {
             reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
         },
-        primaryButtonProps: { children: 'Dismiss & teach the agent' },
+        primaryButtonProps: { children: copy?.submitLabel ?? 'Dismiss & teach the agent' },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note, correctedRepository }) => {
             if (!reason) {

@@ -23,6 +23,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     is_dangerous_table_function,
 )
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.log_entries import (
+    BatchExportLogEntriesTable,
+    LogEntriesTable,
+    ReplayConsoleLogsLogEntriesTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -33,6 +38,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
@@ -51,6 +57,7 @@ from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
     lookup_field_by_name,
     lookup_table_by_name,
+    lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
 )
@@ -61,6 +68,7 @@ from posthog.hogql.transforms.trino.persons import (
 )
 from posthog.hogql.transforms.trino.pivot import TrinoPivotLowerer
 from posthog.hogql.type_system import (
+    constant_type_from_runtime_type,
     infer_array_access_constant_type,
     infer_array_constant_type,
     infer_array_slice_constant_type,
@@ -69,6 +77,7 @@ from posthog.hogql.type_system import (
     infer_try_cast_constant_type,
     infer_tuple_access_constant_type,
     least_common_supertype,
+    parse_clickhouse_type,
 )
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -113,12 +122,24 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+# Tables whose IN-subqueries should be built once on the initiator (GLOBAL IN) rather than
+# re-executed per shard of a distributed outer scan: sharded tables, and tables on another
+# cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
+# of the outer query issue its own remote read against aux).
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (ReplayConsoleLogsLogEntriesTable, BatchExportLogEntriesTable)
+
+
 class _ShardedTableFinder(TraversingVisitor):
     def __init__(self) -> None:
         self.found = False
 
     def visit_table_type(self, node: ast.TableType) -> None:
-        if isinstance(node.table, EventsTable):
+        if isinstance(node.table, _GLOBAL_IN_TABLES):
+            self.found = True
+
+    def visit_lazy_table_type(self, node: ast.LazyTableType) -> None:
+        if isinstance(node.table, _GLOBAL_IN_LAZY_TABLES):
             self.found = True
 
 
@@ -1984,6 +2005,17 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
+        if is_decision_call(node.name):
+            spec = PromptJevCall.parse(node)
+            node = clone_expr(node, clear_types=True)
+            node.args[0] = self.visit(spec.input)
+            node.type = ast.CallType(
+                name=node.name.lower(),
+                arg_types=[],
+                return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
+            )
+            return node
+
         if self.dialect == "trino" and node.name.lower() == "date":
             node = clone_expr(node, clear_types=False)
             node.name = "toDate"
@@ -2413,6 +2445,13 @@ class Resolver(CloningVisitor):
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
+        # The number of leading chain segments that name the table or field found above.
+        qualifier_length = 1
+        if not type:
+            nested_match = lookup_table_by_nested_name(scope, node)
+            if nested_match:
+                type, qualifier_length = nested_match
+
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
@@ -2494,9 +2533,9 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         field_name = str(node.chain[-1])
         loop_type = type
-        chain_to_parse = node.chain[1:]
+        chain_to_parse = node.chain[qualifier_length:]
         previous_types = []
-        resolved_chain: list[str] = [str(node.chain[0])]
+        resolved_chain: list[str] = [str(segment) for segment in node.chain[:qualifier_length]]
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
@@ -2506,6 +2545,13 @@ class Resolver(CloningVisitor):
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if isinstance(loop_type, (ast.FieldType, ast.FieldAliasType)) and self.dialect in {"hogql", "clickhouse"}:
+                tuple_type = loop_type.resolve_constant_type(self.context)
+                if isinstance(tuple_type, ast.TupleType) and str(next_chain) in tuple_type.field_names:
+                    expression: ast.Expr = ast.Field(chain=list(resolved_chain))
+                    for member in [next_chain, *chain_to_parse]:
+                        expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
+                    return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
                 previous_types.pop()
                 previous_types.pop()

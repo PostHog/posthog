@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -27,7 +27,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -148,7 +148,6 @@ import {
     IntegrationType,
     JiraProjectType,
     LinearTeamType,
-    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -204,7 +203,6 @@ import {
     TeamType,
     TwilioPhoneNumberType,
     UserBasicType,
-    UserInterviewType,
     UserType,
     WarehouseTableFileUpload,
     WebAnalyticsFilterPresetType,
@@ -225,7 +223,6 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -735,15 +732,6 @@ export class ApiRequest {
         return this.hogFunctionTemplates(teamId).addPathComponent(id)
     }
 
-    // # Links
-    public links(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('links')
-    }
-
-    public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.links(teamId).addPathComponent(id)
-    }
-
     // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
@@ -1202,15 +1190,6 @@ export class ApiRequest {
 
     public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
-    }
-
-    // # User interviews
-    public userInterviews(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_interviews')
-    }
-
-    public userInterview(id: UserInterviewType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.userInterviews(teamId).addPathComponent(id)
     }
 
     // # Users
@@ -1931,10 +1910,6 @@ export class ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
-    public messagingCategory(categoryId: string): ApiRequest {
-        return this.messagingCategories().addPathComponent(categoryId)
-    }
-
     public messagingCategoriesImportFromCustomerIO(): ApiRequest {
         return this.messagingCategories().addPathComponent('import_from_customerio')
     }
@@ -1963,20 +1938,10 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('remove_track_config')
     }
 
-    public messagingPreferences(): ApiRequest {
-        return this.teamProjectDetail().addPathComponent('messaging_preferences')
-    }
-
-    public messagingPreferencesLink(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('generate_link')
-    }
-
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
-    }
-
-    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
+        return this.teamProjectDetail()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
     }
 
     public hogFlows(): ApiRequest {
@@ -2874,13 +2839,7 @@ const api = {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
-                .create({
-                    signal,
-                    data: {
-                        ...query,
-                        dateRange: query?.dateRange ?? { date_from: '-24h' },
-                    },
-                })
+                .create({ signal, data: { ...query } })
         },
         async sparkline(
             query: {
@@ -2950,6 +2909,7 @@ const api = {
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
                 limit?: number
                 offset?: number
+                includeImpact?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -4039,32 +3999,6 @@ const api = {
         },
     },
 
-    links: {
-        async list(
-            args: {
-                limit?: number
-                offset?: number
-                search?: string
-            } = {
-                limit: LINK_PAGE_SIZE,
-            }
-        ): Promise<CountedPaginatedResponse<LinkType>> {
-            return await new ApiRequest().links().withQueryString(args).get()
-        },
-        async get(id: LinkType['id']): Promise<LinkType> {
-            return await new ApiRequest().link(id).get()
-        },
-        async create(data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().links().create({ data })
-        },
-        async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().link(id).update({ data })
-        },
-        async delete(id: LinkType['id']): Promise<void> {
-            await new ApiRequest().link(id).delete()
-        },
-    },
-
     annotations: {
         async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
@@ -4800,6 +4734,7 @@ const api = {
                 stdout?: string
                 stderr?: string
                 media?: { mime_type: string; data: string }[]
+                result_text?: string
             } | null
             error: string | null
             // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
@@ -4996,21 +4931,6 @@ const api = {
         },
     },
 
-    userInterviews: {
-        async list(): Promise<PaginatedResponse<UserInterviewType>> {
-            return await new ApiRequest().userInterviews().get()
-        },
-        async get(id: UserInterviewType['id']): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).get()
-        },
-        async update(
-            id: UserInterviewType['id'],
-            data: Pick<UserInterviewType, 'summary'>
-        ): Promise<UserInterviewType> {
-            return await new ApiRequest().userInterview(id).update({ data })
-        },
-    },
-
     users: {
         async list(email?: string): Promise<PaginatedResponse<UserType>> {
             return await new ApiRequest().users(email).get()
@@ -5040,6 +4960,10 @@ const api = {
             scout_prefix?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
+            /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
+            include_source_metadata?: 'true' | 'false'
+            /** ISO 8601 datetime. Keeps reports created at or after it. */
+            created_after?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5051,6 +4975,9 @@ const api = {
             params: { limit?: number } = {}
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
+        },
+        async activateMeasurement(id: SignalReport['id'], artefactId: string): Promise<void> {
+            await new ApiRequest().signalReport(id).withAction(`artefacts/${artefactId}/activate`).create()
         },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
@@ -5162,8 +5089,15 @@ const api = {
              * across the entire resume chain). Used to bootstrap the sandbox stream before
              * opening SSE.
              */
-            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
-                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+            async getLogEntries(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: { signal?: AbortSignal; projectId?: TeamType['id'] } = {}
+            ): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .getResponse({ signal: options.signal })
                 const text = await response.text()
                 const entries: Record<string, any>[] = []
                 for (const line of text.split('\n')) {
@@ -5193,6 +5127,7 @@ const api = {
                 runId: TaskRun['id'],
                 options: {
                     signal: AbortSignal
+                    projectId?: TeamType['id']
                     lastEventId?: string
                     startLatest?: boolean
                     /**
@@ -5222,7 +5157,7 @@ const api = {
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
-                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                let request = new ApiRequest().taskRun(taskId, runId, options.projectId).withAction('stream')
                 if (!options.lastEventId && options.startLatest) {
                     request = request.withQueryString({ start: 'latest' })
                 }
@@ -6389,45 +6324,14 @@ const api = {
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
-
-        // Messaging Categories
-        async getCategories(params?: { category_type?: string }): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest()
-                .messagingCategories()
-                .withQueryString(toParams(params || {}))
-                .get()
-        },
-        async getCategory(categoryId: string): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).get()
-        },
-        async createCategory(data: any): Promise<any> {
-            return await new ApiRequest().messagingCategories().create({ data })
-        },
-        async updateCategory(categoryId: string, data: any): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).update({ data })
-        },
-        async deleteCategory(categoryId: string): Promise<void> {
-            return await new ApiRequest().messagingCategory(categoryId).delete()
-        },
-        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
-            const response = await new ApiRequest().messagingPreferencesLink().create({
-                data: {
-                    recipient,
-                },
-            })
-            return response.preferences_url || null
-        },
+        // The generated client's export function forces the response through JSON parsing (see
+        // frontend/src/lib/api-orval-mutator.ts), which breaks the CSV blob this endpoint streams back.
         async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
             const response = await new ApiRequest()
                 .messagingPreferencesExportOptOutsCsv()
                 .withQueryString({ category_key: categoryKey })
                 .getResponse()
             return await response.blob()
-        },
-        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
-            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
-                data: { opt_outs: optOuts, category_key: categoryKey },
-            })
         },
     },
     hogFlows: {
@@ -7347,6 +7251,15 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
     })
 }
 
+async function isStaleSessionResponse(response: Response): Promise<boolean> {
+    try {
+        const data = await response.clone().json()
+        return data?.code === 'sensitive_action_required_reauth'
+    } catch {
+        return false
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7402,6 +7315,12 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
+            return await handleFetch(url, method, fetcher, true)
+        }
+    }
+
+    if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
+        if (await awaitReauthentication()) {
             return await handleFetch(url, method, fetcher, true)
         }
     }

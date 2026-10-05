@@ -1,7 +1,7 @@
 import os
 import atexit
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from numbers import Number
 from typing import Any, cast
@@ -12,6 +12,7 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
@@ -22,6 +23,12 @@ PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
 logger = structlog.get_logger(__name__)
+
+
+def filter_scout_experiment_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    if get_query_tags().is_scout_experiment is True:
+        return None
+    return message
 
 
 def feature_enabled_or_false(
@@ -133,7 +140,7 @@ class ScopedCapture:
 
 
 @contextmanager
-def ph_scoped_capture(region: str = "US"):
+def ph_scoped_capture(region: str = "US", *, raise_on_error: bool = False) -> Iterator[ScopedCapture]:
     """Use this instead of posthoganalytics.capture() in Celery tasks — the global
     client's background flush may never run before the worker exits, silently losing events.
     This creates a dedicated client and flushes on context-manager exit.
@@ -147,7 +154,12 @@ def ph_scoped_capture(region: str = "US"):
         with ph_scoped_capture() as capture:
             capture(distinct_id="...", event="my_event", properties={...})
     """
-    ph_client = get_client(region)
+    errors: list[Exception] = []
+
+    def on_error(error: Exception, _batch: object) -> None:
+        errors.append(error)
+
+    ph_client = get_client(region, on_error=on_error) if raise_on_error else get_client(region)
 
     # Flush even when the caller's block raises — events already captured
     # before the exception shouldn't be dropped with the buffer.
@@ -155,6 +167,8 @@ def ph_scoped_capture(region: str = "US"):
         yield ScopedCapture(ph_client)
     finally:
         ph_client.shutdown()
+    if errors:
+        raise errors[0]
 
 
 _background_client: Any = None
@@ -202,6 +216,15 @@ def get_client(region: str = "US", **kwargs: Any):
     # under TEST, so without this a test that runs in cloud mode captures to the real
     # project. Callers can still pass `disabled` explicitly to override.
     kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    before_send = kwargs.get("before_send")
+
+    def capture_filter(message: dict[str, Any]) -> dict[str, Any] | None:
+        if filter_scout_experiment_capture(message) is None:
+            return None
+        return before_send(message) if before_send is not None else message
+
+    if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE:
+        kwargs["before_send"] = capture_filter
 
     return Posthog(
         api_key,

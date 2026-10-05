@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
@@ -105,14 +106,65 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "integration" in response.json()["attr"]
 
-    def test_the_target_database_and_schema_cannot_be_changed(self) -> None:
-        destination = self._create_destination()
+    @parameterized.expand(
+        [
+            (ExternalDataDestination.Type.POSTGRES, Integration.IntegrationKind.POSTGRESQL, ("database", "schema")),
+            (ExternalDataDestination.Type.REDSHIFT, Integration.IntegrationKind.AWS_REDSHIFT, ("database", "schema")),
+            (ExternalDataDestination.Type.SNOWFLAKE, Integration.IntegrationKind.SNOWFLAKE, ("database", "schema")),
+            (ExternalDataDestination.Type.DATABRICKS, Integration.IntegrationKind.DATABRICKS, ("catalog", "schema")),
+            (
+                ExternalDataDestination.Type.BIGQUERY,
+                Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+                ("dataset", "project"),
+            ),
+            (ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, ("bucket", "prefix")),
+            (
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                ("container_name", "prefix"),
+            ),
+        ]
+    )
+    def test_the_target_cannot_be_changed(self, destination_type: str, kind: str, fields: tuple[str, ...]) -> None:
+        # Every type pins where its rows land, on its own field names. A type missing from
+        # `RETARGETING_FIELDS_BY_TYPE` would accept a retarget silently and strand everything
+        # already written there.
+        destination = self._create_destination(
+            type=destination_type,
+            integration=self._integration(kind).pk,
+            config=dict.fromkeys(fields, "original"),
+        )
 
-        for field in ("database", "schema"):
+        for field in fields:
             response = self.client.patch(f"{self.base}/{destination.id}", {"config": {field: "somewhere_else"}})
 
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, field
-            assert "config" in response.json()["attr"], field
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, f"{destination_type}.{field}"
+            assert "config" in response.json()["attr"], f"{destination_type}.{field}"
+
+    @parameterized.expand(
+        [
+            (ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "bucket", "bucket_name"),
+            (
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                "container_name",
+                "container",
+            ),
+        ]
+    )
+    def test_the_target_cannot_be_changed_through_its_alias(
+        self, destination_type: str, kind: str, stored: str, alias: str
+    ) -> None:
+        # These writers read either spelling, so guarding only the preferred one would let a
+        # retarget through under the other name.
+        destination = self._create_destination(
+            type=destination_type, integration=self._integration(kind).pk, config={stored: "original"}
+        )
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": {alias: "somewhere_else"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "config" in response.json()["attr"]
 
     def test_the_name_can_still_be_changed(self) -> None:
         destination = self._create_destination()
@@ -133,6 +185,17 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_a_partial_config_update_keeps_the_fields_it_did_not_mention(self) -> None:
+        # `config` is one JSON blob. A PATCH naming only the key it means to change must not
+        # replace the whole blob and silently drop the target fields alongside it.
+        destination = self._create_destination(config={"database": "analytics", "schema": "public"})
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": {"ssl_mode": "require"}})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destination.refresh_from_db()
+        assert destination.config == {"database": "analytics", "schema": "public", "ssl_mode": "require"}
 
     def test_delete_detaches_everything_that_synced_to_it(self) -> None:
         destination = self._create_destination()

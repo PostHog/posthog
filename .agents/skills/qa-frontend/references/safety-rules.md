@@ -10,7 +10,7 @@ PR-mode stop rules (apply only when a `PR_REF` was parsed and PR mode was chosen
 - `git status --porcelain` is non-empty at skill start.
 - `gh pr checkout` fails repeatedly. Transient SSH-signing, GraphQL TLS-handshake, and network blips during checkout are common; retry the same `gh pr checkout <N>` up to 2 times before treating it as a hard stop. Do not bypass commit signing (no `--no-gpg-sign`) and do not switch to a manual `git fetch + checkout` dance to dodge a transient error.
 
-Stop rules that apply to both modes:
+Stop rules that apply to PR mode and local mode:
 
 - The local PostHog stack is not reachable.
 - Browser MCP/tooling cannot navigate or login. (Credentials always resolve to at least the documented seed defaults, so a missing-credentials stop is no longer separately required; if the resolved credentials do not work, the login step itself fails and aborts here.)

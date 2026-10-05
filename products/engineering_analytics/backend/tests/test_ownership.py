@@ -1,26 +1,17 @@
-from collections.abc import Iterator
 from dataclasses import field
-from threading import Event
-from time import monotonic
 
-from unittest.mock import patch
-
-from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.dataclasses import frozen
+from posthog.ownership.paths import UNOWNED_TEAM
+from posthog.ownership.repo_files import OwnershipUnavailable
 
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.ownership import (
-    _MAX_FILE_BYTES,
     UNPLACED,
-    GitHubRepoFiles,
-    OwnershipUnavailable,
     PlacedTest,
     QuarantinedTestFile,
-    resolve_path_owners,
     resolve_test_ownership,
 )
 
@@ -130,129 +121,3 @@ class TestRepoOwnership(SimpleTestCase):
 
     def test_a_resolved_batch_says_so(self) -> None:
         assert resolve_test_ownership("PostHog/posthog", [], files=_FakeRepoFiles()).resolved
-
-
-class TestPathOwnership(SimpleTestCase):
-    def test_places_each_path_exactly_and_returns_the_registry(self) -> None:
-        # Exact resolution, not the suite-root search: 'src/...' is a real repo-relative path here
-        # and must not be repositioned under nodejs/ the way a reported test path is.
-        owned = resolve_path_owners(
-            "PostHog/posthog",
-            ["nodejs/src/cdp/worker.ts", "src/cdp/worker.ts"],
-            files=_FakeRepoFiles(),
-        )
-        assert owned.resolved
-        assert owned.team_by_path == {"nodejs/src/cdp/worker.ts": "team-ingestion", "src/cdp/worker.ts": "team-root"}
-        assert owned.registry["team-ingestion"].notifications == "#alerts-ingestion"
-
-    def test_an_unreadable_repository_owns_nothing_and_says_so(self) -> None:
-        no_root = _FakeRepoFiles(owners={k: v for k, v in _OWNERS.items() if k != "owners.yaml"})
-        owned = resolve_path_owners("PostHog/posthog", ["nodejs/src/cdp/worker.ts"], files=no_root)
-        assert not owned.resolved
-        assert owned.team_by_path == {"nodejs/src/cdp/worker.ts": UNOWNED_TEAM}
-        assert owned.registry == {}
-
-
-class TestGitHubRepoFiles(SimpleTestCase):
-    def setUp(self) -> None:
-        cache.clear()
-
-    @parameterized.expand([(500,), (403,)])
-    def test_an_unexpected_status_raises_rather_than_reading_as_absent(self, status: int) -> None:
-        # Reading a failure as "no such file" reattributes everything under it to an ancestor.
-        with patch(
-            "products.engineering_analytics.backend.logic.ownership.github_request",
-            return_value=_response(status),
-        ):
-            with self.assertRaises(OwnershipUnavailable):
-                GitHubRepoFiles("PostHog/posthog").read("owners.yaml")
-
-    def test_a_missing_file_is_absent_and_fetched_once(self) -> None:
-        with patch(
-            "products.engineering_analytics.backend.logic.ownership.github_request",
-            return_value=_response(404),
-        ) as request:
-            files = GitHubRepoFiles("PostHog/posthog")
-            assert files.read("nodejs/owners.yaml") is None
-            assert files.read("nodejs/owners.yaml") is None
-            assert GitHubRepoFiles("PostHog/posthog").read("nodejs/owners.yaml") is None
-        assert request.call_count == 1
-
-    def test_a_slow_repository_gives_up_instead_of_holding_the_worker(self) -> None:
-        # A cold board asks for hundreds of files. Without a budget for the whole resolution, a
-        # stalled raw host holds a web worker far past the per-request timeout.
-        started, release, finished = Event(), Event(), Event()
-        self.addCleanup(release.set)
-
-        def stalls(_method: str, _url: str, **_kwargs: object) -> _response:
-            started.set()
-            release.wait(timeout=10)
-            finished.set()
-            return _response(404)
-
-        files = GitHubRepoFiles("PostHog/posthog")
-
-        def at_the_deadline_once_the_fetch_runs() -> float:
-            assert started.wait(timeout=10)
-            return files._deadline
-
-        with (
-            patch("products.engineering_analytics.backend.logic.ownership.github_request", side_effect=stalls),
-            patch(
-                "products.engineering_analytics.backend.logic.ownership.monotonic",
-                side_effect=at_the_deadline_once_the_fetch_runs,
-            ),
-        ):
-            with self.assertRaises(OwnershipUnavailable):
-                files.read("owners.yaml")
-        assert not finished.is_set()
-
-    def test_a_file_that_arrives_too_slowly_is_refused(self) -> None:
-        # The per-request timeout starts again on each chunk, so the byte limit alone lets one read
-        # run for minutes. Nothing waits for the fetch after the deadline, so nothing else stops it.
-        files = GitHubRepoFiles("PostHog/posthog")
-        response = _response(200)
-
-        def expires_mid_body(chunk_size: int) -> Iterator[bytes]:
-            yield b"x" * chunk_size
-            files._deadline = monotonic() - 1
-            yield b"x" * chunk_size
-
-        with (
-            patch("products.engineering_analytics.backend.logic.ownership.github_request", return_value=response),
-            patch.object(response, "iter_content", expires_mid_body),
-        ):
-            with self.assertRaises(OwnershipUnavailable):
-                files.read("owners.yaml")
-
-    @parameterized.expand([("declared", True), ("streamed", False)])
-    def test_an_oversized_file_is_refused(self, _name: str, declare_length: bool) -> None:
-        # A connected repository controls these files, so an unbounded read would put its bytes in
-        # a worker's memory and in Redis. Content-Length can lie, so the streamed read is the ceiling.
-        oversized = b"x" * (_MAX_FILE_BYTES + 1)
-        headers = {"Content-Length": str(len(oversized))} if declare_length else {}
-        with patch(
-            "products.engineering_analytics.backend.logic.ownership.github_request",
-            return_value=_response(200, body=oversized, headers=headers),
-        ):
-            with self.assertRaises(OwnershipUnavailable):
-                GitHubRepoFiles("PostHog/posthog").read("owners.yaml")
-
-
-class _response:
-    encoding = "utf-8"
-
-    def __init__(self, status: int, body: bytes = b"", headers: dict[str, str] | None = None) -> None:
-        self.status_code = status
-        self.headers = headers or {}
-        self._body = body
-
-    def iter_content(self, chunk_size: int) -> Iterator[bytes]:
-        for start in range(0, len(self._body), chunk_size):
-            yield self._body[start : start + chunk_size]
-
-    def __enter__(self) -> "_response":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass

@@ -39,6 +39,14 @@ pub struct TombstonedPerson {
     pub distinct_ids: Vec<TombstonedDistinctId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonTombstoneQueueEntry {
+    pub team_id: i64,
+    pub person_uuid: Uuid,
+    pub person_version: i64,
+    pub tombstoned_at_ms: i64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeletePersonsOutcome {
     pub deleted: i64,
