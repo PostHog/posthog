@@ -68,7 +68,7 @@ const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 
 /// First-iteration pre-decode budget reservation for full-width row groups; adapts to
 /// the observed batch size after the first decode.
-const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
 const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
 
@@ -92,7 +92,11 @@ const FOOTER_SIZE_HINT: usize = 64 * 1024;
 /// compressible rows can't inflate a single decoded batch far past the pre-decode reservation
 /// (which would otherwise sit unaccounted while the reader tops its permit up). Clamped to
 /// `[1, cap]`; falls back to `cap` when metadata carries no usable sizes.
-fn byte_bounded_batch_rows(meta: &ParquetMetaData, target_bytes: usize, cap: usize) -> usize {
+pub(crate) fn byte_bounded_batch_rows(
+    meta: &ParquetMetaData,
+    target_bytes: usize,
+    cap: usize,
+) -> usize {
     let max_bytes_per_row = meta
         .row_groups()
         .iter()
@@ -122,7 +126,7 @@ fn batch_rows_for_bytes_per_row(
 /// counting only the leaf columns under the projected root columns (`None` = all). The
 /// reader requests every projected column chunk of a row group at once and keeps them
 /// until the row group is decoded, so this is what one reader holds.
-fn max_row_group_fetch_bytes(meta: &ParquetMetaData, roots: Option<&[usize]>) -> usize {
+pub(crate) fn max_row_group_fetch_bytes(meta: &ParquetMetaData, roots: Option<&[usize]>) -> usize {
     let schema = meta.file_metadata().schema_descr();
     meta.row_groups()
         .iter()
@@ -369,14 +373,14 @@ impl RelaxCache {
 }
 
 /// A file selected for rewrite, with the metadata needed to tombstone it.
-struct TargetFile {
-    path: String,
-    size: u64,
-    stats: Option<String>,
-    remove: Remove,
+pub(crate) struct TargetFile {
+    pub(crate) path: String,
+    pub(crate) size: u64,
+    pub(crate) stats: Option<String>,
+    pub(crate) remove: Remove,
     /// Footer the probe parsed, handed to the rewrite so a hit file is opened once. Lives
     /// only as long as this partition's rewrite: the reader task consumes it.
-    metadata: Option<Arc<ParquetMetaData>>,
+    pub(crate) metadata: Option<Arc<ParquetMetaData>>,
 }
 
 /// Which rows of one source batch belong to a partition. Chosen so the common shapes
@@ -497,7 +501,7 @@ struct PartitionOutcome {
 /// A unit of byte budget: one permit from the per-call budget and one from the
 /// process-global budget. Both ride with a batch from decode until the writer has
 /// copied it into its buffer.
-struct BudgetPermit {
+pub(crate) struct BudgetPermit {
     /// `None` only transiently inside `top_up`, while the estimate's permits have been
     /// released and the grown permits are being re-acquired.
     local: Option<OwnedSemaphorePermit>,
@@ -510,14 +514,14 @@ struct BudgetPermit {
 
 /// Fetch-budget permits held by one reader from before its first data fetch until its
 /// stream is dropped.
-struct FetchPermit {
+pub(crate) struct FetchPermit {
     _local: OwnedSemaphorePermit,
     _global: OwnedSemaphorePermit,
 }
 
 /// Per-call view of the budget semaphores plus their process-global counterparts.
 #[derive(Clone)]
-struct Budgets {
+pub(crate) struct Budgets {
     local: Arc<Semaphore>,
     local_cap_kb: u32,
     fetch_local: Arc<Semaphore>,
@@ -526,7 +530,11 @@ struct Budgets {
 }
 
 impl Budgets {
-    fn new(max_buffered_bytes: usize, max_fetch_bytes: usize, limits: Arc<ProcessLimits>) -> Self {
+    pub(crate) fn new(
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+        limits: Arc<ProcessLimits>,
+    ) -> Self {
         // KiB units: tokio's acquire_many takes u32.
         let local_cap_kb = (max_buffered_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
         let fetch_local_cap_kb = (max_fetch_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
@@ -551,7 +559,7 @@ impl Budgets {
     /// budget, and keeps it while it takes decode permits. Decode permits are released
     /// by the writer task, which never waits on the fetch budget, so every fetch holder
     /// can always finish and release.
-    async fn acquire_fetch(&self, bytes: usize) -> Result<FetchPermit> {
+    pub(crate) async fn acquire_fetch(&self, bytes: usize) -> Result<FetchPermit> {
         let want = Self::kb(bytes);
         let local_kb = want.min(self.fetch_local_cap_kb as u64) as u32;
         let global_kb = want.min(self.limits.fetch_cap_kb() as u64) as u32;
@@ -571,7 +579,7 @@ impl Budgets {
     /// Acquire byte budget for `bytes`, capped at both budgets' capacities so a batch
     /// larger than either budget still makes progress. Local before global, the fixed
     /// order used everywhere (see `crate::limits` module docs).
-    async fn acquire_bytes(&self, bytes: usize) -> Result<BudgetPermit> {
+    pub(crate) async fn acquire_bytes(&self, bytes: usize) -> Result<BudgetPermit> {
         let want = Self::kb(bytes);
         let local_kb = want.min(self.local_cap_kb as u64) as u32;
         let global_kb = want.min(self.limits.buffer_cap_kb() as u64) as u32;
@@ -603,7 +611,7 @@ impl Budgets {
     /// while holding any of it, so some waiter can always make progress. The decoded batch
     /// stays resident during the brief re-acquire gap, but it is already allocated and the
     /// wait is bounded by the budget draining as writers flush.
-    async fn top_up(&self, permit: &mut BudgetPermit, total_bytes: usize) -> Result<()> {
+    pub(crate) async fn top_up(&self, permit: &mut BudgetPermit, total_bytes: usize) -> Result<()> {
         let want = Self::kb(total_bytes);
         let want_local = want.min(self.local_cap_kb as u64) as u32;
         let want_global = want.min(self.limits.buffer_cap_kb() as u64) as u32;
@@ -1166,7 +1174,11 @@ async fn upsert_inner(
 /// `checkpoint_interval` boundary; cleanup therefore also runs per boundary rather than
 /// per commit (as delta-rs's hook does) -- cleanup can only delete logs behind a
 /// checkpoint anyway, and gating it cuts the bulk-delete traffic by the interval factor.
-async fn best_effort_log_maintenance(table: &DeltaTable, version: u64, cleanup_enabled: bool) {
+pub(crate) async fn best_effort_log_maintenance(
+    table: &DeltaTable,
+    version: u64,
+    cleanup_enabled: bool,
+) {
     let result: std::result::Result<(), (&'static str, deltalake::DeltaTableError)> = async {
         let mut post = table.clone();
         post.update_incremental(None)
@@ -1233,7 +1245,7 @@ fn source_footprint(
 }
 
 /// Refuse tables whose features would make a blind file rewrite unsafe.
-fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
+pub(crate) fn ensure_supported_table(table: &DeltaTable) -> Result<()> {
     let snapshot = table.snapshot()?;
     let protocol = snapshot.protocol();
 
@@ -1626,7 +1638,7 @@ fn target_file(v: &LogicalFileView) -> TargetFile {
 /// Open a Parquet stream builder for `f`. A footer the probe already parsed is reused
 /// without I/O; otherwise the footer is read with [`FOOTER_SIZE_HINT`] so it arrives in
 /// one round trip.
-async fn open_builder(
+pub(crate) async fn open_builder(
     store: &Arc<dyn ObjectStore>,
     f: &TargetFile,
 ) -> Result<ParquetRecordBatchStreamBuilder<ParquetObjectReader>> {
