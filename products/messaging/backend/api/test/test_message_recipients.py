@@ -1,0 +1,350 @@
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import time_machine
+from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest, _create_person, flush_persons_and_events
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
+from posthog.models.message_assets.sql import INSERT_MESSAGE_ASSET_SQL, TRUNCATE_MESSAGE_ASSETS_TABLE_SQL
+from posthog.models.person.sql import TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL, TRUNCATE_PERSON_TABLE_SQL
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.models.message_suppression import MessageSuppression
+
+NOW = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+
+
+class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Sequences reset between these non-atomic tests, so every test reuses the same team id and
+        # would otherwise read the previous test's ClickHouse persons and sends.
+        for statement in (
+            TRUNCATE_PERSON_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+            TRUNCATE_MESSAGE_ASSETS_TABLE_SQL,
+        ):
+            sync_execute(statement)
+
+    def _list(self, **params: Any) -> dict[str, Any]:
+        response = self._get(**params)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def _get(self, **params: Any) -> Any:
+        return self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/", params)
+
+    def _emails(self, **params: Any) -> list[str]:
+        return [row["email"] for row in self._list(**params)["results"]]
+
+    def _prefer(self, identifier: str, preferences: dict[str, str], team: Team | None = None) -> None:
+        MessageRecipientPreference.objects.create(
+            team=team or self.team, identifier=identifier, preferences=preferences
+        )
+
+    def _suppress(
+        self, identifier: str, source: str = "BOUNCE", reason: str | None = None, team: Team | None = None
+    ) -> None:
+        team = team or self.team
+        MessageSuppression.objects.for_team(team.id).create(
+            team=team, identifier=identifier, source=source, reason=reason, suppressed=True, suppressed_at=NOW
+        )
+
+    def _person(
+        self, email: str | None, distinct_id: str | None = None, name: str | None = None, team: Team | None = None
+    ) -> str:
+        properties = {key: value for key, value in {"email": email, "name": name}.items() if value is not None}
+        person = _create_person(
+            team=team or self.team, distinct_ids=[distinct_id or email or "anonymous"], properties=properties
+        )
+        flush_persons_and_events()
+        return str(person.uuid)
+
+    def _send(self, recipient: str, sent_at: datetime) -> None:
+        sync_execute(
+            INSERT_MESSAGE_ASSET_SQL,
+            {
+                "team_id": self.team.id,
+                "function_kind": "hog_flow",
+                "function_id": "flow",
+                "parent_run_id": "",
+                "invocation_id": f"run-{recipient}-{sent_at.isoformat()}",
+                "action_id": "email-step",
+                "kind": "email",
+                "distinct_id": recipient,
+                "person_id": "",
+                "recipient": recipient,
+                "subject": "Hello",
+                "html": "",
+                "status": "sent",
+                "sent_at": sent_at,
+                "version": 1,
+                "is_deleted": 0,
+            },
+        )
+
+    def _deny_hog_flow_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")
+
+    def _topic(self, key: str) -> str:
+        return str(MessageCategory.objects.create(team=self.team, key=key, name=key.title()).id)
+
+    def test_lists_every_known_address_once_ordered_by_address(self) -> None:
+        self._prefer("carol@example.com", {"$all": "OPTED_OUT"})
+        self._suppress("bob@example.com")
+        self._person("alice@example.com")
+        self._person("carol@example.com")
+
+        assert self._emails() == ["alice@example.com", "bob@example.com", "carol@example.com"]
+
+    @time_machine.travel(NOW, tick=False)
+    def test_folds_casings_of_one_address_into_one_row_where_unsubscribed_wins(self) -> None:
+        newsletter = self._topic("newsletter")
+        product_updates = self._topic("product-updates")
+        self._prefer("Jamie@Example.com", {"$all": "OPTED_IN", newsletter: "OPTED_OUT", product_updates: "OPTED_IN"})
+        self._prefer("jamie@example.com", {"$all": "OPTED_OUT", newsletter: "OPTED_IN", "$email_tracking": "OPTED_OUT"})
+        self._suppress("jamie@example.com", source="COMPLAINT", reason="Marked as spam")
+        person_uuid = self._person("JAMIE@example.com ", distinct_id="jamie-1", name="Jamie")
+
+        assert self._list()["results"] == [
+            {
+                "email": "jamie@example.com",
+                "all_marketing": "OPTED_OUT",
+                "topics": {"newsletter": "OPTED_OUT", "product-updates": "OPTED_IN"},
+                "suppression": {
+                    "source": "COMPLAINT",
+                    "reason": "Marked as spam",
+                    "suppressed_at": "2026-09-15T10:00:00Z",
+                },
+                "persons": [{"uuid": person_uuid, "distinct_id": "jamie-1", "name": "Jamie"}],
+                "person_count": 1,
+                "last_sent_at": None,
+                "preferences_updated_at": "2026-09-15T10:00:00Z",
+            }
+        ]
+
+    def _seed_facet_audience(self) -> None:
+        newsletter = self._topic("newsletter")
+        self._prefer("ann@example.com", {newsletter: "OPTED_OUT"})
+        self._person("ann@example.com")
+        self._prefer("ben@example.com", {newsletter: "OPTED_IN", "$all": "OPTED_OUT"})
+        self._suppress("cat@example.com", source="BOUNCE")
+        self._person("cat@example.com")
+        self._suppress("dan@example.com", source="MANUAL")
+        self._prefer("dan@example.com", {newsletter: "OPTED_IN", "$all": "OPTED_IN"})
+        self._person("eve@example.com")
+
+    @parameterized.expand(
+        [
+            ("subscribed", {"filter": ["subscribed:newsletter"]}, ["ben", "dan"]),
+            (
+                "subscribed_reports_the_topic_status_even_under_an_all_marketing_opt_out",
+                {"filter": ["subscribed:newsletter", "unsubscribed:all-marketing"]},
+                ["ben"],
+            ),
+            ("negated_topic", {"filter": ["-subscribed:newsletter"]}, ["ann", "cat", "eve"]),
+            ("subscribed_to_all_marketing", {"filter": ["subscribed:all-marketing"]}, ["dan"]),
+            ("unsubscribed", {"filter": ["unsubscribed:newsletter"]}, ["ann"]),
+            ("no_preference", {"filter": ["no-preference:newsletter"]}, ["cat", "eve"]),
+            ("unsubscribed_from_all_marketing", {"filter": ["unsubscribed:all-marketing"]}, ["ben"]),
+            ("no_preference_on_all_marketing", {"filter": ["no-preference:all-marketing"]}, ["ann", "cat", "eve"]),
+            ("suppressed", {"filter": ["suppressed:BOUNCE"]}, ["cat"]),
+            ("values_on_one_facet_are_or", {"filter": ["suppressed:BOUNCE", "suppressed:MANUAL"]}, ["cat", "dan"]),
+            ("negated", {"filter": ["-suppressed:BOUNCE"]}, ["ann", "ben", "dan", "eve"]),
+            ("person_linked", {"filter": ["person:linked"]}, ["ann", "cat", "eve"]),
+            ("person_none", {"filter": ["person:none"]}, ["ben", "dan"]),
+            ("preference_recorded", {"filter": ["preference:recorded"]}, ["ann", "ben", "dan"]),
+            ("preference_none", {"filter": ["preference:none"]}, ["cat", "eve"]),
+            ("facets_are_and", {"filter": ["preference:recorded", "person:linked"]}, ["ann"]),
+            ("negation_and_across_facets", {"filter": ["subscribed:newsletter", "-suppressed:MANUAL"]}, ["ben"]),
+            ("search_is_a_case_insensitive_substring", {"search": "AN"}, ["ann", "dan"]),
+            ("search_and_filter", {"search": "an", "filter": ["person:linked"]}, ["ann"]),
+        ]
+    )
+    def test_filters_recipients(self, _name: str, params: dict[str, Any], expected: list[str]) -> None:
+        self._seed_facet_audience()
+
+        assert self._emails(**params) == [f"{name}@example.com" for name in expected]
+
+    @parameterized.expand(
+        [
+            ("unknown_facet", {"filter": "colour:red"}),
+            ("unknown_topic", {"filter": "subscribed:nope"}),
+            ("unknown_suppression_source", {"filter": "suppressed:SPAM"}),
+            ("unknown_person_value", {"filter": "person:maybe"}),
+            ("missing_value", {"filter": "person:"}),
+            ("not_a_facet_filter", {"filter": "newsletter"}),
+            ("unknown_facet_next_to_an_email", {"filter": "colour:red", "email": "jamie@example.com"}),
+        ]
+    )
+    def test_rejects_an_unknown_filter(self, _name: str, params: dict[str, str]) -> None:
+        self._topic("newsletter")
+        self._prefer("jamie@example.com", {})
+
+        response = self._get(**params)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filter"
+
+    def test_pages_by_cursor_return_every_recipient_exactly_once(self) -> None:
+        self._prefer("a@example.com", {})
+        self._suppress("b@example.com")
+        self._person("c@example.com")
+        self._prefer("d@example.com", {})
+        self._person("e@example.com")
+
+        pages: list[list[str]] = []
+        cursor: str | None = None
+        while len(pages) < 4:
+            page = self._list(limit=2, **({"cursor": cursor} if cursor else {}))
+            pages.append([row["email"] for row in page["results"]])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+
+        assert pages == [
+            ["a@example.com", "b@example.com"],
+            ["c@example.com", "d@example.com"],
+            ["e@example.com"],
+        ]
+
+    def test_pages_a_filtered_list_by_cursor(self) -> None:
+        self._seed_facet_audience()
+
+        first = self._list(limit=2, filter=["person:linked"], search="@")
+        second = self._list(limit=2, filter=["person:linked"], search="@", cursor=first["next_cursor"])
+
+        assert [row["email"] for row in first["results"] + second["results"]] == [
+            "ann@example.com",
+            "cat@example.com",
+            "eve@example.com",
+        ]
+        assert second["next_cursor"] is None
+
+    @parameterized.expand(
+        [
+            ("non_ascii_casing", "Jürgen.MÜLLER@example.com", "jürgen.müller@example.com", "MÜLLER"),
+            ("surrounding_whitespace", "\tTab@Example.com \n", "tab@example.com", "TAB@"),
+        ]
+    )
+    def test_folds_an_address_the_way_python_normalizes_it(
+        self, _name: str, stored: str, folded: str, search: str
+    ) -> None:
+        self._prefer(stored, {})
+        self._person(stored, distinct_id="holder")
+
+        assert self._emails() == [folded]
+        assert self._emails(search=search) == [folded]
+        assert self._emails(email=stored.upper()) == [folded]
+
+    def test_ignores_a_preference_row_that_is_not_a_map(self) -> None:
+        self._prefer("broken@example.com", ["OPTED_OUT"])  # type: ignore[arg-type]
+
+        assert self._list()["results"][0]["topics"] == {}
+
+    def test_email_returns_exactly_that_recipient(self) -> None:
+        self._prefer("Jamie@Example.com", {})
+        self._prefer("jamie.other@example.com", {})
+
+        assert self._emails(email=" JAMIE@example.com") == ["jamie@example.com"]
+
+    def test_email_of_an_unknown_address_is_not_found(self) -> None:
+        self._prefer("jamie@example.com", {})
+
+        assert self._get(email="nobody@example.com").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_never_lists_another_teams_recipients(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        self._prefer("theirs@example.com", {}, team=other_team)
+        self._suppress("theirs@example.com", team=other_team)
+        self._person("theirs@example.com", team=other_team)
+        self._prefer("ours@example.com", {})
+
+        assert self._emails() == ["ours@example.com"]
+
+    @parameterized.expand(
+        [
+            ("list", "", None),
+            ("coverage", "coverage/", None),
+            ("list_with_a_workflow_grant", "", "flow-granted"),
+            ("coverage_with_a_workflow_grant", "coverage/", "flow-granted"),
+        ]
+    )
+    def test_denies_users_without_hog_flow_access(self, _name: str, path: str, granted_flow_id: str | None) -> None:
+        self._deny_hog_flow_access()
+        if granted_flow_id is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=granted_flow_id,
+                access_level="viewer",
+                organization_member=self.organization_membership,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/{path}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("list_with_both_scopes", "", ["hog_flow:read", "person:read"], status.HTTP_200_OK),
+            ("list_without_person_read", "", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            ("list_without_hog_flow_read", "", ["person:read"], status.HTTP_403_FORBIDDEN),
+            ("coverage_without_person_read", "coverage/", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_keys_need_workflow_and_person_read(
+        self, _name: str, path: str, scopes: list[str], expected_status: int
+    ) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_recipients/{path}", HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == expected_status
+
+    @time_machine.travel(NOW, tick=False)
+    def test_last_sent_at_comes_from_sends_in_the_last_30_days(self) -> None:
+        recent = NOW - timedelta(days=2)
+        self._prefer("recent@example.com", {})
+        self._prefer("stale@example.com", {})
+        self._send("Recent@Example.com", recent - timedelta(days=1))
+        self._send("Recent@Example.com", recent)
+        self._send("stale@example.com", recent - timedelta(days=40))
+
+        last_sent = {row["email"]: row["last_sent_at"] for row in self._list()["results"]}
+
+        assert last_sent == {
+            "recent@example.com": recent.isoformat().replace("+00:00", "Z"),
+            "stale@example.com": None,
+        }
+
+    def test_coverage_counts_persons_without_an_email(self) -> None:
+        self._person("reachable@example.com")
+        self._person(None, distinct_id="anonymous-1")
+        self._person(None, distinct_id="anonymous-2", name="No Email")
+        self._person("", distinct_id="blank-email")
+        self._person("   ", distinct_id="whitespace-email")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/coverage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"persons_without_email": 4}

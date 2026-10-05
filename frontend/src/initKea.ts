@@ -25,6 +25,8 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadAudienceRecipients', // The Audience recipients list renders its own error state with a retry.
+    'loadAudienceCoverage', // The unreachable persons line hides itself when its count fails to load.
     'loadOfflineExperiments', // Offline views provide inline retry states.
     'loadOfflineScorerOptions',
     'loadOfflineSuggestedScorers',

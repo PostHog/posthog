@@ -16,6 +16,14 @@ Message categories recipients can opt out of, one row per category. Category IDs
 
 {{ schema_columns('system.message_categories') }}
 
+## Message suppressions (`system.message_suppressions`)
+
+Email addresses the team never sends to, for any message type, one row per lower-cased address. An address is suppressed after repeated soft bounces, a spam complaint, or a manual entry. Rows with `suppressed = 0` are still counting soft bounces and do not block sends yet.
+
+### Columns
+
+{{ schema_columns('system.message_suppressions') }}
+
 ### Query Examples
 
 ```sql
@@ -39,4 +47,11 @@ SELECT identifier,
        JSONExtractString(preferences, '$all') AS all_marketing_status
 FROM system.message_recipient_preferences
 WHERE deleted = 0 AND identifier = 'ally@example.com'
+
+-- Actively suppressed addresses by reason
+SELECT source, count() AS addresses
+FROM system.message_suppressions
+WHERE deleted = 0 AND suppressed
+GROUP BY source
+ORDER BY addresses DESC
 ```
