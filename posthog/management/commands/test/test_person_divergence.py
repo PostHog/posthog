@@ -61,3 +61,12 @@ class TestPersonDivergenceArguments(SimpleTestCase):
             with self.assertRaisesMessage(CommandError, f"{team_step} must be 1 or more"):
                 call_command("person_divergence", "scan", "hidden", "--output", str(output), "--team-step", team_step)
             assert not output.exists()
+
+    def test_repair_names_the_line_of_a_short_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scan = Path(tmp) / "hidden.csv"
+            scan.write_text("team_id,person_uuid\n1,0190f8e1-1234-7abc-89de-f0123456789a\n2\n")
+            output = Path(tmp) / "dry.csv"
+            with self.assertRaisesMessage(CommandError, f"{scan}:3:"):
+                call_command("person_divergence", "repair", "--input", str(scan), "--output", str(output))
+            assert not output.exists()

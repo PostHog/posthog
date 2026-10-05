@@ -210,7 +210,8 @@ def _read_targets(path: Path, team_id: int | None) -> list[PersonRef]:
         for line, row in enumerate(reader, start=2):
             try:
                 target = PersonRef(team_id=int(row["team_id"]), person_uuid=str(UUID(row["person_uuid"])))
-            except ValueError as exc:
+            # A short row leaves its missing cells as None, which raises TypeError instead of ValueError.
+            except (TypeError, ValueError) as exc:
                 raise CommandError(f"{path}:{line}: {exc}") from exc
             if team_id is None or target.team_id == team_id:
                 targets.append(target)
