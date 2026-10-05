@@ -157,22 +157,23 @@ def likely_core_events(
     The model reads the search with its values replaced by placeholders, and nothing when only values are left.
     With `require_complete`, a failed request raises instead of leaving its events out of the answer.
     """
+    model_query = redact_values(query)
+    if model_query is None:
+        return []
     likely, _complete = _likely_core_events(
-        team_id, query, use_cache=use_cache, require_complete=require_complete, model=model
+        team_id, model_query, use_cache=use_cache, require_complete=require_complete, model=model
     )
     return likely
 
 
 def _likely_core_events(
-    team_id: int, query: str, *, use_cache: bool, require_complete: bool, model: str | None
+    team_id: int, model_query: str, *, use_cache: bool, require_complete: bool, model: str | None
 ) -> tuple[list[EventMatch], bool]:
     """Same as `likely_core_events`, plus whether every core event was actually asked about.
 
+    Takes the redacted query, so `match_core_events` can name the `ONLY_VALUES` outcome without redacting twice.
     A cache hit is always complete, since a partial answer is never cached (see below).
     """
-    model_query = redact_values(query)
-    if model_query is None:
-        return [], True
     model = model or EVENT_MATCH_MODEL.current()
     key = _cache_key(team_id, model_query, model)
     if use_cache:
@@ -218,10 +219,11 @@ def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> 
     query = " ".join(request.query.split())
     if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS:
         return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.WRONG_LENGTH)
-    if redact_values(query) is None:
+    model_query = redact_values(query)
+    if model_query is None:
         return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.ONLY_VALUES)
     likely, complete = _likely_core_events(
-        request.team_id, query, use_cache=use_cache, require_complete=False, model=None
+        request.team_id, model_query, use_cache=use_cache, require_complete=False, model=None
     )
     if not likely:
         # A failed chunk leaves its events unasked, so an empty answer is not conclusive unless every chunk answered.
