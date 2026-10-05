@@ -1151,6 +1151,22 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
 
+    @parameterized.expand(
+        [
+            ("trigger_active", 0, "active"),
+            ("delay_active", 1, "active"),
+            ("trigger_draft", 0, None),
+            ("delay_draft", 1, None),
+        ]
+    )
+    def test_hog_flow_rejects_list_action_config(self, _name, action_index, status):
+        flow = self._make_delay_flow({"delay_duration": "5m"}, status=status)
+        flow["actions"][action_index]["config"] = [{"type": "event"}]
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == f"actions__{action_index}__config"
+        assert response.json()["detail"] == "Config must be an object, got list."
+
     def _make_conditional_branch_flow(self, config: dict) -> dict:
         flow = self._make_delay_flow({"delay_duration": "5m"})
         flow["actions"][1] = {
