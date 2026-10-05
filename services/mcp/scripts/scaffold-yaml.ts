@@ -293,7 +293,7 @@ function mergeWithExisting(
             const base = op.operationId.replace(/_\d+$/, '')
             const toolName = operationIdToToolName(op.operationId)
             // A kept enabled tool with a lost operation can share this name. Do not overwrite it.
-            if (!existingBaseIds.has(base) && !Object.hasOwn(mergedTools, toolName)) {
+            if (!existingBaseIds.has(base) && !Object.prototype.hasOwnProperty.call(mergedTools, toolName)) {
                 mergedTools[toolName] = {
                     operation: op.operationId,
                     enabled: false,
