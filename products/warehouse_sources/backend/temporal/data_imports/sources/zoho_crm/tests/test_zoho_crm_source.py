@@ -98,11 +98,27 @@ class TestZohoCRMSource:
         "observed_error",
         [
             "500 Server Error for url: https://www.zohoapis.com/crm/v8/Leads",
+            "502 Server Error: Bad Gateway for url: https://www.zohoapis.com/crm/v8/settings/fields",
+            "503 Server Error: Service Unavailable for url: https://www.zohoapis.com/crm/v8/Leads",
             "429 Client Error: Too Many Requests for url: https://www.zohoapis.com/crm/v8/Leads",
         ],
     )
     def test_transient_failures_stay_retryable(self, observed_error: str) -> None:
+        # Without the retryable match, the import activity falls through to its generic branch. That
+        # reports a third-party outage as ours and stores the raw status text as the sync's error.
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://www.zohoapis.com/crm/v8/Leads",
+            "403 Client Error: Forbidden for url: https://www.zohoapis.com/crm/v8/Deals",
+            "Non-JSON response from https://www.zohoapis.com/crm/v8/Leads",
+        ],
+    )
+    def test_credential_failures_are_not_treated_as_transient(self, observed_error: str) -> None:
+        assert not any(key in observed_error for key in self.source.get_retryable_errors())
 
     @mock.patch(f"{_SOURCE_MODULE}.validate_zoho_crm_credentials")
     def test_validate_credentials_passes_the_resolved_version(self, mock_validate: mock.MagicMock) -> None:
