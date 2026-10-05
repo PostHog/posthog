@@ -10,6 +10,7 @@ import (
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/posthog/posthog/livestream/bot"
+	"github.com/posthog/posthog/livestream/configs"
 	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/mocks"
 	"github.com/stretchr/testify/assert"
@@ -452,4 +453,20 @@ func TestSplitTopics(t *testing.T) {
 			assert.Equal(t, tt.expected, splitTopics(tt.input))
 		})
 	}
+}
+
+func TestApplyKafkaConfigOverrides_ClientRack(t *testing.T) {
+	// A non-empty ClientRack sets client.rack (KIP-392 same-AZ fetch).
+	cfg := &kafka.ConfigMap{}
+	applyKafkaConfigOverrides(cfg, configs.ConsumerConfig{ClientRack: "use1-az2"})
+	v, err := cfg.Get("client.rack", nil)
+	assert.NoError(t, err)
+	assert.Equal(t, "use1-az2", v)
+
+	// An empty ClientRack leaves client.rack unset (librdkafka default).
+	empty := &kafka.ConfigMap{}
+	applyKafkaConfigOverrides(empty, configs.ConsumerConfig{})
+	ev, err := empty.Get("client.rack", nil)
+	assert.NoError(t, err)
+	assert.Nil(t, ev)
 }

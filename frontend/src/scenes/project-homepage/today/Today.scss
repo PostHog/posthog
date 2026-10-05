@@ -95,7 +95,7 @@
 .TodaySidebar__list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 2px;
 }
 
 // Lines up with the row titles: the row padding plus the icon and its gap.
@@ -120,79 +120,41 @@
 }
 
 .TodayNavItem {
-    --report-color: #5c5c57;
-
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    width: 100%;
-    padding: 11px;
-    text-align: left;
     border-radius: 10px;
-    transition:
-        background 0.16s,
-        transform 0.2s var(--today-ease-nudge);
-
-    &[data-active='true'] {
-        background: var(--today-soft);
-
-        .TodayNavItem__marker {
-            color: #fff;
-            background: var(--report-color);
-            border-color: var(--report-color);
-        }
-
-        .TodayNavItem__title {
-            color: var(--today-ink);
-        }
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            background: var(--today-soft);
-        }
-    }
 }
 
 .TodayNavItem__marker {
-    position: relative;
-    display: flex;
-    flex: 0 0 40px;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
+    width: 30px;
+    height: 30px;
     color: var(--report-color);
     background: color-mix(in sRGB, var(--report-color) 10%, var(--today-card));
     border: 1px solid color-mix(in sRGB, var(--report-color) 25%, var(--today-card));
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     transition:
         color 0.16s,
         background 0.16s,
         border-color 0.16s;
 
+    // Center the tile; quill nudges media down when an item has a description.
+    &.quill-item__media {
+        align-self: center;
+        translate: none;
+    }
+
     svg {
-        width: 21px;
-        height: 21px;
+        width: 16px;
+        height: 16px;
     }
 }
 
-.TodayNavItem__copy {
-    min-width: 0;
-}
-
-.TodayNavItem__title,
-.TodayNavItem__meta {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.TodayNavItem[data-active='true'] .TodayNavItem__marker {
+    color: #fff;
+    background: var(--report-color);
+    border-color: var(--report-color);
 }
 
 .TodayNavItem__title {
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--today-body-text);
+    min-width: 0;
 }
 
 .TodayNavItem[data-state='done'] .TodayNavItem__title,
@@ -201,15 +163,9 @@
 }
 
 // Dismissed is not done: it stays readable, only quieter, and the left bar says why.
-.TodayNavItem[data-state='dismissed'] .TodayNavItem__copy,
+.TodayNavItem[data-state='dismissed'] .quill-item__content,
 .TodayReportLink[data-state='dismissed'] {
     opacity: 0.55;
-}
-
-.TodayNavItem__meta {
-    margin-top: 3px;
-    font-size: 11px;
-    color: var(--today-faint);
 }
 
 // Home
@@ -418,71 +374,8 @@
 // Ask box
 
 .TodayAsk {
-    display: flex;
-    gap: 8px;
-    align-items: center;
     max-width: 760px;
-    padding: 7px 8px 7px 20px;
     margin-top: 76px;
-    background: var(--today-card);
-    border: 1px solid var(--today-input-border);
-    border-radius: 16px;
-    box-shadow: var(--today-card-shadow);
-    transition:
-        border-color 0.16s,
-        box-shadow 0.16s;
-
-    &:focus-within {
-        border-color: var(--today-focus-border);
-        box-shadow:
-            0 0 0 3px #1515150d,
-            0 14px 36px -24px #0006;
-    }
-
-    input {
-        flex: 1;
-        min-width: 0;
-        height: 42px;
-        font-size: 14px;
-        color: var(--today-ink);
-        background: transparent;
-        border: 0;
-        outline: none;
-
-        &::placeholder {
-            color: #aaa9a4;
-        }
-    }
-}
-
-.TodaySend {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    color: var(--today-button-text);
-    background: var(--today-button);
-    border-radius: 11px;
-    transition:
-        opacity 0.16s,
-        transform 0.1s;
-
-    &:active {
-        transform: scale(0.97);
-    }
-
-    &:disabled {
-        cursor: default;
-        opacity: 0.18;
-    }
-
-    svg {
-        width: 17px;
-        height: 17px;
-        transform: rotate(-90deg);
-    }
 }
 
 // Report page

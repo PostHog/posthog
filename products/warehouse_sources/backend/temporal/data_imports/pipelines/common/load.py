@@ -281,7 +281,6 @@ async def _run_delta_maintenance(
     delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
-    partition_count_fallback: int | None,
 ) -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
@@ -297,7 +296,6 @@ async def _run_delta_maintenance(
         await DeltaMaintenance(delta_table_ref).run_scheduled(
             schema,
             is_cdc_companion=is_cdc_companion,
-            partition_count_fallback=partition_count_fallback,
             compact_small_files=not schema.is_cdc,
         )
 
@@ -707,13 +705,7 @@ async def run_post_load_operations(
         await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
         return None
 
-    await _run_delta_maintenance(
-        schema,
-        delta_table_ref,
-        is_cdc_companion,
-        logger,
-        partition_count_fallback=resource.partition_count if resource is not None else None,
-    )
+    await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 
     queryable_folder = await _publish_queryable_files(
         job, schema, delta_table_ref, resource_name, is_cdc_companion, logger
