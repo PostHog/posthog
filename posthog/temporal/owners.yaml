@@ -27,6 +27,8 @@ rules:
       owners: team-billing
     - match: '/session_replay/'
       owners: team-replay
+    - match: '/sync_person_distinct_ids/'
+      owners: team-ingestion
     - match: '/tests/weekly_digest/'
       owners: team-growth
     - match: '/usage_report/'
