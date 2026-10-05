@@ -124,7 +124,10 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
         // The backend adds flag_evaluations to the HogQL catalog whenever the organization's stored mode is
         // above Events. This field is above Events only when the stored mode is, so a query here never hits
         // a missing table.
-        readsFlagEvaluationsTable: [(s) => [s.currentTeam], readsFlagEvaluationsTable],
+        readsFlagEvaluationsTable: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean => readsFlagEvaluationsTable(currentTeam),
+        ],
         // flag_evaluations holds 90 days, so a longer range would show fewer rows than the events
         // table. The clamp covers the date picker, a shared link, and a range typed into the URL.
         dateRange: [
