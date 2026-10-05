@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconCursorClick, IconDrag, IconX } from '@posthog/icons'
-import { Button, Text, Toggle, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { Button, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { INTERNAL_FEEDBACK_IGNORE_ATTR } from './captureFeedbackScreenshot'
 import { clampToViewport, internalFeedbackLogic } from './internalFeedbackLogic'
@@ -77,16 +77,18 @@ export function InternalFeedbackBar(): JSX.Element {
                 <TooltipContent>Drag to move the feedback bar</TooltipContent>
             </Tooltip>
             <Tooltip disabled={tooltipsDisabled}>
-                {/* Toggle does not forward refs, so the tooltip anchors to a wrapper instead. */}
-                <TooltipTrigger render={<span className="inline-flex" tabIndex={-1} />}>
-                    <Toggle
-                        pressed={isInspecting}
-                        onPressedChange={(pressed: boolean) => (pressed ? startInspecting() : stopInspecting())}
-                        data-attr="internal-feedback-inspect"
-                    >
-                        <IconCursorClick />
-                        Inspect
-                    </Toggle>
+                <TooltipTrigger
+                    render={
+                        <Button
+                            aria-pressed={isInspecting}
+                            className={cn(isInspecting && 'bg-fill-selected')}
+                            onClick={() => (isInspecting ? stopInspecting() : startInspecting())}
+                            data-attr="internal-feedback-inspect"
+                        />
+                    }
+                >
+                    <IconCursorClick />
+                    Inspect
                 </TooltipTrigger>
                 <TooltipContent>Click to pick a part of the page and send feedback about it to the devs</TooltipContent>
             </Tooltip>

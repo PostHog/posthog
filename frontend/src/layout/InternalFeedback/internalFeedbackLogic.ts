@@ -262,7 +262,10 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                     comment: comment.trim(),
                     page_url: target.pageUrl,
                     element_identifier: target.identifier,
-                    ...(screenshot ? { screenshot } : {}),
+                    // A bare Blob uploads as "blob", and the backend ImageField rejects a name with no extension.
+                    ...(screenshot
+                        ? { screenshot: new File([screenshot], 'screenshot.jpg', { type: 'image/jpeg' }) }
+                        : {}),
                 })
             } catch (e) {
                 actions.submitFeedbackFailure(
