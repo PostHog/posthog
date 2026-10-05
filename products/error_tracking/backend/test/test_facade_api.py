@@ -371,15 +371,16 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
     @parameterized.expand(
         [
-            ("not_assignable", {"success": True, "assignable": False}, False),
-            ("assignable", {"success": True, "assignable": True}, True),
-            ("check_failed", {"success": False, "error": "network"}, True),
+            ("not_assignable", "octocat", {"success": True, "assignable": False}, False),
+            ("assignable", "octocat", {"success": True, "assignable": True}, True),
+            ("managed_user_login", "mona_octo", {"success": True, "assignable": True}, True),
+            ("check_failed", "octocat", {"success": False, "error": "network"}, True),
         ]
     )
     @patch("products.error_tracking.backend.logic.external_references.GitHubIntegration.create_issue")
     @patch("products.error_tracking.backend.logic.external_references.GitHubIntegration.is_assignable")
     def test_create_external_reference_checks_github_assignee(
-        self, _name, assignable_result, creates_issue, mock_is_assignable, mock_create_issue
+        self, _name, login, assignable_result, creates_issue, mock_is_assignable, mock_create_issue
     ):
         mock_is_assignable.return_value = assignable_result
         mock_create_issue.return_value = {"number": 7, "repository": "posthog"}
@@ -390,7 +391,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             config={"account": {"name": "acme"}},
             sensitive_config={"access_token": "access-token"},
         )
-        config = {"repository": "posthog", "title": "Checkout TypeError", "body": "", "assignee": "octocat"}
+        config = {"repository": "posthog", "title": "Checkout TypeError", "body": "", "assignee": login}
 
         if creates_issue:
             api.create_external_reference(
@@ -410,7 +411,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                     distinct_id=self.user.id,
                 )
 
-        mock_is_assignable.assert_called_once_with("posthog", "octocat")
+        mock_is_assignable.assert_called_once_with("posthog", login)
         assert mock_create_issue.called is creates_issue
 
     def test_search_external_issues_requires_repository_for_github(self):

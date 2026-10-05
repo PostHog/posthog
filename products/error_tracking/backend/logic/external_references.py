@@ -54,7 +54,8 @@ LINK_EXISTING_REQUIRED_CONTEXT_FIELDS: dict[str, dict[str, type]] = {
 
 def _validate_github_assignee(integration: Integration, repository: str, login: str) -> None:
     # GitHub creates the issue and silently drops a login it cannot assign, so check before creating.
-    if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", login):
+    # Enterprise Managed User logins add an underscore and a shortcode, so allow "_" and a longer login.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", login):
         raise ErrorTrackingExternalReferenceValidationError("GitHub assignee must be a GitHub login.")
     result = GitHubIntegration(integration).is_assignable(repository.strip(), login)
     if result.get("success") and not result.get("assignable"):
