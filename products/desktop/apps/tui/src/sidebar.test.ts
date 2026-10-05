@@ -5,6 +5,7 @@ import {
   focusPane,
   initialLayout,
   type LayoutState,
+  newChat,
   openTask,
   paneIds,
   splitFocused,
@@ -41,6 +42,10 @@ const labels = (rows: ReturnType<typeof sidebarRows>): string[] =>
     switch (row.kind) {
       case "heading":
         return `# ${row.label}`;
+      case "section":
+        return `## ${row.label}`;
+      case "gap":
+        return "";
       case "workspace":
         return `${row.expanded ? "v" : ">"} ${row.label}`;
       case "task":
@@ -64,7 +69,15 @@ describe("sidebarRows", () => {
 
     expect(
       rowsFor(layout, page({ tasks: [task("a"), task("b"), task("c")] })),
-    ).toEqual(["# Work", "v Workspace 1", "  Task a", "  Task b", "Task c"]);
+    ).toEqual([
+      "# Work",
+      "v Workspace 1",
+      "  Task a",
+      "  Task b",
+      "",
+      "## All tasks",
+      "Task c",
+    ]);
     const rows = sidebarRows({
       layout,
       work: page({ tasks: [task("a"), task("b"), task("c")] }),
@@ -78,11 +91,39 @@ describe("sidebarRows", () => {
     ]);
   });
 
-  it("puts a new chat at the top", () => {
+  it("puts a new chat at the top of All tasks", () => {
     expect(rowsFor(initialLayout(), page({ tasks: [task("a")] }))).toEqual([
       "# Work",
+      "## All tasks",
       "New chat",
       "Task a",
+    ]);
+  });
+
+  it("puts each workspace above All tasks with a gap after it", () => {
+    let layout = openTask(initialLayout(), "a");
+    layout = openTask(splitFocused(layout, "row"), "b");
+    layout = newChat(layout);
+    layout = openTask(layout, "c");
+    layout = openTask(splitFocused(layout, "row"), "d");
+
+    expect(
+      rowsFor(
+        layout,
+        page({ tasks: ["a", "b", "c", "d", "e"].map((id) => task(id)) }),
+      ),
+    ).toEqual([
+      "# Work",
+      "v Workspace 1",
+      "  Task a",
+      "  Task b",
+      "",
+      "v Workspace 2",
+      "  Task c",
+      "  Task d",
+      "",
+      "## All tasks",
+      "Task e",
     ]);
   });
 
@@ -95,7 +136,12 @@ describe("sidebarRows", () => {
       working: new Set(),
       known: new Map([["old", task("old")]]),
     });
-    expect(labels(rows)).toEqual(["# Work", "Task old", "Task a"]);
+    expect(labels(rows)).toEqual([
+      "# Work",
+      "## All tasks",
+      "Task old",
+      "Task a",
+    ]);
   });
 
   it("shows only split workspaces, named from the saved layout, while the list loads", () => {
@@ -117,6 +163,8 @@ describe("sidebarRows", () => {
       "v Workspace 1",
       "  Fix the flaky test",
       "  New chat",
+      "",
+      "## All tasks",
       "[loading]",
     ]);
     expect(rows[2]).toMatchObject({ kind: "task", indicator: null });
@@ -130,7 +178,12 @@ describe("sidebarRows", () => {
       working: new Set(),
       signedIn: false,
     });
-    expect(labels(rows)).toEqual(["# Work", "New chat", "[signedOut]"]);
+    expect(labels(rows)).toEqual([
+      "# Work",
+      "## All tasks",
+      "New chat",
+      "[signedOut]",
+    ]);
   });
 
   it("hides a collapsed workspace's tasks", () => {
@@ -139,7 +192,7 @@ describe("sidebarRows", () => {
       "b",
     );
     expect(rowsFor(layout, page(), new Set([layout.workspaces[0].id]))).toEqual(
-      ["# Work", "> Workspace 1", "[empty]"],
+      ["# Work", "> Workspace 1", "", "## All tasks", "[empty]"],
     );
   });
 
@@ -158,7 +211,7 @@ describe("sidebarRows", () => {
     ],
     ["failed", page({ tasks: null, error: "boom" }), ["[error]"]],
   ])("Work list when %s", (_, work, expected) => {
-    expect(rowsFor(initialLayout(), work).slice(2)).toEqual(expected);
+    expect(rowsFor(initialLayout(), work).slice(3)).toEqual(expected);
   });
 });
 
@@ -211,13 +264,14 @@ describe("sidebar selection", () => {
     collapsed: new Set(),
     working: new Set(),
   });
-  // Work, Workspace 1, a, b, z, View more
+  // Work, Workspace 1, a, b, gap, All tasks, z, View more
 
   it.each([
     ["down", 2, 1, 3],
     ["up past the workspace heading", 2, -1, 2],
-    ["down at the end", 5, 1, 5],
-    ["up", 4, -1, 3],
+    ["down past the gap and All tasks", 3, 1, 6],
+    ["down at the end", 7, 1, 7],
+    ["up past All tasks and the gap", 6, -1, 3],
   ])("moves %s", (_, from, step, to) => {
     expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
   });
@@ -228,10 +282,10 @@ describe("sidebar selection", () => {
       rows[2].kind === "task" && rows[2].paneId,
     );
 
-    const opened = activateRow(layout, rows[4]);
+    const opened = activateRow(layout, rows[6]);
     expect(opened !== "viewMore" && opened.workspaces).toHaveLength(2);
 
-    expect(activateRow(layout, rows[5])).toBe("viewMore");
+    expect(activateRow(layout, rows[7])).toBe("viewMore");
   });
 
   it("keeps the cursor on the same task when opening it moves rows around", () => {
@@ -284,18 +338,30 @@ describe("sidebar selection", () => {
       });
     let layout = openTask(initialLayout(), "mine");
     let rows = rowsIn(layout);
-    expect(labels(rows)).toEqual(["# Work", "Task a", "Task mine", "Task b"]);
-    expect(rows[2]).toMatchObject({ local: true, indicator: "alive" });
+    expect(labels(rows)).toEqual([
+      "# Work",
+      "## All tasks",
+      "Task a",
+      "Task mine",
+      "Task b",
+    ]);
+    expect(rows[3]).toMatchObject({ local: true, indicator: "alive" });
 
     // Down to b, then up past the local chat to a, each opening in the main view.
-    let cursor = selectionKey(rows[2]);
+    let cursor = selectionKey(rows[3]);
     for (const step of [1, -1, -1] as const) {
       const index = moveSelection(rows, cursorIndex(rows, cursor), step);
       cursor = selectionKey(rows[index]);
       const opened = activateRow(layout, rows[index]);
       layout = opened === "viewMore" ? layout : opened;
       rows = rowsIn(layout);
-      expect(labels(rows)).toEqual(["# Work", "Task a", "Task mine", "Task b"]);
+      expect(labels(rows)).toEqual([
+        "# Work",
+        "## All tasks",
+        "Task a",
+        "Task mine",
+        "Task b",
+      ]);
     }
     expect(cursor).toBe("task:a");
   });
@@ -323,18 +389,19 @@ describe("sidebar selection", () => {
 
     expect(labels(rows)).toEqual([
       "# Work",
+      "## All tasks",
       "New chat",
       "Task a",
       "Task new",
       "Task b",
       "[viewMore]",
     ]);
-    expect(rows[3]).toMatchObject({ local: true, indicator: "asleep" });
+    expect(rows[4]).toMatchObject({ local: true, indicator: "asleep" });
   });
 
   it("starts the cursor on the first row it can select, not the heading", () => {
     expect(cursorIndex(rows, null)).toBe(2);
-    expect(cursorIndex(rows, selectionKey(rows[4]))).toBe(4);
+    expect(cursorIndex(rows, selectionKey(rows[6]))).toBe(6);
     expect(cursorIndex(rows, "task:gone")).toBe(2);
   });
 });

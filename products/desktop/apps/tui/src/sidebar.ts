@@ -14,6 +14,10 @@ export interface WorkPage {
 
 export type SidebarRow =
   | { kind: "heading"; label: "Work" }
+  // Names the list of every task, under the split workspaces.
+  | { kind: "section"; label: "All tasks" }
+  // A blank row after each workspace.
+  | { kind: "gap" }
   | {
       kind: "workspace";
       workspaceId: string;
@@ -181,8 +185,9 @@ export function sidebarRows({
     };
   };
 
-  // Open chats come first: new chats, then split workspaces, then single tasks the page does not hold.
+  // Split workspaces come first, each followed by a gap. All tasks follows: new chats, then single tasks the page does not hold, then the list.
   const rows: SidebarRow[] = [{ kind: "heading", label: "Work" }];
+  const newChats: SidebarRow[] = [];
   const singlePaneOf = new Map<string, string>();
   const splitTasks = new Set<string>();
   const unlisted: SidebarRow[] = [];
@@ -190,7 +195,7 @@ export function sidebarRows({
     const workspacePanes = panes(workspace.root);
     if (workspacePanes.length === 1) {
       const [pane] = workspacePanes;
-      if (pane.taskId === null) rows.push(taskRow(null, pane.id, false));
+      if (pane.taskId === null) newChats.push(taskRow(null, pane.id, false));
       else if (listed.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
       // Shown once the list has loaded, so loading never lists tasks by saved name alone.
       else if (work.tasks !== null) {
@@ -212,8 +217,9 @@ export function sidebarRows({
       const last = paneIndex === workspacePanes.length - 1;
       rows.push(taskRow(pane.taskId, pane.id, true, pane.title, last));
     });
+    rows.push({ kind: "gap" });
   });
-  rows.push(...unlisted);
+  rows.push({ kind: "section", label: "All tasks" }, ...newChats, ...unlisted);
 
   if (!signedIn) {
     rows.push({ kind: "signedOut" });
