@@ -285,7 +285,7 @@ export function App({
       newChatPlace={placeFor(node.id)}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}
-      pending={pending.get(node.id) ?? null}
+      pending={pending.get(node.taskId ?? node.id) ?? null}
       pendingShells={shellsFor(node.taskId)}
       onLines={(lines) => setLines(node.id, lines)}
       onOffer={(offer) => setOffer(node.id, offer)}

@@ -17,7 +17,7 @@ import type { OpenModal } from "./useSheets";
 export interface Send {
   // What the composer submits: an answer to a typed prompt, a slash command, a ! command, or a message.
   onSubmit: (paneId: string, text: string, images?: ImageContent[]) => void;
-  // Messages on their way, by pane, shown until the chat has them.
+  // Messages on their way, by chat (by pane before the chat has a task), shown until the chat has them.
   pending: Map<string, string>;
 }
 
@@ -188,13 +188,20 @@ export function useSend({
       );
       return;
     }
-    setPending((messages) => new Map(messages).set(paneId, text));
+    let pendingKey = pane?.taskId ?? paneId;
+    setPending((messages) => new Map(messages).set(pendingKey, text));
     const clearPending = (): void =>
       setPending((messages) => {
         const next = new Map(messages);
-        next.delete(paneId);
+        next.delete(pendingKey);
         return next;
       });
+    // A new chat's message moves to its task, so it stays with the chat when the pane shows another.
+    const pendingFor = (taskId: string): void => {
+      clearPending();
+      pendingKey = taskId;
+      setPending((messages) => new Map(messages).set(taskId, text));
+    };
     const promptLocal = (taskId: string): Promise<void> => {
       markActive(taskId);
       return localFor(taskId).then((session) => session.prompt(text, images));
@@ -212,6 +219,7 @@ export function useSend({
         (task) => {
           setFresh((tasks) => new Map(tasks).set(task.id, task));
           onChatStarted(paneId, task.id);
+          pendingFor(task.id);
           setLayout((state) =>
             assignTask(state, paneId, task.id, task.title || text.slice(0, 80)),
           );
@@ -235,6 +243,7 @@ export function useSend({
         setFresh((tasks) => new Map(tasks).set(task.id, task));
         if (!current) {
           onChatStarted(paneId, task.id);
+          pendingFor(task.id);
           const title = task.title || text.slice(0, 80);
           setLayout((state) => assignTask(state, paneId, task.id, title));
         }

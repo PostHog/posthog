@@ -543,4 +543,32 @@ describe("App", () => {
       close();
     }
   });
+
+  it("stops running local agents on a new sign-in", async () => {
+    const { first, signIn, drawnSince, close } = localApp();
+    try {
+      await vi.waitFor(() => expect(drawnSince(0)).toContain("Local ·"));
+      signIn();
+      await vi.waitFor(() => expect(first.stop).toHaveBeenCalled());
+    } finally {
+      close();
+    }
+  });
+
+  it("keeps a sent message out of the next chat the pane shows", async () => {
+    const { output, press, drawnSince, close } = localApp();
+    try {
+      await vi.waitFor(() => expect(drawnSince(0)).toContain("Local ·"));
+      press("hello?");
+      press("\r");
+      await vi.waitFor(() => expect(drawnSince(0)).toContain("hello?"));
+      const sent = output().length;
+      // Ctrl+N puts a new chat in the same pane.
+      press("\x0e");
+      await vi.waitFor(() => expect(drawnSince(sent)).toContain("New chat"));
+      expect(drawnSince(sent)).not.toContain("hello?");
+    } finally {
+      close();
+    }
+  });
 });
