@@ -1,6 +1,6 @@
 import { ApiConfig } from 'lib/api'
 
-import { CyclotronJobInvocationGlobals, HogFunctionConfigurationContextId } from '~/types'
+import { CyclotronJobFiltersType, CyclotronJobInvocationGlobals, HogFunctionConfigurationContextId } from '~/types'
 
 import {
     errorTrackingFingerprintsList,
@@ -8,8 +8,18 @@ import {
 } from 'products/error_tracking/frontend/generated/api'
 
 export type SampleGlobalsLoader = (
-    exampleGlobals: CyclotronJobInvocationGlobals
+    exampleGlobals: CyclotronJobInvocationGlobals,
+    filters?: CyclotronJobFiltersType | null
 ) => Promise<CyclotronJobInvocationGlobals>
+
+// An alert scoped to some health check kinds skips an event of any other kind, so the sample
+// takes a kind the filters accept.
+function sampleHealthCheckKind(filters?: CyclotronJobFiltersType | null): string {
+    const kindFilter = filters?.properties?.find((property) => 'key' in property && property.key === 'kind')
+    const value = kindFilter && 'value' in kindFilter ? kindFilter.value : null
+    const kind = Array.isArray(value) ? value[0] : value
+    return typeof kind === 'string' && kind ? kind : 'test'
+}
 
 /**
  * Per-context overrides for the "load sample globals" flow in the hog function test panel.
@@ -50,12 +60,12 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
     },
     // Health alert templates read only this envelope. An empty title or summary renders an empty
     // Slack block, and Slack rejects the whole message.
-    'health-alerts': async (exampleGlobals) => ({
+    'health-alerts': async (exampleGlobals, filters) => ({
         ...exampleGlobals,
         event: {
             ...exampleGlobals.event,
             properties: {
-                kind: 'test',
+                kind: sampleHealthCheckKind(filters),
                 severity: 'warning',
                 issue_id: 'test-issue-id',
                 title: 'Test health check',
