@@ -651,7 +651,12 @@ def _stage_property_membership(cluster: ClickhouseCluster, request: DeletionRequ
     marker = request.inserted_at_marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
     sources = []
     for table, json_schema in _membership_event_sources(cluster):
-        predicate, params = _property_removal_where(request, inserted_at_max=marker, json_schema=json_schema)
+        predicate, params = _property_removal_where(
+            request,
+            inserted_at_max=marker,
+            hogql_compiled=compile_hogql_predicate(request, use_new_events_schema=json_schema),
+            json_schema=json_schema,
+        )
         sources.append((table, json_schema, predicate, params))
     stage_membership_deletion(cluster, request.request_id, sources)
 

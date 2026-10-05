@@ -383,6 +383,24 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
                 row = next(row for row in self._rows() if row[:2] == ("acme", "b"))
                 assert row[2:] == (self.start + timedelta(days=4), self.start + timedelta(days=4))
 
+    def test_hogql_scoped_property_removal_keeps_out_of_scope_membership(self) -> None:
+        sync_execute(
+            f"INSERT INTO {PERSON_GROUP_MEMBERSHIP_TABLE} VALUES",
+            [(self.team.pk, 0, "acme", "b", self.start, self.start + timedelta(days=4))],
+            settings={"distributed_foreground_insert": 1},
+        )
+        request = self._request(["only", "first"], ["$group_0"])
+        request.hogql_predicate = "distinct_id = 'a'"
+        context = build_op_context()
+        shards = list(get_property_removal_shards(context, self.cluster, request))
+        stats = [process_property_removal_shard(context, self.cluster, shard.value, request) for shard in shards]
+        verify_property_removal(context, self.cluster, request, stats)
+        assert self._rows() == [
+            ("acme", "a-alias", self.start + timedelta(days=1), self.start + timedelta(days=1)),
+            ("acme", "b", self.start, self.start + timedelta(days=4)),
+            ("other", "b", self.start + timedelta(days=3), self.start + timedelta(days=3)),
+        ]
+
     def test_team_deletion_clears_membership_and_config(self) -> None:
         stage_membership_deletion(
             self.cluster, self.operation_id, [("events", False, "team_id = %(team_id)s", {"team_id": self.team.pk})]
