@@ -67,7 +67,7 @@ function newInstanceId(): string {
 /**
  * Identify the user with their PostHog distinct ID from the MCP server.
  */
-export function identifyUser(distinctId: string, toolName?: string): void {
+export function identifyUser(distinctId: string, toolName?: string, mcpClientName?: string): void {
     if (!client) {
         log('PostHog client not initialized while attempting to identify user', { distinctId, toolName })
         return
@@ -84,6 +84,9 @@ export function identifyUser(distinctId: string, toolName?: string): void {
 
     if (toolName) {
         client.register({ $mcp_tool_name: toolName })
+    }
+    if (mcpClientName) {
+        client.register({ $mcp_client_name: mcpClientName })
     }
 }
 
