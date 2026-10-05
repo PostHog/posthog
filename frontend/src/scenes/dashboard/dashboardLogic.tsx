@@ -590,9 +590,14 @@ export interface dashboardLogicActions {
     loadDashboardMetadataSuccess: (dashboard: DashboardType | null) => {
         dashboard: DashboardType | null
     }
-    loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => {
+    loadDashboardStreaming: (payload: {
+        action: DashboardLoadAction
+        manualDashboardRefresh?: boolean
+        retry?: boolean
+    }) => {
         action: DashboardLoadAction
         manualDashboardRefresh?: boolean | undefined
+        retry?: boolean | undefined
     }
     loadDashboardStreamingFailure: (
         error: string,
@@ -602,16 +607,18 @@ export interface dashboardLogicActions {
         errorObject?: any
     }
     loadDashboardStreamingSuccess: (
-        dashboard: null,
+        dashboard: DashboardType | null,
         payload?: {
             action: DashboardLoadAction
             manualDashboardRefresh?: boolean | undefined
+            retry?: boolean | undefined
         }
     ) => {
-        dashboard: null
+        dashboard: DashboardType | null
         payload?: {
             action: DashboardLoadAction
             manualDashboardRefresh?: boolean | undefined
+            retry?: boolean | undefined
         }
     }
     loadDashboardSuccess: (
@@ -1409,7 +1416,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         loadDashboard: (payload: { action: DashboardLoadAction }) => payload,
         /** Load dashboard with streaming tiles approach. */
-        loadDashboardStreaming: (payload: { action: DashboardLoadAction; manualDashboardRefresh?: boolean }) => payload,
+        loadDashboardStreaming: (payload: {
+            action: DashboardLoadAction
+            manualDashboardRefresh?: boolean
+            retry?: boolean
+        }) => payload,
         /** Dashboard metadata loaded successfully. */
         loadDashboardMetadataSuccess: (dashboard: DashboardType | null) => ({ dashboard }),
         /** Single tile received from stream. */
@@ -1670,9 +1681,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                loadDashboardStreaming: async ({ action }, breakpoint) => {
+                loadDashboardStreaming: async ({ action, retry }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action)
                     await breakpoint(200)
+                    // fetchEventSource retries the failed stream on its own. If that stream delivered metadata during
+                    // the wait, a new stream would abort it and replace the loaded dashboard with null.
+                    if (retry && !values.dashboardFailedToLoad) {
+                        return values.dashboard
+                    }
                     let metadataReceived = false
 
                     const disposeStream = await api.dashboards.streamTiles(
@@ -3731,7 +3747,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         retryDashboardLoad: () => {
             if (values.shouldUseStreaming) {
-                actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad, retry: true })
             } else {
                 actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
             }

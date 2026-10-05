@@ -2590,6 +2590,39 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardFailedToLoad).toBe(false)
             expect(logic.values.dashboard).not.toBeNull()
         })
+
+        it('keeps the stream that recovered while a connection retry waited', async () => {
+            const globals = globalThis as { EventSource?: unknown }
+            const originalEventSource = globals.EventSource
+            globals.EventSource = class {}
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.dashboardNotFound()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                    [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                })
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+                expect(logic.values.dashboardFailedToLoad).toBe(true)
+                const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(jest.fn())
+
+                await expectLogic(logic, () => {
+                    apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+                })
+                    .toDispatchActions([
+                        'retryDashboardLoad',
+                        'loadDashboardStreaming',
+                        'loadDashboardStreamingSuccess',
+                    ])
+                    .toFinishAllListeners()
+
+                expect(streamTilesSpy).not.toHaveBeenCalled()
+                expect(logic.values.dashboard).not.toBeNull()
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+            } finally {
+                globals.EventSource = originalEventSource
+            }
+        })
     })
 
     describe('when a dashboard item API errors', () => {
