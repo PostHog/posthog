@@ -29,6 +29,7 @@
 //! This crate is pure Rust; the Python bindings live in the sibling `deltalite-python`
 //! crate (built with maturin, imported as `deltalite`).
 
+pub mod compact;
 pub mod errors;
 pub mod handle;
 pub mod limits;
@@ -41,6 +42,7 @@ pub mod table;
 pub mod upsert;
 mod writer;
 
+pub use compact::{compact, CompactOptions, CompactStats};
 pub use errors::{Error, Result};
 pub use handle::{LiveFile, TableHandle};
 pub use limits::ProcessLimits;
