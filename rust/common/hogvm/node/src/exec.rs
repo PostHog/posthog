@@ -65,6 +65,28 @@ pub fn run_batch_salvaged(
     parallel: bool,
     max_steps: Option<usize>,
 ) -> Vec<HogExecResult> {
+    salvage(events, |ok_events| {
+        run_batch(tokens, ok_events, parallel, max_steps)
+    })
+}
+
+/// Like [`run_batch_salvaged`], but from an already-built `Program`. This is the
+/// registered-program batch path.
+pub fn run_batch_program_salvaged(
+    program: &Program,
+    events: Vec<Result<Value, String>>,
+    parallel: bool,
+    max_steps: Option<usize>,
+) -> Vec<HogExecResult> {
+    salvage(events, |ok_events| {
+        run_batch_program(program, ok_events, parallel, max_steps)
+    })
+}
+
+fn salvage(
+    events: Vec<Result<Value, String>>,
+    run: impl FnOnce(&[Value]) -> Vec<HogExecResult>,
+) -> Vec<HogExecResult> {
     let mut ok_events = Vec::with_capacity(events.len());
     let mut slots: Vec<Option<String>> = Vec::with_capacity(events.len());
     for event in events {
@@ -77,14 +99,12 @@ pub fn run_batch_salvaged(
         }
     }
 
-    let mut executed = run_batch(tokens, &ok_events, parallel, max_steps).into_iter();
+    let mut executed = run(&ok_events).into_iter();
     slots
         .into_iter()
         .map(|slot| match slot {
             Some(reason) => error_result(&format!("{MARSHAL_ERROR_PREFIX}{reason}"), 0.0),
-            None => executed
-                .next()
-                .expect("run_batch returns one result per event"),
+            None => executed.next().expect("one result per executed event"),
         })
         .collect()
 }
