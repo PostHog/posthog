@@ -68,6 +68,7 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     auto_approve_pending_requests,
+    count_remaining_for_request,
 )
 from posthog.models.deletion_targets import (
     EVENTS,
@@ -2632,6 +2633,8 @@ def test_verify_property_removal_narrows_person_properties_on_flag_evaluations(
     # verify runs after the shard ops have rewritten rows, so a query error here leaves an erasure
     # half done. flag_evaluations has no person_properties column (#95693), so both of its checks on
     # the table drop that half, and a row matching the event-property half still fails the request.
+    # The admin Verify button marks a request completed when its count is zero, so that count must
+    # hold the same rows the job's verify does.
     request = DataDeletionRequest.objects.create(
         team_id=team.id,
         request_type=RequestType.PROPERTY_REMOVAL,
@@ -2659,6 +2662,7 @@ def test_verify_property_removal_narrows_person_properties_on_flag_evaluations(
 
     with pytest.raises(dagster.Failure, match=error) if error else nullcontext():
         verify_property_removal(build_op_context(), cluster, deletion_request, [])
+    assert count_remaining_for_request(request) == (1 if error else 0)
 
     cluster.any_host(_truncate_flag_evaluations).result()
 
