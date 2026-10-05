@@ -59,6 +59,18 @@ class TestConvertAnthropicMessagesToGemini:
         assert function_response.name == "get_weather"
         assert function_response.response == expected_response
 
+    def test_errored_tool_result_becomes_error_response(self):
+        contents = convert_anthropic_messages_to_gemini(
+            [
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "boom", "is_error": True}],
+                }
+            ]
+        )
+
+        assert contents[0].parts[0].function_response.response == {"error": "boom"}
+
     def test_tool_result_without_matching_tool_use_falls_back_to_call_id(self):
         contents = convert_anthropic_messages_to_gemini(
             [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_9", "content": "ok"}]}]

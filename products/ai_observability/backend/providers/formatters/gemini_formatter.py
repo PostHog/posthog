@@ -27,21 +27,28 @@ def _tool_call_args(input_value: Any) -> dict[str, Any]:
     return {}
 
 
-def _tool_response_payload(content: Any) -> dict[str, Any]:
-    """Shape a tool result into the dict Gemini requires for a function response."""
-    if isinstance(content, dict):
-        return content
+def _tool_response_payload(content: Any, *, is_error: bool = False) -> dict[str, Any]:
+    """Shape a tool result into the dict Gemini requires for a function response.
+
+    A result marked `is_error` goes under the `error` key, which is how Gemini
+    distinguishes a failed tool run from an ordinary result.
+    """
+    value: Any
     if isinstance(content, list):
         content = "\n".join(block["text"] for block in content if is_text_block_param(block))
-    if isinstance(content, str):
+    if isinstance(content, dict):
+        value = content
+    elif isinstance(content, str):
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
             parsed = None
-        if isinstance(parsed, dict):
-            return parsed
-        return {"result": content}
-    return {"result": "" if content is None else str(content)}
+        value = parsed if isinstance(parsed, dict) else content
+    else:
+        value = "" if content is None else str(content)
+    if is_error:
+        return {"error": value}
+    return value if isinstance(value, dict) else {"result": value}
 
 
 def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> ContentListUnion:
@@ -90,7 +97,9 @@ def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> Cont
                             function_response=FunctionResponse(
                                 id=call_id if isinstance(call_id, str) else None,
                                 name=name,
-                                response=_tool_response_payload(block.get("content")),
+                                response=_tool_response_payload(
+                                    block.get("content"), is_error=block.get("is_error") is True
+                                ),
                             )
                         )
                     )
