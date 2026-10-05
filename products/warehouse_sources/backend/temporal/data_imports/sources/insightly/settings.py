@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -21,11 +23,11 @@ def _updated_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class InsightlyEndpointConfig:
     name: str
     path: str
-    primary_key: str
+    primary_key: str | tuple[str, ...]
     # Only set for endpoints where Insightly exposes the server-side `updated_after_utc` list
     # filter; those endpoints advertise DATE_UPDATED_UTC as the incremental cursor.
     supports_incremental: bool = False
@@ -33,9 +35,29 @@ class InsightlyEndpointConfig:
     # Pipelines) whose rows carry no creation timestamp.
     partition_key: Optional[str] = DATE_CREATED
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Set when the plain list endpoint takes no `updated_after_utc` and only its `/Search` variant
+    # filters server-side; incremental syncs page through this path instead.
+    incremental_path: Optional[str] = None
+    # Set for per-record sub-resources: `path` carries an `{id}` placeholder that is filled from
+    # `parent_id_field` on each row of the `fanout_parent` endpoint.
+    fanout_parent: Optional[str] = None
+    parent_id_field: Optional[str] = None
+
+    @property
+    def primary_keys(self) -> list[str]:
+        return [self.primary_key] if isinstance(self.primary_key, str) else list(self.primary_key)
+
+    @property
+    def probe_path(self) -> str:
+        """A path that can be requested as-is to check the key's access to this endpoint."""
+        if self.fanout_parent is not None:
+            return INSIGHTLY_ENDPOINTS[self.fanout_parent].path
+        return self.path
 
 
-def _incremental_endpoint(name: str, path: str, primary_key: str) -> InsightlyEndpointConfig:
+def _incremental_endpoint(
+    name: str, path: str, primary_key: str, incremental_path: Optional[str] = None
+) -> InsightlyEndpointConfig:
     return InsightlyEndpointConfig(
         name=name,
         path=path,
@@ -43,6 +65,7 @@ def _incremental_endpoint(name: str, path: str, primary_key: str) -> InsightlyEn
         supports_incremental=True,
         partition_key=DATE_CREATED,
         incremental_fields=_updated_at_incremental_fields(),
+        incremental_path=incremental_path,
     )
 
 
@@ -63,6 +86,28 @@ INSIGHTLY_ENDPOINTS: dict[str, InsightlyEndpointConfig] = {
     # partitioning.
     "Pipelines": InsightlyEndpointConfig(
         name="Pipelines", path="/Pipelines", primary_key="PIPELINE_ID", partition_key=None
+    ),
+    "PipelineStages": InsightlyEndpointConfig(
+        name="PipelineStages", path="/PipelineStages", primary_key="STAGE_ID", partition_key=None
+    ),
+    "LeadSources": InsightlyEndpointConfig(
+        name="LeadSources", path="/LeadSources", primary_key="LEAD_SOURCE_ID", partition_key=None
+    ),
+    "OpportunityLineItem": _incremental_endpoint(
+        "OpportunityLineItem",
+        "/OpportunityLineItem",
+        "OPPORTUNITY_ITEM_ID",
+        incremental_path="/OpportunityLineItem/Search",
+    ),
+    # One request per opportunity and no server-side filter, so full refresh only. History rows
+    # carry no id of their own; a transition is identified by its opportunity, time, and state.
+    "OpportunityStateHistory": InsightlyEndpointConfig(
+        name="OpportunityStateHistory",
+        path="/Opportunities/{id}/StateHistory",
+        primary_key=("OPPORTUNITY_ID", "DATE_CHANGED_UTC", "FOR_OPPORTUNITY_STATE"),
+        partition_key="DATE_CHANGED_UTC",
+        fanout_parent="Opportunities",
+        parent_id_field="OPPORTUNITY_ID",
     ),
 }
 

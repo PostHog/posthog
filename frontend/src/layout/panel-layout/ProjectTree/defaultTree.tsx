@@ -9,7 +9,6 @@ import {
     IconBook,
     IconBrackets,
     IconBrowser,
-    IconBug,
     IconCheckbox,
     IconCircleDashed,
     IconClock,
@@ -22,7 +21,6 @@ import {
     IconDocument,
     IconDownload,
     IconEndpoints,
-    IconExternal,
     IconEye,
     IconFeatures,
     IconFilter,
@@ -240,10 +238,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconDatabase />,
         iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
     },
-    link: {
-        icon: <IconExternal />,
-        iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
-    },
     workflows: {
         icon: <IconDecisionTree />,
         iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
@@ -255,10 +249,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     notebook: {
         icon: <IconNotebook />,
         iconColor: ['var(--color-product-notebooks-light)', 'var(--color-product-notebooks-dark)'],
-    },
-    live_debugger: {
-        icon: <IconBug />,
-        iconColor: ['var(--color-product-live-debugger-light)', 'var(--color-product-live-debugger-dark)'],
     },
     action: {
         icon: <IconPlay />,
