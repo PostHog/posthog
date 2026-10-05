@@ -745,6 +745,7 @@ the row lists both.
 | teachable                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | teamcity                         | HTTP                        | requests                                                        | ✅                          |
 | teamtailor                       | HTTP                        | requests                                                        | ✅                          |
+| teamup_fitness                   | HTTP                        | requests                                                        | ✅                          |
 | teamwork                         | HTTP                        | requests                                                        | ✅                          |
 | telli                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | telnyx                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1433,7 +1434,6 @@ doesn't conflict with concurrent PRs.
 - tackle_io
 - talkdesk
 - tana
-- teamup_fitness
 - tebra
 - tempo
 - tenjin
