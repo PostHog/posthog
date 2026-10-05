@@ -436,6 +436,20 @@ class WorkflowRunActivity:
 
 
 @dataclass(frozen=True)
+class WorkflowJobStep:
+    """One step of a job, in the order the job ran it."""
+
+    number: int
+    name: str
+    # Raw status / conclusion passthrough; conclusion is None until the step finishes.
+    status: str
+    conclusion: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration_seconds: int | None
+
+
+@dataclass(frozen=True)
 class WorkflowJob:
     """One job within a workflow run, for the run's expandable job breakdown. ``estimated_cost_usd``
     is derived from the runner tier (parsed from ``runner_label``) and the job's elapsed time via the
@@ -463,6 +477,8 @@ class WorkflowJob:
     native_workflow_run_id: str | None = None
     native_job_id: str | None = None
     native_attempt_id: str | None = None
+    # Empty when the source reports no steps for the job, as for a Depot CI job.
+    steps: list[WorkflowJobStep] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

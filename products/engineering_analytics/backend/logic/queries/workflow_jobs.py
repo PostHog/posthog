@@ -16,11 +16,12 @@ attempts' jobs have synced — returning an empty breakdown rather than stale jo
 """
 
 import json
+from datetime import datetime
 from typing import Any
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import CIEngine, WorkflowJob
+from products.engineering_analytics.backend.facade.contracts import CIEngine, WorkflowJob, WorkflowJobStep
 from products.engineering_analytics.backend.logic.cost import (
     billed_elapsed_seconds,
     estimate_job_cost_usd,
@@ -38,7 +39,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 # to buy a bound the run filter already provides.
 _SELECT = """
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds, provisioning_seconds, is_rerun_copy,
-        ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id
+        ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id, steps
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id = {run_id} AND ({ci_engine} IS NULL OR ci_engine = {ci_engine})
     ORDER BY started_at ASC, id ASC
@@ -56,7 +57,7 @@ _LATEST_ATTEMPT_SELECT = """
 def query_workflow_jobs(
     *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None, ci_engine: CIEngine | None = None
 ) -> list[WorkflowJob]:
-    jobs_source = curated.jobs_source()
+    jobs_source = curated.jobs_source(include_steps=True)
     if jobs_source is None:
         # The optional job-level source isn't synced for this team yet.
         return []
@@ -127,6 +128,7 @@ def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
         native_workflow_run_id,
         native_job_id,
         native_attempt_id,
+        steps_raw,
     ) = row
     labels = _parse_labels(labels_raw)
     duration_seconds = int(duration) if duration is not None else None
@@ -147,6 +149,7 @@ def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
         native_workflow_run_id=native_workflow_run_id,
         native_job_id=native_job_id,
         native_attempt_id=native_attempt_id,
+        steps=_parse_steps(steps_raw),
         # Cost runs off the billed clock (wall-clock minus runner boot), not duration_seconds, which
         # stays what the row displays. A row GitHub re-listed under this attempt without re-running it
         # costs nothing — the attempt that actually ran carries the minutes (see the jobs builder).
@@ -166,3 +169,42 @@ def _parse_labels(raw: Any) -> list[str]:
     except (TypeError, ValueError):
         return []
     return [str(item) for item in parsed] if isinstance(parsed, list) else []
+
+
+def _parse_steps(raw: Any) -> list[WorkflowJobStep]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    steps = [_to_step(item, position) for position, item in enumerate(parsed, start=1) if isinstance(item, dict)]
+    return sorted(steps, key=lambda step: step.number)
+
+
+def _to_step(item: dict[str, Any], position: int) -> WorkflowJobStep:
+    number = item.get("number")
+    started_at = _parse_timestamp(item.get("started_at"))
+    completed_at = _parse_timestamp(item.get("completed_at"))
+    return WorkflowJobStep(
+        number=number if isinstance(number, int) else position,
+        name=str(item.get("name") or ""),
+        status=str(item.get("status") or ""),
+        conclusion=str(item["conclusion"]) if item.get("conclusion") else None,
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_seconds=(
+            max(int((completed_at - started_at).total_seconds()), 0) if started_at and completed_at else None
+        ),
+    )
+
+
+def _parse_timestamp(raw: Any) -> datetime | None:
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None

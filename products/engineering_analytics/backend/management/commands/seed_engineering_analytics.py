@@ -197,6 +197,49 @@ _DEMO_JOB_SHAPES: dict[str, tuple[tuple[str, int, int], ...]] = {
 }
 
 
+_STEP_TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
+_MAIN_STEP = "Run"
+# Step name and its share of the job's wall-clock. The shares sum to 1.
+_STEP_SHAPE: tuple[tuple[str, float], ...] = (
+    ("Set up job", 0.04),
+    ("Checkout", 0.06),
+    ("Restore cache", 0.1),
+    (_MAIN_STEP, 0.7),
+    ("Post Restore cache", 0.05),
+    ("Post Checkout", 0.03),
+    ("Complete job", 0.02),
+)
+
+
+def _shaped_steps(job_name: str, job_start: datetime, job_end: datetime, conclusion: str | None) -> str:
+    """A job's steps as GitHub's JSON. A failed job fails on its main step; an unfinished job is still on it."""
+    seconds = (job_end - job_start).total_seconds()
+    steps: list[dict[str, Any]] = []
+    step_start = job_start
+    main_reached = False
+    for number, (name, share) in enumerate(_STEP_SHAPE, start=1):
+        is_main = name == _MAIN_STEP
+        step_end = step_start + timedelta(seconds=seconds * share)
+        step: dict[str, Any] = {
+            "number": number,
+            "name": f"Run {job_name}" if is_main else name,
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": step_start.strftime(_STEP_TS_FMT),
+            "completed_at": step_end.strftime(_STEP_TS_FMT),
+        }
+        if conclusion is None and is_main:
+            step.update(status="in_progress", conclusion=None, completed_at=None)
+        elif conclusion is None and main_reached:
+            step.update(status="queued", conclusion=None, started_at=None, completed_at=None)
+        elif conclusion in _FAILING_CONCLUSIONS and is_main:
+            step["conclusion"] = "failure"
+        steps.append(step)
+        main_reached = main_reached or is_main
+        step_start = step_end
+    return json.dumps(steps)
+
+
 def _shaped_jobs(
     run: dict[str, Any], shape: tuple[tuple[str, int, int], ...], run_start: datetime, window: float
 ) -> list[dict[str, Any]]:
@@ -236,7 +279,7 @@ def _shaped_jobs(
                     "created_at": started_at,
                     "started_at": started_at,
                     "completed_at": job_end.strftime(_TS_FMT) if finished else None,
-                    "steps": "[]",
+                    "steps": _shaped_steps(name, job_start, job_end, conclusion),
                 }
             )
     return jobs

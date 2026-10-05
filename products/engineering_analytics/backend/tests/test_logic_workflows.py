@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+import json
+from datetime import UTC, datetime, timedelta
 from itertools import count
 from types import SimpleNamespace
 from typing import Any
@@ -1184,12 +1185,35 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # No jobs table synced yet → empty, not an error (the graceful path).
         assert api.list_workflow_jobs(team=self.team, run_id=9100) == []
 
+        unfinished_step = {
+            "number": 2,
+            "name": "Run tests",
+            "status": "in_progress",
+            "conclusion": None,
+            "started_at": "2026-01-05T10:00:30Z",
+            "completed_at": None,
+        }
+        finished_step = {
+            "number": 1,
+            "name": "Set up job",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-01-05T10:00:00Z",
+            "completed_at": "2026-01-05T10:00:30Z",
+        }
         self._create_table(
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
             [
-                _job_row(91000, 9100, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
-                _job_row(91001, 9100, "e2e", "failure", labels='["ubuntu-latest"]'),
+                _job_row(
+                    91000,
+                    9100,
+                    "build",
+                    "success",
+                    labels='["depot-ubuntu-22.04-16"]',
+                    steps=json.dumps([unfinished_step, "not a step", finished_step]),
+                ),
+                _job_row(91001, 9100, "e2e", "failure", labels='["ubuntu-latest"]', steps="not json"),
             ],
         )
         jobs = api.list_workflow_jobs(team=self.team, run_id=9100)
@@ -1197,9 +1221,16 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         build = next(j for j in jobs if j.name == "build")
         assert build.runner_provider == "self_hosted" and build.runner_label == "16-core"
         assert build.estimated_cost_usd is not None
+        set_up, run_tests = build.steps
+        assert (set_up.number, set_up.name, set_up.conclusion) == (1, "Set up job", "success")
+        assert set_up.started_at == datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+        assert set_up.duration_seconds == 30
+        assert (run_tests.status, run_tests.conclusion) == ("in_progress", None)
+        assert (run_tests.completed_at, run_tests.duration_seconds) == (None, None)
         # github-hosted runner isn't billable → no cost estimate, and the provider reads as github_hosted.
         e2e = next(j for j in jobs if j.name == "e2e")
         assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
+        assert e2e.steps == []
 
     def test_job_aggregates_branch_filter_matches_depot_jobs_through_their_run(self) -> None:
         started, completed = _ago_with_duration(1, 120)
@@ -1318,6 +1349,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             jobs = api.list_workflow_jobs(team=self.team, run_id=60, ci_engine=engine)
             assert jobs and {job.ci_engine for job in jobs} == {engine}
             assert all(job.native_attempt_id and job.native_workflow_run_id for job in jobs)
+            assert all(job.steps == [] for job in jobs)
 
     def test_job_aggregates_rate_and_queue_time_use_verdicts(self) -> None:
         self._create_table(
