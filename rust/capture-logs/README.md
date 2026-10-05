@@ -71,14 +71,14 @@ The future bound stays at 24 hours whatever `backfill_days` says. A timestamp ah
 ingest time is a client clock error in every case, and accepting one would let a single client
 write rows past the end of every other query range on the team.
 
-Imported records take their retention from the ingest time, not from their own timestamp, so a
-backfill expires `retention_days` after it is imported.
+A backfill keeps only the records that are still inside the team's retention. A record whose
+timestamp plus its retention is already in the past is dropped by the logs consumer before it is
+written, even though this service answered the request with a 200. Dropped records are counted
+per team in the `records_dropped_retention_expired` usage metric. A record that is kept expires
+`retention_days` after it is imported, not after its own timestamp.
 
-A record whose timestamp plus its retention is already in the past is dropped by the logs
-consumer before it is written, even though this service answered the request with a 200. Each
-message carries a `min_timestamp` header, the earliest record timestamp in it, so the consumer
-only decodes and checks the messages that can hold such a record. Dropped records are counted
-per team in the `records_dropped_retention_expired` usage metric.
+Each message carries a `min_timestamp` header, the earliest record timestamp in it, so the
+consumer only decodes and checks the messages that can hold an expired record.
 
 ## Response codes
 

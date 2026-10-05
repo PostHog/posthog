@@ -30,8 +30,8 @@ export type DropStats = {
     bytesDroppedByRuleId: Map<string, number>
     contentBytesDropped: number
     /**
-     * Sum of customer-content bytes across the rows a stage saw; only set by a stage that measures it.
-     * The first measuring stage wins, because it saw the most rows, and the pro-rate needs the whole batch.
+     * Sum of customer-content bytes across the whole decoded batch, the pro-rate denominator. A stage
+     * that measures after an earlier stage dropped rows sees fewer rows, so the first measurement wins.
      */
     contentBytesTotal: number
     recordsDroppedByStage: Map<string, number>
@@ -64,7 +64,17 @@ export type FilterResult = { kept: LogRecord[]; stats: DropStats }
  */
 export type PipelineStage =
     | { kind: 'mutate'; name: string; run: (records: LogRecord[]) => Promise<void> | void }
-    | { kind: 'filter'; name: string; run: (records: LogRecord[]) => Promise<FilterResult> | FilterResult }
+    | {
+          kind: 'filter'
+          name: string
+          run: (records: LogRecord[]) => Promise<FilterResult> | FilterResult
+          /**
+           * The pipeline measures the batch content total before any stage runs. Set this on a filter
+           * that can run after another filter has dropped rows, because the rows it sees are no longer
+           * the whole batch that the header bytes describe.
+           */
+          measuresBatchContentFirst?: boolean
+      }
 
 function mergeByRuleId(into: Map<string, number>, from: Map<string, number>): void {
     for (const [ruleId, n] of from) {
@@ -83,6 +93,9 @@ export async function runPipelineStages(
     stages: PipelineStage[]
 ): Promise<{ kept: LogRecord[]; stats: DropStats }> {
     const stats = EMPTY_DROP_STATS()
+    if (stages.some((stage) => stage.kind === 'filter' && stage.measuresBatchContentFirst)) {
+        stats.contentBytesTotal = records.reduce((sum, record) => sum + recordContentBytes(record), 0)
+    }
     let working = records
     for (const stage of stages) {
         if (stage.kind === 'mutate') {

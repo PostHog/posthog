@@ -13,15 +13,12 @@ describe('runPipelineStages', () => {
             resource_attributes: null,
         }) as LogRecord
 
-    const dropFirst = (
-        name: 'sampling' | 'transformations' | 'retention_expired',
-        contentBytesTotal: number = 0
-    ): PipelineStage => ({
+    const dropFirst = (name: 'sampling' | 'transformations' | 'retention_expired'): PipelineStage => ({
         kind: 'filter',
         name,
         run: (records) => {
             const kept = records.slice(1)
-            return { kept, stats: { ...EMPTY_DROP_STATS(), recordsDropped: 1, contentBytesTotal, droppedBy: name } }
+            return { kept, stats: { ...EMPTY_DROP_STATS(), recordsDropped: 1, droppedBy: name } }
         },
     })
 
@@ -47,12 +44,16 @@ describe('runPipelineStages', () => {
         expect(stats.droppedBy).toBe('transformations')
     })
 
-    it('keeps the whole-batch content total from the first measuring filter for the billing pro-rate', async () => {
-        // Sampling measures all three rows; the expiry filter only sees the two survivors.
-        const stages: PipelineStage[] = [dropFirst('sampling', 300), dropFirst('retention_expired', 200)]
+    it('measures the billing pro-rate total over the whole batch when a later filter drops after an earlier one', async () => {
+        // Each record's content is its one-byte body. The transform drops one row before the expiry
+        // filter runs, so a total measured by that filter would cover two rows instead of three.
+        const stages: PipelineStage[] = [
+            dropFirst('transformations'),
+            { ...dropFirst('retention_expired'), measuresBatchContentFirst: true },
+        ]
         const { stats } = await runPipelineStages([rec('a'), rec('b'), rec('c')], stages)
-        expect(stats.contentBytesTotal).toBe(300)
-        expect(Object.fromEntries(stats.recordsDroppedByStage)).toEqual({ sampling: 1, retention_expired: 1 })
+        expect(stats.contentBytesTotal).toBe(3)
+        expect(Object.fromEntries(stats.recordsDroppedByStage)).toEqual({ transformations: 1, retention_expired: 1 })
     })
 
     it('stops running stages once every record is dropped', async () => {

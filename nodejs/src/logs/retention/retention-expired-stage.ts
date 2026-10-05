@@ -47,15 +47,14 @@ export function makeRetentionExpiredStage(
     return {
         kind: 'filter',
         name: 'retention_expired',
+        measuresBatchContentFirst: true,
         run: (records) => {
             const stats = EMPTY_DROP_STATS()
             const kept: LogRecord[] = []
             for (const record of records) {
-                const contentBytes = recordContentBytes(record)
-                stats.contentBytesTotal += contentBytes
                 if (isExpired(record, defaultRetentionDays, nowMicros)) {
                     stats.recordsDropped++
-                    stats.contentBytesDropped += contentBytes
+                    stats.contentBytesDropped += recordContentBytes(record)
                 } else {
                     kept.push(record)
                 }

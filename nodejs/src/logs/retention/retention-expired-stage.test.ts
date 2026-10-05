@@ -48,6 +48,7 @@ describe('retention expired stage', () => {
         )
         expect(result.kept.length === 1).toBe(kept)
         expect(result.stats.droppedBy).toBe(kept ? undefined : 'retention_expired')
+        expect(result.stats.contentBytesTotal).toBe(1)
     })
 
     it.each([
