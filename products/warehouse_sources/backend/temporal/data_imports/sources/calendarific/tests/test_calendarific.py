@@ -3,7 +3,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import responses
 from requests import HTTPError, Session
@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendarif
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendarific.source import CalendarificSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendarific import (
     CalendarificSourceConfig,
 )
@@ -146,3 +147,37 @@ def test_missing_collection_fails_instead_of_erasing_table(http: responses.Reque
     with pytest.raises(ValueError, match="matched nothing"):
         list(cast(Iterable[Any], client().source_response(endpoint, 1, "test-job").items()))
     assert len(http.calls) == 1
+
+
+def test_source_delegates_with_resolved_version() -> None:
+    config = CalendarificSourceConfig(api_key=API_KEY, country="US", year="2026")
+    inputs = MagicMock(spec=SourceInputs)
+    inputs.api_version = "v2"
+    inputs.schema_name = "holidays"
+    inputs.team_id = 1
+    inputs.job_id = "test-job"
+    expected = MagicMock()
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.calendarific.source.CalendarificClient"
+    ) as client_class:
+        client_class.return_value.source_response.return_value = expected
+        result = CalendarificSource().source_for_pipeline(config, inputs)
+
+    assert result is expected
+    client_class.assert_called_once_with(config, "v2")
+    client_class.return_value.source_response.assert_called_once_with("holidays", 1, "test-job")
+
+
+def test_source_delegates_credential_validation_with_resolved_version() -> None:
+    config = CalendarificSourceConfig(api_key=API_KEY, country="US", year="2026")
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.calendarific.source.CalendarificClient"
+    ) as client_class:
+        client_class.return_value.validate_credentials.return_value = (True, None)
+        result = CalendarificSource().validate_credentials(config, 1, "holidays", "v2")
+
+    assert result == (True, None)
+    client_class.assert_called_once_with(config, "v2")
+    client_class.return_value.validate_credentials.assert_called_once_with(1, "holidays")
