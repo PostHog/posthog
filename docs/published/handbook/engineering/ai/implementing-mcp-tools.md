@@ -351,7 +351,7 @@ Product teams own their definitions and control which operations are exposed as 
    declared action, and the agent picks the ones that fit at the end of its turn. A slot value must be an
    identifier (letters, digits, `_` and `-`, up to 64 characters), because a click sends the rendered message
    as the user's own turn. A slot also names a top-level field of the offering tool's result: `suggest-actions`
-   accepts a value only when the same session got it back from a successful call of that tool, so `{id}` must be
+   accepts a value only when the same task (the same credential and `X-PostHog-Task-Id`) got it back from a successful call of that tool, so `{id}` must be
    an `id` the tool returned. Otherwise the pick fails with `unbound_slot`. The same hint also rides on the result of the offering
    tool: after a successful `call`, exec appends a trailing text block with the `suggest-actions` command for that
    tool and a `<slot>` placeholder per slot, so the agent reads it at the moment it matters. Handwritten tools declare `actions`
