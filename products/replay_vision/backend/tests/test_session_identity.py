@@ -47,6 +47,35 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
         assert "$geoip_city_name" not in properties
 
     @pytest.mark.django_db
+    def test_takes_every_location_field_from_the_earliest_located_event(self, team) -> None:
+        # Per-field aggregates could mix events into a location no event carried.
+        session_id = str(uuid7())
+        _create_person(team_id=team.pk, distinct_ids=["user-1"], properties={})
+        located = [
+            (_START, {}),
+            (_START + dt.timedelta(minutes=1), {"$geoip_country_code": "US", "$geoip_city_name": "Oakland"}),
+            (_START + dt.timedelta(minutes=2), {"$geoip_country_code": "US", "$geoip_city_name": "Reno"}),
+        ]
+        for timestamp, geoip in located:
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="user-1",
+                timestamp=timestamp,
+                properties={"$session_id": session_id, **geoip},
+            )
+        flush_persons_and_events()
+
+        properties = fetch_session_person_properties(
+            team=team, session_id=session_id, distinct_id="user-1", start=_START, end=_END
+        )
+
+        assert {key: value for key, value in properties.items() if key.startswith("$geoip_")} == {
+            "$geoip_country_code": "US",
+            "$geoip_city_name": "Oakland",
+        }
+
+    @pytest.mark.django_db
     def test_ignores_events_another_person_posted_under_the_same_session_id(self, team) -> None:
         # A project's write token is public, so anyone who knows a session id can post an event carrying it
         # under their own distinct id. Attributing the recording to them would persist a spoofed subject on the
