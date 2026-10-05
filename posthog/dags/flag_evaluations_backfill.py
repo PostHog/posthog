@@ -116,7 +116,7 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
         default=None,
         description=(
             "Day after the last day to copy (YYYY-MM-DD, UTC, exclusive). Defaults to yesterday, which is also "
-            "the latest allowed value: the Kafka path must have delivered every row before it."
+            "the latest allowed value."
         ),
     )
     team_ids: list[int] | None = pydantic.Field(
@@ -251,7 +251,7 @@ def build_copy_query(*, dry_run: bool, filter_team_ids: bool, chunked: bool) -> 
         team_filter += " AND modulo(team_id, %(team_id_chunks)s) = %(chunk)s"
     # The eligibility filter is the ingestion fork's rule, in the form PARITY_CHECK.md uses.
     # Ingestion queues a call's fork row before its events row, so the fork row's Kafka create time is never
-    # later than the events row's _timestamp. A source row whose _timestamp is at or after delivered_before can
+    # later than the events row's _timestamp. A source row whose _timestamp is at or after created_before can
     # still have its fork row in Kafka. Copying it would store the call twice, so the job skips it. Kafka then
     # delivers its fork row, or a later run copies it.
     select = f"""
@@ -259,12 +259,12 @@ SELECT {"count()" if dry_run else _COPIED_COLUMNS}
 FROM {EVENTS_DATA_TABLE()}
 PREWHERE event = %(event)s
     AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
-    AND _timestamp < %(delivered_before)s
     AND (team_id, uuid) NOT IN (
         SELECT team_id, uuid FROM {FLAG_EVALUATIONS_DATA_TABLE}
         WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
     )
-WHERE JSONType(properties, '$feature_flag') = 'String'
+WHERE _timestamp < %(created_before)s
+    AND JSONType(properties, '$feature_flag') = 'String'
     AND JSONExtractString(properties, '$feature_flag') != ''
 """
     if dry_run:
@@ -341,12 +341,12 @@ class ShardBackfill:
                 break
             self.wait_for_parts_to_merge(day)
             blocking_run_check = self._wait_for_disk_and_blocking_runs()
-            delivered_before = self.check_consumer_lag()
+            created_before = self.consumer_cutoff()
             # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             try:
-                rows = self.copy_day(day, copy_query, settings, delivered_before)
+                rows = self.copy_day(day, copy_query, settings, created_before)
             finally:
                 if not self.config.dry_run:
                     self.check_no_blocking_run_started(blocking_run_check, day=day)
@@ -498,8 +498,12 @@ class ShardBackfill:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
         return hosts_moving_parts
 
-    def check_consumer_lag(self) -> datetime:
-        """Return a cutoff such that flag_evaluations holds every fork row whose Kafka create time is before it."""
+    def consumer_cutoff(self) -> datetime:
+        """Stop the shard when the Kafka path to flag_evaluations is too far behind.
+
+        Otherwise return a cutoff such that flag_evaluations holds every fork row whose Kafka create time is
+        before it.
+        """
         checked_at = datetime.now(UTC)
         kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
         if kafka_partitions == 0:
@@ -515,12 +519,12 @@ class ShardBackfill:
             )
         return checked_at - timedelta(seconds=self.config.max_consumer_lag_seconds) - _KAFKA_DELIVERY_TIMEOUT
 
-    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any], delivered_before: datetime) -> int:
+    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any], created_before: datetime) -> int:
         day_args = {
             "event": FLAG_EVALUATIONS_SOURCE_EVENT,
             "day_start": f"{day:%Y-%m-%d} 00:00:00",
             "day_end": f"{day + timedelta(days=1):%Y-%m-%d} 00:00:00",
-            "delivered_before": f"{delivered_before:%Y-%m-%d %H:%M:%S}",
+            "created_before": f"{created_before:%Y-%m-%d %H:%M:%S}",
             "team_ids": tuple(self.config.team_ids or ()),
             "team_id_chunks": self.config.team_id_chunks,
         }

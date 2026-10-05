@@ -47,7 +47,7 @@ class SourceEvent:
     properties: Mapping[str, object]
     event: str = FLAG_EVALUATIONS_SOURCE_EVENT
     # The age of the row's Kafka create time (_timestamp), when that differs from the event's age.
-    reached_events_age: timedelta | None = None
+    kafka_time_age: timedelta | None = None
 
     @property
     def uuid(self) -> UUID:
@@ -95,14 +95,12 @@ def copied(event: SourceEvent) -> StoredRow:
 INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=12))
 INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
 # The default one-hour lag limit and the five-minute delivery timeout put the cutoff 65 minutes before the check.
-# A row that reached events two hours ago is older than the cutoff, so the job copies it.
-INSIDE_OLD = replace(flag_called("inside_old", TEAM_TWO, timedelta(days=60)), reached_events_age=timedelta(hours=2))
+# A row that ingestion produced two hours ago is older than the cutoff, so the job copies it.
+INSIDE_OLD = replace(flag_called("inside_old", TEAM_TWO, timedelta(days=60)), kafka_time_age=timedelta(hours=2))
 ALREADY_FORKED = flag_called("already_forked", TEAM_ONE, timedelta(days=5))
-# An import dated inside the window that reached events just before the consumer-lag check. Its fork row
+# An import dated inside the window that ingestion produced just before the consumer-lag check. Its fork row
 # can still be in Kafka, so the job does not copy it.
-IMPORTED_JUST_NOW = replace(
-    flag_called("imported_just_now", TEAM_ONE, timedelta(days=4)), reached_events_age=timedelta(0)
-)
+IMPORTED_JUST_NOW = replace(flag_called("imported_just_now", TEAM_ONE, timedelta(days=4)), kafka_time_age=timedelta(0))
 
 SOURCE_EVENTS = [
     INSIDE_RECENT,
@@ -178,7 +176,7 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
             event.distinct_id,
             now - event.age,
             uuid5(NAMESPACE_URL, event.distinct_id),
-            now - (event.age if event.reached_events_age is None else event.reached_events_age),
+            now - (event.age if event.kafka_time_age is None else event.kafka_time_age),
         )
         for event in events
     ]
@@ -497,7 +495,7 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
 
     with (
         patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
-        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "consumer_cutoff"),
         patch.object(ShardBackfill, "copy_day", return_value=0) as copy_day,
     ):
         if stops:
@@ -531,7 +529,7 @@ def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
     with (
         patch.object(ShardBackfill, "wait_for_disk_headroom", side_effect=finish_a_deletes_run),
         patch.object(ShardBackfill, "_hosts_moving_parts", side_effect=rereads),
-        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "consumer_cutoff"),
         patch.object(ShardBackfill, "copy_day", return_value=5),
     ):
         totals = shard_backfill(instance=instance).run([datetime.now(UTC).date() - timedelta(days=1)])
@@ -584,7 +582,7 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
         with (
             patch.object(ShardBackfill, "wait_for_parts_to_merge", side_effect=patched("wait_for_parts_to_merge")),
             patch.object(ShardBackfill, "_hosts_moving_parts", return_value=[]),
-            patch.object(ShardBackfill, "check_consumer_lag"),
+            patch.object(ShardBackfill, "consumer_cutoff"),
             patch.object(ShardBackfill, "copy_day", side_effect=patched("copy_day")) as copy_day,
         ):
             totals = shard_backfill().run(days)
@@ -635,15 +633,15 @@ def test_backfill_fails_without_copying_when_a_safety_check_fails(
     assert stored_rows(cluster) == Counter()
 
 
-def test_consumer_lag_check_sets_the_cutoff_before_the_lag_limit_and_the_delivery_timeout() -> None:
+def test_consumer_cutoff_sits_the_lag_limit_and_the_delivery_timeout_before_the_check() -> None:
     cluster = MagicMock()
     cluster.map_any_host_in_shards_by_role.return_value.result.return_value = {1: (2, 30)}
     backfill = shard_backfill(FlagEvaluationsBackfillConfig(max_consumer_lag_seconds=600), cluster=cluster)
 
     with time_machine.travel(datetime(2026, 3, 10, 12, tzinfo=UTC), tick=False):
-        delivered_before = backfill.check_consumer_lag()
+        created_before = backfill.consumer_cutoff()
 
-    assert delivered_before == datetime(2026, 3, 10, 11, 45, tzinfo=UTC)
+    assert created_before == datetime(2026, 3, 10, 11, 45, tzinfo=UTC)
 
 
 BELOW_MOVE_LINE = [
@@ -744,7 +742,7 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     with (
         patch("posthog.dags.flag_evaluations_backfill.time.monotonic", side_effect=lambda: clock[0]),
         patch("posthog.dags.flag_evaluations_backfill.time.sleep", side_effect=advance_clock) as sleep,
-        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "consumer_cutoff"),
         patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
     ):
         if failure is None:
