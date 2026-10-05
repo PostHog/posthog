@@ -135,11 +135,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 onClick={submitTemplate}
                                 loading={isTemplateSubmitting}
                                 disabledReason={
-                                    !templateChanged
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
+                                    isSyncingExternalEdit
+                                        ? 'Wait for the reload to finish'
+                                        : !templateChanged
+                                          ? 'No changes to save'
+                                          : !template.name
+                                            ? 'Name is required'
+                                            : undefined
                                 }
                                 size="small"
                             >
