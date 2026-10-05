@@ -4,6 +4,7 @@ import re
 import json
 import subprocess
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -11,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from hogli_commands.preflight_checks import (
     Finding,
     Scope,
+    SemgrepUnavailable,
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
@@ -75,7 +77,9 @@ class TestSnapshotBaselines:
             assert removed in detail
 
 
-def _every_line_is_a_finding(contents: dict[str, bytes], command: list[str]) -> dict[Finding, list[int]]:
+def _every_line_is_a_finding(
+    contents: dict[str, bytes], command: list[str], *, deadline: float
+) -> dict[Finding, list[int]]:
     found: dict[Finding, list[int]] = {}
     for path, content in contents.items():
         for number, line in enumerate(content.decode().splitlines(), start=1):
@@ -141,15 +145,18 @@ class TestSemgrepDevex:
         assert status == expected_status
         assert expected_fragment in detail
 
-    @patch("hogli_commands.preflight_checks._semgrep_findings", return_value=None)
+    @patch(
+        "hogli_commands.preflight_checks._semgrep_findings", side_effect=SemgrepUnavailable("tool cache unavailable")
+    )
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
     def test_an_incomplete_scan_skips_instead_of_reporting(
         self, mock_which: MagicMock, mock_findings: MagicMock
     ) -> None:
         with patch("hogli_commands.preflight_checks._git", side_effect=_git_show({"HEAD:posthog/a.py": b"new"})):
-            status, _ = check_semgrep_devex(_scope(["posthog/a.py"]))
+            status, detail = check_semgrep_devex(_scope(["posthog/a.py"]))
 
         assert status == "skipped"
+        assert "tool cache unavailable" in detail
 
     @patch("hogli_commands.preflight_checks._semgrep_findings", return_value={})
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
@@ -160,6 +167,80 @@ class TestSemgrepDevex:
         assert status == "pass"
         command = mock_findings.call_args.args[1]
         assert re.fullmatch(r"semgrep==\d+\.\d+\.\d+", command[command.index("--from") + 1])
+        assert "--offline" in command
+
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    def test_baseline_scan_uses_only_the_remaining_check_budget(self, mock_which: MagicMock) -> None:
+        clock = [100.0]
+        scans = 0
+        finding = {
+            "check_id": "rule",
+            "path": "posthog/a.py",
+            "start": {"line": 1},
+            "end": {"line": 1},
+            "extra": {"severity": "WARNING"},
+        }
+
+        def run(
+            command: list[str],
+            *,
+            timeout: float,
+            cwd: Path,
+            capture_output: bool,
+            text: bool,
+            env: dict[str, str] | None = None,
+        ) -> subprocess.CompletedProcess[str]:
+            nonlocal scans
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+            scans += 1
+            duration = 14.0 if scans == 1 else 2.0
+            clock[0] += min(duration, timeout)
+            if duration > timeout:
+                raise subprocess.TimeoutExpired(command, timeout)
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"results": [finding]}), stderr="")
+
+        with (
+            patch("hogli_commands.preflight_checks.time.monotonic", side_effect=lambda: clock[0]),
+            patch("hogli_commands.preflight_checks.subprocess.run", side_effect=run),
+            patch(
+                "hogli_commands.preflight_checks._git",
+                side_effect=_git_show({"HEAD:posthog/a.py": b"old", "abc123:posthog/a.py": b"old"}),
+            ),
+        ):
+            status, detail = check_semgrep_devex(_scope(["posthog/a.py"]))
+
+        assert status == "skipped"
+        assert "timed out" in detail
+        assert clock[0] == 115.0
+
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
+    def test_scan_uses_writable_state_when_home_paths_are_unavailable(
+        self, mock_which: MagicMock, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".github/workflows").mkdir(parents=True)
+        (tmp_path / ".github/workflows/ci-security.yaml").write_text(
+            "SEMGREP_IMAGE: semgrep/semgrep:1.175.0@sha256:test\n"
+        )
+        (tmp_path / "posthog").mkdir()
+        (tmp_path / "posthog/a.py").write_text("value = 1\n")
+
+        def run(command: list[str], *, env: dict[str, str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            tools = Path(env.get("UV_TOOL_DIR", "/home-paths-forbidden/uv-tools"))
+            tools.mkdir(parents=True, exist_ok=True)
+            for key in ("SEMGREP_LOG_FILE", "SEMGREP_SETTINGS_FILE"):
+                Path(env.get(key, "/home-paths-forbidden/semgrep")).touch()
+            return subprocess.CompletedProcess(command, 0, stdout='{"results": []}', stderr="")
+
+        with (
+            patch("hogli_commands.preflight_checks.REPO_ROOT", tmp_path),
+            patch("hogli_commands.preflight_checks.subprocess.run", side_effect=run),
+        ):
+            scope = Scope(files=["posthog/a.py"], changed=["posthog/a.py"], merge_base="abc123", committed_only=False)
+            status, detail = check_semgrep_devex(scope)
+
+        assert status == "pass"
+        assert detail == "no new findings"
 
 
 WORKFLOW = ".github/workflows/ci-backend.yml"

@@ -32,6 +32,7 @@ import uuid
 import hashlib
 import inspect
 import importlib
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -54,16 +55,20 @@ from products.autoresearch.backend.dataset.labeling import (
     IDENTIFIED_USERS_ONLY,
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
+    RollingSelection,
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_training_features_sql,
+    rolling_selection,
 )
+from products.autoresearch.backend.inference.failures import classify_failure
 from products.autoresearch.backend.inference.sandbox import (
     _FOLD_COL,
     _HOLDOUT_FOLD,
     _LABEL_COL,
     _MATERIALIZE_ROW_LIMIT,
     _MAX_FEATURE_COLS,
+    InferenceRows,
     SandboxInferenceError,
     _num,
     _numeric_feature_cols,
@@ -75,7 +80,7 @@ from products.autoresearch.backend.inference.sandbox import (
     validate_runnable_feature_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult, run_hogql
+from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 from products.autoresearch.backend.training.recipe_validation import (
     RecipeValidationError,
     validate_model_class,
@@ -94,11 +99,27 @@ class InferenceRunError(Exception):
 _RESERVED_COLS = frozenset({"distinct_id", _LABEL_COL, _FOLD_COL})
 # The score columns scoring adds to a feature row, kept out of the features hash.
 _SCORE_KEYS = frozenset({"p_y", "p_y_raw"})
+# A capture error description can hold a URL and an exception repr, so the run error clips it.
+_MAX_EMIT_ERROR_DESCRIPTION_CHARS = 200
 
 
 # Namespace for deterministic prediction event UUIDs, so a retried scoring activity
 # re-emits the same UUID per (pipeline, model, date, person) instead of a duplicate.
 _PREDICTION_UUID_NAMESPACE = uuid.UUID("6f9a4a24-0e5c-4a5a-9d0e-2f6a0f0b1c3d")
+
+
+def _clip_middle(text: str, limit: int) -> str:
+    """
+    Keep both ends of ``text``. A requests transport error starts with the target host and
+    ends with the cause, such as ``[Errno 111] Connection refused``, so a head-only clip
+    makes a refused connection and a failed DNS lookup look the same.
+    """
+    if len(text) <= limit:
+        return text
+    marker = "..."
+    head = (limit - len(marker)) // 2
+    tail = limit - len(marker) - head
+    return f"{text[:head]}{marker}{text[-tail:]}"
 
 
 def _is_uuid(value: str) -> bool:
@@ -123,6 +144,9 @@ class ScoredPopulation:
     holdout_auc: float | None
     # The fraction of negatives the scoring model was fitted on. 1.0 means no sampling.
     negative_sample_rate: float = 1.0
+    # Persons in the inference population at the cutoff. Above len(rows) when the population
+    # reached the cap and the run scored a rolling subset. None when the run did not count it.
+    rows_eligible: int | None = None
 
 
 def corrected_probability(p: float, negative_sample_rate: float) -> float:
@@ -141,7 +165,9 @@ def _apply_prior_correction(scored: ScoredPopulation) -> ScoredPopulation:
     """Keep each row's raw score as ``p_y_raw`` and replace ``p_y`` with the corrected probability."""
     rate = scored.negative_sample_rate
     rows = [{**row, "p_y_raw": row["p_y"], "p_y": corrected_probability(row["p_y"], rate)} for row in scored.rows]
-    return ScoredPopulation(rows=rows, holdout_auc=scored.holdout_auc, negative_sample_rate=rate)
+    return ScoredPopulation(
+        rows=rows, holdout_auc=scored.holdout_auc, negative_sample_rate=rate, rows_eligible=scored.rows_eligible
+    )
 
 
 @frozen
@@ -190,12 +216,13 @@ class _EmitResult:
 
 
 def create_inference_run(
-    *, pipeline: AutoresearchPipeline, model: AutoresearchModel, window: ScoringWindow
+    *, pipeline: AutoresearchPipeline, model: AutoresearchModel, window: ScoringWindow, scheduled: bool = False
 ) -> AutoresearchRun:
     return AutoresearchRun.objects.create(
         pipeline=pipeline,
         model=model,
         run_type=AutoresearchRun.RunType.INFERENCE,
+        scheduled=scheduled,
         status=AutoresearchRun.Status.RUNNING,
         started_at=django_timezone.now(),
         # Online validation discovers matured dates from these two keys instead of scanning
@@ -211,6 +238,8 @@ def run_inference_for_pipeline(
     prediction_date: date | None = None,
     user: User | None = None,
     run: AutoresearchRun | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+    scheduled: bool = False,
 ) -> AutoresearchRun:
     """
     Top-level inference entry point. Creates an AutoresearchRun, scores users,
@@ -226,21 +255,30 @@ def run_inference_for_pipeline(
 
     ``run`` is a row the caller created before it dispatched the scoring, so the caller
     can return it at once. A retry of the same attempt passes the same row again.
+
+    ``query_context`` is the ClickHouse budget of every scoring query. The Temporal
+    activity passes ``BATCH_QUERY``.
+
+    ``scheduled`` marks a run the daily sweep started. Promotion counts only those runs when
+    it decides that the champion cannot score.
     """
     window = ScoringWindow.for_date(prediction_date)
     if run is None:
-        run = create_inference_run(pipeline=pipeline, model=model, window=window)
+        run = create_inference_run(pipeline=pipeline, model=model, window=window, scheduled=scheduled)
     else:
         run.model = model
         run.status = AutoresearchRun.Status.RUNNING
         run.error = ""
+        run.metrics.pop("failure_kind", None)
         run.completed_at = None
-        run.save(update_fields=["model", "status", "error", "completed_at"])
+        run.save(update_fields=["model", "status", "error", "metrics", "completed_at"])
 
     try:
         team = pipeline.team
         acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
-        scored = score_population(team=team, pipeline=pipeline, model=model, window=window, user=acting_user)
+        scored = score_population(
+            team=team, pipeline=pipeline, model=model, window=window, user=acting_user, query_context=query_context
+        )
         emitted = _emit_predictions(
             team=team, pipeline=pipeline, model=model, run=run, scored=scored, window=window, user=acting_user
         )
@@ -254,6 +292,8 @@ def run_inference_for_pipeline(
                 "stub": bool((model.model_recipe or {}).get("stub", False)),
                 "sandbox": bool(model.artifact_prefix),
                 "holdout_auc": scored.holdout_auc,
+                # The coverage of a rolling run: rows_scored of rows_eligible were scored today.
+                "rows_eligible": scored.rows_eligible,
             }
         )
         run.completed_at = django_timezone.now()
@@ -270,15 +310,19 @@ def run_inference_for_pipeline(
             pipeline_id=str(pipeline.pk),
             model_id=str(model.pk),
             rows_scored=emitted.rows_emitted,
+            rows_eligible=scored.rows_eligible,
         )
         return run
 
     except Exception as exc:
         run.status = AutoresearchRun.Status.FAILED
         run.error = str(exc)[:2000]
+        run.metrics["failure_kind"] = classify_failure(exc)
         run.completed_at = django_timezone.now()
-        run.save(update_fields=["status", "error", "completed_at"])
-        logger.exception("autoresearch_inference_failed", pipeline_id=str(pipeline.pk))
+        run.save(update_fields=["status", "error", "metrics", "completed_at"])
+        logger.exception(
+            "autoresearch_inference_failed", pipeline_id=str(pipeline.pk), failure_kind=run.metrics["failure_kind"]
+        )
         raise
 
 
@@ -331,6 +375,7 @@ def score_population(
     model: AutoresearchModel,
     window: ScoringWindow,
     user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> ScoredPopulation:
     """
     Score the inference population with ``model`` and return the rows without emitting.
@@ -350,7 +395,9 @@ def score_population(
     sample rate is applied here, once, so no route can correct twice or not at all.
     """
     return _apply_prior_correction(
-        _score_population_raw(team=team, pipeline=pipeline, model=model, window=window, user=user)
+        _score_population_raw(
+            team=team, pipeline=pipeline, model=model, window=window, user=user, query_context=query_context
+        )
     )
 
 
@@ -361,15 +408,26 @@ def _score_population_raw(
     model: AutoresearchModel,
     window: ScoringWindow,
     user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> ScoredPopulation:
     _check_prediction_date(team=team, pipeline=pipeline, window=window)
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
     cutoff_ts = window.cutoff_ts
 
     if model.artifact_prefix:
-        result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts, user=acting_user)
+        result = score_via_sandbox(
+            team=team,
+            pipeline=pipeline,
+            model=model,
+            cutoff_ts=cutoff_ts,
+            user=acting_user,
+            query_context=query_context,
+        )
         return ScoredPopulation(
-            rows=result.scored_rows, holdout_auc=result.holdout_auc, negative_sample_rate=model.negative_sample_rate
+            rows=result.scored_rows,
+            holdout_auc=result.holdout_auc,
+            negative_sample_rate=model.negative_sample_rate,
+            rows_eligible=result.rows_eligible,
         )
 
     if window.is_backfill:
@@ -382,15 +440,31 @@ def _score_population_raw(
         )
     recipe = model.model_recipe or {}
     if recipe.get("stub"):
-        rows = _fetch_stub_feature_rows(team=team, pipeline=pipeline, recipe=recipe, user=acting_user)
-        return ScoredPopulation(rows=_score_rows(rows), holdout_auc=model.holdout_score)
+        stub_rows = _fetch_stub_feature_rows(
+            team=team,
+            pipeline=pipeline,
+            recipe=recipe,
+            cutoff_ts=cutoff_ts,
+            user=acting_user,
+            query_context=query_context,
+        )
+        return ScoredPopulation(
+            rows=_score_rows(stub_rows.rows), holdout_auc=model.holdout_score, rows_eligible=stub_rows.eligible
+        )
 
     feature_sql = str(recipe.get("feature_sql") or "")
     try:
         validate_runnable_feature_sql(feature_sql, source="Champion recipe feature_sql")
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
-    return _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe, cutoff_ts=cutoff_ts, user=acting_user)
+    return _score_via_anchors(
+        team=team,
+        pipeline=pipeline,
+        recipe=recipe,
+        cutoff_ts=cutoff_ts,
+        user=acting_user,
+        query_context=query_context,
+    )
 
 
 def _emit_predictions(
@@ -500,11 +574,16 @@ def _emit_predictions(
             error=result.error,
         )
         sample = [result.results.get(uid) for uid in result.warnings[:3]]
+        error_detail = ""
+        if result.error:
+            error_detail = f", {result.error.get('error')}"
+            if description := result.error.get("error_description"):
+                error_detail += f": {_clip_middle(str(description), _MAX_EMIT_ERROR_DESCRIPTION_CHARS)}"
         raise InferenceRunError(
             f"Prediction events were not all accepted ({len(result.dropped)} dropped, "
             f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted, "
             f"{len(result.warnings)} stored with a warning{f' e.g. {sample!r}' if sample else ''}"
-            f"{', ' + str(result.error.get('error')) if result.error else ''}); failing the run so it is retried"
+            f"{error_detail}); failing the run so it is retried"
         )
 
     return _EmitResult(
@@ -530,13 +609,22 @@ def _require_still_champion(model: AutoresearchModel) -> None:
 # ── Queries ────────────────────────────────────────────────────────────────────────
 
 
-def _query(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> HogQLResult:
+def _query(
+    *,
+    team: Team,
+    sql: str,
+    values: dict[str, Any],
+    user: User | None,
+    what: str,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> HogQLResult:
     """
     Run a person-keyed query as the acting user, fresh, bounded at ``_MATERIALIZE_ROW_LIMIT``.
 
     HogQL caps a bare SELECT at 100 rows without an error, so every query here carries an
     explicit bound, and a result that fills it is treated as truncated: completing would
-    advance the cadence past the people beyond the cap. The persons-on-events modifiers
+    advance the cadence past the people beyond the cap. A scoring population that large takes a
+    rolling subset below the bound, so only a query that misbehaves reaches it. The persons-on-events modifiers
     keep ``person_id`` resolving the way the labeler's queries do, and the always-calculate mode stops a
     cadence reusing a cached population at a stale cutoff.
     """
@@ -548,6 +636,7 @@ def _query(*, team: Team, sql: str, values: dict[str, Any], user: User | None, w
             query=HogQLQuery(query=bounded_sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
             user=user,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_context=query_context,
         )
     except Exception as exc:
         logger.exception("autoresearch_inference_query_failed", team_id=team.pk, what=what)
@@ -599,8 +688,14 @@ def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
 
 
 def _fetch_stub_feature_rows(
-    *, team: Team, pipeline: AutoresearchPipeline, recipe: dict[str, Any], user: User
-) -> list[dict[str, Any]]:
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    recipe: dict[str, Any],
+    cutoff_ts: int,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> InferenceRows:
     """
     Run a stub recipe's feature SQL restricted to the inference population.
 
@@ -609,29 +704,54 @@ def _fetch_stub_feature_rows(
     applied inside the query rather than on the returned rows, so the row bound measures
     the population being scored and not every person on the team. The rows are checked
     against the population count, as the anchored paths check theirs against the anchors,
-    because stub SQL that drops a member leaves every returned row looking valid.
+    because stub SQL that drops a member leaves every returned row looking valid. A population
+    at or above the cap scores a rolling subset, as the anchored paths do. The population and the
+    rolling ranking bind the run's ``cutoff_ts``, so a retry selects the same people, while the
+    stub SQL itself keeps reading at now().
     """
     feature_sql = str(recipe.get("feature_sql") or "")
     if not feature_sql:
         logger.warning("autoresearch_empty_feature_sql", pipeline_id=str(pipeline.pk))
-        return []
+        return InferenceRows(rows=[], eligible=0)
     lookback_days = _feature_lookback_days(pipeline)
     feature_sql = feature_sql.replace("{lookback_days}", str(lookback_days)).rstrip().rstrip(";")
     population = _population_query(
         population=pipeline.inference_population,
         lookback_days=lookback_days,
+        cutoff_ts=cutoff_ts,
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
         team=team,
     )
-    sql, values = feature_sql, {}
-    if population is not None:
-        sql = f"SELECT * FROM ({feature_sql}) AS f WHERE f.distinct_id IN ({population.sql})"
-        values = population.values
-    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Feature"))
-    expected = _count_population(team=team, population=population, user=user) if population is not None else None
-    _require_one_row_per_person(rows, source="stub feature_sql", expected_count=expected)
-    return rows
+    if population is None:
+        rows = _person_rows(
+            _query(team=team, sql=feature_sql, values={}, user=user, what="Feature", query_context=query_context)
+        )
+        _require_one_row_per_person(rows, source="stub feature_sql", expected_count=None)
+        return InferenceRows(rows=rows, eligible=len(rows))
+    eligible = _count_population(team=team, population=population, user=user, query_context=query_context)
+    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk), cadence_days=pipeline.cadence_days)
+    if rolling is not None:
+        population = (
+            _population_query(
+                population=pipeline.inference_population,
+                lookback_days=lookback_days,
+                cutoff_ts=cutoff_ts,
+                target_event=pipeline.target_event,
+                target_definition=pipeline.target_definition,
+                team=team,
+                rolling=rolling,
+            )
+            or population
+        )
+    sql = f"SELECT * FROM ({feature_sql}) AS f WHERE f.distinct_id IN ({population.sql})"
+    rows = _person_rows(
+        _query(team=team, sql=sql, values=population.values, user=user, what="Feature", query_context=query_context)
+    )
+    _require_one_row_per_person(
+        rows, source="stub feature_sql", expected_count=eligible if rolling is None else rolling.limit
+    )
+    return InferenceRows(rows=rows, eligible=eligible)
 
 
 @frozen
@@ -644,35 +764,42 @@ def _population_query(
     *,
     population: dict[str, Any] | None,
     lookback_days: int,
+    cutoff_ts: int | None = None,
     target_event: str = "",
     target_definition: dict[str, Any] | None = None,
     team: Team | None = None,
+    rolling: RollingSelection | None = None,
 ) -> _PopulationQuery | None:
     """
     A ``SELECT person_id`` for the people in the inference population, one row each, from the
     scorer's own anchor query, so it is restricted to identified users under the v1 scope. None only when nothing restricts the population.
     A configured filter that cannot be compiled raises, because widening to everyone is
-    the failure being prevented.
+    the failure being prevented. ``rolling`` keeps only a rolling subset of the people.
     """
     if not IDENTIFIED_USERS_ONLY and not (population or {}).get("properties") and not (population or {}).get("kind"):
         return None
     anchors_sql, values = build_inference_anchors_sql(
         lookback_days=lookback_days,
         inference_population=population,
+        cutoff_ts=cutoff_ts,
         target_event=target_event,
         target_definition=target_definition,
         team=team,
+        rolling=rolling,
     )
     return _PopulationQuery(sql=f"SELECT person_id FROM ({anchors_sql.strip()})", values=values)
 
 
-def _count_population(*, team: Team, population: _PopulationQuery, user: User) -> int:
+def _count_population(
+    *, team: Team, population: _PopulationQuery, user: User, query_context: QueryContext = INTERACTIVE_QUERY
+) -> int:
     result = _query(
         team=team,
         sql=f"SELECT count() FROM ({population.sql})",
         values=population.values,
         user=user,
         what="Population count",
+        query_context=query_context,
     )
     if len(result.rows) != 1 or not result.rows[0]:
         raise InferenceRunError("Population count query did not return a single row")
@@ -720,6 +847,7 @@ def _score_via_anchors(
     recipe: dict[str, Any],
     cutoff_ts: int | None,
     user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> ScoredPopulation:
     """
     Score with an agent recipe that has no bundle.
@@ -733,28 +861,39 @@ def _score_via_anchors(
     """
     feature_sql = str(recipe.get("feature_sql") or "").replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     training_rows, negative_sample_rate = _fetch_training_rows(
-        team=team, pipeline=pipeline, feature_sql=feature_sql, user=user
+        team=team, pipeline=pipeline, feature_sql=feature_sql, user=user, query_context=query_context
     )
-    inference_rows = _fetch_inference_rows(
-        team=team, pipeline=pipeline, feature_sql=feature_sql, cutoff_ts=cutoff_ts, user=user
+    inference = _fetch_inference_rows(
+        team=team,
+        pipeline=pipeline,
+        feature_sql=feature_sql,
+        cutoff_ts=cutoff_ts,
+        user=user,
+        query_context=query_context,
     )
-    if not inference_rows:
+    if not inference.rows:
         logger.warning("autoresearch_no_inference_rows", pipeline_id=str(pipeline.pk))
-        return ScoredPopulation(rows=[], holdout_auc=None)
+        return ScoredPopulation(rows=[], holdout_auc=None, rows_eligible=inference.eligible)
     if not training_rows:
         logger.warning("autoresearch_no_training_rows_anchored_fallback_stub", pipeline_id=str(pipeline.pk))
-        return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
-    return _fit_on_training_predict_on_inference(
+        return ScoredPopulation(rows=_score_rows(inference.rows), holdout_auc=None, rows_eligible=inference.eligible)
+    scored = _fit_on_training_predict_on_inference(
         training_rows=training_rows,
-        inference_rows=inference_rows,
+        inference_rows=inference.rows,
         recipe=recipe,
         pipeline_id=str(pipeline.pk),
         negative_sample_rate=negative_sample_rate,
     )
+    return dataclasses.replace(scored, rows_eligible=inference.eligible)
 
 
 def _fetch_training_rows(
-    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> tuple[list[dict[str, Any]], float]:
     """
     The recipe's feature SQL against the labeled anchors: one row per person with ``__label``
@@ -762,7 +901,9 @@ def _fetch_training_rows(
     """
     anchor_ts = int(django_timezone.now().timestamp())
     try:
-        sample = measure_training_sample(team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user)
+        sample = measure_training_sample(
+            team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user, query_context=query_context
+        )
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
     sql, values = build_training_features_sql(
@@ -776,7 +917,9 @@ def _fetch_training_rows(
         anchor_ts=anchor_ts,
         negative_sample_rate=sample.negative_sample_rate,
     )
-    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
+    rows = _person_rows(
+        _query(team=team, sql=sql, values=values, user=user, what="Training features", query_context=query_context)
+    )
     try:
         expected = count_training_anchors(
             team=team,
@@ -784,6 +927,7 @@ def _fetch_training_rows(
             anchor_ts=anchor_ts,
             user=user,
             negative_sample_rate=sample.negative_sample_rate,
+            query_context=query_context,
         )
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
@@ -799,15 +943,29 @@ def _fetch_training_rows(
 
 
 def _fetch_inference_rows(
-    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, cutoff_ts: int | None, user: User
-) -> list[dict[str, Any]]:
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+    cutoff_ts: int | None,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> InferenceRows:
     """
-    The recipe's feature SQL against the inference anchors: one row per eligible person.
+    The recipe's feature SQL against the inference anchors: one row per eligible person, or
+    per person in the rolling subset when the population reached the cap.
 
     The row count is checked against the anchor count, because feature SQL that inner
     joins or filters a joined table drops people without any row looking wrong. The training
     rows get the same check against the labeled anchors.
     """
+    try:
+        eligible = count_inference_anchors(
+            team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
+        )
+    except SandboxInferenceError as exc:
+        raise InferenceRunError(str(exc)) from exc
+    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk), cadence_days=pipeline.cadence_days)
     sql, values = build_inference_features_sql(
         feature_sql=feature_sql,
         lookback_days=_feature_lookback_days(pipeline),
@@ -816,14 +974,15 @@ def _fetch_inference_rows(
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
         team=team,
+        rolling=rolling,
     )
-    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Inference features"))
-    try:
-        expected = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
-    except SandboxInferenceError as exc:
-        raise InferenceRunError(str(exc)) from exc
-    _require_one_row_per_person(rows, source="inference feature_sql", expected_count=expected)
-    return rows
+    rows = _person_rows(
+        _query(team=team, sql=sql, values=values, user=user, what="Inference features", query_context=query_context)
+    )
+    _require_one_row_per_person(
+        rows, source="inference feature_sql", expected_count=eligible if rolling is None else rolling.limit
+    )
+    return InferenceRows(rows=rows, eligible=eligible)
 
 
 def _fit_on_training_predict_on_inference(

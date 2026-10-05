@@ -60,6 +60,7 @@ from hogli_commands.preflight_checks import (
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
+    prepare_semgrep,
 )
 from hogli_commands.projections import all_outputs as projection_outputs
 from hogli_commands.size_lint import (
@@ -810,7 +811,13 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 )
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
-def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool) -> None:
+@click.option(
+    "--prepare-semgrep",
+    "prepare_semgrep_tool",
+    is_flag=True,
+    help="Cache the pinned Semgrep tool without running checks.",
+)
+def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool, prepare_semgrep_tool: bool) -> None:
     if os.environ.get("HOGLI_PREFLIGHT_DISABLED", "").lower() in {"1", "true"}:
         disabled_summary: dict[str, Any] = {"mode": "disabled", "results": []}
         if as_json:
@@ -822,6 +829,13 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
                 fg="yellow",
             )
         _emit_telemetry(disabled_summary)
+        return
+
+    if prepare_semgrep_tool:
+        status, detail = prepare_semgrep()
+        if status != "pass":
+            raise click.ClickException(detail)
+        click.echo(detail)
         return
 
     # Fetch first so both the diff base and the staleness check see a fresh

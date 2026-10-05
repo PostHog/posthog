@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import shutil
 import tempfile
 import subprocess
@@ -44,16 +45,16 @@ def _git(*args: str, timeout: float = 20.0) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def _head_copy(path: str, committed_only: bool) -> bytes | None:
+def _head_copy(path: str, committed_only: bool, *, timeout: float = 20.0) -> bytes | None:
     if committed_only:
-        return _git("show", f"HEAD:{path}")
+        return _git("show", f"HEAD:{path}", timeout=timeout)
     target = REPO_ROOT / path
     return target.read_bytes() if target.is_file() else None
 
 
-def _renamed_from(scope: Scope) -> dict[str, str]:
+def _renamed_from(scope: Scope, *, timeout: float | None = None) -> dict[str, str]:
     """New path to old path, for every file the branch renamed."""
-    return _rename_map(scope.merge_base, *(["HEAD"] if scope.committed_only else []))
+    return _rename_map(scope.merge_base, *(["HEAD"] if scope.committed_only else []), timeout=timeout)
 
 
 SNAPSHOT_MANIFEST = "frontend/snapshots.yml"
@@ -139,17 +140,17 @@ SEMGREP_SCOPE = [
 ]
 # CI excludes this tree from its blocking pass over ERROR rules, and from no other pass.
 SEMGREP_ERROR_EXCLUDED = ["products/desktop/*"]
-_SEMGREP_TIMEOUT_SECONDS = 300
+_SEMGREP_TIMEOUT_SECONDS = 15
 
 # The rule, the file, and the source text the rule matched.
 Finding = tuple[str, str, str]
 
 
-def _semgrep_command() -> list[str] | None:
+def _semgrep_command(*, offline: bool = True) -> list[str] | None:
     """The command that runs the semgrep version CI pins. None when it cannot be built.
 
     uv runs that version from its cache, in an environment of its own, so the scan does not
-    depend on a semgrep the developer installed. The first run downloads the package.
+    depend on a semgrep the developer installed. Only preparation downloads the package.
     """
     if shutil.which("uv") is None:
         return None
@@ -160,14 +161,66 @@ def _semgrep_command() -> list[str] | None:
     pin = re.search(r"^\s*SEMGREP_IMAGE:\s*semgrep/semgrep:(\d+\.\d+\.\d+)@", workflow, re.MULTILINE)
     if pin is None:
         return None
-    return ["uv", "tool", "run", "--from", f"semgrep=={pin.group(1)}", "semgrep"]
+    return ["uv", "tool", "run", *(["--offline"] if offline else []), "--from", f"semgrep=={pin.group(1)}", "semgrep"]
 
 
-def _semgrep_findings(contents: dict[str, bytes], command: list[str]) -> dict[Finding, list[int]] | None:
+class SemgrepUnavailable(RuntimeError):
+    pass
+
+
+def _semgrep_remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise SemgrepUnavailable(
+            f"semgrep exceeded the {_SEMGREP_TIMEOUT_SECONDS}s check budget; CI will run the check"
+        )
+    return remaining
+
+
+def _run_semgrep(command: list[str], *, cwd: Path, timeout: float) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as state:
+        try:
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                env={
+                    **os.environ,
+                    "UV_TOOL_DIR": str(REPO_ROOT / ".flox/cache/uv-tools"),
+                    "SEMGREP_LOG_FILE": str(Path(state) / "semgrep.log"),
+                    "SEMGREP_SETTINGS_FILE": str(Path(state) / "settings.yml"),
+                    "SEMGREP_ENABLE_VERSION_CHECK": "false",
+                },
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise SemgrepUnavailable("semgrep timed out; CI will run the check") from error
+        except OSError as error:
+            raise SemgrepUnavailable(f"semgrep could not start: {error}") from error
+    if result.returncode != 0:
+        lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
+        detail = " · ".join(lines[-2:])[:240].rstrip(".") or f"exit {result.returncode}"
+        raise SemgrepUnavailable(f"{detail}. Run `hogli ci:preflight --prepare-semgrep` to prepare the pinned tool")
+    return result
+
+
+def prepare_semgrep() -> Outcome:
+    command = _semgrep_command(offline=False)
+    if command is None:
+        return "skipped", f"uv is not on PATH, or {SEMGREP_WORKFLOW} pins no semgrep version"
+    try:
+        result = _run_semgrep([*command, "--version"], cwd=REPO_ROOT, timeout=120)
+    except SemgrepUnavailable as error:
+        return "skipped", str(error)
+    return "pass", f"semgrep {result.stdout.strip()} is cached for offline preflight checks"
+
+
+def _semgrep_findings(contents: dict[str, bytes], command: list[str], *, deadline: float) -> dict[Finding, list[int]]:
     """Findings in *contents* (path to file content), each with the lines it starts on.
 
-    None when the scan did not complete. The files are written to a temporary directory
-    and that directory is the scan target. Semgrep applies its default ignore list
+    Raises SemgrepUnavailable when the scan did not complete. The scan targets a temporary
+    directory containing the files. Semgrep applies its default ignore list
     (``tests/``, ``node_modules/``, minified files) to a directory it walks, which is how
     CI scans, and skips that list for a file named on the command line.
     """
@@ -177,36 +230,26 @@ def _semgrep_findings(contents: dict[str, bytes], command: list[str]) -> dict[Fi
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
-        try:
-            result = subprocess.run(
-                [
-                    *command,
-                    "--config",
-                    str(REPO_ROOT / SEMGREP_RULES),
-                    "--severity=WARNING",
-                    "--severity=ERROR",
-                    "--metrics=off",
-                    "--quiet",
-                    "--json",
-                    ".",
-                ],
-                cwd=root,
-                env={**os.environ, "SEMGREP_ENABLE_VERSION_CHECK": "false"},
-                capture_output=True,
-                text=True,
-                timeout=_SEMGREP_TIMEOUT_SECONDS,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-    # A rule that does not parse and a crash both exit non-zero.
-    # An incomplete scan must not read as a clean one.
-    if result.returncode != 0:
-        return None
+        result = _run_semgrep(
+            [
+                *command,
+                "--config",
+                str(REPO_ROOT / SEMGREP_RULES),
+                "--severity=WARNING",
+                "--severity=ERROR",
+                "--metrics=off",
+                "--quiet",
+                "--json",
+                ".",
+            ],
+            cwd=root,
+            timeout=_semgrep_remaining(deadline),
+        )
     report = json.loads(result.stdout)
     # Semgrep can exit zero and still list a failure. A file it parsed only in part is listed
     # at "warn" level on ordinary TypeScript, and its other findings are still valid.
     if any(error.get("level") == "error" for error in report.get("errors", [])):
-        return None
+        raise SemgrepUnavailable("semgrep reported an incomplete scan; CI will run the check")
     findings: dict[Finding, list[int]] = {}
     for item in report["results"]:
         path = item["path"]
@@ -221,23 +264,19 @@ def _semgrep_findings(contents: dict[str, bytes], command: list[str]) -> dict[Fi
     return findings
 
 
-def check_semgrep_devex(scope: Scope) -> Outcome:
-    command = _semgrep_command()
-    if command is None:
-        return "skipped", f"uv is not on PATH, or {SEMGREP_WORKFLOW} pins no semgrep version"
-    incomplete: Outcome = ("skipped", "semgrep did not complete")
-
+def _check_semgrep_devex(scope: Scope, command: list[str], *, deadline: float) -> Outcome:
     # Semgrep cannot scan a binary, and a snapshot update can carry hundreds of them.
     after_contents = {
         path: content
         for path in scope.files
-        if (content := _head_copy(path, scope.committed_only)) is not None and b"\0" not in content[:8000]
+        if (content := _head_copy(path, scope.committed_only, timeout=_semgrep_remaining(deadline))) is not None
+        and b"\0" not in content[:8000]
     }
+    _semgrep_remaining(deadline)
     if not after_contents:
         return "skipped", "no file to scan"
-    after = _semgrep_findings(after_contents, command)
-    if after is None:
-        return incomplete
+    after = _semgrep_findings(after_contents, command, deadline=deadline)
+    _semgrep_remaining(deadline)
     if not after:
         return "pass", "no new findings"
 
@@ -245,15 +284,20 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
     # That flag is not usable here: on a clean checkout semgrep runs `git reset --hard` to the
     # baseline and back, and otherwise it checks the whole repository out again. Scanning the
     # merge-base copies of the flagged files gives the same comparison without touching the checkout.
-    renames = _renamed_from(scope)
+    renames = _renamed_from(scope, timeout=_semgrep_remaining(deadline))
     before_contents = {
         path: content
         for path in {path for _, path, _ in after}
-        if (content := _git("show", f"{scope.merge_base}:{renames.get(path, path)}")) is not None
+        if (
+            content := _git(
+                "show", f"{scope.merge_base}:{renames.get(path, path)}", timeout=_semgrep_remaining(deadline)
+            )
+        )
+        is not None
     }
-    before = _semgrep_findings(before_contents, command) if before_contents else {}
-    if before is None:
-        return incomplete
+    _semgrep_remaining(deadline)
+    before = _semgrep_findings(before_contents, command, deadline=deadline) if before_contents else {}
+    _semgrep_remaining(deadline)
 
     introduced = [
         f"{rule} at {path}:{line}"
@@ -271,6 +315,19 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
         f"{' · '.join(introduced[:3])}{more}. "
         f"Run `{' '.join(command)} --config {SEMGREP_RULES} <file>` to read the rule",
     )
+
+
+def check_semgrep_devex(scope: Scope) -> Outcome:
+    command = _semgrep_command()
+    if command is None:
+        return "skipped", f"uv is not on PATH, or {SEMGREP_WORKFLOW} pins no semgrep version"
+    deadline = time.monotonic() + _SEMGREP_TIMEOUT_SECONDS
+    try:
+        return _check_semgrep_devex(scope, command, deadline=deadline)
+    except SemgrepUnavailable as error:
+        return "skipped", str(error)
+    except subprocess.TimeoutExpired:
+        return "skipped", f"semgrep exceeded the {_SEMGREP_TIMEOUT_SECONDS}s check budget; CI will run the check"
 
 
 LANE_TARGETS_SCRIPT = ".github/scripts/trunk-impacted-targets.js"

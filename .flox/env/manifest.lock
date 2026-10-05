@@ -156,11 +156,6 @@
       "sccache": {
         "pkg-path": "sccache"
       },
-      "semgrep": {
-        "pkg-path": "semgrep",
-        "pkg-group": "semgrep",
-        "version": "1.172.0"
-      },
       "sqlx-cli": {
         "pkg-path": "sqlx-cli",
         "version": "0.8.3"
@@ -3602,96 +3597,6 @@
       },
       "system": "x86_64-linux",
       "group": "uv",
-      "priority": 5
-    },
-    {
-      "attr_path": "semgrep",
-      "broken": false,
-      "derivation": "/nix/store/f4lq9y05sw32h8r028y02in3xim3wyzk-python3.14-semgrep-1.172.0.drv",
-      "description": "Lightweight static analysis for many languages - cli",
-      "install_id": "semgrep",
-      "license": "LGPL-2.1-or-later",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
-      "name": "semgrep-1.172.0",
-      "pname": "semgrep",
-      "rev": "7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
-      "rev_count": 1080855,
-      "rev_date": "2026-09-28T06:58:16Z",
-      "scrape_date": "2026-09-29T05:00:23.726174Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.172.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dist": "/nix/store/87km1k8c8afp6al9mgnl71b6lpg4ssgc-python3.14-semgrep-1.172.0-dist",
-        "out": "/nix/store/1favj1431qxd93jw864by9ii5wa855ic-python3.14-semgrep-1.172.0"
-      },
-      "system": "aarch64-darwin",
-      "group": "semgrep",
-      "priority": 5
-    },
-    {
-      "attr_path": "semgrep",
-      "broken": false,
-      "derivation": "/nix/store/q3a2nr6fbvsxvpjrlipnmz59pcfrfvqp-python3.14-semgrep-1.172.0.drv",
-      "description": "Lightweight static analysis for many languages - cli",
-      "install_id": "semgrep",
-      "license": "LGPL-2.1-or-later",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
-      "name": "semgrep-1.172.0",
-      "pname": "semgrep",
-      "rev": "7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
-      "rev_count": 1080855,
-      "rev_date": "2026-09-28T06:58:16Z",
-      "scrape_date": "2026-09-29T05:32:31.729360Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.172.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dist": "/nix/store/xcaghmfnldx66ygvmmrqpllq3r6kism3-python3.14-semgrep-1.172.0-dist",
-        "out": "/nix/store/3q0pz5nn2hhjlv5fhv0f4kjkpjg65za0-python3.14-semgrep-1.172.0"
-      },
-      "system": "aarch64-linux",
-      "group": "semgrep",
-      "priority": 5
-    },
-    {
-      "attr_path": "semgrep",
-      "broken": false,
-      "derivation": "/nix/store/kj3a7r1izd4pzm0zb8m9sq53190r84n4-python3.14-semgrep-1.172.0.drv",
-      "description": "Lightweight static analysis for many languages - cli",
-      "install_id": "semgrep",
-      "license": "LGPL-2.1-or-later",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
-      "name": "semgrep-1.172.0",
-      "pname": "semgrep",
-      "rev": "7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
-      "rev_count": 1080855,
-      "rev_date": "2026-09-28T06:58:16Z",
-      "scrape_date": "2026-09-29T06:08:38.453471Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.172.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dist": "/nix/store/5khjn311b5pqhnasp5a1zvs7z93jrvax-python3.14-semgrep-1.172.0-dist",
-        "out": "/nix/store/wiaxllabh4izc7wyb9hz9dq3p15bwwm3-python3.14-semgrep-1.172.0"
-      },
-      "system": "x86_64-linux",
-      "group": "semgrep",
       "priority": 5
     }
   ]

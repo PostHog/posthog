@@ -440,6 +440,12 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
 fi
 
+if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
+  run_step "Semgrep preflight tool" "$FLOX_ENV_PROJECT/bin/dev-sandbox" "hogli ci:preflight --prepare-semgrep" || true
+else
+  run_step "Semgrep preflight tool" hogli ci:preflight --prepare-semgrep || true
+fi
+
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"

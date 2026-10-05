@@ -180,7 +180,7 @@ When the lower half outgrows the upper half, cut the lower half.
 
 - Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
 - Agent context: autonomy, tool and exact model, skills invoked, and what changed across the session.
-- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the changelog checkbox to find it.
+- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the release status section to find it.
 
 The test: **the body must come out shorter than your first draft.** Pass 5 checks it.
 
