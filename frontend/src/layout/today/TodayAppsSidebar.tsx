@@ -21,7 +21,6 @@ import { TodayPaneRow } from './TodayPaneRow'
 import { matchesPaneQuery } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 
-/** The Apps sub-nav: every product, tool and saved object list in one grouped list, like the main sidebar. */
 export function TodayAppsSidebar(): JSX.Element {
     const { apps, pinnedApps, appGroups, recentApps, search } = useValues(todayAppsLogic)
     const { setSearch } = useActions(todayAppsLogic)

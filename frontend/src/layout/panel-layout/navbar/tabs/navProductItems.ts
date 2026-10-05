@@ -14,7 +14,6 @@ const DEFINITIONS_TAB_HREFS = new Set(DEFINITIONS_TABS.filter((tab) => tab.key !
 // Items in this category sit above Starred and All products, so they are never starred or grouped.
 export const PINNED_CATEGORY = 'Project'
 
-/** Every destination the products sidebar lists, one per href, with the flag-gated ones removed. */
 export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImport[] {
     const items: FileSystemImport[] = [
         {

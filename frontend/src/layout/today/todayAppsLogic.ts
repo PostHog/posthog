@@ -49,7 +49,6 @@ export type todayAppsLogicType = MakeLogicType<
     todayAppsLogicMeta
 >
 
-/** The Apps pane lists the same products as the main sidebar's Apps tab, in the same groups. */
 export const todayAppsLogic = kea<todayAppsLogicType>([
     path(['layout', 'today', 'todayAppsLogic']),
     connect(() => ({ values: [featureFlagLogic, ['featureFlags'], todayRecentsLogic, ['recentToolHrefs']] })),
