@@ -128,6 +128,24 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
         )
         for name in ["array_agg", "groupArray"]
     },
+    "groupArraySorted": HogQLFunctionMeta(
+        "groupArraySorted",
+        1,
+        1,
+        min_params=1,
+        max_params=1,
+        aggregate=True,
+        signatures=[((UnknownType(),), ArrayType(item_type=UnknownType()))],
+    ),
+    "groupArraySortedIf": HogQLFunctionMeta(
+        "groupArraySortedIf",
+        2,
+        2,
+        min_params=1,
+        max_params=1,
+        aggregate=True,
+        signatures=[((UnknownType(), BooleanType()), ArrayType(item_type=UnknownType()))],
+    ),
     "json_agg": HogQLFunctionMeta(
         "toJSONString(groupArray({}))",
         1,

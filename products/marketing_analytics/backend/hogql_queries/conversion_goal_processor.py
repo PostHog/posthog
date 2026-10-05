@@ -996,23 +996,14 @@ class ConversionGoalProcessor:
         conversion. We deduplicate by the FULL touchpoint identity — (person_id, touchpoint_timestamp, all
         UTM dims) — ignoring job_id/computed_at, so only true duplicates collapse.
         """
+        timestamp = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoints", "touchpoint_timestamp"])])
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["touchpoints", "person_id"]),
             ast.Alias(
                 alias="utm_touchpoints",
-                expr=ast.Call(
-                    name="groupArray",
-                    args=[
-                        ast.Tuple(
-                            exprs=[
-                                ast.Call(
-                                    name="toUnixTimestamp",
-                                    args=[ast.Field(chain=["touchpoints", "touchpoint_timestamp"])],
-                                ),
-                                *[ast.Field(chain=["touchpoints", field.attributed_name]) for field in TRACKED_FIELDS],
-                            ]
-                        )
-                    ],
+                expr=self._build_bounded_touchpoints_aggregate(
+                    timestamp,
+                    [ast.Field(chain=["touchpoints", field.attributed_name]) for field in TRACKED_FIELDS],
                 ),
             ),
         ]
@@ -1539,6 +1530,50 @@ class ConversionGoalProcessor:
             ),
         )
 
+    def _build_bounded_touchpoints_aggregate(
+        self,
+        timestamp: ast.Expr,
+        fields: list[ast.Expr],
+        condition: ast.Expr | None = None,
+        tie_breaker: ast.Expr | None = None,
+    ) -> ast.Expr:
+        """Keep the newest touchpoints in bounded aggregation state, ordered oldest to newest."""
+        payload_start = 3 if tie_breaker is not None else 2
+        aggregate = ast.Call(
+            name="groupArraySortedIf" if condition is not None else "groupArraySorted",
+            params=[ast.Constant(value=MAX_TOUCHPOINTS_PER_PERSON)],
+            args=[
+                ast.Tuple(
+                    exprs=[
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=-1),
+                            op=ast.ArithmeticOperationOp.Mult,
+                            right=timestamp,
+                        ),
+                        *([tie_breaker] if tie_breaker is not None else []),
+                        timestamp,
+                        *fields,
+                    ]
+                ),
+                *([condition] if condition is not None else []),
+            ],
+        )
+        return ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["_tp"],
+                    expr=ast.Tuple(
+                        exprs=[
+                            ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=index)
+                            for index in range(payload_start, payload_start + len(fields) + 1)
+                        ]
+                    ),
+                ),
+                ast.Call(name="arrayReverse", args=[aggregate]),
+            ],
+        )
+
     def _build_utm_pageview_tuples(self, utm_source_field: str, fields: list[str]) -> ast.Alias:
         """Collect qualifying pageviews as timestamp-plus-fields tuples.
 
@@ -1557,55 +1592,25 @@ class ConversionGoalProcessor:
             ]
         )
         timestamp_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
-        qualified_timestamp = ast.Call(name="if", args=[pageview_with_utm, timestamp_expr, ast.Constant(value=0)])
-        qualified = ast.Lambda(
-            args=["_tp"],
-            expr=ast.CompareOperation(
-                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
-                op=ast.CompareOperationOp.Gt,
-                right=ast.Constant(value=0),
-            ),
-        )
-
         return ast.Alias(
             alias="utm_touchpoints",
-            expr=ast.Call(
-                name="arrayFilter",
-                args=[
-                    qualified,
+            expr=self._build_bounded_touchpoints_aggregate(
+                timestamp_expr,
+                [
                     ast.Call(
-                        name="groupArray",
+                        name="toString",
                         args=[
-                            ast.Tuple(
-                                exprs=[
-                                    qualified_timestamp,
-                                    *[
-                                        ast.Call(
-                                            name="if",
-                                            args=[
-                                                pageview_with_utm,
-                                                ast.Call(
-                                                    name="toString",
-                                                    args=[
-                                                        ast.Call(
-                                                            name="ifNull",
-                                                            args=[
-                                                                ast.Field(chain=["events", "properties", field]),
-                                                                ast.Constant(value=""),
-                                                            ],
-                                                        )
-                                                    ],
-                                                ),
-                                                ast.Constant(value=""),
-                                            ],
-                                        )
-                                        for field in fields
-                                    ],
-                                ]
+                            ast.Call(
+                                name="ifNull",
+                                args=[ast.Field(chain=["events", "properties", field]), ast.Constant(value="")],
                             )
                         ],
-                    ),
+                    )
+                    for field in fields
                 ],
+                pageview_with_utm,
+                # Preserve the existing winner when touchpoints share a timestamp.
+                ast.Field(chain=["events", "uuid"]),
             ),
         )
 
