@@ -17,7 +17,7 @@ export interface EmailPreviewThumbnailProps {
     className?: string
 }
 
-/** A scaled-down, non-interactive render of an email, for composer attachments and picker cards. */
+/** A scaled-down, non-interactive render of an email. */
 export function EmailPreviewThumbnail({ html, title, size, className }: EmailPreviewThumbnailProps): JSX.Element {
     return (
         <span className={cn('block shrink-0 overflow-hidden bg-white', SIZE_CLASSES[size], className)}>

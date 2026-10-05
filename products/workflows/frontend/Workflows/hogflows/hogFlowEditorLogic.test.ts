@@ -750,6 +750,45 @@ describe('hogFlowEditorLogic', () => {
                 expect(exit.position.y).toBeGreaterThan(email.position.y + email.height!)
             }
         )
+
+        it('starts sibling branches on the same row when one of them begins with an email', async () => {
+            const flow = flowWithEmail({
+                type: 'function_email',
+                config: { template_id: 'template-email', inputs: emailInputs },
+            } as Pick<HogFlowAction, 'type' | 'config'>)
+            flow.actions.push(
+                {
+                    id: 'branch',
+                    name: 'Branch',
+                    description: '',
+                    type: 'conditional_branch',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: { conditions: [{ filters: {} }] },
+                },
+                {
+                    id: 'delay',
+                    name: 'Delay',
+                    description: '',
+                    type: 'delay',
+                    created_at: 1,
+                    updated_at: 1,
+                    config: { delay_duration: '1d' },
+                }
+            )
+            flow.edges = [
+                { from: 'trigger', to: 'branch', type: 'continue' },
+                { from: 'branch', to: 'email', type: 'branch', index: 0 },
+                { from: 'branch', to: 'delay', type: 'continue' },
+                { from: 'email', to: 'exit', type: 'continue' },
+                { from: 'delay', to: 'exit', type: 'continue' },
+            ]
+
+            await expectLogic(logic, () => logic.actions.resetFlowFromHogFlow(flow)).toDispatchActions(['setNodesRaw'])
+
+            const nodeById = (id: string): HogFlowActionNode => logic.values.nodes.find((node) => node.id === id)!
+            expect(nodeById('delay').position.y).toBe(nodeById('email').position.y)
+        })
     })
 
     describe('showDropzones branch-join placement', () => {
