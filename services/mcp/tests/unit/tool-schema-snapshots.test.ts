@@ -100,7 +100,6 @@ describe('Tool schema snapshots', () => {
             loops: true,
             'dashboard-widgets': true,
             'agent-platform': true,
-            'billing-alerts': true,
             'experiment-setup-context': true,
             'scout-trials': true,
             'signals-report-checks-replace': true,

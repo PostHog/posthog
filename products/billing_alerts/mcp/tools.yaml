@@ -14,7 +14,7 @@ tools:
         enabled: false
     billing-alert-create:
         operation: billing_alerts_create
-        enabled: true
+        enabled: false
         scopes:
             - organization:write
         annotations:
@@ -50,7 +50,7 @@ tools:
         enabled: false
     billing-alert-update:
         operation: billing_alerts_partial_update
-        enabled: true
+        enabled: false
         scopes:
             - organization:write
         annotations:

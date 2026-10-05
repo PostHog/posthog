@@ -4,10 +4,12 @@ import re
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
-from django.urls import path
+from django.urls import URLPattern, path
 
 from drf_spectacular.generators import SchemaGenerator
+from parameterized import parameterized
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -23,6 +25,19 @@ class _XInternalMarkerViewSet(viewsets.ViewSet):
 
     @extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-internal": True})
     def list(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+
+@extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-internal": True})
+class _XInternalClassMarkerViewSet(viewsets.ViewSet):
+    scope_object = "project"
+
+    def list(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+    @extend_schema(description="Marker action with its own schema annotation.")
+    @action(detail=False, methods=["GET"])
+    def summary(self, request: Request) -> Response:
         return Response({"ok": True})
 
 
@@ -42,16 +57,34 @@ class TestAPIDocsSchema(APIBaseTest):
         # The same action survives under the live project route
         assert any(p.endswith("/tracing_config/") for p in paths)
 
-    def test_x_internal_operations_are_only_in_the_codegen_schema(self) -> None:
-        patterns = [path("api/x_internal_marker/", _XInternalMarkerViewSet.as_view({"get": "list"}))]
+    @parameterized.expand(
+        [
+            (
+                "method_annotation",
+                [path("api/x_internal_marker/", _XInternalMarkerViewSet.as_view({"get": "list"}))],
+            ),
+            (
+                "class_annotation_reaches_annotated_action",
+                [
+                    path("api/x_internal_class_marker/", _XInternalClassMarkerViewSet.as_view({"get": "list"})),
+                    path(
+                        "api/x_internal_class_marker/summary/",
+                        _XInternalClassMarkerViewSet.as_view({"get": "summary"}),
+                    ),
+                ],
+            ),
+        ]
+    )
+    def test_x_internal_operations_are_only_in_the_codegen_schema(self, _name: str, patterns: list[URLPattern]) -> None:
+        expected_paths = sorted(f"/{pattern.pattern}" for pattern in patterns)
 
         served_schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
-        assert "/api/x_internal_marker/" not in served_schema["paths"]
+        assert sorted(served_schema["paths"]) == []
 
         codegen_env = {"OPENAPI_INCLUDE_INTERNAL": "1", "OPENAPI_MOCK_INTERNAL_API_SECRET": "1"}
         with mock.patch.dict(os.environ, codegen_env):
             codegen_schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
-        assert "/api/x_internal_marker/" in codegen_schema["paths"]
+        assert sorted(codegen_schema["paths"]) == expected_paths
 
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()
