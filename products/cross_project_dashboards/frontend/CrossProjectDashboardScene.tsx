@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 
+import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,6 +24,8 @@ import { CrossProjectDashboardGrid } from './CrossProjectDashboardGrid'
 import { CrossProjectDashboardLayoutActions } from './CrossProjectDashboardLayoutActions'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
 import { openCrossProjectTileOverrideDialog } from './openCrossProjectTileOverrideDialog'
+
+const HedgehogChart = pngHoggie(chartPng)
 
 export const scene: SceneExport = {
     component: CrossProjectDashboardScene,
@@ -119,7 +124,26 @@ export function CrossProjectDashboardScene(): JSX.Element {
             ) : !dashboard ? (
                 <p>This dashboard is not available.</p>
             ) : tiles.length === 0 ? (
-                <p>No tiles yet. Add an insight from any project you can reach.</p>
+                // Same illustration and layout as the empty single-project dashboard.
+                <ProductIntroduction
+                    thingName="cross-project-insight"
+                    titleOverride="Build your dashboard"
+                    description="Add insights from any project you have access to. Each tile shows data from its own project."
+                    customHog={HedgehogChart}
+                    hogLayout="responsive"
+                    useMainContentContainerQueries
+                    className="mt-2 mb-2 py-4 @min-[48rem]/main-content:py-14"
+                    actionElementOverride={
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={requestOpenModal}
+                            data-attr="cross-project-dashboard-empty-add-insight"
+                        >
+                            Add insight
+                        </LemonButton>
+                    }
+                />
             ) : (
                 <CrossProjectDashboardGrid
                     missingPropertyKeys={missingPropertyKeys}
