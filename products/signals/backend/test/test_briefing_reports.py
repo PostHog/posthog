@@ -309,17 +309,29 @@ class TestSummaryLead(SimpleTestCase):
             ),
             ("a hash inside a line stays", "Issue #42 ## fails", "Issue #42 ## fails"),
             (
-                "drops chart links and keeps link text",
-                "Leaks **typed text**. [Page leaves](chart:page-leaves) See [the form](https://example.com/form).",
+                "keeps inline chart labels and link text",
+                "The [import delay](chart:import-delay) rose. See [the form](https://example.com/form).",
+                "The import delay rose. See the form.",
+            ),
+            (
+                "drops a chart-only paragraph",
+                "Leaks **typed text**.\n\n  [Page leaves](chart:page-leaves)  \n\nSee the form.",
                 "Leaks typed text. See the form.",
             ),
+            ("leaves a malformed chart link", "The [delay](chart:a rose.", "The [delay](chart:a rose."),
             ("no summary", None, ""),
         ]
     )
     def test_summary_lead(self, _name: str, summary: str | None, expected: str) -> None:
         assert summary_lead(summary, 300) == expected
 
-    @parameterized.expand([("unclosed labels", "[" * 20_000), ("unclosed destinations", "[a](" * 5_000)])
+    @parameterized.expand(
+        [
+            ("unclosed labels", "[" * 20_000),
+            ("unclosed destinations", "[a](" * 5_000),
+            ("unclosed chart paragraphs", "[a](chart:\n\n" * 2_000),
+        ]
+    )
     def test_summary_lead_stays_fast_on_unclosed_links(self, _name: str, summary: str) -> None:
         started = time.perf_counter()
         summary_lead(summary, 450)
