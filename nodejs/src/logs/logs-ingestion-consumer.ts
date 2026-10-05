@@ -47,6 +47,7 @@ import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outpu
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import { canHoldExpiredRow, makeRetentionExpiredStage } from './retention/retention-expired-stage'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
@@ -157,6 +158,14 @@ export function describeBatchPosition(messages: Message[]): Record<string, strin
 export function parseSizeHeader(raw: string | undefined): number | null {
     const parsed = parseInt(raw ?? '0', 10)
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+export function parseMinTimestampHeader(raw: string | undefined): number | undefined {
+    if (raw === undefined) {
+        return undefined
+    }
+    const parsed = Number(raw)
+    return Number.isSafeInteger(parsed) ? parsed : undefined
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -502,6 +511,7 @@ export class LogsIngestionConsumer {
     private async resolveLogMessageBufferWithOptionalSampling(
         message: LogsIngestionMessage,
         logsSettings: LogsSettings,
+        defaultRetentionDays: number,
         onRecordsDecoded?: (records: LogRecord[]) => void,
         batchBudget?: TransformationBatchBudget
     ): Promise<
@@ -510,6 +520,7 @@ export class LogsIngestionConsumer {
               processedValue: Buffer
               pii: PiiScrubStats
               recordsDropped: number
+              recordsDroppedRetentionExpired: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
               contentBytesDropped: number
@@ -517,9 +528,14 @@ export class LogsIngestionConsumer {
           }
         | {
               outcome: 'all_dropped'
-              reason: 'sampling_all_dropped' | 'transformations_all_dropped' | 'empty_batch'
+              reason:
+                  | 'sampling_all_dropped'
+                  | 'transformations_all_dropped'
+                  | 'retention_expired_all_dropped'
+                  | 'empty_batch'
               pii: PiiScrubStats
               recordsDropped: number
+              recordsDroppedRetentionExpired: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
               contentBytesDropped: number
@@ -559,8 +575,19 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         if (useRetention && retentionRuleSet) {
-            const defaultRetentionDays = await this.defaultRetentionDays(message.teamId, logsSettings)
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
+        }
+
+        // Checking rows for expiry needs a decode, which every message would otherwise pay to find rows
+        // that only backdated imports produce. The stage runs after the retention stage, so it reads the
+        // per-row retention that ClickHouse will use.
+        const shortestRetentionDays =
+            useRetention && retentionRuleSet
+                ? Math.min(defaultRetentionDays, ...retentionRuleSet.rules.map((rule) => rule.retentionDays))
+                : defaultRetentionDays
+        const nowMicros = Date.now() * 1000
+        if (canHoldExpiredRow(message.minTimestampMicros, shortestRetentionDays, nowMicros)) {
+            stages.push(makeRetentionExpiredStage(message.teamId, defaultRetentionDays, nowMicros))
         }
 
         // Runs last so it only sees survivors. Adding any stage forces the full decode and re-encode,
@@ -598,11 +625,11 @@ export class LogsIngestionConsumer {
             stages,
         })
 
-        // Only the sampling stage attributes per-rule drops; the transform stage reports none, so
-        // these increments are no-ops on the transform-only and passthrough paths.
-        if (drops.recordsDropped > 0) {
-            logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, drops.recordsDropped)
+        const recordsDroppedBySampling = drops.recordsDroppedByStage.get('sampling') ?? 0
+        if (recordsDroppedBySampling > 0) {
+            logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, recordsDroppedBySampling)
         }
+        const recordsDroppedRetentionExpired = drops.recordsDroppedByStage.get('retention_expired') ?? 0
         if (drops.bytesDropped > 0) {
             logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, drops.bytesDropped)
         }
@@ -615,12 +642,15 @@ export class LogsIngestionConsumer {
                     ? 'transformations_all_dropped'
                     : drops.droppedBy === 'sampling'
                       ? 'sampling_all_dropped'
-                      : 'empty_batch'
+                      : drops.droppedBy === 'retention_expired'
+                        ? 'retention_expired_all_dropped'
+                        : 'empty_batch'
             return {
                 outcome: 'all_dropped',
                 reason,
                 pii,
                 recordsDropped: drops.recordsDropped,
+                recordsDroppedRetentionExpired,
                 recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
                 bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
                 contentBytesDropped: drops.contentBytesDropped,
@@ -632,6 +662,7 @@ export class LogsIngestionConsumer {
             processedValue: value,
             pii,
             recordsDropped: drops.recordsDropped,
+            recordsDroppedRetentionExpired,
             recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
             bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
             contentBytesDropped: drops.contentBytesDropped,
@@ -985,9 +1016,16 @@ export class LogsIngestionConsumer {
                                                 ? logsSettings.json_parse_logs_attribute_key
                                                 : undefined,
                                     },
+                                    retentionDays,
                                     onRecordsDecoded,
                                     transformationBatchBudget
                                 )
+                        )
+
+                        this.queueUsageMetric(
+                            message.teamId,
+                            'records_dropped_retention_expired',
+                            resolved.recordsDroppedRetentionExpired
                         )
 
                         let bytesUncompressedHeaderOverride: number | undefined
@@ -1397,6 +1435,7 @@ export class LogsIngestionConsumer {
                         bytesUncompressedRecords,
                         bytesCompressed,
                         recordCount,
+                        minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                     })
                 } catch (e) {
                     // A message we cannot parse is message-scoped and will fail the same way on

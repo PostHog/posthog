@@ -1,6 +1,22 @@
 import type { LogRecord } from '~/logs/log-record-avro'
 
 /**
+ * Customer-sent content bytes of a row: body + attributes + event_name. The billing
+ * pro-rate weight — deliberately NOT `bytes_uncompressed`, which includes per-row
+ * denormalization overhead (resource attributes duplicated onto every row, server
+ * uuid, id placeholders). That overhead is near-constant per row, so as a ratio
+ * weight it would skew the pro-rate toward record-count weighting instead of
+ * "share of what the customer sent".
+ */
+export function recordContentBytes(r: LogRecord): number {
+    let total = Buffer.byteLength(r.body ?? '') + Buffer.byteLength(r.event_name ?? '')
+    for (const [k, v] of Object.entries(r.attributes ?? {})) {
+        total += Buffer.byteLength(k) + Buffer.byteLength(v ?? '')
+    }
+    return total
+}
+
+/**
  * Per-message drop accounting produced by `filter` stages (sampling drop rules, rate limits, hog
  * transformations). Fields mirror the billing pro-rate inputs the consumer already consumes: dropped
  * counts/bytes are attributed to the first matching rule UUID, and `contentBytes*` are the pro-rate
@@ -13,10 +29,14 @@ export type DropStats = {
     bytesDropped: number
     bytesDroppedByRuleId: Map<string, number>
     contentBytesDropped: number
-    /** Sum of customer-content bytes across ALL decoded rows; only set by a stage that measures it. */
+    /**
+     * Sum of customer-content bytes across the rows a stage saw; only set by a stage that measures it.
+     * The first measuring stage wins, because it saw the most rows, and the pro-rate needs the whole batch.
+     */
     contentBytesTotal: number
+    recordsDroppedByStage: Map<string, number>
     /** Set by a filter stage when it removed records — the last such wins for all-dropped attribution. */
-    droppedBy?: 'sampling' | 'transformations'
+    droppedBy?: 'sampling' | 'transformations' | 'retention_expired'
 }
 
 export const EMPTY_DROP_STATS = (): DropStats => ({
@@ -26,6 +46,7 @@ export const EMPTY_DROP_STATS = (): DropStats => ({
     bytesDroppedByRuleId: new Map(),
     contentBytesDropped: 0,
     contentBytesTotal: 0,
+    recordsDroppedByStage: new Map(),
 })
 
 /** Result of a `filter` stage: the surviving records plus what it dropped. */
@@ -72,8 +93,14 @@ export async function runPipelineStages(
         stats.recordsDropped += dropped.recordsDropped
         stats.bytesDropped += dropped.bytesDropped
         stats.contentBytesDropped += dropped.contentBytesDropped
-        if (dropped.contentBytesTotal > 0) {
+        if (stats.contentBytesTotal === 0 && dropped.contentBytesTotal > 0) {
             stats.contentBytesTotal = dropped.contentBytesTotal
+        }
+        if (dropped.recordsDropped > 0) {
+            stats.recordsDroppedByStage.set(
+                stage.name,
+                (stats.recordsDroppedByStage.get(stage.name) ?? 0) + dropped.recordsDropped
+            )
         }
         mergeByRuleId(stats.recordsDroppedByRuleId, dropped.recordsDroppedByRuleId)
         mergeByRuleId(stats.bytesDroppedByRuleId, dropped.bytesDroppedByRuleId)

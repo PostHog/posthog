@@ -13,12 +13,15 @@ describe('runPipelineStages', () => {
             resource_attributes: null,
         }) as LogRecord
 
-    const dropFirst = (name: 'sampling' | 'transformations'): PipelineStage => ({
+    const dropFirst = (
+        name: 'sampling' | 'transformations' | 'retention_expired',
+        contentBytesTotal: number = 0
+    ): PipelineStage => ({
         kind: 'filter',
         name,
         run: (records) => {
             const kept = records.slice(1)
-            return { kept, stats: { ...EMPTY_DROP_STATS(), recordsDropped: 1, droppedBy: name } }
+            return { kept, stats: { ...EMPTY_DROP_STATS(), recordsDropped: 1, contentBytesTotal, droppedBy: name } }
         },
     })
 
@@ -42,6 +45,14 @@ describe('runPipelineStages', () => {
         expect(kept).toHaveLength(0)
         expect(stats.recordsDropped).toBe(2)
         expect(stats.droppedBy).toBe('transformations')
+    })
+
+    it('keeps the whole-batch content total from the first measuring filter for the billing pro-rate', async () => {
+        // Sampling measures all three rows; the expiry filter only sees the two survivors.
+        const stages: PipelineStage[] = [dropFirst('sampling', 300), dropFirst('retention_expired', 200)]
+        const { stats } = await runPipelineStages([rec('a'), rec('b'), rec('c')], stages)
+        expect(stats.contentBytesTotal).toBe(300)
+        expect(Object.fromEntries(stats.recordsDroppedByStage)).toEqual({ sampling: 1, retention_expired: 1 })
     })
 
     it('stops running stages once every record is dropped', async () => {

@@ -171,7 +171,7 @@ const createMultiRecordKafkaMessage = async (
         trace_id: null,
         span_id: null,
         trace_flags: null,
-        timestamp: DateTime.now().toMillis() * 1000,
+        timestamp: logData.timestampMicros ?? DateTime.now().toMillis() * 1000,
         observed_timestamp: DateTime.now().toMillis() * 1000,
         body: JSON.stringify(logData),
         severity_text: logData.level || 'info',
@@ -1870,6 +1870,29 @@ describe('LogsIngestionConsumer', () => {
             })
 
             expect(droppedMetrics).toHaveLength(0)
+        })
+
+        it('drops a row already past retention and reports it, when the header says the message can hold one', async () => {
+            const fourHundredDaysAgoMicros = DateTime.now().minus({ days: 400 }).toMillis() * 1000
+            const message = await createMultiRecordKafkaMessage(
+                [{ level: 'info', timestampMicros: fourHundredDaysAgoMicros }],
+                {
+                    token: team.api_token,
+                    bytes_uncompressed: '400',
+                    record_count: '1',
+                    min_timestamp: fourHundredDaysAgoMicros.toString(),
+                }
+            )
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const produced = getProducedKafkaMessages()
+            expect(produced.some((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toBe(false)
+            const expiredMetric = produced
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                .map((m) => parseMetricValue(m.value))
+                .find((v) => v.metric_name === 'records_dropped_retention_expired' && v.team_id === team.id)
+            expect(expiredMetric?.count).toBe(1)
         })
 
         describe('sampling usage to app_metrics2', () => {
