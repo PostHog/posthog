@@ -4,8 +4,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { apiErrorDetail } from './checksApi'
+import { UNPUBLISHED_REFRESH_EXPLANATION } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
-import { latestFailingRowsQuery } from './suiteRuns'
+import { latestRunWithQuery } from './suiteRuns'
 
 /**
  * Send the caller to this check's failing rows in the SQL editor.
@@ -32,8 +33,8 @@ export async function openFailingRowsInSqlEditor({
             return
         }
     }
-    const query = latestFailingRowsQuery(runs)
-    if (!query) {
+    const run = latestRunWithQuery(runs)
+    if (!run) {
         lemonToast.info(
             runs.length
                 ? 'The query for this check is no longer kept. Run the check to see its failing rows.'
@@ -41,5 +42,8 @@ export async function openFailingRowsInSqlEditor({
         )
         return
     }
-    router.actions.push(urls.sqlEditor({ query }))
+    if (run.audited_staged_refresh) {
+        lemonToast.info(UNPUBLISHED_REFRESH_EXPLANATION)
+    }
+    router.actions.push(urls.sqlEditor({ query: run.compiled_query }))
 }

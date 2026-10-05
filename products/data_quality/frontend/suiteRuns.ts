@@ -20,8 +20,8 @@ export function pollDelayMs(elapsedMs: number): number {
 }
 
 /** The newest run that still has its query. Retention clears the compiled query after 30 days. */
-export function latestFailingRowsQuery(runs: DataQualityCheckRunApi[]): string | null {
-    return runs.find((run) => run.compiled_query)?.compiled_query || null
+export function latestRunWithQuery(runs: DataQualityCheckRunApi[]): DataQualityCheckRunApi | null {
+    return runs.find((run) => run.compiled_query) ?? null
 }
 
 export type SuiteRunOutcome = 'empty' | 'errored' | 'warning' | 'success'
