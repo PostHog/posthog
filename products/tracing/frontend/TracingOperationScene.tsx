@@ -20,7 +20,8 @@ import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } fr
 import { formatBucketLabel } from './durationBuckets'
 import { OperationHistogram } from './OperationHistogram'
 import { errorRate, formatErrorRate } from './OperationsTable'
-import { formatDuration, TraceWaterfallView } from './TraceWaterfallView'
+import { formatDuration } from './spanTime'
+import { TraceWaterfallView } from './TraceWaterfallView'
 import { TRACING_AGENT_HEADLINES, buildTracingOperationAgentContext } from './tracingAgentContext'
 import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
 import {

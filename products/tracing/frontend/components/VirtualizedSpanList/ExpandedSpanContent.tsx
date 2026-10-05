@@ -1,7 +1,7 @@
 import { PropertyFilterType } from '~/types'
 
 import { isAiEventSpan } from '../../aiEventSpans'
-import { formatDuration } from '../../TraceWaterfallView'
+import { formatDuration } from '../../spanTime'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { SpanAttributes } from './SpanAttributes'
