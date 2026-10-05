@@ -31,6 +31,7 @@ import time
 import shutil
 import socket
 import subprocess
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -50,8 +51,21 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
+from hogli_commands.preflight_checks import (
+    SEMGREP_SCOPE,
+    SNAPSHOT_MANIFEST,
+    Outcome,
+    Scope,
+    Status,
+    check_merge_queue_lane,
+    check_semgrep_devex,
+    check_snapshot_baselines,
+)
 from hogli_commands.projections import all_outputs as projection_outputs
-from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
+from hogli_commands.size_lint import (
+    SCOPE as SIZE_SCOPE,
+    _merge_base,
+)
 
 Requirement = Literal["node", "desktop-node", "agent-node", "stack", "clickhouse", "python-env"]
 
@@ -81,6 +95,8 @@ class DiffCheck:
     # for advisory checks whose findings print on stdout with exit 0. Warnings
     # never block and never count toward the advisory footer.
     soft: bool = False
+    # A check that reads the diff itself. It replaces `verify` and `fix`, and it has no auto-fix.
+    run: Callable[[Scope], Outcome] | None = None
     matched: list[str] = field(default_factory=list)
 
     @property
@@ -91,7 +107,7 @@ class DiffCheck:
         as a finding whatever shape it takes: a nudge (``advice``) and a
         guidance-only check (``verify is None``) are both unmeasured.
         """
-        return self.advice is None and self.verify is not None
+        return self.run is not None or (self.advice is None and self.verify is not None)
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
@@ -234,6 +250,21 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="frontend-format",
+        label="frontend formatting (oxfmt)",
+        # The trees and extensions `format:frontend:check` covers in CI.
+        triggers=[
+            f"{tree}/*.{ext}"
+            for tree in ("products", "frontend/src", "docs")
+            for ext in ("js", "mjs", "ts", "tsx", "json", "yaml", "yml", "css", "scss")
+        ],
+        # Mirrors lint-staged's `format:js`, which agents bypass via --no-verify.
+        verify=["pnpm", "exec", "oxfmt", "--check", "--no-error-on-unmatched-pattern"],
+        fix=["pnpm", "exec", "oxfmt", "--no-error-on-unmatched-pattern"],
+        requires=("node",),
+        takes_files=True,
+    ),
+    DiffCheck(
         key="feature-flags",
         label="FEATURE_FLAGS not alphabetically sorted",
         triggers=["frontend/src/lib/constants.tsx"],
@@ -311,6 +342,28 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["hogli", "migrations:check"],
         requires=("stack", "clickhouse"),
     ),
+    DiffCheck(
+        key="snapshot-baselines",
+        label="visual baselines dropped from snapshots.yml (fails the merge queue batch)",
+        triggers=[SNAPSHOT_MANIFEST],
+        verify=None,
+        run=check_snapshot_baselines,
+    ),
+    DiffCheck(
+        key="semgrep-devex",
+        label="new semgrep findings (devex rules)",
+        triggers=SEMGREP_SCOPE,
+        verify=None,
+        run=check_semgrep_devex,
+    ),
+    DiffCheck(
+        key="merge-queue-lane",
+        label="merge queue lane this diff claims",
+        triggers=["*"],
+        verify=None,
+        run=check_merge_queue_lane,
+        soft=True,
+    ),
 ]
 
 
@@ -376,8 +429,6 @@ def _unmet(chk: DiffCheck) -> list[Requirement]:
     return [req for req in chk.requires if not _capability_met(req)]
 
 
-Status = Literal["pass", "fail", "warning", "advisory", "skipped"]
-
 # Generous: pnpm installs and migrations:check are legitimately slow, but a wedged
 # command must not hang the agent loop forever (output is captured, not streamed).
 _CHECK_TIMEOUT_SECONDS = 600
@@ -437,7 +488,19 @@ def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return overall, " · ".join(parts)
 
 
-def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: bool) -> tuple[Status, str]:
+def _run_diff_check(
+    chk: DiffCheck, do_fix: bool, against: str | None, strict: bool, changed: Sequence[str] = ()
+) -> tuple[Status, str]:
+    if chk.run is not None:
+        base = _merge_base(against)
+        if base is None:
+            return "skipped", "no merge-base to compare against"
+        try:
+            return chk.run(Scope(files=chk.matched, changed=list(changed), merge_base=base, committed_only=strict))
+        except Exception as error:
+            # These checks parse the output of other tools. A shape they did not expect
+            # must not block the push with a traceback.
+            return "skipped", f"check could not run ({type(error).__name__}: {str(error)[:120]})"
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
@@ -774,7 +837,8 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     triggered: list[DiffCheck] = []
     for chk in DIFF_CHECKS:
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
-        if chk.matched:
+        # A check that can only warn is not worth its run time in the pre-push hook.
+        if chk.matched and not (strict and chk.soft and chk.run is not None):
             triggered.append(chk)
     shadow_drift_triggered = any(matches_globs(path, SHADOW_DRIFT_TRIGGERS) for path in files)
 
@@ -807,7 +871,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.echo(f"       {drift_detail}")
 
     for chk in triggered:
-        status, detail = _run_diff_check(chk, do_fix, against, strict)
+        status, detail = _run_diff_check(chk, do_fix, against, strict, files)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
