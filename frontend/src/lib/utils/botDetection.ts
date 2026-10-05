@@ -447,6 +447,15 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             operator: 'Right AI Choice',
         },
     },
+    {
+        pattern: 'Samantha-synthesis-engine',
+        definition: {
+            name: 'Samantha synthesis engine',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'Samantha',
+        },
+    },
     // Search / index crawlers
     {
         pattern: 'redCactiBot',
@@ -719,6 +728,56 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AtlasSearchBot',
         definition: { name: 'AtlasSearch', category: 'search_crawler', trafficType: 'Bot', operator: 'AtlasSearch' },
     },
+    {
+        pattern: 'TabaaClassifier',
+        definition: { name: 'Tabaa Classifier', category: 'search_crawler', trafficType: 'Bot', operator: 'Tabaa' },
+    },
+    {
+        pattern: 'SeaWebBot',
+        definition: { name: 'SeaWeb', category: 'search_crawler', trafficType: 'Bot', operator: 'SeaWeb' },
+    },
+    {
+        pattern: 'SignalOSBot',
+        definition: { name: 'SignalOS', category: 'search_crawler', trafficType: 'Bot', operator: 'SignalOS' },
+    },
+    {
+        pattern: 'KeenableBot',
+        definition: { name: 'Keenable', category: 'search_crawler', trafficType: 'Bot', operator: 'Keenable' },
+    },
+    {
+        pattern: 'RootmapBot',
+        definition: { name: 'Rootmap', category: 'search_crawler', trafficType: 'Bot', operator: 'Rootmap' },
+    },
+    {
+        pattern: 'SparkTowerBot',
+        definition: { name: 'SparkTower', category: 'search_crawler', trafficType: 'Bot', operator: 'SparkTower' },
+    },
+    {
+        pattern: 'HunrBot',
+        definition: { name: 'Hunr', category: 'search_crawler', trafficType: 'Bot', operator: 'Hunr' },
+    },
+    {
+        pattern: 'Leagleagle',
+        definition: { name: 'Leagleagle', category: 'search_crawler', trafficType: 'Bot', operator: 'Leagleagle' },
+    },
+    {
+        pattern: 'PageSourceSearchBot',
+        definition: {
+            name: 'PageSourceSearch',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'PageSourceSearch',
+        },
+    },
+    {
+        pattern: 'HiddenJobsCareersDiscovery',
+        definition: {
+            name: 'HiddenJobs Careers Discovery',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'HiddenJobs',
+        },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -802,6 +861,27 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AutozellaBot',
         definition: { name: 'Autozella', category: 'seo_crawler', trafficType: 'Bot', operator: 'Autozella' },
     },
+    {
+        pattern: 'SenderBot',
+        definition: {
+            name: 'Sender',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'Sender Online Marketing',
+        },
+    },
+    {
+        pattern: 'Source-Intelligence',
+        definition: { name: 'Source Intelligence', category: 'seo_crawler', trafficType: 'Bot', operator: 'Phyex' },
+    },
+    {
+        pattern: 'MailShrineGwen',
+        definition: { name: 'MailShrine', category: 'seo_crawler', trafficType: 'Bot', operator: 'MailShrine' },
+    },
+    {
+        pattern: 'VendorLoomBot',
+        definition: { name: 'VendorLoom', category: 'seo_crawler', trafficType: 'Bot', operator: 'VendorLoom' },
+    },
     // Social / link-preview crawlers
     {
         pattern: 'PagePeeker',
@@ -859,6 +939,14 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'NimbusBlocklistSync',
         definition: { name: 'Nimbus Blocklist Sync', category: 'monitoring', trafficType: 'Bot', operator: 'Nimbus' },
+    },
+    {
+        pattern: 'WhosDownTodayBot',
+        definition: { name: 'WhosDownToday', category: 'monitoring', trafficType: 'Bot', operator: 'WhosDownToday' },
+    },
+    {
+        pattern: 'jsllm-scraper',
+        definition: { name: 'jsllm scraper', category: 'monitoring', trafficType: 'Bot', operator: 'ever-sec' },
     },
     // HTTP clients
     {
