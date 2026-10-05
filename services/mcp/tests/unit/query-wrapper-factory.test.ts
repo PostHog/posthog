@@ -639,3 +639,46 @@ describe('createQueryWrapper warnings', () => {
         expect(result).not.toHaveProperty('warnings')
     })
 })
+
+describe('createQueryWrapper All events label', () => {
+    const schema = z.object({
+        series: z.array(z.object({ kind: z.string(), event: z.string().nullable().optional() })),
+    })
+
+    function createContext(runQuery: ReturnType<typeof vi.fn>): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it.each([
+        [
+            'maps the advertised label to null',
+            { kind: 'EventsNode', event: 'All events' },
+            { kind: 'EventsNode', event: null },
+        ],
+        ['keeps an omitted event omitted', { kind: 'EventsNode' }, { kind: 'EventsNode' }],
+        [
+            'keeps a named event',
+            { kind: 'EventsNode', event: 'feedback sent' },
+            { kind: 'EventsNode', event: 'feedback sent' },
+        ],
+        [
+            'keeps the label on other node kinds',
+            { kind: 'ActionsNode', event: 'All events' },
+            { kind: 'ActionsNode', event: 'All events' },
+        ],
+    ])('%s', async (_name, series, expectedSeries) => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TrendsQuery' })()
+
+        const result = (await tool.handler(createContext(runQuery), { series: [series] })) as any
+
+        expect(runQuery.mock.calls[0]![0].query.series).toEqual([expectedSeries])
+        expect(result.query.series).toEqual([expectedSeries])
+    })
+})
