@@ -17,6 +17,8 @@ activity self-heals missing rows, and hook drift is surfaced by the webhook stat
 
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError
+
 import structlog
 
 from posthog.exceptions_capture import capture_exception
@@ -24,15 +26,57 @@ from posthog.models import Team
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_warehouse.backend.facade.api import get_webhook_url
+from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     sync_old_schemas_with_new_schemas,
 )
-from products.warehouse_sources.backend.facade.source_management import GithubSource, SourceRegistry
+from products.warehouse_sources.backend.facade.source_management import GithubSource, GithubSourceConfig, SourceRegistry
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+
+def github_source_credential(*, team_id: int, source_id: str) -> GitHubSourceCredential | None:
+    """How the team's GitHub source at ``source_id`` authenticates, for a consumer that has to read
+    the same repositories the source syncs.
+
+    The caller names one source, and the team filter keeps a stale or crafted id from reaching
+    another team's source. None covers every case that yields nothing to read with: no such source,
+    a deleted one, a source of another type, a config that does not parse, and a half-configured
+    auth method. A consumer that has no credential falls back on its own, so one answer for all of
+    them keeps that branch out of the consumer.
+    """
+    try:
+        source = (
+            ExternalDataSource.objects.filter(team_id=team_id, id=source_id, source_type=ExternalDataSourceType.GITHUB)
+            .exclude(deleted=True)
+            .first()
+        )
+    except (ValidationError, ValueError):
+        # The id travels from a resolve the caller made, so a value that is no UUID is a normal
+        # answer of "no such source" rather than a failure.
+        return None
+    if source is None:
+        return None
+    # ``job_inputs`` is an ``EncryptedJSONField`` that can hold any JSON value, and a half-written
+    # source is a normal state, so an unreadable config is no reason to fail the consumer.
+    if not isinstance(source.job_inputs, dict):
+        return None
+    try:
+        config = GithubSourceConfig.from_dict(source.job_inputs)
+    except Exception:
+        logger.warning("github_source_credential_config_unreadable", source_id=str(source.pk))
+        return None
+    auth = config.auth_method
+    if auth.selection == "pat":
+        if not auth.personal_access_token:
+            return None
+        return GitHubSourceCredential(personal_access_token=auth.personal_access_token)
+    if auth.github_integration_id is None:
+        return None
+    return GitHubSourceCredential(integration_id=auth.github_integration_id)
 
 
 def github_repositories_for_job_inputs(job_inputs: dict[str, Any] | None) -> list[str]:

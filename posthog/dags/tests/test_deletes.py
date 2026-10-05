@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
 
@@ -42,7 +42,7 @@ from posthog.dags.deletes import (
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
+from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
@@ -1219,7 +1219,9 @@ def test_events_json_is_skipped_by_default() -> None:
     # The events cluster is not reliably reachable from the sweep, and a run that resolves it
     # inconsistently reports an erasure it did not perform. Dropping the default would resume that
     # sweep silently, because nothing else in a run says which targets it was supposed to reach.
-    assert resolve_sweep_targets(build_op_context()) == ["sharded_events", "sharded_flag_evaluations"]
+    expected = ["sharded_events", "sharded_flag_evaluations"]
+    assert resolve_sweep_targets(build_op_context()) == expected
+    assert [target.data_table for target in DEFAULT_DELETION_TARGETS] == expected
 
 
 def test_an_unrecognised_skip_target_fails_the_run() -> None:
@@ -1234,25 +1236,29 @@ def test_an_unrecognised_skip_target_fails_the_run() -> None:
 
 @pytest.mark.parametrize(
     "unswept",
-    [
-        {"events": 3},
-        # None is a count that completed no attempt. Marking on it is the mistake this gate
-        # exists to stop: unknown is not zero.
-        {"events": None},
-    ],
+    [{"events": 3}, {"events": None}],
+    ids=["rows_survived", "count_could_not_be_taken"],
 )
-def test_marking_is_refused_when_a_count_survives_or_cannot_complete(unswept: dict):
+def test_marking_proceeds_when_the_check_does_not_come_back_clean(unswept: dict):
+    # The count reads the whole events table, so an unknown answer is its ordinary outcome rather
+    # than a signal. Failing the run on either outcome stopped every request instead of the ones at
+    # risk, and the requests it stranded grew the dictionaries the next count had to read.
+    cluster = Mock()
+    cluster.any_host_by_role.return_value.result.return_value = []
+    cluster.any_host.return_value.result.return_value = None
+    dictionary = PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1)))
+
     with patch("posthog.dags.deletes._count_unswept_rows", return_value=unswept):
-        with pytest.raises(dagster.Failure) as excinfo:
-            mark_deletions_verified(
-                build_op_context(),
-                [target.data_table for target in PERSONAL_DATA_TARGETS],
-                DeleteConfig(),
-                cast(ClickhouseCluster, None),
-                PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1))),
-                AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
-            )
-    assert "events" in str(excinfo.value)
+        resources = mark_deletions_verified(
+            build_op_context(),
+            [target.data_table for target in PERSONAL_DATA_TARGETS],
+            DeleteConfig(),
+            cluster,
+            dictionary,
+            AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
+        )
+
+    assert resources.pending_deletions_dictionary is dictionary
 
 
 @pytest.mark.parametrize(

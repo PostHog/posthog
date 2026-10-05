@@ -4,7 +4,7 @@ import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
-import { LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
@@ -35,14 +35,15 @@ import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualiza
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ExpressionModal } from 'products/data_warehouse/frontend/shared/components/ExpressionModal'
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
+import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { ExpressionModal } from '../ExpressionModal'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from '../saved_queries/materializationJobsLogic'
-import { ViewLinkModal } from '../ViewLinkModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -144,8 +145,8 @@ export function SQLEditor({
             queryPaneMinHeight,
             biEditorResizerProps: {
                 containerRef: biEditorRef,
-                logicKey: 'bi-editor-pane',
-                placement: 'bottom' as const,
+                logicKey: 'bi-editor-side-pane',
+                placement: 'right' as const,
                 persistent: true,
                 persistPrefix: 'v1',
             },
@@ -249,6 +250,10 @@ export function SQLEditor({
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), logic)
+    useAttachedLogic(
+        aiChartRecommendationLogic({ visualizationProps: dataVisualizationLogicProps, tabId: tabId || '' }),
+        logic
+    )
     useAttachedLogic(connectionSelectorLogic(), logic)
 
     const variablesLogicProps: VariablesLogicProps = {
@@ -463,6 +468,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         isSourceQueryLastRun,
         isMultiQuery,
         selectedConnectionId,
+        hasEditorChanges,
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
     const {
@@ -480,6 +486,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         reportAIQueryPromptOpen,
         setEditingInsightName,
         setEditingInsightDescription,
+        discardChanges,
     } = useActions(sqlEditorLogic)
     const { editingMetricName, metricUpdating } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
@@ -582,6 +589,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsInsight()
     }
 
+    const saveAsInsightDisabledReason = insightLoading
+        ? 'Loading insight...'
+        : !queryInput?.trim()
+          ? 'Write a SQL query before saving'
+          : undefined
+
     const saveAsDisabledReason = useMemo(() => {
         if (insightLoading) {
             return 'Loading insight...'
@@ -661,6 +674,34 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             Continue in a notebook
         </LemonButton>
     )
+    const continueInNotebookMenuItem = {
+        label: 'Continue in a notebook',
+        icon: <IconNotebook />,
+        onClick: () => convertToNotebook(),
+        disabledReason: notebooksLoading
+            ? 'Creating notebook...'
+            : queryInput?.trim()
+              ? continueInNotebookAccessDisabledReason
+              : 'Write a SQL query before continuing',
+        'data-attr': 'sql-editor-continue-in-notebook-button',
+    }
+    const discardChangesButton = (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={() => discardChanges()}
+            disabledReason={
+                insightLoading || updatingDataWarehouseSavedQuery
+                    ? 'Wait for the current operation to finish'
+                    : !hasEditorChanges
+                      ? 'No changes to discard'
+                      : undefined
+            }
+            data-attr="sql-editor-discard-changes"
+        >
+            Discard changes
+        </LemonButton>
+    )
 
     return (
         <>
@@ -669,6 +710,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 noBorder
                 noPadding
                 {...titleSectionProps}
+                nameSuffix={hasEditorChanges ? <LemonTag type="warning">Edited</LemonTag> : undefined}
                 {...(editingInsight && {
                     onNameChange: setEditingInsightName,
                     onDescriptionChange: setEditingInsightDescription,
@@ -702,7 +744,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                     },
                 }}
                 actions={
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {editingView ? (
                             <>
                                 <LemonButton
@@ -713,6 +755,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     History
                                 </LemonButton>
+                                {discardChangesButton}
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.WarehouseObjects}
                                     minAccessLevel={AccessControlLevel.Editor}
@@ -742,9 +785,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                 overlay: (
                                                     <LemonMenuOverlay
                                                         items={[
+                                                            continueInNotebookMenuItem,
                                                             {
                                                                 label: 'Save as new insight...',
-                                                                disabledReason: saveAsDisabledReason,
+                                                                disabledReason: saveAsInsightDisabledReason,
                                                                 onClick: () => saveAsInsight(),
                                                             },
                                                             {
@@ -790,14 +834,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     History
                                 </LemonButton>
-                                {continueInNotebookButton}
+                                {discardChangesButton}
                                 <LemonButton
                                     disabledReason={
-                                        !isSourceQueryLastRun
-                                            ? 'Run latest query changes before saving'
-                                            : !updateInsightButtonEnabled
-                                              ? 'No updates to save'
-                                              : undefined
+                                        saveAsInsightDisabledReason ??
+                                        (!updateInsightButtonEnabled ? 'No updates to save' : undefined)
                                     }
                                     loading={insightLoading}
                                     type="primary"
@@ -811,9 +852,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             overlay: (
                                                 <LemonMenuOverlay
                                                     items={[
+                                                        continueInNotebookMenuItem,
                                                         {
                                                             label: 'Save as new insight...',
-                                                            disabledReason: saveAsDisabledReason,
+                                                            disabledReason: saveAsInsightDisabledReason,
                                                             onClick: () => saveAsInsight(),
                                                         },
                                                         {
@@ -864,7 +906,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     items={secondarySaveMenuItems.map((item) => ({
                                                         ...item,
                                                         disabledReason:
-                                                            saveAsDisabledReason ?? item.accessDisabledReason,
+                                                            (item.action === 'insight'
+                                                                ? saveAsInsightDisabledReason
+                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
                                                     }))}
                                                 />
                                             ),
@@ -890,7 +934,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     size="small"
                                     onClick={onPrimarySaveClick}
                                     disabledReason={
-                                        saveAsDisabledReason ??
+                                        (saveAsMenuItems.primary.action === 'insight'
+                                            ? saveAsInsightDisabledReason
+                                            : saveAsDisabledReason) ??
                                         (saveAsMenuItems.primary.action === 'endpoint'
                                             ? saveAsEndpointDisabledReason
                                             : saveAsMenuItems.primary.action === 'view'
@@ -907,7 +953,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     items={secondarySaveMenuItems.map((item) => ({
                                                         ...item,
                                                         disabledReason:
-                                                            saveAsDisabledReason ?? item.accessDisabledReason,
+                                                            (item.action === 'insight'
+                                                                ? saveAsInsightDisabledReason
+                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
                                                     }))}
                                                 />
                                             ),

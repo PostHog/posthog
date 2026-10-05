@@ -20,6 +20,10 @@ import { AccountsEvents } from '../Accounts/constants'
 
 const CURRENT_USER_CONFIG_ID = '@me'
 
+interface TaskDigestSavePayload {
+    source?: 'settings' | 'tasks'
+}
+
 /** Locally staged edits to the digest preferences, applied on Save. */
 export interface TaskDigestDraft {
     enabled: boolean
@@ -69,7 +73,7 @@ export interface taskDigestLogicActions {
     resetDraft: () => {
         value: true
     }
-    saveTaskDigest: () => any
+    saveTaskDigest: (_payload?: TaskDigestSavePayload) => TaskDigestSavePayload
     saveTaskDigestFailure: (
         error: string,
         errorObject?: any
@@ -79,10 +83,10 @@ export interface taskDigestLogicActions {
     }
     saveTaskDigestSuccess: (
         config: UserCustomerAnalyticsConfigApi,
-        payload?: any
+        payload?: TaskDigestSavePayload
     ) => {
         config: UserCustomerAnalyticsConfigApi
-        payload?: any
+        payload?: TaskDigestSavePayload
     }
     setDraft: (draft: Partial<TaskDigestDraft>) => {
         draft: Partial<TaskDigestDraft>
@@ -121,7 +125,7 @@ export const taskDigestLogic = kea<taskDigestLogicType>([
                 loadConfig: async (): Promise<UserCustomerAnalyticsConfigApi> =>
                     await userCustomerAnalyticsConfigRetrieve(String(values.currentTeamId), CURRENT_USER_CONFIG_ID),
                 // Sends only task_digest, so the user's pinned sidebar properties stay untouched.
-                saveTaskDigest: async (): Promise<UserCustomerAnalyticsConfigApi> =>
+                saveTaskDigest: async (_payload: TaskDigestSavePayload = {}): Promise<UserCustomerAnalyticsConfigApi> =>
                     await userCustomerAnalyticsConfigPartialUpdate(
                         String(values.currentTeamId),
                         CURRENT_USER_CONFIG_ID,
@@ -170,9 +174,10 @@ export const taskDigestLogic = kea<taskDigestLogicType>([
         resetDraft: () => {
             actions.setDraft(draftFromConfig(values.config))
         },
-        saveTaskDigestSuccess: ({ config }) => {
+        saveTaskDigestSuccess: ({ config, payload }) => {
             lemonToast.success('Task digest preferences saved')
             posthog.capture(AccountsEvents.TaskDigestPreferencesSaved, {
+                source: payload?.source ?? 'settings',
                 enabled: config?.task_digest?.enabled ?? false,
                 send_time: config?.task_digest?.send_time,
                 cadence: config?.task_digest?.cadence,

@@ -3,9 +3,8 @@
 If the primary region doesn't own the resource, it proxies the
 request to the secondary region (US).
 
-The endpoints on `posthog/ingress/` forward through that package instead. This proxy stays for
-the ones that have not moved: they take multipart bodies, which the raw-bytes replay there
-cannot reconstruct.
+The endpoints on `posthog/ingress/` forward through that package instead, off a consumer's
+`ownership` answer. This proxy stays only for the endpoints that have not moved yet.
 """
 
 from urllib.parse import urlparse, urlunparse
@@ -49,14 +48,7 @@ def _build_proxy_kwargs(request: HttpRequest, headers: dict[str, str]) -> dict:
         return {"data": data, "files": files, "headers": cleaned_headers}
 
 
-def request_secondary_region_status(
-    request: HttpRequest,
-    *,
-    log_prefix: str,
-    timeout: int = 3,
-    query_params: dict[str, str] | None = None,
-    accepted_statuses: frozenset[int] = frozenset(),
-) -> int | None:
+def request_secondary_region_status(request: HttpRequest, *, log_prefix: str, timeout: int = 3) -> int | None:
     parsed_url = urlparse(request.build_absolute_uri())
     target_url = urlunparse(parsed_url._replace(netloc=SECONDARY_REGION_DOMAIN))
     headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
@@ -66,11 +58,11 @@ def request_secondary_region_status(
         response = requests.request(
             method=request.method or "POST",
             url=target_url,
-            params=query_params if query_params is not None else dict(request.GET.lists()) if request.GET else None,
+            params=dict(request.GET.lists()) if request.GET else None,
             timeout=timeout,
             **proxy_kwargs,
         )
-        if response.ok or response.status_code in accepted_statuses:
+        if response.ok:
             logger.info(
                 f"{log_prefix}_proxy_to_secondary_region",
                 target_url=target_url,

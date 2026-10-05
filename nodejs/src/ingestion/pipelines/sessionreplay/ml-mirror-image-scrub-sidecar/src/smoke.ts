@@ -13,8 +13,12 @@
  * detectors: with one the build would still pass while running no inference at all, so an ONNX
  * binary that loads but cannot `run`, or a zxing wasm module that never instantiates, would reach
  * production. Text is the assertion because it exercises the longest path, DBNet through to the
- * composite, and it is the detector whose output the scrub mostly consists of.
+ * composite, and it is the detector whose output the scrub mostly consists of. The face check reads
+ * the output pixels, because a face model can run and still put its boxes away from the face.
  */
+import { readFile } from 'node:fs/promises'
+import sharp from 'sharp'
+
 import { startPool } from './pool.ts'
 
 const WORKER_URL = new URL('./scrub-worker.ts', import.meta.url)
@@ -86,11 +90,47 @@ const TEXT_FIXTURE_PNG = Buffer.from(
     'base64'
 )
 
+// Eileen Collins' public-domain NASA portrait from scikit-image's `astronaut` sample, mirrored and cropped to 480x200: on this non-square canvas a row and column mix-up in the face detector's decode moves the fill off the face.
+const FACE_FIXTURE = new URL('./smoke-face.jpg', import.meta.url)
+// The middle half of the fixture's face, clear of the feathered edge of the fill.
+const FACE_MIDDLE = { left: 248, top: 60, width: 44, height: 51 }
+
+async function greySpreadOverFaceMiddle(
+    image: Buffer,
+    fixture: { width: number; height: number },
+    width: number,
+    height: number
+): Promise<number> {
+    const { data, info } = await sharp(image)
+        .resize(width, height, { fit: 'fill' })
+        .greyscale()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+    const x0 = Math.round((FACE_MIDDLE.left * width) / fixture.width)
+    const x1 = Math.round(((FACE_MIDDLE.left + FACE_MIDDLE.width) * width) / fixture.width)
+    const y0 = Math.round((FACE_MIDDLE.top * height) / fixture.height)
+    const y1 = Math.round(((FACE_MIDDLE.top + FACE_MIDDLE.height) * height) / fixture.height)
+    let count = 0
+    let sum = 0
+    let sumOfSquares = 0
+    for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+            const grey = data[(y * info.width + x) * info.channels]
+            count++
+            sum += grey
+            sumOfSquares += grey * grey
+        }
+    }
+    const mean = sum / count
+    return Math.sqrt(Math.max(0, sumOfSquares / count - mean * mean))
+}
+
 async function main(): Promise<void> {
     const pool = await startPool(2, WORKER_URL)
     const png = TEXT_FIXTURE_PNG
+    const face = await readFile(FACE_FIXTURE)
     // Two at once, so the build fails if a second worker cannot start or the pool mis-routes replies.
-    const [first, second] = await Promise.all([pool.scrub(png), pool.scrub(png)])
+    const [first, second, faceScrub] = await Promise.all([pool.scrub(png), pool.scrub(png), pool.scrub(face)])
     await pool.close()
 
     for (const [label, result] of [
@@ -110,9 +150,21 @@ async function main(): Promise<void> {
             throw new Error(`smoke scrub (${label}) found no text in a fixture that is mostly text`)
         }
     }
+    if (faceScrub.t.faces === 0) {
+        throw new Error('smoke scrub found no face in the face fixture')
+    }
+    const fixture = await sharp(face).metadata()
+    const stored = await sharp(faceScrub.out).metadata()
+    const before = await greySpreadOverFaceMiddle(face, fixture, stored.width, stored.height)
+    const after = await greySpreadOverFaceMiddle(faceScrub.out, fixture, stored.width, stored.height)
+    if (after > before / 4) {
+        throw new Error(
+            `smoke scrub left the fixture's face unfilled: grey spread ${after.toFixed(1)}, against ${before.toFixed(1)} before the scrub`
+        )
+    }
     console.log(
         `smoke scrub OK (${Math.round(first.t.totalMs)}ms, ${Math.round(second.t.totalMs)}ms, ` +
-            `${first.t.textBoxes} text regions)`
+            `${first.t.textBoxes} text regions, face filled: grey spread ${after.toFixed(1)} from ${before.toFixed(1)})`
     )
 }
 

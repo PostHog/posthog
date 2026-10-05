@@ -1,4 +1,7 @@
+import math
 import logging
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from products.ai_observability.backend.llm.types import StreamChunk
 
@@ -31,6 +34,22 @@ class RateLimitError(LLMError):
     """Raised when rate limit is exceeded"""
 
 
+class RetryableRateLimitError(RateLimitError):
+    def __init__(self, message: str, retry_after: str | None = None) -> None:
+        super().__init__(message)
+        self.retry_after: float | None = None
+        if retry_after:
+            try:
+                delay = float(retry_after)
+            except ValueError:
+                try:
+                    delay = (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
+                except (ValueError, TypeError, OverflowError):
+                    return
+            if math.isfinite(delay):
+                self.retry_after = max(1, min(delay, 60))
+
+
 class QuotaExceededError(LLMError):
     """Raised when API quota is exceeded"""
 
@@ -39,6 +58,38 @@ class ProviderConnectionError(LLMError):
     """Raised on a transient network/transport error talking to the provider — connection reset,
     read timeout, DNS failure. Retryable: callers should retry rather than treat it as a hard error,
     and should not log it as an exception since it's usually resolved on the next attempt."""
+
+
+class ProviderTimeoutError(ProviderConnectionError):
+    def __init__(self, timeout: float) -> None:
+        super().__init__(
+            f"The endpoint did not finish within {timeout:g} seconds. Check the endpoint's response time before trying again."
+        )
+
+
+class ProviderHostUnresolvedError(ProviderConnectionError):
+    """A configured endpoint whose hostname did not resolve. A DNS lookup can fail for a moment
+    while the endpoint is healthy, so this is retryable and must not disable the provider key."""
+
+    def __init__(self) -> None:
+        super().__init__("Could not resolve the base URL host. Check the base URL, then try again.")
+
+
+RESPONSE_LIMIT_MESSAGE = (
+    "The endpoint returned a compressed or oversized response. "
+    "Configure it to return uncompressed responses no larger than 1 MiB."
+)
+
+
+class ProviderRequestRejectedError(LLMError):
+    """A non-retryable request rejection with a message safe to show to the user."""
+
+
+class ProviderConfigurationError(LLMError):
+    """Raised when a provider key's stored configuration cannot be used as it stands — a base URL
+    that no longer passes the SSRF allowlist, or a required endpoint that was never set. The user
+    has to change the key, so callers should surface the message as a 400 rather than an internal
+    error: the configuration will not fix itself on a retry."""
 
 
 class ProviderMismatchError(LLMError):
@@ -80,6 +131,31 @@ _CONTEXT_WINDOW_ERROR_MARKERS = (
 def is_context_window_error_message(message: str) -> bool:
     lowered = message.lower()
     return any(marker in lowered for marker in _CONTEXT_WINDOW_ERROR_MARKERS)
+
+
+class OutputTokenLimitError(LLMError):
+    """Raised when the model stopped because it hit its output token limit.
+
+    Providers report an exhausted output budget in a 400 or through a `length` finish reason,
+    which the OpenAI SDK raises as `LengthFinishReasonError`. Rejected token settings stay
+    separate because the request must change before the model can generate a reply.
+    """
+
+
+_OUTPUT_LIMIT_ERROR_MARKERS = ("output limit was reached",)
+
+
+def is_output_limit_error_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
+
+
+class ContentFilteredError(LLMError):
+    """Raised when the provider's content filter refused the prompt or withheld the reply.
+
+    The prompt is usually built from customer trace content, so the refusal is not a PostHog
+    defect. Callers should skip the item rather than report one.
+    """
 
 
 class ModelPermissionError(LLMError):
@@ -141,6 +217,12 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "The provider is rate limiting this key. Wait a moment, then try again."
     if isinstance(error, ContextWindowExceededError):
         return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, OutputTokenLimitError):
+        return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
+    if isinstance(error, ContentFilteredError):
+        return "The provider's content filter refused this request. Change the input, then try again."
+    if isinstance(error, (ProviderTimeoutError, ProviderRequestRejectedError)):
+        return str(error)
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):
@@ -178,3 +260,18 @@ def stream_error_chunk(
         type="error",
         data={"error": user_facing_error_message(mapped if mapped is not None else error)},
     )
+
+
+def error_field_for_message(
+    table: tuple[tuple[str, str], ...],
+    error_message: str | None,
+) -> str | None:
+    """Map a `validate_key` error message to the UI form field that should be highlighted.
+
+    Each provider owns its own prefix table, because the messages are the provider's. Keep a
+    table aligned with the `return` statements in that provider's `validate_key`: editing a
+    message string there without updating the table silently breaks field routing.
+    """
+    if not error_message:
+        return None
+    return next((field for prefix, field in table if error_message.startswith(prefix)), None)

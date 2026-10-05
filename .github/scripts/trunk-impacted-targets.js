@@ -100,6 +100,7 @@
 //         prose-only PRs.
 //         Diagnostics on stderr
 
+const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
@@ -153,10 +154,13 @@ const SEMGREP = 'semgrep'
 // moved, degrading to every crate when that answer is absent.
 const CARGO_LOCK = 'cargo-lock'
 
-// The nodejs lane on its own, for files whose only reader is the ingestion
-// suite or an image built purely from nodejs/ sources. The rust and proto
-// rules also use it to name that lane without dragging in the frontend.
+// The nodejs lanes on their own, for files whose only readers are the nodejs
+// suites or an image built from nodejs/ sources and native bindings that claim
+// these lanes already. The rust and proto rules also use it to name those lanes
+// without dragging in the frontend.
 const NODE = 'node'
+const FRONTEND_SUITE = 'frontend-suite'
+const JS_LOCKFILE = 'js-lockfile'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
 // builds of the images those suites run inside. Both language families in
@@ -246,11 +250,11 @@ const TRIPWIRE_RULES = [
     // language's suite can be held to that language's lanes. Everything else
     // under .github/ stays universal: the list grows by decision, and a
     // workflow nobody has placed here keeps the old radius.
-    ['.github/workflows/ci-frontend.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook.yml', JAVASCRIPT],
-    ['.github/workflows/ci-storybook-update-test-timing.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs.yml', JAVASCRIPT],
-    ['.github/workflows/ci-nodejs-container.yml', JAVASCRIPT],
+    ['.github/workflows/ci-frontend.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-storybook-update-test-timing.yml', FRONTEND_SUITE],
+    ['.github/workflows/ci-nodejs.yml', NODE],
+    ['.github/workflows/ci-nodejs-container.yml', NODE],
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
     ['.github/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
@@ -263,6 +267,7 @@ const TRIPWIRE_RULES = [
     // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -277,7 +282,8 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
-    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources only.
+    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources and the replay-anonymizer addon,
+    // and a change to that native binding claims the node lane too (NATIVE_BINDING_CONSUMER_LANES).
     ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
     // The skills build renders templates that import product Python, and the
     // embedded-payload job runs the services/mcp generator that writes into
@@ -558,8 +564,8 @@ const TRIPWIRE_RULES = [
     // PR, and the shape that reaches a python lane is lockfile drift against a
     // workspace package.json, which needs both PRs to edit pnpm-lock.yaml and
     // so surfaces as a textual conflict git forces a rebase for.
-    ['pnpm-lock.yaml', JAVASCRIPT],
-    ['pnpm-workspace.yaml', JAVASCRIPT],
+    ['pnpm-lock.yaml', JS_LOCKFILE],
+    ['pnpm-workspace.yaml', JS_LOCKFILE],
     ['package.json', JAVASCRIPT],
     // The python lockfile and manifests, on the same reasoning. Every section
     // of pyproject.toml configures a python tool, and nothing in the pnpm
@@ -595,7 +601,8 @@ const TRIPWIRE_RULES = [
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
-    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources, and the
+    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources and the
+    // replay-anonymizer addon, whose changes already claim the node lanes, and the
     // playwright and sandbox images host suites that run both language
     // families. Everything else at the root, the unified app image included,
     // backs E2E, hobby, and production, which is the app-image radius; no
@@ -608,6 +615,10 @@ const TRIPWIRE_RULES = [
     ['Dockerfile*', APP_IMAGE],
     ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
+    // The checked-in python stubs. They sit under packages/, which the
+    // directory rules read as frontend, but every importer is python under
+    // posthog/.
+    ['packages/personhog-proto/**', PYTHON],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into
@@ -648,6 +659,9 @@ const TRIPWIRE_RULES = [
     // owners.yaml is the fallback every path resolves through when no nearer
     // file claims it. A product's own owners.yaml is not here: it keeps its
     // product lane.
+    ['packages/owners-yaml/**', OWNERSHIP],
+    // Transitional: branches that predate the move still carry the resolver at tools/owners,
+    // where the tools/ fallback rule would give it the Python lanes only.
     ['tools/owners/**', OWNERSHIP],
     ['owners.yaml', OWNERSHIP],
     // The quarantine list covers the pytest, jest, and playwright suites at
@@ -683,6 +697,7 @@ const TRIPWIRE_RULES = [
     ['bin/posthog-node', APP_IMAGE],
     ['bin/temporal-django-worker', APP_IMAGE],
     ['bin/granian_metrics.py', APP_IMAGE],
+    ['bin/granian_shared_socket.py', APP_IMAGE],
     ['bin/start-backend', APP_IMAGE],
     ['bin/start-frontend', APP_IMAGE],
     // The schema and taxonomy codegen pipeline, which turns
@@ -796,6 +811,7 @@ const COMMON_FULLSTACK = ['fixtures']
 
 // The pr-approval-agent engine's home inside the stamphog product.
 const PR_APPROVAL_AGENT_DIR = 'products/stamphog/packages/pr-approval-agent'
+const AGENT_WORKSPACE_DIR = 'packages/agent'
 
 // Tools that own their whole test story and that no suite imports, so they can
 // hold a lane of their own. Everything else under tools/ falls through to the
@@ -1500,8 +1516,17 @@ const RUST_DETERMINATOR = 'rust:determinator'
 // nodejs/package.json is the only dependent of the two binding packages
 // (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
-// dependent fails there rather than silently going unclaimed here.
-const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
+// dependent fails there rather than silently going unclaimed here. The
+// image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
+// addon too, built from the crate rather than installed from the package.
+// A binding change claims every node lane.
+const NODE_INGESTION = 'node:ingestion'
+const NODE_SUB_LANES = [
+    ['node:recording-rasterizer', 'nodejs/src/session-replay/recording-rasterizer'],
+    ['node:cdp', 'nodejs/src/cdp'],
+]
+const NODE_LANES = [NODE_INGESTION, ...NODE_SUB_LANES.map(([lane]) => lane)]
+const NATIVE_BINDING_CONSUMER_LANES = NODE_LANES
 
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged
@@ -1524,7 +1549,6 @@ function allKnownTargets(context) {
     const targets = new Set([
         'py:core',
         'fe:core',
-        'node:ingestion',
         'agents',
         'deploy',
         'hobby',
@@ -1533,6 +1557,9 @@ function allKnownTargets(context) {
         'ownership',
         'ci-tooling',
     ])
+    for (const lane of NODE_LANES) {
+        targets.add(lane)
+    }
     for (const product of products) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
@@ -1590,7 +1617,9 @@ function addJavaScriptLanes(targets, context) {
     }
     // The pnpm workspace spans frontend, nodejs, services, tools, and products,
     // and ci-cli.yml builds the CLI from services/mcp sources.
-    targets.add('node:ingestion')
+    for (const lane of NODE_LANES) {
+        targets.add(lane)
+    }
     for (const service of context.services) {
         targets.add(`svc:${service}`)
     }
@@ -1653,8 +1682,42 @@ function addCargoLockLanes(targets, context) {
     return true
 }
 
+function addFrontendSuiteLanes(targets, context) {
+    const lanes = new Set()
+    if (!addJavaScriptLanes(lanes, context)) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (!lane.startsWith('node:')) {
+            targets.add(lane)
+        }
+    }
+    return true
+}
+
 function addNodeLanes(targets) {
-    targets.add('node:ingestion')
+    for (const lane of NODE_LANES) {
+        targets.add(lane)
+    }
+    return true
+}
+
+function addJsLockfileLanes(targets, context) {
+    const lanes = new Set()
+    if (!addJavaScriptLanes(lanes, context)) {
+        return false
+    }
+    const reached = context.jsLockfileNodeLanes ? context.jsLockfileNodeLanes() : null
+    if (reached) {
+        for (const lane of NODE_LANES) {
+            if (!reached.has(lane)) {
+                lanes.delete(lane)
+            }
+        }
+    }
+    for (const lane of lanes) {
+        targets.add(lane)
+    }
     return true
 }
 
@@ -1748,8 +1811,8 @@ function addAppImageLanes(targets, context) {
 // The nodejs half takes the node domain rather than the javascript one because
 // the stubs land only in nodejs/src/common/generated; no frontend or services
 // package imports them. The python half cannot narrow below every python lane:
-// the stubs are checked into posthog/, which is py:core, and py:core covers
-// every product lane by construction.
+// posthog/personhog_client imports the stubs, that is py:core, and py:core
+// covers every product lane by construction.
 // stubDir names the checked-in stub directory when it differs from the tree
 // name; the consistency test reads it. ingestion's node stubs land in
 // nodejs/src/common/generated/ingestion-worker, not .../ingestion.
@@ -1801,6 +1864,8 @@ function addProtoLanes(targets, context, file) {
 const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
+    [FRONTEND_SUITE, addFrontendSuiteLanes],
+    [JS_LOCKFILE, addJsLockfileLanes],
     [RUST, addRustLanes],
     [CARGO_LOCK, addCargoLockLanes],
     [NODE, addNodeLanes],
@@ -1955,8 +2020,17 @@ function computeTargets(changedFiles, context) {
             continue
         }
 
-        if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
+        for (const lane of nodeLanesForWorkspaceFile(file, context)) {
+            targets.add(lane)
+        }
+
+        if (top === 'posthog' || top === 'clickhouse-udfs' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
+            continue
+        }
+        // The desktop app bundles the agent workspace and the desktop-* workflows test it,
+        // so it shares the desktop lanes. Without the product it takes the frontend lanes.
+        if (file.startsWith(`${AGENT_WORKSPACE_DIR}/`) && addDesktopLanes(targets, context)) {
             continue
         }
         if (top === 'frontend' || (top === 'ee' && segments[1] === 'frontend') || top === 'packages') {
@@ -1970,7 +2044,9 @@ function computeTargets(changedFiles, context) {
             continue
         }
         if (top === 'nodejs') {
-            targets.add('node:ingestion')
+            for (const lane of nodeLanesForSource(file, context)) {
+                targets.add(lane)
+            }
             continue
         }
         if (top === 'services' && segments.length > 1) {
@@ -2307,13 +2383,571 @@ function parseRustAffectedCrates(raw, rustInventory) {
     return crates
 }
 
+const NODE_SOURCE_ROOT = 'nodejs/src'
+const NODE_TESTS_ROOT = 'nodejs/tests'
+const NODE_IMPORT_ROOTS = [NODE_SOURCE_ROOT, NODE_TESTS_ROOT]
+const NODE_IMPORTER = 'nodejs'
+const ROOT_IMPORTER = '.'
+const NODE_SPECIFIER = String.raw`([^'"\s\x60$]+)`
+const NODE_IMPORT_PATTERNS = [
+    new RegExp(String.raw`\bfrom\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+    new RegExp(String.raw`\bimport\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+    new RegExp(String.raw`\bimport\(\s*['"]${NODE_SPECIFIER}['"]\s*\)`, 'g'),
+    new RegExp(String.raw`\brequire\(\s*['"]${NODE_SPECIFIER}['"]\s*\)`, 'g'),
+    new RegExp(String.raw`\bjest\.(?:mock|requireActual)\(\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+]
+const NODE_RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.js', '.json', '.d.ts', '/index.ts', '/index.tsx', '/index.js']
+const NODE_SOURCE_EXTENSIONS = /\.(ts|tsx|js|mjs|cjs)$/
+const NODE_BUILTINS = new Set(require('module').builtinModules)
+const NODE_WORKSPACE_FALLBACK_DIRS = ['common/hogvm', 'common/replay-headless', 'common/replay-shared']
+
+function nodeSubLaneOf(file) {
+    const match = NODE_SUB_LANES.find(([, dir]) => file.startsWith(`${dir}/`))
+    return match ? match[0] : null
+}
+
+function isNodeEntryPoint(file) {
+    if (!file.startsWith(`${NODE_SOURCE_ROOT}/`)) {
+        return true
+    }
+    const rest = file.slice(NODE_SOURCE_ROOT.length + 1)
+    return !rest.includes('/') || rest.startsWith('servers/')
+}
+
+function nodeOwnerLane(file) {
+    return nodeSubLaneOf(file) || (isNodeEntryPoint(file) ? null : NODE_INGESTION)
+}
+
+function nodeImportSpecifiers(text) {
+    const specifiers = []
+    for (const pattern of NODE_IMPORT_PATTERNS) {
+        for (const match of text.matchAll(pattern)) {
+            specifiers.push(match[1])
+        }
+    }
+    return specifiers
+}
+
+function nodeImportBase(fromFile, specifier) {
+    if (specifier.startsWith('~/tests/')) {
+        return `${NODE_TESTS_ROOT}/${specifier.slice('~/tests/'.length)}`
+    }
+    if (specifier.startsWith('~/')) {
+        return `${NODE_SOURCE_ROOT}/${specifier.slice(2)}`
+    }
+    if (specifier.startsWith('.')) {
+        return path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier))
+    }
+    return undefined
+}
+
+function resolveNodeImport(repoRoot, fromFile, specifier) {
+    const base = nodeImportBase(fromFile, specifier)
+    if (base === undefined) {
+        return undefined
+    }
+    const stems = base.endsWith('.js') ? [base, base.slice(0, -3)] : [base]
+    for (const stem of stems) {
+        for (const suffix of NODE_RESOLVE_SUFFIXES) {
+            const candidate = `${stem}${suffix}`
+            const absolute = path.join(repoRoot, candidate)
+            if (fs.existsSync(absolute) && fs.statSync(absolute).isFile()) {
+                return candidate
+            }
+        }
+    }
+    return null
+}
+
+function nodePackageName(specifier) {
+    if (specifier.startsWith('node:') || NODE_BUILTINS.has(specifier.split('/')[0])) {
+        return null
+    }
+    const segments = specifier.split('/')
+    return specifier.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0]
+}
+
+function listFilesUnder(repoRoot, relativeDir) {
+    const files = []
+    const walk = (dir) => {
+        for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+            const child = `${dir}/${entry.name}`
+            if (entry.isDirectory()) {
+                if (entry.name !== 'node_modules') {
+                    walk(child)
+                }
+            } else if (NODE_SOURCE_EXTENSIONS.test(entry.name)) {
+                files.push(child)
+            }
+        }
+    }
+    walk(relativeDir)
+    return files
+}
+
+function readNodeImports(repoRoot) {
+    const edges = new Map()
+    const roots = NODE_IMPORT_ROOTS.filter((dir) => fs.existsSync(path.join(repoRoot, dir)))
+    for (const file of roots.flatMap((dir) => listFilesUnder(repoRoot, dir))) {
+        const imports = { files: [], packages: new Set() }
+        for (const specifier of nodeImportSpecifiers(fs.readFileSync(path.join(repoRoot, file), 'utf8'))) {
+            const resolved = resolveNodeImport(repoRoot, file, specifier)
+            if (resolved === undefined) {
+                const name = nodePackageName(specifier)
+                if (name) {
+                    imports.packages.add(name)
+                }
+                continue
+            }
+            if (resolved === null) {
+                const subLane = nodeSubLaneOf(file)
+                if (subLane && nodeSubLaneOf(nodeImportBase(file, specifier)) === subLane) {
+                    continue
+                }
+                console.error(`Could not resolve ${specifier} from ${file}; every nodejs file claims every node lane`)
+                return null
+            }
+            imports.files.push(resolved)
+        }
+        edges.set(file, imports)
+    }
+    return edges
+}
+
+function loadNodeLaneMap(repoRoot) {
+    if (!fs.existsSync(path.join(repoRoot, NODE_SOURCE_ROOT))) {
+        return null
+    }
+    let edges
+    try {
+        edges = readNodeImports(repoRoot)
+    } catch (error) {
+        console.error(`Could not map the nodejs imports (${error.message}); every nodejs file claims every node lane`)
+        return null
+    }
+    if (!edges) {
+        return null
+    }
+    const fileLanes = new Map()
+    const packageLanes = new Map()
+    const claim = (map, key, lane) => {
+        if (!map.has(key)) {
+            map.set(key, new Set())
+        }
+        map.get(key).add(lane)
+    }
+    for (const lane of NODE_LANES) {
+        const queue = [...edges.keys()].filter((file) => nodeOwnerLane(file) === lane)
+        const seen = new Set()
+        while (queue.length > 0) {
+            const file = queue.pop()
+            if (seen.has(file)) {
+                continue
+            }
+            seen.add(file)
+            claim(fileLanes, file, lane)
+            const imports = edges.get(file)
+            if (!imports) {
+                continue
+            }
+            for (const name of imports.packages) {
+                claim(packageLanes, name, lane)
+            }
+            queue.push(...imports.files)
+        }
+    }
+    for (const [file, imports] of edges) {
+        if (nodeOwnerLane(file) === null) {
+            for (const name of imports.packages) {
+                for (const lane of NODE_LANES) {
+                    claim(packageLanes, name, lane)
+                }
+            }
+        }
+    }
+    return { fileLanes, packageLanes }
+}
+
+function nodeLanesForSource(file, context) {
+    const map = context.nodeLaneMap
+    const deleted = context.deletedFiles && context.deletedFiles.has(file)
+    if (!map || !file.startsWith(`${NODE_SOURCE_ROOT}/`) || file.endsWith('.d.ts') || deleted) {
+        return NODE_LANES
+    }
+    const owner = nodeOwnerLane(file)
+    if (owner === null) {
+        return NODE_LANES
+    }
+    const lanes = map.fileLanes.get(file)
+    return lanes ? [...lanes] : [owner]
+}
+
+function nodeLanesForPackage(name, context) {
+    const lanes = context.nodeLaneMap && context.nodeLaneMap.packageLanes.get(name)
+    return lanes ? [...lanes] : NODE_LANES
+}
+
+function unquoteYamlKey(key) {
+    return key.replace(/^(['"])(.*)\1$/, '$2')
+}
+
+function parsePnpmLockfile(text) {
+    const sections = new Map()
+    let section = null
+    let entry = null
+    for (const line of text.split('\n')) {
+        if (!line.trim()) {
+            continue
+        }
+        const top = line.match(/^([^\s#][^:]*):\s*(.*)$/)
+        if (top) {
+            section = { scalar: top[2], entries: new Map() }
+            sections.set(top[1], section)
+            entry = null
+            continue
+        }
+        if (!section) {
+            return null
+        }
+        const key = line.match(/^ {2}('[^']*'|"[^"]*"|[^\s'"].*?):(?:\s+(.*))?$/)
+        if (key) {
+            entry = { lines: key[2] ? [key[2].trim()] : [] }
+            section.entries.set(unquoteYamlKey(key[1]), entry)
+            continue
+        }
+        if (entry) {
+            entry.lines.push(line)
+        } else {
+            section.entries.set(line, { lines: [] })
+        }
+    }
+    return sections
+}
+
+function importerDependencies(entry) {
+    const dependencies = []
+    let current = null
+    for (const line of entry.lines) {
+        const dependency = line.match(/^ {6}(\S.*?):\s*$/)
+        if (dependency) {
+            current = { name: unquoteYamlKey(dependency[1]), lines: [line] }
+            continue
+        }
+        if (current && /^ {8}/.test(line)) {
+            current.lines.push(line)
+            const version = line.match(/^ {8}version:\s*(.+)$/)
+            if (version) {
+                dependencies.push({ ...current, version: unquoteYamlKey(version[1].trim()) })
+                current = null
+            }
+        }
+    }
+    return dependencies
+}
+
+function snapshotDependencies(entry) {
+    const dependencies = []
+    let group = null
+    for (const line of entry.lines) {
+        const header = line.match(/^ {4}(\S+):\s*$/)
+        if (header) {
+            group = header[1]
+            continue
+        }
+        const dependency = line.match(/^ {6}(\S.*?):\s*(.+)$/)
+        if (dependency && (group === 'dependencies' || group === 'optionalDependencies')) {
+            dependencies.push({ name: unquoteYamlKey(dependency[1]), version: unquoteYamlKey(dependency[2].trim()) })
+        }
+    }
+    return dependencies
+}
+
+function snapshotKey(name, version) {
+    const atIndex = version.indexOf('@', 1)
+    const parenIndex = version.indexOf('(')
+    const isAlias = atIndex > 0 && (parenIndex === -1 || atIndex < parenIndex)
+    return isAlias ? version : `${name}@${version}`
+}
+
+function linkTarget(importer, version) {
+    return path.posix.normalize(path.posix.join(importer, version.slice('link:'.length)))
+}
+
+const PNPM_LOCK_RESOLUTION_SECTIONS = new Set(['importers', 'packages', 'snapshots', 'catalogs'])
+
+class LockfileWalkError extends Error {}
+
+function dependencyFingerprint(lockfile, dependency, fromImporter, isWorkspaceMember) {
+    const importers = lockfile.get('importers')
+    const snapshots = lockfile.get('snapshots')
+    const packages = lockfile.get('packages')
+    const parts = [dependency.lines.join('\n')]
+    const pendingImporters = []
+    const pendingSnapshots = []
+    if (dependency.version.startsWith('link:')) {
+        pendingImporters.push(linkTarget(fromImporter, dependency.version))
+    } else {
+        pendingSnapshots.push(snapshotKey(dependency.name, dependency.version))
+    }
+    const seenImporters = new Set()
+    const seenSnapshots = new Set()
+    while (pendingImporters.length > 0 || pendingSnapshots.length > 0) {
+        if (pendingImporters.length > 0) {
+            const importer = pendingImporters.pop()
+            if (seenImporters.has(importer)) {
+                continue
+            }
+            seenImporters.add(importer)
+            const entry = importers.entries.get(importer)
+            if (!entry) {
+                if (!isWorkspaceMember(importer)) {
+                    throw new LockfileWalkError(`the lockfile links ${importer}, which no workspace glob names`)
+                }
+                parts.push(`importer:${importer}:`)
+                continue
+            }
+            parts.push(`importer:${importer}:${entry.lines.join('\n')}`)
+            for (const next of importerDependencies(entry)) {
+                if (next.version.startsWith('link:')) {
+                    pendingImporters.push(linkTarget(importer, next.version))
+                } else {
+                    pendingSnapshots.push(snapshotKey(next.name, next.version))
+                }
+            }
+            continue
+        }
+        const key = pendingSnapshots.pop()
+        if (seenSnapshots.has(key)) {
+            continue
+        }
+        seenSnapshots.add(key)
+        const snapshot = snapshots.entries.get(key)
+        const packageKey = key.includes('(', 1) ? key.slice(0, key.indexOf('(', 1)) : key
+        const packageEntry = packages.entries.get(packageKey)
+        if (!snapshot || !packageEntry) {
+            throw new LockfileWalkError(`the lockfile has no entry for ${key}`)
+        }
+        parts.push(`snapshot:${key}:${snapshot.lines.join('\n')}\n${packageEntry.lines.join('\n')}`)
+        for (const next of snapshotDependencies(snapshot)) {
+            if (!next.version.startsWith('link:')) {
+                pendingSnapshots.push(snapshotKey(next.name, next.version))
+            }
+        }
+    }
+    return parts.sort().join('\n\n')
+}
+
+function nodeDependencyFingerprints(lockfile, isWorkspaceMember) {
+    const importers = lockfile.get('importers')
+    if (!importers || !lockfile.get('snapshots') || !lockfile.get('packages')) {
+        throw new LockfileWalkError('the lockfile has no importers, packages or snapshots section')
+    }
+    const entry = importers.entries.get(NODE_IMPORTER)
+    if (!entry) {
+        throw new LockfileWalkError(`the lockfile has no importer ${NODE_IMPORTER}`)
+    }
+    const fingerprints = { node: new Map(), root: new Map() }
+    for (const dependency of importerDependencies(entry)) {
+        fingerprints.node.set(
+            dependency.name,
+            dependencyFingerprint(lockfile, dependency, NODE_IMPORTER, isWorkspaceMember)
+        )
+    }
+    const root = importers.entries.get(ROOT_IMPORTER)
+    for (const dependency of root ? importerDependencies(root) : []) {
+        fingerprints.root.set(
+            dependency.name,
+            dependencyFingerprint(lockfile, dependency, ROOT_IMPORTER, isWorkspaceMember)
+        )
+    }
+    return fingerprints
+}
+
+function changedDependencies(base, head) {
+    return [...new Set([...base.keys(), ...head.keys()])].filter((name) => base.get(name) !== head.get(name))
+}
+
+function nonResolutionSections(lockfile) {
+    return JSON.stringify(
+        [...lockfile.entries()]
+            .filter(([name]) => !PNPM_LOCK_RESOLUTION_SECTIONS.has(name))
+            .map(([name, section]) => [
+                name,
+                section.scalar,
+                [...section.entries.entries()].map(([key, entry]) => [key, entry.lines]),
+            ])
+    )
+}
+
+function workspaceWithoutCatalogs(text) {
+    const kept = []
+    let inCatalog = false
+    for (const line of text.split('\n')) {
+        if (/^\S/.test(line)) {
+            inCatalog = /^catalogs?:/.test(line)
+        }
+        if (!inCatalog && line.trim() && !line.trim().startsWith('#')) {
+            kept.push(line.trimEnd())
+        }
+    }
+    return kept.join('\n')
+}
+
+function workspaceMembership(workspace) {
+    const matcher = compileWorkspaceMatcher(parseWorkspacePackageGlobs(workspace))
+    return (importer) => Boolean(matcher) && matcher(`${importer}/package.json`)
+}
+
+function jsLockfileNodeLanes({ baseLockfile, headLockfile, baseWorkspace, headWorkspace, nodeLaneMap }) {
+    if (baseLockfile == null || headLockfile == null || baseWorkspace == null || headWorkspace == null) {
+        return null
+    }
+    const allLanes = new Set(NODE_LANES)
+    if (workspaceWithoutCatalogs(baseWorkspace) !== workspaceWithoutCatalogs(headWorkspace)) {
+        return allLanes
+    }
+    const base = parsePnpmLockfile(baseLockfile)
+    const head = parsePnpmLockfile(headLockfile)
+    if (!base || !head) {
+        return null
+    }
+    if (nonResolutionSections(base) !== nonResolutionSections(head)) {
+        return allLanes
+    }
+    let baseFingerprints
+    let headFingerprints
+    try {
+        baseFingerprints = nodeDependencyFingerprints(base, workspaceMembership(baseWorkspace))
+        headFingerprints = nodeDependencyFingerprints(head, workspaceMembership(headWorkspace))
+    } catch (error) {
+        if (error instanceof LockfileWalkError) {
+            console.error(`${error.message}; a JS lockfile change claims every node lane`)
+            return null
+        }
+        throw error
+    }
+    const changed = [
+        ...changedDependencies(baseFingerprints.node, headFingerprints.node),
+        ...changedDependencies(baseFingerprints.root, headFingerprints.root).filter(
+            (name) => !baseFingerprints.node.has(name) && !headFingerprints.node.has(name)
+        ),
+    ]
+    return new Set(changed.flatMap((name) => nodeLanesForPackage(name, { nodeLaneMap })))
+}
+
+function nodeWorkspaceDependencies(headLockfile) {
+    const lockfile = headLockfile && parsePnpmLockfile(headLockfile)
+    const importers = lockfile && lockfile.get('importers')
+    const entry = importers && importers.entries.get(NODE_IMPORTER)
+    if (!entry) {
+        return null
+    }
+    const dirs = new Map()
+    for (const dependency of importerDependencies(entry)) {
+        if (!dependency.version.startsWith('link:')) {
+            continue
+        }
+        const pending = [linkTarget(NODE_IMPORTER, dependency.version)]
+        while (pending.length > 0) {
+            const dir = pending.pop()
+            if (!dirs.has(dir)) {
+                dirs.set(dir, new Set())
+            }
+            if (dirs.get(dir).has(dependency.name)) {
+                continue
+            }
+            dirs.get(dir).add(dependency.name)
+            const linked = importers.entries.get(dir)
+            for (const next of linked ? importerDependencies(linked) : []) {
+                if (next.version.startsWith('link:')) {
+                    pending.push(linkTarget(dir, next.version))
+                }
+            }
+        }
+    }
+    return dirs
+}
+
+function nodeLanesForWorkspaceFile(file, context) {
+    const dirs = context.nodeWorkspaceDependencies
+    if (!dirs) {
+        return NODE_WORKSPACE_FALLBACK_DIRS.some((dir) => file.startsWith(`${dir}/`)) ? NODE_LANES : []
+    }
+    const lanes = new Set()
+    for (const [dir, dependencies] of dirs) {
+        if (file.startsWith(`${dir}/`)) {
+            for (const name of dependencies) {
+                for (const lane of nodeLanesForPackage(name, context)) {
+                    lanes.add(lane)
+                }
+            }
+        }
+    }
+    return [...lanes]
+}
+
+const LANE_MERGE_BASE_ENV = 'LANE_MERGE_BASE'
+
+function readOptional(file) {
+    try {
+        return fs.readFileSync(file, 'utf8')
+    } catch (error) {
+        console.error(`Could not read ${file} (${error.message}); a JS lockfile change claims every node lane`)
+        return null
+    }
+}
+
+function readAtRevision(repoRoot, revision, file) {
+    try {
+        return execFileSync('git', ['show', `${revision}:${file}`], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024 * 1024,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        })
+    } catch (error) {
+        console.error(
+            `Could not read ${file} at ${revision} (${error.message}); a JS lockfile change claims every node lane`
+        )
+        return null
+    }
+}
+
+function jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile) {
+    let answer
+    return () => {
+        if (answer !== undefined) {
+            return answer
+        }
+        const mergeBase = process.env[LANE_MERGE_BASE_ENV] || ''
+        if (!/^[0-9a-f]{40}$/.test(mergeBase)) {
+            console.error(`${LANE_MERGE_BASE_ENV} is not a commit id; a JS lockfile change claims every node lane`)
+            answer = null
+            return answer
+        }
+        answer = jsLockfileNodeLanes({
+            baseLockfile: readAtRevision(repoRoot, mergeBase, 'pnpm-lock.yaml'),
+            baseWorkspace: readAtRevision(repoRoot, mergeBase, 'pnpm-workspace.yaml'),
+            headLockfile,
+            headWorkspace: readOptional(path.join(repoRoot, 'pnpm-workspace.yaml')),
+            nodeLaneMap,
+        })
+        return answer
+    }
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
     const rustInventory = loadRustInventory(repoRoot)
     const contractSurfaces = loadContractSurfaces(repoRoot, products)
+    const nodeLaneMap = loadNodeLaneMap(repoRoot)
+    const headLockfile = readOptional(path.join(repoRoot, 'pnpm-lock.yaml'))
     return {
         products,
+        nodeLaneMap,
+        nodeWorkspaceDependencies: nodeWorkspaceDependencies(headLockfile),
+        jsLockfileNodeLanes: jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile),
         rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
@@ -2329,6 +2963,10 @@ function buildContext(repoRoot) {
 
 module.exports = {
     computeTargets,
+    jsLockfileNodeLanes,
+    loadNodeLaneMap,
+    NODE_LANES,
+    NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
     compileContractMatcher,

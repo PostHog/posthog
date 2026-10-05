@@ -209,6 +209,9 @@ export default {
     },
 
     async preVisit(page, context) {
+        // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
+        // Not `null`: that stops emulation, so WebKit follows a dark host.
+        await page.emulateMedia({ colorScheme: 'light' })
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -534,16 +537,27 @@ async function takeSnapshotWithTheme(
 
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
+    // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
+    await page.emulateMedia({ colorScheme: theme })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
+        // A lazy image far below the fold stays unfetched until it nears the viewport, and the
+        // element screenshot can bring it into range mid-capture. Switching to eager starts the
+        // fetch now, so the wait below covers it.
+        await page.evaluate(() => {
+            document.querySelectorAll<HTMLImageElement>('img[loading="lazy"]').forEach((img) => {
+                img.loading = 'eager'
+            })
+        })
         await page.waitForFunction(() => {
             // Declared inside the callback because this whole body is serialized into the browser.
             function isImageAccountedFor(i: HTMLImageElement): boolean {
-                if (i.naturalWidth) {
+                // naturalWidth is set once the header is parsed, before the download completes.
+                if (i.complete && i.naturalWidth) {
                     return true
                 }
                 // ProseMirror-separator isn't an actual image of any sort, so we ignore those
@@ -571,6 +585,10 @@ async function takeSnapshotWithTheme(
             }
             return areAllImagesLoaded
         })
+        // `decoding="async"` lets a loaded image paint a frame later, so wait for its pixels.
+        await page.evaluate(() =>
+            Promise.all(Array.from(document.images).map((img) => img.decode().catch(() => undefined)))
+        )
     }
 
     // wait for iframes to load their content

@@ -116,6 +116,19 @@ class GoogleSearchConsoleResumeConfig:
     start_row: int  # next startRow within current_date
 
 
+SEARCH_CONSOLE_UI_PREFIX = "https://search.google.com/"
+
+
+def is_search_console_ui_url(site: str) -> bool:
+    """True when the value addresses Search Console itself rather than one of the account's properties.
+
+    ``normalize_site_url`` lifts the property out of a UI URL that carries a ``resource_id``.
+    Whatever is left on ``search.google.com`` names no property and never will, so no amount of
+    re-checking account access can make it validate.
+    """
+    return site.strip().lower().startswith(SEARCH_CONSOLE_UI_PREFIX)
+
+
 def normalize_site_url(raw: str) -> str:
     """Coerce a user-entered property URL toward Google's canonical form.
 
@@ -130,7 +143,7 @@ def normalize_site_url(raw: str) -> str:
     site = raw.strip()
 
     # The Search Console UI URL carries the property in its `resource_id` query param.
-    if site.startswith("https://search.google.com/"):
+    if is_search_console_ui_url(site):
         resource_id = parse_qs(urlparse(site).query).get("resource_id")
         if resource_id:
             site = resource_id[0].strip()
@@ -594,14 +607,27 @@ def _property_rows(
 ) -> collections.abc.Iterator[list[dict[str, Any]]]:
     session = google_search_console_session(config.google_search_console_integration_id, team_id)
 
-    if resource_name == "sites":
-        rows = [_site_to_dict(site) for site in list_sites(session)]
-    else:
-        sitemaps = list_sitemaps(session, normalize_site_url(config.site_url))
-        if resource_name == "sitemaps":
-            rows = [_sitemap_to_dict(sitemap) for sitemap in sitemaps]
+    try:
+        if resource_name == "sites":
+            rows = [_site_to_dict(site) for site in list_sites(session)]
         else:
-            rows = [row for sitemap in sitemaps for row in _sitemap_content_rows(sitemap)]
+            sitemaps = list_sitemaps(session, normalize_site_url(config.site_url))
+            if resource_name == "sitemaps":
+                rows = [_sitemap_to_dict(sitemap) for sitemap in sitemaps]
+            else:
+                rows = [row for sitemap in sitemaps for row in _sitemap_content_rows(sitemap)]
+    except requests.HTTPError as e:
+        # `list_sites` and `list_sitemaps` call `raise_for_status` directly, so a spent quota
+        # arrives here as a bare "403 Client Error". `get_non_retryable_errors` matches that
+        # string and the table is disabled, even though the quota refills on its own. Google
+        # answers a spent quota and a real permission failure with the same status, and only the
+        # body separates them, which is what `_is_quota_error` reads. A real permission failure
+        # still raises unchanged, so it keeps disabling the table as before.
+        if e.response is not None and _is_quota_error(e.response):
+            raise GoogleSearchConsoleQuotaExceededError(
+                f"Search Console quota exhausted while listing {resource_name}; the next sync picks it up (retryable)"
+            ) from e
+        raise
 
     if rows:
         yield rows

@@ -37,16 +37,17 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
+
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 
 logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_PROJECT_ROUTING_FLAG = "slack-app-project-routing"
+SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -125,18 +126,13 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_project_routing_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
-    """Gate for reading a project out of the message that opens a thread, instead of
-    always running against the saved default.
-
-    Keyed on the person as well as the workspace: which projects are on offer is bounded
-    by the mentioner's access, so the decision is about them and an internal rollout can
-    name them the way every other one does.
-    """
+def is_slack_app_project_picker_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
+    """Gate for the in-thread project picker. With the gate closed, a mention that could go
+    to more than one project gets the text hint."""
     return _workspace_flag_enabled(
-        SLACK_APP_PROJECT_ROUTING_FLAG,
+        SLACK_APP_PROJECT_PICKER_FLAG,
         integration,
-        failure_log_key="slack_app_project_routing_feature_flag_check_failed",
+        failure_log_key="slack_app_project_picker_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 

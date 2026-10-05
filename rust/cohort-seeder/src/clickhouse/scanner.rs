@@ -2,7 +2,9 @@
 //! evaluator into tiles, and emits the scan metrics. Depends on `domain`, `config`, and the sibling
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use chrono_tz::Tz;
@@ -17,26 +19,34 @@ use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
-use super::sql::{plan_scan, scan_sql, ScanPlan, ScanSpec};
+use super::sql::{
+    ambiguous_value_probe_sql, fits_client_get, plan_scan, row_filter_sql, scan_sql, ScanPlan,
+    ScanSpec,
+};
 use crate::domain::{
-    conditions_active_on, diff_tiles, ActiveConditions, AggregateError, BlobSource, CancelCause,
-    ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk,
-    ConditionAnalyses, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome,
-    RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, TileDiff, UtcMillis,
+    conditions_active_on, diff_tiles, ActiveConditions, AggregateError, CancelCause,
+    ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk, ColumnExactKeys,
+    ColumnUpgrade, ConditionAnalyses, DayIdx, EventNameSet, Halted, MaterializedColumns,
+    PinnedCondition, PinnedRun, ProjectedKeys, PropertiesSourcing, RecordOutcome, RecordStats,
+    ScanRowFilter, ScanVolume, ScannedChunk, SeedDomain, SeedTile, SourcedProjection, TileDiff,
+    UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
     CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
-    PROJECTION_KEYS, ROWS_SCANNED, SHADOW_COMPARE, SHADOW_COMPARE_DURATION_SECONDS,
-    SHADOW_COMPARE_LEGACY_SKIPPED,
+    PROJECTION_KEYS, ROWS_SCANNED, SCAN_PROPERTIES_SOURCE, SCAN_ROW_FILTER, SHADOW_COMPARE,
+    SHADOW_COMPARE_DURATION_SECONDS, SHADOW_COMPARE_LEGACY_SKIPPED,
 };
+
+const MATERIALIZED_LOOKUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct ChunkScanner {
-    client: clickhouse::Client,
+    client: ClickHouseClient,
     /// Only what bounds the `team_id` label on the projection metrics. The scanner makes no
     /// admission decision from it — discovery already did, and re-deciding here would give one
     /// chunk a second, quieter place to be dropped.
@@ -51,7 +61,7 @@ pub struct ChunkScanner {
 }
 
 impl ChunkScanner {
-    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
+    pub fn new(client: ClickHouseClient, allowlist: TeamAllowlist, shadow_compare: bool) -> Self {
         Self {
             client,
             allowlist,
@@ -131,7 +141,26 @@ impl ChunkScanner {
             }
         };
         let projection = analyses.projection(&active);
-        self.record_projection(run.team_id, &projection);
+        let exact = analyses.column_exact_keys(&active);
+        let row_filter = analyses.row_filter(&event_names, &run.filters, &active);
+        let columns = self
+            .lookup_columns(&column_lookup_keys(&projection, &exact, &row_filter))
+            .await;
+        let comment = ScanLogComment::BehavioralChunk {
+            spec,
+            cohort_id: run.sole_cohort_id(),
+        };
+        let sourcing = match projection.source_properties(&exact, &columns) {
+            PropertiesSourcing::Upgradable(upgrade) => {
+                self.probe_ambiguous_values(&scan_spec, upgrade, comment, lease_cancel, shutdown)
+                    .await?
+            }
+            decided @ PropertiesSourcing::Decided(_) => decided,
+        };
+        let narrowed = narrow_scan(scan_spec, sourcing, &row_filter, &columns);
+        self.record_narrowing(run.team_id, &narrowed);
+        let scan_spec = narrowed.filtered.spec;
+        let projection = narrowed.sourced.into_projection();
 
         let (tiles, volume, projected_fold) = self
             .scan_once(
@@ -142,10 +171,7 @@ impl ChunkScanner {
                 &scan_spec,
                 &projection,
                 ScanKind::Behavioral,
-                ScanLogComment::BehavioralChunk {
-                    spec,
-                    cohort_id: run.sole_cohort_id(),
-                },
+                comment,
                 lease_cancel,
                 shutdown,
             )
@@ -332,37 +358,204 @@ impl ChunkScanner {
         Ok(())
     }
 
+    /// The column form reads a column value that trims to `false` as the boolean, which the VM
+    /// equates with every exact literal, while the string `"false"` equals none. Only the blob holds
+    /// the type, so a chunk with such a value keeps the rebuild.
+    async fn probe_ambiguous_values(
+        &self,
+        spec: &ScanSpec,
+        upgrade: ColumnUpgrade,
+        comment: ScanLogComment,
+        lease_cancel: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> Result<PropertiesSourcing, ScanHalt> {
+        let sql = ambiguous_value_probe_sql(spec, upgrade.backed());
+        // The column form's scan is longer than the probe, so it would not fit either.
+        if !fits_client_get(&sql) {
+            return Ok(PropertiesSourcing::Decided(upgrade.decline_too_long()));
+        }
+        let probe = self
+            .client
+            .query(&sql)
+            .with_option(LOG_COMMENT_OPTION, comment.to_string())
+            .fetch_optional::<u8>();
+        let found = tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::Shutdown)),
+            _ = lease_cancel.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::LeaseLost)),
+            found = probe => found.map_err(ScanError::Probe)?,
+        };
+        Ok(match found {
+            Some(_) => PropertiesSourcing::Decided(upgrade.decline_ambiguous_value()),
+            None => PropertiesSourcing::Upgradable(upgrade),
+        })
+    }
+
+    /// A failed or timed-out lookup returns no columns, so the scan reads the blob.
+    async fn lookup_columns(&self, keys: &BTreeSet<&str>) -> MaterializedColumns {
+        match tokio::time::timeout(
+            MATERIALIZED_LOOKUP_TIMEOUT,
+            MaterializedColumns::lookup(&self.client, keys),
+        )
+        .await
+        {
+            Ok(Ok(columns)) => columns,
+            Ok(Err(error)) => {
+                warn!(error = ?error, "materialized column lookup failed; the scan reads the properties blob");
+                MaterializedColumns::default()
+            }
+            Err(_) => {
+                warn!("materialized column lookup timed out; the scan reads the properties blob");
+                MaterializedColumns::default()
+            }
+        }
+    }
+
     /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
     /// before its scan cost is.
-    fn record_projection(&self, team_id: TeamId, projection: &ChunkProjection) {
+    fn record_narrowing(&self, team_id: TeamId, narrowed: &NarrowedScan) {
         let team = team_label(&self.allowlist, team_id);
+        let projection = narrowed.sourced.projection();
         counter!(
             CHUNKS_PROJECTED,
             "outcome" => projection.outcome(),
             "team_id" => team.clone(),
         )
         .increment(1);
+        counter!(
+            SCAN_PROPERTIES_SOURCE,
+            "source" => narrowed.sourced.outcome().as_str(),
+            "team_id" => team.clone(),
+        )
+        .increment(1);
+        counter!(
+            SCAN_ROW_FILTER,
+            "outcome" => narrowed.filtered.outcome.as_str(),
+            "team_id" => team.clone(),
+        )
+        .increment(1);
         let ChunkProjection::Projected(plan) = projection else {
             return;
         };
-        for (blob, source) in [
-            ("properties", &plan.properties),
-            ("person_properties", &plan.person_properties),
+        for (blob, keys) in [
+            ("properties", plan.properties.key_count()),
+            ("person_properties", plan.person_properties.key_count()),
         ] {
-            record_projected_keys(blob, source, team.clone());
+            if let Some(keys) = keys {
+                histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team.clone())
+                    .record(keys as f64);
+            }
         }
     }
 }
 
-/// A blob's kept-key count, where there is one. [`BlobSource::Full`] has none — see
-/// [`PROJECTION_KEYS`].
-fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>) {
-    let keys = match source {
-        BlobSource::Full => return,
-        BlobSource::Empty => 0,
-        BlobSource::Keys(keys) => keys.count(),
+#[derive(Debug)]
+struct NarrowedScan {
+    sourced: SourcedProjection,
+    filtered: FilteredSpec,
+}
+
+#[derive(Debug)]
+struct FilteredSpec {
+    spec: ScanSpec,
+    outcome: RowFilterOutcome,
+}
+
+/// Columns take the GET budget before the row filter: they keep ClickHouse off every row's blob.
+fn narrow_scan(
+    spec: ScanSpec,
+    sourcing: PropertiesSourcing,
+    row_filter: &ScanRowFilter,
+    columns: &MaterializedColumns,
+) -> NarrowedScan {
+    let sourced = match sourcing {
+        PropertiesSourcing::Decided(sourced) => sourced,
+        PropertiesSourcing::Upgradable(upgrade)
+            if fits_client_get(&scan_sql(&spec, &upgrade.column_form())) =>
+        {
+            upgrade.accept()
+        }
+        PropertiesSourcing::Upgradable(upgrade) => upgrade.decline_too_long(),
     };
-    histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
+    let filtered = fit_row_filter(spec, row_filter, columns, sourced.projection());
+    NarrowedScan { sourced, filtered }
+}
+
+/// Drops the filter when the query would be too long to send, since every attempt would fail.
+fn fit_row_filter(
+    spec: ScanSpec,
+    row_filter: &ScanRowFilter,
+    columns: &MaterializedColumns,
+    projection: &ChunkProjection,
+) -> FilteredSpec {
+    if row_filter.is_empty() {
+        return FilteredSpec {
+            spec,
+            outcome: RowFilterOutcome::None,
+        };
+    }
+    let filtered = spec
+        .clone()
+        .with_row_filter(row_filter_sql(row_filter, columns));
+    // Both renderings, because the shadow compare sends the wide one with the same filter.
+    let fits = [projection, &ChunkProjection::FullColumns]
+        .into_iter()
+        .all(|projection| fits_client_get(&scan_sql(&filtered, projection)));
+    if fits {
+        FilteredSpec {
+            spec: filtered,
+            outcome: RowFilterOutcome::reading(row_filter, columns),
+        }
+    } else {
+        FilteredSpec {
+            spec,
+            outcome: RowFilterOutcome::TooLong,
+        }
+    }
+}
+
+fn column_lookup_keys<'a>(
+    projection: &'a ChunkProjection,
+    exact: &ColumnExactKeys,
+    row_filter: &'a ScanRowFilter,
+) -> BTreeSet<&'a str> {
+    row_filter
+        .keys()
+        .into_iter()
+        .chain(
+            projection
+                .column_candidates(exact)
+                .into_iter()
+                .flat_map(ProjectedKeys::iter),
+        )
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowFilterOutcome {
+    None,
+    Materialized,
+    PropertiesBlob,
+    TooLong,
+}
+
+impl RowFilterOutcome {
+    fn reading(row_filter: &ScanRowFilter, columns: &MaterializedColumns) -> Self {
+        if columns.covers(row_filter.keys()) {
+            Self::Materialized
+        } else {
+            Self::PropertiesBlob
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Materialized => "materialized",
+            Self::PropertiesBlob => "properties_blob",
+            Self::TooLong => "too_long",
+        }
+    }
 }
 
 /// Why a chunk's compare is not worth issuing, when it is not. Each case would spend a second
@@ -631,6 +824,8 @@ pub enum ScanError {
     Domain(#[from] ChunkDomainError),
     #[error("building ClickHouse scan cursor")]
     Query(#[source] clickhouse::error::Error),
+    #[error("probing ClickHouse for ambiguous column values")]
+    Probe(#[source] clickhouse::error::Error),
     #[error("streaming ClickHouse scan cursor")]
     Cursor(#[source] clickhouse::error::Error),
     #[error("aggregating ClickHouse scan row")]
@@ -647,22 +842,17 @@ mod tests {
     use std::collections::BTreeSet;
     use std::num::NonZeroU32;
 
+    use super::super::sql::MAX_GET_QUERY_BYTES;
     use super::*;
     use crate::domain::{
-        plan_days, Boundary, ClaimEpoch, ColumnPlan, ConditionHash, Lookback, PlanCaps,
-        ProjectedKeys, RunId, SChunkMs, ScalarColumn,
+        plan_days, BandSpec, BlobSource, Boundary, ClaimEpoch, ColumnPlan, ConditionHash, Lookback,
+        PlanCaps, PropertiesOutcome, PropertiesSource, RunId, SChunkMs, ScalarColumn,
     };
 
     const HASH: &str = "aaaaaaaaaaaaaaaa";
 
     fn domain() -> SeedDomain {
-        SeedDomain::new(
-            1,
-            Boundary::new(UtcMillis::new(2 * 86_400_000), UTC),
-            UTC,
-            SChunkMs(200_000_000),
-        )
-        .unwrap()
+        SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap()
     }
 
     fn filters() -> TeamFilters {
@@ -783,6 +973,56 @@ mod tests {
         assert_eq!(tiles[0].count(), 1);
     }
 
+    fn pageview_spec() -> ScanSpec {
+        let ScanPlan::Scan(spec) = plan_scan(
+            TeamId(2),
+            &domain(),
+            &EventNameSet::new(["$pageview".to_owned()]),
+            BandSpec::new(0, 1).unwrap(),
+        ) else {
+            panic!("one event name on a one-day domain is a scan");
+        };
+        spec
+    }
+
+    fn key_names(count: usize) -> impl Iterator<Item = String> {
+        (0..count).map(|index| format!("key_{index:02}"))
+    }
+
+    fn rebuilt(count: usize) -> ChunkProjection {
+        ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Empty,
+            properties: PropertiesSource::Blob(BlobSource::Keys(
+                ProjectedKeys::new(key_names(count).collect()).expect("the counts are non-zero"),
+            )),
+            person_properties: BlobSource::Empty,
+        })
+    }
+
+    /// `event == '$pageview' AND properties[key] == literal`.
+    fn row_filter_on(key: &str, literal: &str) -> ScanRowFilter {
+        use crate::domain::row_filter::test_catalog::{catalog, event_and_property, hash, Leaf};
+        let leaves = [Leaf {
+            cohort: 1,
+            key: "$pageview",
+            hash: HASH,
+            body: event_and_property("$pageview", key, literal),
+        }];
+        let filters = catalog(&leaves);
+        let conditions = [PinnedCondition {
+            cohort_id: CohortId(1),
+            hash: hash(HASH),
+            event_name: "$pageview".to_owned(),
+            lookback: Lookback::SlidingDays(7),
+        }];
+        ConditionAnalyses::build(&conditions, &filters).row_filter(
+            &EventNameSet::new(["$pageview".to_owned()]),
+            &filters,
+            &ActiveConditions::new([hash(HASH)]),
+        )
+    }
+
     /// The projection metrics are the only report of what a chunk narrowed to, and a dashboard
     /// reads them by label. This pins the three sampling rules the recorder applies, which no test
     /// over the projection types themselves can see: a full blob takes no key sample at all, an
@@ -794,31 +1034,86 @@ mod tests {
     #[test]
     fn the_projection_metrics_report_each_blob_by_its_own_rule() {
         let scanner = ChunkScanner::new(
-            clickhouse::Client::default(),
-            TeamAllowlist::Only(std::collections::HashSet::from([2])),
+            ClickHouseClient::new(clickhouse::Client::default(), Default::default()),
+            TeamAllowlist::Only(std::collections::HashSet::from([2, 3])),
             false,
         );
+        let narrow = |projection: ChunkProjection,
+                      exact: &ColumnExactKeys,
+                      columns: &MaterializedColumns| {
+            narrow_scan(
+                pageview_spec(),
+                projection.source_properties(exact, columns),
+                &ScanRowFilter::default(),
+                columns,
+            )
+        };
+        let two_keys = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Empty,
+            properties: PropertiesSource::Blob(BlobSource::Keys(
+                ProjectedKeys::new(BTreeSet::from([
+                    "plan".to_string(),
+                    "utm_source".to_string(),
+                ]))
+                .expect("two keys are not empty"),
+            )),
+            person_properties: BlobSource::Empty,
+        });
+        let url = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Empty,
+            properties: PropertiesSource::Blob(BlobSource::Keys(
+                ProjectedKeys::new(BTreeSet::from(["$current_url".to_string()]))
+                    .expect("one key is not empty"),
+            )),
+            person_properties: BlobSource::Full,
+        });
+        let url_column: MaterializedColumns =
+            [("$current_url", "mat_$current_url")].into_iter().collect();
+        let none = MaterializedColumns::default();
         let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
         let handle = recorder.handle();
         metrics::with_local_recorder(&recorder, || {
-            scanner.record_projection(
+            scanner.record_narrowing(
                 TeamId(2),
-                &ChunkProjection::Projected(ColumnPlan {
-                    uuid: ScalarColumn::Empty,
-                    elements_chain: ScalarColumn::Empty,
-                    properties: BlobSource::Keys(
-                        ProjectedKeys::new(BTreeSet::from([
-                            "plan".to_string(),
-                            "utm_source".to_string(),
-                        ]))
-                        .expect("two keys are not empty"),
-                    ),
-                    person_properties: BlobSource::Empty,
-                }),
+                &narrow(two_keys, &ColumnExactKeys::default(), &none),
             );
-            scanner.record_projection(TeamId(2), &ChunkProjection::FullColumns);
+            scanner.record_narrowing(
+                TeamId(2),
+                &narrow(
+                    ChunkProjection::FullColumns,
+                    &ColumnExactKeys::default(),
+                    &none,
+                ),
+            );
+            scanner.record_narrowing(
+                TeamId(3),
+                &narrow(url, &ColumnExactKeys::exact(["$current_url"]), &url_column),
+            );
         });
         let rendered = handle.render();
+
+        for (team, source) in [(2, "rebuilt_inexact_key"), (2, "whole"), (3, "columns")] {
+            assert!(
+                rendered.contains(&format!(
+                    "{SCAN_PROPERTIES_SOURCE}{{source=\"{source}\",team_id=\"{team}\"}} 1"
+                )),
+                "team {team} did not count its chunk under {source}:\n{rendered}"
+            );
+        }
+        assert!(
+            rendered.contains(&format!(
+                "{SCAN_ROW_FILTER}{{outcome=\"none\",team_id=\"2\"}} 2"
+            )),
+            "a chunk without a row filter was not counted:\n{rendered}"
+        );
+        assert!(
+            rendered.contains(&format!(
+                "{PROJECTION_KEYS}_sum{{blob=\"properties\",team_id=\"3\"}} 1"
+            )),
+            "a column-backed key was not counted as a read key:\n{rendered}"
+        );
 
         for outcome in ["projected", "full_columns"] {
             assert!(
@@ -990,6 +1285,83 @@ mod tests {
     }
 
     #[test]
+    fn the_lookup_covers_row_filter_keys_and_projected_keys_that_can_all_be_columns() {
+        let row_filter = row_filter_on("$feature_flag", "my-flag");
+        let all_exact = ColumnExactKeys::exact(key_names(2));
+        let one_exact = ColumnExactKeys::exact(key_names(1));
+        for (projection, exact, expected) in [
+            (
+                rebuilt(2),
+                &all_exact,
+                &["$feature_flag", "key_00", "key_01"][..],
+            ),
+            (rebuilt(2), &one_exact, &["$feature_flag"][..]),
+            (
+                ChunkProjection::FullColumns,
+                &all_exact,
+                &["$feature_flag"][..],
+            ),
+        ] {
+            assert_eq!(
+                column_lookup_keys(&projection, exact, &row_filter),
+                expected.iter().copied().collect::<BTreeSet<_>>(),
+                "{projection:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_column_form_keeps_the_get_budget_and_the_row_filter_gives_way() {
+        let spec = pageview_spec();
+        let exact = ColumnExactKeys::exact(key_names(6));
+        let columns: MaterializedColumns = key_names(6)
+            .map(|key| (key.clone(), format!("mat_{key}")))
+            .collect();
+        let PropertiesSourcing::Upgradable(upgrade) =
+            rebuilt(6).source_properties(&exact, &columns)
+        else {
+            panic!("six exact keys with columns can be read from columns");
+        };
+        let column_form = upgrade.column_form();
+        let filter_fits_beside = |projection: &ChunkProjection, literal_len: usize| {
+            let row_filter = row_filter_on("key_00", &"x".repeat(literal_len));
+            fit_row_filter(spec.clone(), &row_filter, &columns, projection).outcome
+                != RowFilterOutcome::TooLong
+        };
+        // The longest filter that still fits beside the rebuild.
+        let lengths = (0..MAX_GET_QUERY_BYTES).collect::<Vec<_>>();
+        let literal_len = lengths
+            .partition_point(|len| filter_fits_beside(&rebuilt(6), *len))
+            .checked_sub(1)
+            .expect("even an empty filter literal does not fit beside the rebuild");
+        assert!(
+            !filter_fits_beside(&column_form, literal_len),
+            "the column form is no longer longer than the rebuild, so nothing competes"
+        );
+
+        let near_the_limit = narrow_scan(
+            spec.clone(),
+            rebuilt(6).source_properties(&exact, &columns),
+            &row_filter_on("key_00", &"x".repeat(literal_len)),
+            &columns,
+        );
+        assert_eq!(near_the_limit.sourced.outcome(), PropertiesOutcome::Columns);
+        assert_eq!(near_the_limit.sourced.projection(), &column_form);
+        assert_eq!(near_the_limit.filtered.outcome, RowFilterOutcome::TooLong);
+        assert_eq!(near_the_limit.filtered.spec, spec);
+
+        let short = narrow_scan(
+            spec.clone(),
+            rebuilt(6).source_properties(&exact, &columns),
+            &row_filter_on("key_00", "x"),
+            &columns,
+        );
+        assert_eq!(short.sourced.outcome(), PropertiesOutcome::Columns);
+        assert_eq!(short.filtered.outcome, RowFilterOutcome::Materialized);
+        assert_ne!(short.filtered.spec, spec, "the row filter was dropped");
+    }
+
+    #[test]
     fn scan_time_rechecks_sliding_conditions_against_the_current_day() {
         let hash = ConditionHash::parse(HASH).unwrap();
         let conditions = [PinnedCondition {
@@ -1003,11 +1375,12 @@ mod tests {
     }
 
     /// Disaster-recovery shape: the boundary is a past instant, so the scan runs days after the
-    /// plan was anchored. Every pre-boundary day still inside the wall-clock window must stay
-    /// admitted (those days feed membership the live replay cannot reconstruct); days that slid
-    /// out of every window are skipped, matching the consumer's drop-below-window apply rule.
+    /// plan was anchored. Every planned day still inside the wall-clock window must stay admitted
+    /// (the days before the boundary feed membership the live replay cannot reconstruct, and the
+    /// boundary day holds events from before the replay resumed); days that slid out of every
+    /// window are skipped, matching the consumer's drop-below-window apply rule.
     #[test]
-    fn dr_scan_admits_every_pre_boundary_day_still_inside_the_window() {
+    fn dr_scan_admits_every_planned_day_still_inside_the_window() {
         let hash = ConditionHash::parse(HASH).unwrap();
         let conditions = [PinnedCondition {
             cohort_id: CohortId(1),
@@ -1017,7 +1390,7 @@ mod tests {
         }];
         let boundary = Boundary::new(UtcMillis::new(100 * 86_400_000), UTC);
         let planned = plan_days(&conditions, boundary, &PlanCaps::default());
-        assert_eq!(planned, BTreeSet::from_iter(93..=99));
+        assert_eq!(planned, BTreeSet::from_iter(93..=100));
 
         let admitted_at = |now_day: i64| {
             planned
@@ -1030,12 +1403,12 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Scanned the boundary day (enablement shape): every planned day is admitted.
-        assert_eq!(admitted_at(100), (93..=99).collect::<Vec<_>>());
+        assert_eq!(admitted_at(100), (93..=100).collect::<Vec<_>>());
         // Scanned three days later (DR shape): the window is [96, 103]; days 93-95 can no longer
-        // affect any evaluation and are skipped, days 96-99 are still scanned.
-        assert_eq!(admitted_at(103), (96..=99).collect::<Vec<_>>());
-        // Boundary older than the window: live replay from the boundary covers the whole window,
-        // so the seed correctly has nothing left to contribute.
-        assert_eq!(admitted_at(107), Vec::<DayIdx>::new());
+        // affect any evaluation and are skipped, days 96-100 are still scanned.
+        assert_eq!(admitted_at(103), (96..=100).collect::<Vec<_>>());
+        // Boundary day older than the window: live replay from the boundary covers the whole
+        // window, so the seed correctly has nothing left to contribute.
+        assert_eq!(admitted_at(108), Vec::<DayIdx>::new());
     }
 }

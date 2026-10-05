@@ -176,6 +176,52 @@ describe('transformExperimentResults', () => {
         expect(entry?.summary.saved_metric_name).toBe('Activation funnel (revenue impact)')
     })
 
+    it.each([
+        [
+            'applies the link breakdowns, limit and attribution',
+            {
+                type: 'primary',
+                breakdowns: [{ property: '$browser', type: 'event' }],
+                breakdown_limit: 20,
+                breakdownAttributionType: 'last_touch',
+            },
+            { breakdownAttributionType: 'last_touch' },
+            { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+        ],
+        [
+            'ignores the limit and attribution of a link without breakdowns',
+            { type: 'primary', breakdown_limit: 20, breakdownAttributionType: 'last_touch' },
+            { breakdownAttributionType: 'step', breakdownAttributionValue: 2 },
+            { breakdown_limit: 5, breakdowns: [] },
+        ],
+    ])('queries a shared metric as the experiment page does: %s', (_name, metadata, attribution, breakdownFilter) => {
+        const experiment = makeExperiment({
+            saved_metrics: [
+                {
+                    saved_metric: 1,
+                    name: 'Shared funnel',
+                    metadata,
+                    query: {
+                        uuid: 'shared-funnel',
+                        metric_type: 'funnel',
+                        breakdownAttributionType: 'step',
+                        breakdownAttributionValue: 2,
+                        breakdownFilter: { breakdown_limit: 5, breakdowns: [{ property: '$os', type: 'event' }] },
+                    },
+                },
+            ],
+        })
+
+        const [entry] = buildMetricEntries(experiment, 'primary')
+
+        expect(entry?.metric).toEqual({
+            uuid: 'shared-funnel',
+            metric_type: 'funnel',
+            ...attribution,
+            breakdownFilter,
+        })
+    })
+
     it('orders result rows by *_metrics_ordered_uuids (the canonical UI ordering)', () => {
         // Insertion order puts the inline metric first; ordered_uuids puts the shared one
         // first. Without the sort step, an agent reading top-to-bottom would see a
