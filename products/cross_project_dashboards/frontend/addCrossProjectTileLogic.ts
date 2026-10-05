@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -68,6 +69,9 @@ export interface addCrossProjectTileLogicActions {
     openModal: () => {
         value: true
     }
+    requestOpenModal: () => {
+        value: true
+    }
     setInsightId: (insightId: number | null) => {
         insightId: number | null
     }
@@ -104,6 +108,7 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
     props({} as AddCrossProjectTileLogicProps),
     key((props) => props.dashboardId),
     actions({
+        requestOpenModal: true,
         openModal: true,
         closeModal: true,
         setProjectId: (projectId: number | null) => ({ projectId }),
@@ -160,6 +165,32 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
         ],
     }),
     listeners(({ values, props, actions }) => ({
+        requestOpenModal: () => {
+            const dashboardLogic = crossProjectDashboardLogic.findMounted({ id: props.dashboardId })
+            // Adding a tile reloads the dashboard, and the reload drops any layout edit in progress.
+            const leaveLayoutEditAndOpen = (): void => {
+                if (dashboardLogic?.values.layoutEditMode) {
+                    dashboardLogic.actions.exitLayoutEdit()
+                }
+                actions.openModal()
+            }
+            if (!dashboardLogic?.values.hasUnsavedLayoutChanges) {
+                leaveLayoutEditAndOpen()
+                return
+            }
+            LemonDialog.open({
+                title: 'Discard unsaved changes?',
+                description:
+                    'You have unsaved layout changes. Adding an insight reloads the dashboard and discards them.',
+                primaryButton: {
+                    children: 'Discard changes',
+                    status: 'danger',
+                    onClick: leaveLayoutEditAndOpen,
+                    'data-attr': 'cross-project-dashboard-add-tile-discard-confirm',
+                },
+                secondaryButton: { children: 'Keep editing' },
+            })
+        },
         setProjectId: () => {
             actions.loadInsights()
         },

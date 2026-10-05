@@ -40,7 +40,6 @@ export function CrossProjectDashboardScene(): JSX.Element {
         missingPropertyKeys,
         layoutEditMode,
         gridLayouts,
-        hasUnsavedLayoutChanges,
     } = useValues(crossProjectDashboardLogic)
     const {
         removeTile,
@@ -48,12 +47,11 @@ export function CrossProjectDashboardScene(): JSX.Element {
         setInterval,
         setPendingLayouts,
         enterLayoutEdit,
-        exitLayoutEdit,
         setTileOverride,
         setTileColor,
         setProperties,
     } = useActions(crossProjectDashboardLogic)
-    const { openModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
+    const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
 
     if (!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]) {
         return <NotFound object="page" />
@@ -91,20 +89,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 icon={<IconPlus />}
-                                onClick={() => {
-                                    if (
-                                        hasUnsavedLayoutChanges &&
-                                        !window.confirm(
-                                            'Discard unsaved layout changes?\nAdding an insight reloads the dashboard and discards them.'
-                                        )
-                                    ) {
-                                        return
-                                    }
-                                    if (layoutEditMode) {
-                                        exitLayoutEdit()
-                                    }
-                                    openModal()
-                                }}
+                                onClick={requestOpenModal}
                                 data-attr="cross-project-add-tile"
                             >
                                 Add insight
