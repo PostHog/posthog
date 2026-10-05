@@ -825,7 +825,9 @@ class TestEmailIntegration:
 
         with patch(
             "posthoganalytics.feature_enabled",
-            side_effect=lambda key, distinct_id, **_kwargs: distinct_id == admin.distinct_id,
+            side_effect=lambda key, distinct_id, **_kwargs: (
+                key == "workflows-email-domain-agent-setup" and distinct_id == admin.distinct_id
+            ),
         ):
             response = client.patch(
                 f"/api/environments/{self.team.pk}/integrations/{edited.pk}/email",

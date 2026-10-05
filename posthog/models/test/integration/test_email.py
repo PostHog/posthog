@@ -215,11 +215,18 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert mock_update_mail_from_subdomain.call_args.kwargs["mail_from_subdomain"] == "bounce"
         assert Integration.objects.get(pk=senders[1].pk).config["mail_from_subdomain"] == "bounce"
 
+    @parameterized.expand([("explicit_labels", "feedback", "returns"), ("omitted_and_blank_labels", None, "")])
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain", return_value={"status": "pending"})
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_each_sender_keeps_its_own_mail_from_label_while_the_flag_is_off(
-        self, mock_create_email_domain, mock_update_mail_from_subdomain, mock_verify_email_domain
+        self,
+        _name,
+        created_label,
+        edited_label,
+        mock_create_email_domain,
+        mock_update_mail_from_subdomain,
+        mock_verify_email_domain,
     ):
         self.feature_enabled.side_effect = email_domain_flag(organization_id="another-organization")
         existing = Integration.objects.create(
@@ -234,19 +241,23 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             },
         )
 
+        new_sender = {"email": "new@example.com", "name": "New", "provider": "ses"}
+        if created_label is not None:
+            new_sender["mail_from_subdomain"] = created_label
+
         created = EmailIntegration.create_native_integration(
-            {"email": "new@example.com", "name": "New", "provider": "ses", "mail_from_subdomain": "feedback"},
+            new_sender,
             team_id=self.team.id,
             organization_id=str(self.organization.id),
             created_by=self.user,
         )
         EmailIntegration(existing, acting_user=self.user).update_native_integration(
-            {"mail_from_subdomain": "returns"}, team_id=self.team.id
+            {"mail_from_subdomain": edited_label}, team_id=self.team.id
         )
         EmailIntegration(created, acting_user=self.user).verify()
 
         assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == "feedback"
-        assert mock_update_mail_from_subdomain.call_args.kwargs["mail_from_subdomain"] == "returns"
+        assert mock_update_mail_from_subdomain.call_args.kwargs["mail_from_subdomain"] == edited_label
         assert mock_verify_email_domain.call_args.kwargs["mail_from_subdomain"] == "feedback"
         assert Integration.objects.get(pk=created.pk).config["mail_from_subdomain"] == "feedback"
 
