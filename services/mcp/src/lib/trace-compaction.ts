@@ -394,21 +394,12 @@ function compactEvent(event: unknown, budget: number): Compacted {
     )
 }
 
-function eventProperties(event: unknown): Record<string, unknown> | null {
-    return isRecord(event) && isRecord(event.properties) ? event.properties : null
-}
-
 function isFailedEvent(event: unknown): boolean {
-    const properties = eventProperties(event)
-    if (!properties) {
+    if (!isRecord(event) || !isRecord(event.properties)) {
         return false
     }
-    const flag = properties.$ai_is_error
-    if (flag === true || flag === 'true') {
-        return true
-    }
-    const error = properties.$ai_error
-    return error !== undefined && error !== null && error !== '' && error !== false
+    const { $ai_is_error: flag, $ai_error: error } = event.properties
+    return flag === true || flag === 'true' || Boolean(error)
 }
 
 /**
