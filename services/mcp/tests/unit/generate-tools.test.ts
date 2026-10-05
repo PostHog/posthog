@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
+    generateCategoryFile,
     generateDefinitionsJson,
     generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
@@ -1385,7 +1386,12 @@ describe('per-tool category in tool definitions', () => {
         }
         const definitions = generateDefinitionsJson([
             {
-                config: { category: 'AI observability', feature: 'llm_analytics', url_prefix: '/ai-observability', tools: {} },
+                config: {
+                    category: 'AI observability',
+                    feature: 'llm_analytics',
+                    url_prefix: '/ai-observability',
+                    tools: {},
+                },
                 enabledTools: [['llma-prompt-list', toolConfig, resolved]],
                 enabledWrappers: [],
                 yamlDir: '/tmp',
@@ -2398,5 +2404,255 @@ describe('composeToolSchema param aliases', () => {
         expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
             /alias "id" for param "id"/
         )
+    })
+})
+
+describe('generateCategoryFile with a missing operation', () => {
+    const tool = {
+        operation: 'things_gone',
+        scopes: ['thing:read'],
+        annotations: { readOnly: true, destructive: false, idempotent: true },
+    }
+
+    it.each([
+        { name: 'exits for an enabled tool', enabled: true, exits: true },
+        { name: 'skips a disabled tool', enabled: false, exits: false },
+    ])('$name', ({ enabled, exits }) => {
+        const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('process.exit')
+        }) as never)
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const category = { ...defaultCategory, tools: { 'thing-get': { ...tool, enabled } } }
+        const generate = (): unknown =>
+            generateCategoryFile(category, 'things.yaml', 'things', makeSpec(), new Set(), stubGetQuerySchema as never)
+
+        if (exits) {
+            expect(generate).toThrow('process.exit')
+            expect(exit).toHaveBeenCalledWith(1)
+            expect(error).toHaveBeenCalledWith(expect.stringContaining('things_gone'))
+        } else {
+            expect(generate).not.toThrow()
+            expect(exit).not.toHaveBeenCalled()
+        }
+        vi.restoreAllMocks()
+    })
+})
+
+describe('derived scopes and annotations', () => {
+    const readAndWrite = [{ PersonalAPIKeyAuth: ['thing:read', 'thing:write'] }]
+
+    function specWith(method: string, security?: Array<Record<string, string[]>>): OpenApiSpec {
+        return makeSpec({
+            paths: {
+                '/api/projects/{project_id}/things/': {
+                    [method.toLowerCase()]: { operationId: 'things_op', parameters: [], security },
+                },
+            },
+        })
+    }
+
+    function generate(spec: OpenApiSpec, tool: Partial<ToolConfig>): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: { 'thing-op': { operation: 'things_op', enabled: true, ...tool } as ToolConfig },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    function generateAndCaptureExit(spec: OpenApiSpec, tool: Partial<ToolConfig>): string {
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+        expect(() => generate(spec, tool)).toThrow('exit')
+        return errors.join('\n')
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+        vi.unstubAllEnvs()
+    })
+
+    it.each([
+        {
+            name: 'takes scopes from the spec when the YAML has none',
+            security: readAndWrite,
+            yamlScopes: undefined,
+            expected: ['thing:read', 'thing:write'],
+        },
+        {
+            name: 'dedupes scopes repeated across security entries',
+            security: [{ PersonalAPIKeyAuth: ['thing:read'] }, { PersonalAPIKeyAuth: ['thing:read'] }],
+            yamlScopes: undefined,
+            expected: ['thing:read'],
+        },
+        {
+            name: 'prefers explicit YAML scopes over the spec',
+            security: readAndWrite,
+            yamlScopes: ['thing:read'],
+            expected: ['thing:read'],
+        },
+    ])('scopes: $name', ({ security, yamlScopes, expected }) => {
+        const { enabledTools } = generate(specWith('GET', security), { scopes: yamlScopes })
+
+        expect(enabledTools[0]?.[1].scopes).toEqual(expected)
+    })
+
+    it.each([
+        { name: 'no security block', security: undefined },
+        { name: 'an empty security requirement', security: [{}] },
+    ])('scopes: fails when the YAML has none and the spec has $name', ({ security }) => {
+        expect(generateAndCaptureExit(specWith('GET', security), {})).toMatch(/Add "scopes" to the tool's YAML/)
+    })
+
+    it.each([
+        { method: 'GET', expected: { readOnly: true, destructive: false, idempotent: true } },
+        { method: 'DELETE', expected: { readOnly: false, destructive: true, idempotent: true } },
+    ])('annotations: $method defaults to $expected', ({ method, expected }) => {
+        const { enabledTools } = generate(specWith(method, readAndWrite), {})
+
+        expect(enabledTools[0]?.[1].annotations).toEqual(expected)
+    })
+
+    it.each(['PATCH', 'POST', 'PUT'])('annotations: %s without annotations fails', (method) => {
+        expect(generateAndCaptureExit(specWith(method, readAndWrite), {})).toMatch(
+            new RegExp(`${method} endpoints have no defaults`)
+        )
+    })
+
+    it('annotations: explicit YAML wins over the method default', () => {
+        const explicit = { readOnly: false, destructive: true, idempotent: false }
+
+        const { enabledTools } = generate(specWith('GET', readAndWrite), { annotations: explicit })
+
+        expect(enabledTools[0]?.[1].annotations).toEqual(explicit)
+    })
+
+    describe('scope coverage warning', () => {
+        function captureStdout(): string[] {
+            const lines: string[] = []
+            vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+                lines.push(String(chunk))
+                return true
+            })
+            return lines
+        }
+
+        it.each([
+            { name: 'YAML misses a spec scope', yamlScopes: ['thing:read'], warns: true },
+            {
+                name: 'YAML is broader than the spec',
+                yamlScopes: ['thing:read', 'thing:write', 'thing:admin'],
+                warns: false,
+            },
+            { name: 'YAML has no scopes', yamlScopes: undefined, warns: false },
+        ])('$name -> warns: $warns', ({ yamlScopes, warns }) => {
+            const lines = captureStdout()
+
+            generate(specWith('GET', readAndWrite), { scopes: yamlScopes })
+
+            const output = lines.join('')
+            expect(output.includes('thing:write')).toBe(warns)
+            if (warns) {
+                expect(output).toContain('Tool "thing-op"')
+                expect(output).toContain('products/things/mcp/tools.yaml')
+            }
+        })
+
+        it('treats a write scope as covering a spec read scope', () => {
+            const lines = captureStdout()
+
+            generate(specWith('GET', [{ PersonalAPIKeyAuth: ['thing:read'] }]), { scopes: ['thing:write'] })
+
+            expect(lines.join('')).toBe('')
+        })
+
+        it('skips tools whose spec declares no scopes', () => {
+            const lines = captureStdout()
+
+            generate(specWith('GET', undefined), { scopes: ['thing:read'] })
+
+            expect(lines.join('')).toBe('')
+        })
+
+        it.each([
+            { githubActions: 'true', annotated: true },
+            { githubActions: 'false', annotated: false },
+        ])('emits a GitHub annotation only on CI (GITHUB_ACTIONS=$githubActions)', ({ githubActions, annotated }) => {
+            vi.stubEnv('GITHUB_ACTIONS', githubActions)
+            const lines = captureStdout()
+
+            generate(specWith('GET', readAndWrite), { scopes: ['thing:read'] })
+
+            expect(lines.join('').includes('::warning file=products/things/mcp/tools.yaml::')).toBe(annotated)
+        })
+    })
+})
+
+describe('hooks', () => {
+    const spec = makeSpec({
+        paths: {
+            '/api/projects/{project_id}/things/': {
+                get: { operationId: 'things_list', parameters: [], security: [{ PersonalAPIKeyAuth: ['thing:read'] }] },
+            },
+        },
+    })
+
+    function generate(tool: Partial<ToolConfig>): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: { 'thing-list': { operation: 'things_list', enabled: true, ...tool } as ToolConfig },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('imports the hooks module and wraps the handler', () => {
+        const { code } = generate({ hooks: 'tool-hooks' })
+
+        expect(code).toContain("import hooks_thingList from '@/tools/tool-hooks'")
+        expect(code).toContain("import { withToolHooks } from '@/tools/tool-hooks'")
+        expect(code).toMatch(/handler: withToolHooks\(\s*hooks_thingList,\s*async \(context: Context/)
+    })
+
+    it('leaves tools without hooks unwrapped', () => {
+        const { code } = generate({})
+
+        expect(code).not.toContain('withToolHooks')
+        expect(code).toContain('handler: async (context: Context')
+    })
+
+    it('fails when the hooks module does not exist', () => {
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => generate({ hooks: 'nowhere/missingHooks' })).toThrow('exit')
+        expect(errors.join('\n')).toMatch(/hooks module "nowhere\/missingHooks" not found/)
+    })
+
+    it('rejects hooks combined with confirmed_action', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            hooks: 'tool-hooks',
+            confirmed_action: {},
+        })
+
+        expect(result.success).toBe(false)
     })
 })

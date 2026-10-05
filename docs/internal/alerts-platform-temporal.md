@@ -1,6 +1,6 @@
 # Alerts noop workers
 
-The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The alerts platform registers three queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
 | Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
 | ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
@@ -228,7 +228,7 @@ than within one.
 
 ## Source evaluation bindings
 
-`products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
+`products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
 A source in that map gets its own workflow started by name, carrying one batch key and the tick cutoff.
 A source absent from it keeps the noop `alerts-platform-evaluate` path, which receives no key.
 The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
@@ -246,7 +246,7 @@ so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would t
 State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
 Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
 
-The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
+The lifecycle decision comes from `products/alerts_platform/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
 which is the shared machine the logs product's own state machine is a thin adapter over.
 Going to the shared machine directly keeps the platform's lifecycle out of a source product's import path.
 
@@ -368,7 +368,7 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
 Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.
@@ -399,7 +399,7 @@ Logs does not group yet; the list is the shape that lets fan-out change the eval
 ### Metrics
 
 The path emits through Temporal's own meter, so every series carries the worker, queue and activity attributes
-the runtime attaches. `products/alerts/backend/temporal/metrics.py` holds them and a source reaches them through
+the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
 | Metric                                                    | What it answers                                             |

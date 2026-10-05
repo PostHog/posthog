@@ -508,13 +508,12 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
-        // Cowork (via the client-profile flag). All three surface structuredContent to
-        // the model, so it must be dropped and the UI data re-homed onto _meta.
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code (via
+        // the client-profile flag). Both surface structuredContent to the model, so it
+        // must be dropped and the UI data re-homed onto _meta.
         it.each([
             ['posthog-code consumer', 'posthog-code', undefined],
             ['claude-code client', undefined, { isInlineExecUiHost: true }],
-            ['cowork client', undefined, { isInlineExecUiHost: true }],
         ])(
             'suppresses structuredContent toward the model but re-homes UI data onto _meta for %s (with a formatted override)',
             async (_label, consumer, options) => {
@@ -712,6 +711,11 @@ describe('exec tool', () => {
                 expected: /parameter "id" must be of type number/,
             },
             {
+                case: 'a parameter of the wrong type, echoing the field description',
+                input: '{"id":1,"buckets":"day"}',
+                expected: /parameter "buckets" must be of type number \(Bucket count, not a time unit\.\)/,
+            },
+            {
                 // Plain z.object strips unknown keys at parse time (Zod v4), so the
                 // actionable signal is the absent required `id`, not the stray key.
                 case: 'an unexpected property displacing the required field',
@@ -728,7 +732,11 @@ describe('exec tool', () => {
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
-                schema: z.object({ id: z.number(), description: z.string().max(400).optional() }),
+                schema: z.object({
+                    id: z.number(),
+                    description: z.string().max(400).optional(),
+                    buckets: z.number().optional().describe('Bucket count, not a time unit.'),
+                }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
@@ -1810,6 +1818,7 @@ describe('exec tool', () => {
             ['query-generate-hogql-from-question', 'execute-sql'],
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
+            ['experiment-get-all', 'experiment-list'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -2044,6 +2053,7 @@ describe('exec tool', () => {
                     skillsEnabled: true,
                     docsSearchEnabled: true,
                     businessKnowledgeSearchEnabled: true,
+                    businessKnowledgeRepoSearchEnabled: true,
                 }),
                 commandReference,
                 undefined
@@ -2136,6 +2146,25 @@ describe('exec tool', () => {
             ])
         })
 
+        it.each([
+            ['a guessed spelling', 'requiredField', 'requiredField'],
+            [
+                'a long settings field',
+                'session_recording_minimum_duration_milliseconds',
+                'session_recording_minimum_duration_milliseconds',
+            ],
+            ['an email', 'jane@example.com', '[redacted]'],
+            ['a hostname', 'example.com', '[redacted]'],
+            ['a phone number', 'tel_15555550100', '[redacted]'],
+            ['a token', `ghp_${'aB3'.repeat(12)}`, '[redacted]'],
+            ['a PostHog token without digits', `phx_${'aBc'.repeat(15)}`, '[redacted]'],
+        ])('records an undeclared key that is %s', (_shape, key, recorded) => {
+            const shape = describeInputShape({ [key]: 'secret-value', id: 1 }, z.object({ id: z.number() }))
+
+            expect(shape.$mcp_input_keys).toEqual(['id', recorded])
+            expect(JSON.stringify(shape)).not.toContain('secret-value')
+        })
+
         it('records declared names before misspelled ones when the limit is reached', () => {
             const declared = Object.fromEntries(
                 Array.from({ length: 20 }, (_, i) => [`d${String(i).padStart(2, '0')}`, i])
@@ -2172,7 +2201,7 @@ describe('exec tool', () => {
                     $mcp_input_aliases_used: ['experimentId:id'],
                 })
                 expect(describeInputShape({ experimentId: 1 }, z.object({ id: z.number() }))).toEqual({
-                    $mcp_input_keys: ['[redacted]'],
+                    $mcp_input_keys: ['experimentId'],
                 })
             })
 

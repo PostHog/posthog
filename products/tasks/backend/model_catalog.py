@@ -280,8 +280,8 @@ FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
 # Applied when a run or a loop leaves the model unset: blank means "let PostHog pick", so the
 # choice can improve without rewriting anything stored.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
-    CLAUDE: "claude-sonnet-5",
-    CODEX: "gpt-5",
+    CLAUDE: "claude-sonnet-5-5",
+    CODEX: "gpt-6.1-sol",
 }
 
 
@@ -301,8 +301,8 @@ class CapabilityNotch:
 # so a rung naming a retired model drops out instead of becoming a stop that fails on send.
 CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
     CLAUDE: (
-        CapabilityNotch("claude-sonnet-5", MEDIUM),
-        CapabilityNotch("claude-sonnet-5", HIGH),
+        CapabilityNotch("claude-sonnet-5-5", MEDIUM),
+        CapabilityNotch("claude-sonnet-5-5", HIGH),
         CapabilityNotch("claude-opus-5-5", MEDIUM),
         CapabilityNotch("claude-opus-5-5", XHIGH),
         CapabilityNotch("claude-fable-5-1", MAX),

@@ -33,6 +33,10 @@ class TestLinkedInAdsSource:
         "observed_error",
         [
             'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND","message":"No virtual resource found"}',
+            # A plain 404 with the generic "NOT_FOUND" code (no "RESOURCE_" prefix) — same
+            # underlying condition (deleted/inaccessible account) under a different LinkedIn
+            # error code.
+            'LinkedIn API error (404): {"code":"NOT_FOUND","message":"Not Found.","status":404}',
             "REVOKED_ACCESS_TOKEN",
             "The token used in the request has expired",
             "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",

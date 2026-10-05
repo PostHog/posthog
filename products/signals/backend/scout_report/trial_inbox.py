@@ -1,0 +1,346 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime
+from functools import cached_property
+from typing import TYPE_CHECKING, cast
+
+from django.db.models import QuerySet
+
+from pydantic import JsonValue
+from rest_framework import exceptions
+from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.response import Response
+
+from posthog.models import User
+
+from products.signals.backend.models import MAX_SCOUT_REPORT_NOTES, SignalReport, SignalReportArtefact
+from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
+from products.signals.backend.serializers import ReportMetricListSerializer, ReportMetricSerializer
+
+if TYPE_CHECKING:
+    from products.signals.backend.views import SignalReportViewSet
+
+
+class TrialInboxReads:
+    SUPPORTED_LIST_PARAMETERS = frozenset(
+        {
+            "search",
+            "status",
+            "include_all_statuses",
+            "include_source_metadata",
+            "source_product",
+            "source_id",
+            "scout",
+            "scout_prefix",
+            "count_only",
+            "ordering",
+            "sort",
+            "limit",
+            "offset",
+            "format",
+        }
+    )
+    _EDITABLE_FIELDS = frozenset({"title", "summary", "charts", "metrics", "suggested_prompts"})
+
+    def __init__(self, view: SignalReportViewSet, store: ScoutTrialStore) -> None:
+        self.view = view
+        self.store = store
+
+    @cached_property
+    def _github_login(self) -> str | None:
+        return self.view._get_github_login(cast(User, self.view.request.user))
+
+    def _decorate(
+        self, report: TrialReport, document: dict[str, JsonValue], *, include_source_metadata: bool = True
+    ) -> dict[str, JsonValue]:
+        if not include_source_metadata:
+            document["source_products"] = []
+            document["scout_name"] = None
+        elif report.evidence:
+            products = document.get("source_products")
+            source_products = (
+                {"signals_scout", *(str(item) for item in products)}
+                if isinstance(products, list)
+                else {"signals_scout"}
+            )
+            document["source_products"] = cast(list[JsonValue], sorted(source_products))
+            document["scout_name"] = self.store.run.skill_name
+        for artefact in reversed(report.artefacts):
+            if artefact["type"] != "suggested_reviewers":
+                continue
+            entries = artefact["content"]
+            if isinstance(entries, list):
+                user = cast(User, self.view.request.user)
+                login = self._github_login
+                document["is_suggested_reviewer"] = any(
+                    isinstance(entry, dict)
+                    and (entry.get("user_uuid") == str(user.uuid) or (login and entry.get("github_login") == login))
+                    for entry in entries
+                )
+            break
+        if document.get("status") == "failed" or (
+            document.get("status") == "ready" and document.get("actionability") == "not_actionable"
+        ):
+            document["is_suggested_reviewer"] = False
+        return document
+
+    @classmethod
+    def overlay(cls, report: TrialReport, live: Mapping[str, object] | None = None) -> dict[str, JsonValue]:
+        if report.source_report_id is None:
+            return dict(report.document)
+        if live is None:
+            raise exceptions.NotFound()
+        document = cast(dict[str, JsonValue], dict(live))
+        changed_fields: set[str] = set()
+        for edit in report.edits:
+            changed_fields.update(field for field in cls._EDITABLE_FIELDS if edit.get(field) is not None)
+            if edit.get("repository") is not None:
+                changed_fields.add("repo_slug")
+        if any(artefact["type"] == "repo_selection" for artefact in report.artefacts):
+            changed_fields.add("repo_slug")
+        for field in changed_fields:
+            if field in report.document:
+                document[field] = report.document[field]
+        signal_count = live.get("signal_count", 0)
+        document["signal_count"] = (signal_count if isinstance(signal_count, int) else 0) + len(report.evidence)
+        weight = live.get("total_weight", 0)
+        document["total_weight"] = (weight if isinstance(weight, (int, float)) else 0) + sum(
+            value for row in report.evidence if isinstance(value := row.get("weight"), (int, float))
+        )
+        private_notes = sum(
+            edit.get("append_note") is not None and bool(edit.get("corroboration_only")) for edit in report.edits
+        )
+        initial_corroboration_count = report.corroboration_count - private_notes
+        private_collapsed_notes = max(0, report.corroboration_count - MAX_SCOUT_REPORT_NOTES) - max(
+            0, initial_corroboration_count - MAX_SCOUT_REPORT_NOTES
+        )
+        collapsed_count = live.get("collapsed_note_count", 0)
+        document["collapsed_note_count"] = (
+            collapsed_count if isinstance(collapsed_count, int) else 0
+        ) + private_collapsed_notes
+        document["updated_at"] = max(
+            str(live["updated_at"]),
+            str(report.document["updated_at"]),
+            key=lambda value: datetime.fromisoformat(value.replace("Z", "+00:00")),
+        )
+        count = live.get("artefact_count", 0)
+        document["artefact_count"] = (count if isinstance(count, int) else 0) + len(report.artefacts)
+        return document
+
+    def _serialize_private_metrics(self, report: TrialReport, document: dict[str, JsonValue], *, listing: bool) -> None:
+        # Source metrics already have the viewer's policy applied, and list projections omit the query it needs.
+        if report.source_report_id is not None and not any(edit.get("metrics") is not None for edit in report.edits):
+            return
+        metrics = document.get("metrics")
+        if isinstance(metrics, list):
+            serializer = ReportMetricListSerializer if listing else ReportMetricSerializer
+            document["metrics"] = cast(
+                list[JsonValue], serializer(metrics, many=True, context=self.view.get_serializer_context()).data
+            )
+
+    def detail(self, report_id: str) -> dict[str, JsonValue] | None:
+        report = self.store.get_report(report_id)
+        if report is None:
+            return None
+        if report.source_report_id is not None:
+            original = self.view.get_object()
+            data = self.view.get_serializer(original, context=self.view._enriched_report_context(original)).data
+            document = self.overlay(report, data)
+        else:
+            if report.document.get("status") not in self.view._visible_statuses():
+                raise exceptions.NotFound()
+            document = self.overlay(report)
+        self._serialize_private_metrics(report, document, listing=False)
+        return self._decorate(report, document)
+
+    def _validate_parameters(self) -> None:
+        unsupported = set(self.view.request.query_params) - self.SUPPORTED_LIST_PARAMETERS
+        if unsupported:
+            reason = f"This scout run cannot compare inbox filters: {', '.join(sorted(unsupported))}."
+            self.store.invalidate(reason)
+            raise exceptions.ValidationError({"detail": reason})
+
+    @staticmethod
+    def _tokens(value: str | None) -> list[str]:
+        return [part.strip() for part in (value or "").split(",") if part.strip()]
+
+    @staticmethod
+    def _production_match(
+        original_id: str | None,
+        apply_filter: Callable[[QuerySet[SignalReport]], QuerySet[SignalReport]],
+        original: QuerySet[SignalReport],
+        matched: dict[str, set[str]],
+    ) -> bool:
+        if original_id is None:
+            return False
+        # Each filter looks up its report IDs in ClickHouse, so it runs once per request, not once per report.
+        name = apply_filter.__name__
+        if name not in matched:
+            ids = apply_filter(original.prefetch_related(None)).values_list("id", flat=True)
+            matched[name] = {str(report_id) for report_id in ids}
+        return original_id in matched[name]
+
+    def _matches_sources(
+        self, report: TrialReport, original: QuerySet[SignalReport], matched: dict[str, set[str]]
+    ) -> bool:
+        query = self.view.request.query_params
+        original_id = report.source_report_id
+        evidence = report.evidence
+        if self._tokens(query.get("source_id")):
+            source_ids = self._tokens(query.get("source_id"))
+            product = (query.get("source_product") or "").strip()
+            if not any(row.get("source_product") == product and row.get("source_id") in source_ids for row in evidence):
+                if not self._production_match(
+                    original_id, self.view._apply_signal_report_source_id_filter, original, matched
+                ):
+                    return False
+        elif self._tokens(query.get("source_product")):
+            products = self._tokens(query.get("source_product"))
+            if not any(row.get("source_product") in products for row in evidence):
+                if not self._production_match(
+                    original_id, self.view._apply_signal_report_source_product_filter, original, matched
+                ):
+                    return False
+        scout_names = self._tokens(query.get("scout"))
+        prefix = (query.get("scout_prefix") or "").strip()
+        for requested, matches, apply_filter in (
+            (bool(scout_names), self.store.run.skill_name in scout_names, self.view._apply_signal_report_scout_filter),
+            (
+                bool(prefix),
+                self.store.run.skill_name.startswith(prefix),
+                self.view._apply_signal_report_scout_prefix_filter,
+            ),
+        ):
+            if requested and not (evidence and matches):
+                if not self._production_match(original_id, apply_filter, original, matched):
+                    return False
+        return True
+
+    def _private_documents(
+        self, reports: Sequence[TrialReport], *, include_source_metadata: bool = True
+    ) -> list[dict[str, JsonValue]]:
+        source_ids = [report.source_report_id for report in reports if report.source_report_id is not None]
+        originals = self.view._scope_signal_report_queryset(
+            SignalReport.objects.filter(team_id=self.store.run.team_id, id__in=source_ids)
+        )
+        originals = self.view._annotate_artefact_count(originals)
+        originals = self.view._annotate_channel_id(originals)
+        originals = self.view._prefetch_signal_report_priority_artefacts(originals)
+        originals = self.view._prefetch_signal_report_ranking_score(originals)
+        originals = self.view._annotate_is_suggested_reviewer(originals)
+        live = {
+            str(row["id"]): row
+            for row in self.view._render_report_rows(list(originals), include_source_metadata=include_source_metadata)
+        }
+        statuses = self.view._visible_statuses()
+        search = (self.view.request.query_params.get("search") or "").casefold()
+        matched: dict[str, set[str]] = {}
+        result = []
+        for report in reports:
+            if report.source_report_id is not None and report.source_report_id not in live:
+                continue
+            document = self._decorate(
+                report,
+                self.overlay(report, live.get(report.source_report_id or "")),
+                include_source_metadata=include_source_metadata,
+            )
+            if document.get("status") not in statuses:
+                continue
+            if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
+                continue
+            if not self._matches_sources(report, originals, matched):
+                continue
+            self._serialize_private_metrics(report, document, listing=True)
+            result.append(document)
+        return result
+
+    @staticmethod
+    def _sort_value(document: Mapping[str, object], field: str) -> str | int | float | datetime:
+        if field == "pipeline_status_rank":
+            status = document.get("status")
+            if status == "ready":
+                return 1 if document.get("actionability") == "not_actionable" else 0
+            return {
+                "pending_input": 2,
+                "in_progress": 3,
+                "candidate": 4,
+                "potential": 5,
+                "failed": 6,
+                "resolved": 7,
+                "suppressed": 8,
+                "deleted": 9,
+            }.get(str(status), 50)
+        if field == "priority_sort_rank":
+            priority = document.get("priority")
+            return (
+                {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}[str(priority)]
+                if priority in ["P0", "P1", "P2", "P3", "P4"]
+                else 5
+            )
+        value = document.get(field)
+        if field in {"created_at", "updated_at"}:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if field in {"is_suggested_reviewer", "signal_count", "total_weight"}:
+            return value if isinstance(value, (int, float)) else 0
+        return str(value or "")
+
+    def list(self, *, count_only: bool = False, include_source_metadata: bool = True) -> Response:
+        self._validate_parameters()
+        queryset = self.view.filter_queryset(self.view.get_queryset())
+        private = self.store.reports()
+        documents = self._private_documents(private, include_source_metadata=include_source_metadata and not count_only)
+        queryset = queryset.exclude(id__in=[report.id for report in private])
+        count = queryset.count() + len(documents)
+        if count_only:
+            return Response({"count": count, "next": None, "previous": None, "results": []})
+        paginator = self.view.paginator
+        if not isinstance(paginator, LimitOffsetPagination):
+            raise exceptions.ValidationError({"detail": "This scout run requires limit/offset inbox pagination."})
+        paginator.request = self.view.request
+        paginator.limit = paginator.get_limit(self.view.request)
+        paginator.offset = paginator.get_offset(self.view.request)
+        paginator.count = count
+        limit = paginator.limit or count
+        # At most this run's private reports can shift a production row across the requested offset.
+        start = max(0, paginator.offset - len(documents))
+        production = list(queryset[start : paginator.offset + limit])
+        merged: list[Mapping[str, object]] = [
+            *self.view._render_report_rows(production, include_source_metadata=include_source_metadata),
+            *documents,
+        ]
+        clauses = self.view._parse_signal_report_ordering()
+        if not any(clause.lstrip("-") == "id" for clause in clauses):
+            clauses.append("id")
+        for clause in reversed(clauses):
+            merged.sort(key=lambda row: self._sort_value(row, clause.lstrip("-")), reverse=clause.startswith("-"))
+        offset = paginator.offset - start
+        return paginator.get_paginated_response(merged[offset : offset + limit])
+
+
+def private_report_artefacts(store: ScoutTrialStore, report_id: str) -> list[SignalReportArtefact]:
+    report = store.get_report(report_id)
+    if report is None:
+        return []
+    if (
+        report.source_report_id is not None
+        and not SignalReport.objects.filter(team_id=store.run.team_id, id=report.source_report_id)
+        .exclude(status=SignalReport.Status.DELETED)
+        .exists()
+    ):
+        raise exceptions.NotFound()
+    return [
+        SignalReportArtefact(
+            id=record["id"],
+            team_id=store.run.team_id,
+            report_id=report_id,
+            type=str(record["type"]),
+            content=json.dumps(record["content"]),
+            created_at=datetime.fromisoformat(str(record["created_at"])),
+            updated_at=datetime.fromisoformat(str(record["updated_at"])),
+            actor_kind="task",
+            task_id=store.run.task_run.task_id,
+        )
+        for record in report.artefacts
+    ]

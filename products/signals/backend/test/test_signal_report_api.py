@@ -730,6 +730,7 @@ class TestSignalReportListAPI(APIBaseTest):
         content: str | None = None,
         scores: dict[str, float] | None = None,
         heads: list[dict] | None = None,
+        lifts: dict[str, float] | None = None,
     ) -> SignalReportArtefact:
         served = RankingModelResult(
             model_name="report_embeddings",
@@ -739,6 +740,7 @@ class TestSignalReportListAPI(APIBaseTest):
             feature_schema_version=1,
             status="scored",
             scores=scores or {"open": 0.5, "merged": 0.2},
+            lifts=lifts or {},
             metadata={"heads": heads or [{"head": "open", "readable": True}, {"head": "merged", "readable": False}]},
         )
         challenger = RankingModelResult(
@@ -768,6 +770,7 @@ class TestSignalReportListAPI(APIBaseTest):
                 True,
                 None,
                 None,
+                {"open": 2.5},
                 {
                     "served_key": "report_embeddings@2026-09-01",
                     "model_name": "report_embeddings",
@@ -775,21 +778,42 @@ class TestSignalReportListAPI(APIBaseTest):
                     "manifest_version": "manifest",
                     "scored_at": "2026-09-20T12:00:00Z",
                     "scores": {"open": 0.5, "merged": 0.2},
+                    "lifts": {"open": 2.5},
                     "readable_heads": ["open"],
                 },
             ),
-            ("non_staff_sees_nothing", False, None, None, None),
-            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None, None),
-            ("null_readable_head_reads_as_none", True, None, [{"head": None, "readable": True}], None),
+            (
+                "legacy_score_without_lifts_computes_them_from_the_metadata",
+                True,
+                None,
+                [
+                    {"head": "open", "readable": True, "refit_classification_threshold": 0.25},
+                    {"head": "merged", "readable": False, "refit_classification_threshold": 0.0},
+                ],
+                None,
+                {
+                    "served_key": "report_embeddings@2026-09-01",
+                    "model_name": "report_embeddings",
+                    "model_version": "2026-09-01",
+                    "manifest_version": "manifest",
+                    "scored_at": "2026-09-20T12:00:00Z",
+                    "scores": {"open": 0.5, "merged": 0.2},
+                    "lifts": {"open": 2.0},
+                    "readable_heads": ["open"],
+                },
+            ),
+            ("non_staff_sees_nothing", False, None, None, None, None),
+            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None, None, None),
+            ("null_readable_head_reads_as_none", True, None, [{"head": None, "readable": True}], None, None),
         ]
     )
-    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, heads, expected):
+    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, heads, lifts, expected):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
         stale = self._ranking_score_artefact(report, scores={"open": 0.9})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
-        self._ranking_score_artefact(report, content=content, heads=heads)
+        self._ranking_score_artefact(report, content=content, heads=heads, lifts=lifts)
         unscored = self._create_report(title="Unscored")
 
         list_response = self.client.get(self._list_url())
@@ -1058,6 +1082,54 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
 
+    @parameterized.expand([("descending", "-ranking_pr_merged"), ("ascending", "ranking_pr_merged")])
+    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering):
+        self.user.is_staff = True
+        self.user.save()
+        low = self._create_report(title="Low")
+        high = self._create_report(title="High")
+        unscored = self._create_report(title="Unscored")
+        no_head = self._create_report(title="No head")
+        self._ranking_score_artefact(low, scores={"pr_merged": 0.1, "open": 0.9})
+        self._ranking_score_artefact(high, scores={"pr_merged": 0.7, "open": 0.1})
+        self._ranking_score_artefact(no_head, scores={"open": 0.5})
+        stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
+        SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
+        bad_latest = self._create_report(title="Bad latest")
+        older_valid = self._ranking_score_artefact(bad_latest, scores={"pr_merged": 0.99})
+        SignalReportArtefact.objects.filter(pk=older_valid.pk).update(created_at=timezone.now() - timedelta(days=1))
+        self._ranking_score_artefact(bad_latest, content="not json")
+
+        response = self.client.get(self._list_url(status="ready", ordering=f"{ordering},status,-updated_at"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        scored = [str(high.id), str(low.id)] if ordering.startswith("-") else [str(low.id), str(high.id)]
+        assert ids[:2] == scored
+        assert set(ids[2:]) == {str(unscored.id), str(no_head.id), str(bad_latest.id)}
+
+    @parameterized.expand(
+        [
+            ("ordering", {"ordering": "-ranking_open,status"}, "ordering"),
+            ("created_after", {"created_after": "last week"}, "created_after"),
+        ]
+    )
+    def test_list_rejects_invalid_params_with_400(self, _name, query, attr):
+        self.user.is_staff = False
+        self.user.save()
+        response = self.client.get(self._list_url(**query))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+
+    def test_created_after_keeps_reports_created_since(self):
+        recent = self._create_report(title="Recent")
+        old = self._create_report(title="Old")
+        SignalReport.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=5))
+        cutoff = (timezone.now() - timedelta(days=3)).isoformat()
+
+        response = self.client.get(self._list_url(created_after=cutoff, sort="newest"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(recent.id)]
+
     @parameterized.expand(
         [
             ("immediately_actionable_before_not_actionable", "immediately_actionable", "not_actionable"),
@@ -1153,6 +1225,29 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
+
+    def test_for_you_ranks_the_reports_naming_the_user_and_counts_only_theirs(self):
+        def report_naming_me(title: str, report_status: str) -> SignalReport:
+            report = self._create_report(title=title, status=report_status)
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+            return report
+
+        report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
+        reviewing = report_naming_me("Names me as reviewer", SignalReport.Status.READY)
+        self._create_report(title="Someone else's report")
+
+        response = self.client.get(f"{self._list_url()}for_you/?limit=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        # Neither report has a score or a priority, so the newest comes first.
+        assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
+        assert body["count"] == 2
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them

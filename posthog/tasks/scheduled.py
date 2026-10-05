@@ -84,7 +84,7 @@ from products.approvals.backend.tasks import (
     sync_experiment_approval_policies,
     validate_pending_change_requests,
 )
-from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
@@ -293,8 +293,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="query performance heartbeat",
     )
 
+    # Just after the hour. The task then starts each team at its own point in the next ten minutes.
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="2"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
     )
@@ -922,7 +923,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="37"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
     )

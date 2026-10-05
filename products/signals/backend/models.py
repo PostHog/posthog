@@ -510,13 +510,19 @@ class SignalReport(UUIDModel):
                 self.error = None
                 updated_fields.update(["title", "summary", "error"])
 
+            # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
+            # repository selected) does not erase the content the report is searched and deduplicated by.
             case (S.IN_PROGRESS, S.PENDING_INPUT):
-                if title is None or summary is None or error is None:
-                    raise ValueError("title, summary, and error are required for in_progress -> pending_input")
-                self.title = title
-                self.summary = summary
+                if error is None:
+                    raise ValueError("error is required for in_progress -> pending_input")
+                if title is not None:
+                    self.title = title
+                    updated_fields.add("title")
+                if summary is not None:
+                    self.summary = summary
+                    updated_fields.add("summary")
                 self.error = error
-                updated_fields.update(["title", "summary", "error"])
+                updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
             case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
@@ -2230,11 +2236,14 @@ class SignalReportCheck(UUIDModel):
     kind = models.CharField(max_length=30, choices=Kind)
     # Validated against the kind's pydantic model at every write (see `report_checks.parse_check_config`).
     config = models.JSONField(default=dict, db_default={})
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, db_constraint=False, null=True, blank=True, related_name="+"
+    )
 
     next_run_at = models.DateTimeField()
-    # How long after the report resolves a PENDING check waits before its first run. Null on a check
-    # created ACTIVE, which named its own `next_run_at` instead. Kept after the check is armed, so a
-    # reader can see what window the verdict was measured over.
+    measurement_start_at = models.DateTimeField(null=True, blank=True)
+    # Minimum wait after resolution, separate from the query window a metric check must fill.
     soak_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
     # reaches its expiry.

@@ -127,6 +127,17 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
     })
 
+    it('defaults to the list view and keeps the chosen view when filters clear', async () => {
+        logic.mount()
+        expect(logic.values.view).toBe('list')
+        logic.actions.setView('grid')
+        await expectLogic(logic, () => {
+            logic.actions.clearFeedFilters()
+        })
+            .toMatchValues({ view: 'grid' })
+            .toFinishAllListeners()
+    })
+
     it('names the empty reason only once the fleet and budget have answered', async () => {
         feedSpy.mockImplementation(() => [200, { results: [] }])
         useMocks({

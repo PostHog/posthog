@@ -11,6 +11,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -89,21 +90,35 @@ def _stamp_issue_state(*, team_id: int, issue_ids: list[UUID]) -> None:
         ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).update(state_updated_at=timezone.now())
 
 
+@frozen
+class IssueUpdateOutcome:
+    issue: ErrorTrackingIssue
+    changed_fields: tuple[str, ...]
+
+
+@frozen
+class IssueMergeOutcome:
+    result: ErrorTrackingIssueMergeResult
+    merged_issue_count: int
+
+
 def update_issue(
     team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: User, was_impersonated: bool
-) -> ErrorTrackingIssue:
+) -> IssueUpdateOutcome:
     # Fetch via the detail queryset so the returned instance is response-ready
     # (first_seen, assignment, external issues, cohorts) without a second read.
     issue = get_issue(issue_id=issue_id, team_id=team_id)
     status_before = issue.status
     severity_before = issue.severity
     name_before = issue.name
+    description_before = issue.description
     status_after = fields.get("status")
     severity_after = fields.get("severity")
     name_after = fields.get("name")
     status_updated = "status" in fields and status_after != status_before
     severity_updated = "severity" in fields and severity_after != severity_before
     name_updated = "name" in fields and name_after != name_before
+    description_updated = "description" in fields and fields["description"] != description_before
     state_updated = _has_clickhouse_visible_state_change(issue, fields)
 
     for key in ("status", "severity", "name", "description"):
@@ -166,12 +181,18 @@ def update_issue(
     if state_updated:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
-    return issue
+    updated = {
+        "status": status_updated,
+        "severity": severity_updated,
+        "name": name_updated,
+        "description": description_updated,
+    }
+    return IssueUpdateOutcome(issue=issue, changed_fields=tuple(key for key, changed in updated.items() if changed))
 
 
 def merge_issues(
     team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
-) -> ErrorTrackingIssueMergeResult:
+) -> IssueMergeOutcome:
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
@@ -203,7 +224,7 @@ def merge_issues(
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
 
-    return result
+    return IssueMergeOutcome(result=result, merged_issue_count=len(merged_issue_ids))
 
 
 def split_issue(
@@ -255,7 +276,7 @@ def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
 
 def assign_issue(
     team_id: int, issue_id: UUID, assignee: dict[str, Any] | None, *, user: User, was_impersonated: bool
-) -> None:
+) -> bool:
     with transaction.atomic():
         issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
         transition = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
@@ -265,6 +286,7 @@ def assign_issue(
 
     if transition is not None:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+    return transition is not None
 
 
 def bulk_update_issues(
@@ -276,7 +298,7 @@ def bulk_update_issues(
     assignee: dict[str, Any] | None,
     user: User,
     was_impersonated: bool,
-) -> None:
+) -> int:
     issues = list(
         ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).select_related("team__organization")
     )
@@ -342,6 +364,7 @@ def bulk_update_issues(
             _stamp_issue_state(team_id=team_id, issue_ids=changed_issue_ids)
 
     sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
+    return len(changed_issue_ids)
 
 
 def _assignment_repr(assignment: ErrorTrackingIssueAssignment | None) -> dict[str, Any] | None:

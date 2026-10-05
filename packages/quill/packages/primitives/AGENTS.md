@@ -330,6 +330,8 @@ Grouped fields with fieldset:
 </div>
 ```
 
+For a select-all over a partly selected list, pass `indeterminate`: the box fills like a checked one and shows a minus instead of a check.
+
 Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
 ### Select
