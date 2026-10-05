@@ -17,7 +17,6 @@ import { ScoutNewButton } from './ScoutNewButton'
 
 /** Actions for the roster, lifted into the scene header so they sit in one predictable place. */
 export function ScoutsRosterActions(): JSX.Element {
-    const { loadScoutConfigs } = useActions(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
@@ -39,7 +38,7 @@ export function ScoutsRosterActions(): JSX.Element {
             )}
             <AskAboutScoutsMenu />
             {suggestionsEnabled ? <ShowSuggestionsButton /> : null}
-            <ScoutNewButton surface="fleet_list" size="small" onCreated={() => loadScoutConfigs()} />
+            <ScoutNewButton surface="fleet_list" size="small" hostModals={false} />
         </>
     )
 }
