@@ -7759,7 +7759,7 @@
         "feature": "llm_analytics",
         "summary": "Get evaluation config",
         "title": "Get evaluation config",
-        "required_scopes": ["evaluation:read"],
+        "required_scopes": ["llm_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -7899,7 +7899,7 @@
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
         "title": "List supported llm_judge models",
-        "required_scopes": ["evaluation:read"],
+        "required_scopes": ["llm_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -13871,7 +13871,7 @@
         "feature": "replay_vision",
         "summary": "Save a scanner's affected users as a cohort",
         "title": "Save a scanner's affected users as a cohort",
-        "required_scopes": ["replay_scanner:read", "cohort:write"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "cohort:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -14086,7 +14086,7 @@
         "feature": "replay_vision",
         "summary": "Get a scanner's impact counts",
         "title": "Get a scanner's impact counts",
-        "required_scopes": ["replay_scanner:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14100,7 +14100,7 @@
         "feature": "replay_vision",
         "summary": "Get a scanner's impact counts (deprecated)",
         "title": "Get a scanner's impact counts (deprecated)",
-        "required_scopes": ["replay_scanner:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14386,7 +14386,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-quarantine-expire-create": {
-        "description": "Lift every active quarantine on one identifier and run type. The lift is scoped to the current default-branch commit: a run whose commit contains it gates the snapshot again, and a branch that forked earlier keeps the quarantine for up to 30 days or until it merges the default branch. Lift one after the fix that stabilizes the story merges, or when its flakiness entry has `needs_decision`. If the story still flakes, the next pull request that contains the lift and renders it fails. On `503 lift_commit_unknown` GitHub could not name the default-branch head, so the quarantine stays: retry later.",
+        "description": "Lift every active quarantine on one identifier and run type. The lift is scoped to the current default-branch commit: a run whose commit contains it gates the snapshot again, and a branch that forked earlier keeps the quarantine for up to 30 days or until it merges the default branch. Lift one after the fix that stabilizes the story merges, or when its flakiness entry has `needs_decision`. If the story still flakes, the next pull request that contains the lift and renders it fails. On `503 lift_commit_unknown` GitHub could not name the default-branch head, so the quarantine stays: retry later. On `429 rate_limited`, wait for `Retry-After`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Lift a visual review quarantine",
@@ -14676,7 +14676,7 @@
         "feature": "data_warehouse",
         "summary": "Add a warehouse column description",
         "title": "Add a warehouse column description",
-        "required_scopes": ["external_data_source:write"],
+        "required_scopes": ["warehouse_table:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -14690,7 +14690,7 @@
         "feature": "data_warehouse",
         "summary": "List warehouse column descriptions",
         "title": "List warehouse column descriptions",
-        "required_scopes": ["external_data_source:read"],
+        "required_scopes": ["warehouse_table:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14704,7 +14704,7 @@
         "feature": "data_warehouse",
         "summary": "Edit a warehouse column description",
         "title": "Edit a warehouse column description",
-        "required_scopes": ["external_data_source:write"],
+        "required_scopes": ["warehouse_table:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
