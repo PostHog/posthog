@@ -171,24 +171,20 @@ class CustomerIOImportService:
 
     def _process_csv_row(self, row: dict) -> dict:
         """Process a single CSV row and return the result"""
-        email = row.get("email", "").strip()
-        cio_id = row.get("id", "").strip()  # Get Customer.io ID
-        preferences_json = row.get("cio_subscription_preferences", "").strip()
+        email = (row.get("email") or "").strip()
+        cio_id = (row.get("id") or "").strip()  # Get Customer.io ID
+        preferences_json = (row.get("cio_subscription_preferences") or "").strip()
 
         if not email:
             # Use Customer.io ID if email is missing
             identifier = f"Customer.io ID: {cio_id}" if cio_id else "unknown"
             return {"status": "error", "email": identifier, "error": "Missing email"}
 
-        if row.get("unsubscribed", "").strip().lower() == "true":
-            return {
-                "status": "success",
-                "email": email,
-                "opted_out_categories": [ALL_MESSAGE_PREFERENCE_CATEGORY_ID],
-            }
+        globally_unsubscribed = (row.get("unsubscribed") or "").strip().lower() == "true"
+        opted_out_categories = [ALL_MESSAGE_PREFERENCE_CATEGORY_ID] if globally_unsubscribed else []
 
         if not preferences_json:
-            return {"status": "success", "email": email, "opted_out_categories": []}
+            return {"status": "success", "email": email, "opted_out_categories": opted_out_categories}
 
         try:
             # Parse JSON preferences
@@ -196,10 +192,15 @@ class CustomerIOImportService:
             topics = prefs.get("topics", {})
 
             # Collect opted-out categories (where value is false)
-            opted_out_categories = []
-
             for topic_key, is_subscribed in topics.items():
                 if is_subscribed is False:  # Only process opt-outs
+                    if not self.topic_mapping and not globally_unsubscribed:
+                        return {
+                            "status": "error",
+                            "email": email,
+                            "error": "No categories found. Please run API import first.",
+                        }
+
                     # Extract topic ID (handle both "topic_1" and "1" formats)
                     topic_id = topic_key.replace("topic_", "")
 
@@ -212,12 +213,14 @@ class CustomerIOImportService:
                         # Unknown topic, but don't fail the whole row
                         logger.warning(f"Unknown topic ID '{topic_key}' for {email}")
 
-            return {"status": "success", "email": email, "opted_out_categories": opted_out_categories}
-
         except json.JSONDecodeError as e:
-            return {"status": "error", "email": email, "error": f"Invalid JSON: {str(e)[:100]}"}
+            if not globally_unsubscribed:
+                return {"status": "error", "email": email, "error": f"Invalid JSON: {str(e)[:100]}"}
         except Exception as e:
-            return {"status": "error", "email": email, "error": f"Processing error: {str(e)[:100]}"}
+            if not globally_unsubscribed:
+                return {"status": "error", "email": email, "error": f"Processing error: {str(e)[:100]}"}
+
+        return {"status": "success", "email": email, "opted_out_categories": opted_out_categories}
 
     def _save_csv_batch(self, batch: list[tuple[str, list[str]]]) -> int:
         """Save a batch of CSV preferences to database"""

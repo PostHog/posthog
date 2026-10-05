@@ -54,6 +54,41 @@ class TestCustomerIOImportService(BaseTest):
             PreferenceStatus.OPTED_OUT if globally_opted_out else PreferenceStatus.NO_PREFERENCE
         )
 
+    def test_csv_short_row_preserves_pending_global_optouts(self) -> None:
+        csv_content = (
+            "email,cio_subscription_preferences,unsubscribed\nunsubscribed@example.com,,true\nshort@example.com,\n"
+        )
+
+        result = self.service.process_preferences_csv(StringIO(csv_content))
+
+        assert result["status"] == "completed"
+        assert result["users_with_optouts"] == 1
+        preference = MessageRecipientPreference.objects.get(team=self.team, identifier="unsubscribed@example.com")
+        assert preference.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+
+    def test_csv_reports_topic_optouts_without_categories(self) -> None:
+        csv_content = (
+            'email,unsubscribed,cio_subscription_preferences\ntopic@example.com,false,{"topics":{"topic_1":false}}\n'
+        )
+
+        result = self.service.process_preferences_csv(StringIO(csv_content))
+
+        assert result["parse_errors"] == 1
+        assert result["users_skipped"] == 0
+        assert result["failed_imports"][0]["email"] == "topic@example.com"
+        assert "No categories found" in result["failed_imports"][0]["error"]
+
+    def test_csv_global_unsubscribe_preserves_topic_choices(self) -> None:
+        category = MessageCategory.objects.create(team=self.team, key="customerio_topic_1", name="Newsletter")
+        csv_content = 'email,unsubscribed,cio_subscription_preferences\nunsubscribed@example.com,true,{"topics":{"topic_1":false}}\n'
+
+        result = self.service.process_preferences_csv(StringIO(csv_content))
+
+        assert result["parse_errors"] == 0
+        preference = MessageRecipientPreference.objects.get(team=self.team, identifier="unsubscribed@example.com")
+        assert preference.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+        assert preference.get_preference(str(category.id)) == PreferenceStatus.OPTED_OUT
+
     def test_process_preferences_csv_complete_flow(self):
         """Test complete CSV processing flow with batching"""
         # Create categories first
