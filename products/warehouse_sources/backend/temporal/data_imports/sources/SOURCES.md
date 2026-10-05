@@ -782,6 +782,7 @@ the row lists both.
 | testrail                         | HTTP                        | requests                                                        | ✅                          |
 | thinkific                        | HTTP                        | requests                                                        | ✅                          |
 | thinkific_courses                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| thousandeyes                     | HTTP                        | requests                                                        | ✅                          |
 | ticketmaster                     | HTTP                        | requests                                                        | ✅                          |
 | tickettailor                     | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1447,7 +1448,6 @@ doesn't conflict with concurrent PRs.
 - terra_api
 - thinkific_courses
 - thoughtspot
-- thousandeyes
 - threads
 - thrive_learning
 - ticktick
