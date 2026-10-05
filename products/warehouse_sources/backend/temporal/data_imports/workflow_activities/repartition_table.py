@@ -16,7 +16,6 @@ import uuid
 import socket
 import asyncio
 import datetime as dt
-import dataclasses
 from typing import Any
 
 from django.db import InterfaceError, InternalError, OperationalError, close_old_connections
@@ -29,6 +28,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -71,7 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class RepartitionActivityInputs:
     team_id: int
     schema_id: str
