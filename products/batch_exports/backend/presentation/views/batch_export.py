@@ -52,12 +52,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.api.utils import (
-    HOGQL_MODIFIERS_HELP_TEXT,
-    HogQLModifiersField,
-    check_hogql_batch_exports_enabled,
-)
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
@@ -79,6 +73,12 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportRun,
     BatchExportSource,
+)
+from products.batch_exports.backend.presentation.views.destination_tests import get_destination_test
+from products.batch_exports.backend.presentation.views.utils import (
+    HOGQL_MODIFIERS_HELP_TEXT,
+    HogQLModifiersField,
+    check_hogql_batch_exports_enabled,
 )
 from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
