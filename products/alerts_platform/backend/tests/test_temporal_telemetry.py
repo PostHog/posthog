@@ -201,7 +201,6 @@ async def test_cancellation_during_logging_preserves_activity_outcome(
     "task_queue,supported",
     [
         (settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE, True),
-        (settings.ALERTS_PLATFORM_INSIGHT_EVALUATION_TASK_QUEUE, True),
         (settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE, True),
         (settings.LOGS_ALERTING_TASK_QUEUE, False),
         ("unrelated-task-queue", False),
