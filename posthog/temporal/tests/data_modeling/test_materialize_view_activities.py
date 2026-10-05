@@ -1688,8 +1688,6 @@ class _EmptyArrowClient:
         self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
         self.reject_describe_with_settings = False
         self.arrow_query: str | None = None
-        self.arrow_external_tables: list[Any] | None = None
-        self.describe_external_tables: list[Any] | None = None
 
     async def astream_query_as_arrow(
         self,
@@ -1702,7 +1700,6 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
-        self.arrow_external_tables = external_tables
         if on_schema is not None:
             on_schema(self.schema)
         return
@@ -1720,7 +1717,6 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_calls.append((query, settings))
-            self.describe_external_tables = external_tables
             if self.reject_describe_with_settings and settings is not None:
                 raise ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream", query=query)
             self.describe_settings = settings
@@ -1822,38 +1818,62 @@ class TestHogqlTableModifiers:
 
 
 def _jev_gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
-    answers = {name: {"type": "noul", "noul": 0.9} for name in json["questions"]}
+    answers: dict[str, dict[str, Any]] = {}
+    for name, question in json["questions"].items():
+        refund = "refund" in json["state"][name]
+        if question["type"] == "noul":
+            answers[name] = {"type": "noul", "noul": 0.9 if refund else 0.1}
+        else:
+            choice = "billing" if refund else "other"
+            answers[name] = {
+                "type": "choice",
+                "choice": choice,
+                "confidence": 0.9,
+                "probabilities": {label: 0.9 if label == choice else 0.1 for label in question["criteria"]},
+            }
     return httpx.Response(200, json={"model": "jevk5-0.2", "answers": answers, "usage": {"input_tokens": 10}})
 
 
-class TestHogqlTablePromptJev:
-    async def test_materializes_a_query_that_calls_jev(self, ateam: Team) -> None:
-        client = _EmptyArrowClient(pa.schema([pa.field("p", pa.float64())]))
-        client.describe_body = b"p\tNullable(Float64)\n"
-
-        @contextlib.asynccontextmanager
-        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
-            yield client
+class TestMaterializeViewPromptJev:
+    async def test_materializes_jev_results_to_delta(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        asaved_query.query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT text, is_refund, routed.choice AS team FROM ("
+                "SELECT text, jev(text, 'Is this a refund request?') AS is_refund, "
+                "jev(text, 'Which team should answer?', choice := ['billing', 'other']) AS routed "
+                "FROM (SELECT arrayJoin(['please refund me', 'hello there']) AS text) LIMIT 10)"
+            ),
+        }
+        await database_sync_to_async(asaved_query.save)()
 
         with (
-            override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                AI_GATEWAY_URL="https://gateway.example.com/v1",
+                AI_GATEWAY_API_KEY="test-key",
             ),
             unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
             unittest.mock.patch("httpx.AsyncClient.post", side_effect=_jev_gateway_response),
         ):
-            batches = [
-                batch
-                async for batch in hogql_table("SELECT jev('please refund me', 'Refund?') AS p", ateam, LOGGER.bind())
-            ]
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+            )
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            materialized = deltalake.DeltaTable(
+                result.table_uri, storage_options=get_aws_storage_options()
+            ).to_pyarrow_table()
 
-        assert len(batches) == 1
-        assert client.arrow_external_tables is not None and len(client.arrow_external_tables) == 1
-        table = client.arrow_external_tables[0]
-        assert table["name"] in (client.arrow_query or "")
-        assert [list(row.values()) for row in table["data"]] == [[0.9]]
-        assert client.describe_external_tables == client.arrow_external_tables
+        rows = sorted(materialized.to_pylist(), key=lambda row: row["text"])
+        assert rows == [
+            {"text": "hello there", "is_refund": pytest.approx(0.1), "team": "other"},
+            {"text": "please refund me", "is_refund": pytest.approx(0.9), "team": "billing"},
+        ]
 
 
 class TestHogqlTableEmptyResults:
