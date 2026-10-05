@@ -2885,6 +2885,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
+        or report.logs_retention_mb_days_in_period > 0
         or report.apm_tracing_bytes_in_period > 0
         or report.metrics_records_in_period > 0
         or report.workflow_emails_sent_in_period > 0

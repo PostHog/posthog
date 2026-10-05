@@ -2375,6 +2375,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
+            ("logs_retention_mb_days", "logs_retention_mb_days_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
             ("posthog_code_credits", "posthog_code_credits_used_in_period"),
         ]
