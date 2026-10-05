@@ -315,6 +315,59 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 distinct_id=self.user.id,
             )
 
+    @parameterized.expand(
+        [
+            ("padded_id_is_trimmed", " 42 ", "42"),
+            ("blank_is_dropped", "   ", None),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")
+    def test_create_external_reference_normalizes_assignee(self, _name, assignee, expected_assignee, mock_create_issue):
+        mock_create_issue.return_value = {"issue_id": 7}
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITLAB.value,
+            config={"hostname": "https://gitlab.example.com", "project_id": 1},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            config={"title": "Checkout TypeError", "body": "", "assignee": assignee},
+            distinct_id=self.user.id,
+        )
+
+        assert mock_create_issue.call_args.args[0].get("assignee") == expected_assignee
+
+    @parameterized.expand(
+        [
+            ("username_instead_of_id", "alice"),
+            ("non_string", 42),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")
+    def test_create_external_reference_rejects_invalid_gitlab_assignee(self, _name, assignee, mock_create_issue):
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITLAB.value,
+            config={"hostname": "https://gitlab.example.com", "project_id": 1},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with self.assertRaises(api.ExternalReferenceValidationError):
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                config={"title": "Checkout TypeError", "body": "", "assignee": assignee},
+                distinct_id=self.user.id,
+            )
+        mock_create_issue.assert_not_called()
+
     def test_search_external_issues_requires_repository_for_github(self):
         integration = Integration.objects.create(
             team=self.team,

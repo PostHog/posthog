@@ -28,14 +28,31 @@ class LinearIntegration:
         teams = common.dot_get(body, "data.teams.nodes")
         return teams
 
+    def list_team_members(self, team_id: str) -> list[dict]:
+        body = self.query(
+            """
+            query TeamMembers($teamId: String!) {
+                team(id: $teamId) { members(first: 250) { nodes { id name displayName active } } }
+            }
+            """,
+            variables={"teamId": team_id},
+        )
+        members = common.dot_get(body, "data.team.members.nodes") or []
+        return [
+            {"id": member["id"], "name": member.get("displayName") or member["name"]}
+            for member in members
+            if member.get("active", True)
+        ]
+
     def create_issue(self, attachment_url: str, config: dict[str, str]) -> dict[str, str]:
         title: str = config.pop("title")
         description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
+        assignee_id = config.pop("assignee", None)
 
         issue_create_query = """
-        mutation IssueCreate($title: String!, $description: String!, $teamId: String!) {
-            issueCreate(input: { title: $title, description: $description, teamId: $teamId }) {
+        mutation IssueCreate($title: String!, $description: String!, $teamId: String!, $assigneeId: String) {
+            issueCreate(input: { title: $title, description: $description, teamId: $teamId, assigneeId: $assigneeId }) {
                 success
                 issue { identifier }
             }
@@ -43,7 +60,12 @@ class LinearIntegration:
         """
         body = self.query(
             issue_create_query,
-            variables={"title": title, "description": description, "teamId": linear_team_id},
+            variables={
+                "title": title,
+                "description": description,
+                "teamId": linear_team_id,
+                "assigneeId": assignee_id or None,
+            },
         )
         linear_issue_id = common.dot_get(body, "data.issueCreate.issue.identifier")
         # Linear reports failures in a 200 body; without this check a failed create would

@@ -84,6 +84,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
+    GitLabIntegrationError,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -406,6 +407,34 @@ class LinearTeamSerializer(serializers.Serializer):
 
 class LinearTeamsResponseSerializer(serializers.Serializer):
     teams = LinearTeamSerializer(many=True, help_text="Linear teams available to this integration.")
+
+
+class IntegrationAssigneeSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text=(
+            "Provider user identifier to pass as error tracking config.assignee: a Linear user ID, "
+            "a GitHub login, a GitLab user ID, or a Jira account ID."
+        )
+    )
+    name = serializers.CharField(help_text="User display name.")
+
+
+class IntegrationAssigneesResponseSerializer(serializers.Serializer):
+    users = IntegrationAssigneeSerializer(many=True, help_text="Users who can be assigned an issue, up to 100.")
+
+
+class LinearTeamMembersQuerySerializer(serializers.Serializer):
+    team_id = serializers.CharField(help_text="Linear team ID whose members to list.")
+
+
+class GitHubAssigneesQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        help_text="Repository name, or owner/name, whose assignable users to list.",
+    )
+
+
+class JiraAssignableUsersQuerySerializer(serializers.Serializer):
+    project_key = serializers.CharField(help_text="Jira project key whose assignable users to list.")
 
 
 class GitHubTeamSerializer(serializers.Serializer):
@@ -1366,7 +1395,11 @@ class IntegrationViewSet(
         "github_teams",
         "github_available_installations",
         "jira_projects",
+        "jira_assignable_users",
         "linear_teams",
+        "linear_team_members",
+        "github_assignees",
+        "gitlab_members",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -2054,6 +2087,21 @@ class IntegrationViewSet(
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
+    @extend_schema(
+        parameters=[LinearTeamMembersQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer}
+    )
+    @action(methods=["GET"], detail=True, url_path="linear_team_members")
+    def linear_team_members(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = LinearTeamMembersQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "linear":
+            raise ValidationError("linear_team_members endpoint is only supported for Linear integrations")
+        _ensure_oauth_token_valid(instance)
+        linear = LinearIntegration(instance)
+        return Response({"users": linear.list_team_members(query_serializer.validated_data["team_id"])})
+
     @extend_schema(operation_id="integrations_anthropic_managed_agents_retrieve")
     @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")
     def anthropic_managed_agents(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2179,6 +2227,21 @@ class IntegrationViewSet(
         if instance.kind != "github":
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
         return Response(github_repos_page(GitHubIntegration(instance), query_serializer.validated_data))
+
+    @extend_schema(parameters=[GitHubAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="github_assignees")
+    def github_assignees(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubAssigneesQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_assignees endpoint is only supported for GitHub integrations")
+        try:
+            users = GitHubIntegration(instance).list_assignees(query_serializer.validated_data["repository"])
+        except GitHubIntegrationError:
+            raise ValidationError("Could not list the repository's assignable users.")
+        return Response({"users": users})
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
@@ -2429,6 +2492,33 @@ class IntegrationViewSet(
         _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
+
+    @extend_schema(
+        parameters=[JiraAssignableUsersQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer}
+    )
+    @action(methods=["GET"], detail=True, url_path="jira_assignable_users")
+    def jira_assignable_users(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = JiraAssignableUsersQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "jira":
+            raise ValidationError("jira_assignable_users endpoint is only supported for Jira integrations")
+        _ensure_oauth_token_valid(instance)
+        jira = JiraIntegration(instance)
+        return Response({"users": jira.list_assignable_users(query_serializer.validated_data["project_key"])})
+
+    @extend_schema(responses={200: IntegrationAssigneesResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="gitlab_members")
+    def gitlab_members(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind != "gitlab":
+            raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
+        try:
+            users = GitLabIntegration(instance).list_members()
+        except GitLabIntegrationError:
+            raise ValidationError("Could not list the GitLab project's members.")
+        return Response({"users": users})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):

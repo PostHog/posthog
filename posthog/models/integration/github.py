@@ -409,11 +409,15 @@ class GitHubIntegration(GitHubIntegrationBase):
         body: str = config.pop("body")
         repository: str = config.pop("repository")
         labels = config.pop("labels", None)
+        assignee = config.pop("assignee", None)
 
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         json_body: dict[str, Any] = {"title": title, "body": body}
         if labels:
             json_body["labels"] = labels
+        if assignee:
+            # GitHub drops a login it cannot assign instead of failing, so the issue is still created.
+            json_body["assignees"] = [assignee]
 
         response = self.api_request(
             "POST",
@@ -429,6 +433,25 @@ class GitHubIntegration(GitHubIntegrationBase):
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
+
+    def list_assignees(self, repository: str) -> list[dict[str, str]]:
+        """Logins that can be assigned to issues in ``repository``, up to the first 100."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path):
+            raise GitHubIntegrationError(f"GitHubIntegration: unsafe assignee lookup for {repo_path}")
+
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/assignees",
+            endpoint="/repos/{owner}/{repo}/assignees",
+            params={"per_page": 100},
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to list assignees in {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        return [{"id": user["login"], "name": user["login"]} for user in response.json()]
 
     def close_issue(self, repository: str, number: int, *, completed: bool = False) -> None:
         """Close an issue with the reason that matches the report outcome. Raises on failure."""

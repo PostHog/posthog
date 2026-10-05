@@ -38588,7 +38588,7 @@ export namespace Schemas {
     }
 
     /**
-     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.
      */
     export type ErrorTrackingExternalReferenceCreateConfig = {[key: string]: string};
 
@@ -38617,7 +38617,7 @@ export namespace Schemas {
       readonly title: string;
       /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
       integration_id: number;
-      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
       config: ErrorTrackingExternalReferenceCreateConfig;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
@@ -57174,6 +57174,18 @@ export namespace Schemas {
     export interface IntegrationAccountsResponse {
       /** All accounts the connected integration can access. */
       accounts: IntegrationAccount[];
+    }
+
+    export interface IntegrationAssignee {
+      /** Provider user identifier to pass as error tracking config.assignee: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
+      id: string;
+      /** User display name. */
+      name: string;
+    }
+
+    export interface IntegrationAssigneesResponse {
+      /** Users who can be assigned an issue, up to 100. */
+      users: IntegrationAssignee[];
     }
 
     /**
@@ -119349,6 +119361,14 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type IntegrationsGithubAssigneesRetrieveParams = {
+    /**
+     * Repository name, or owner/name, whose assignable users to list.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -119410,6 +119430,22 @@ export namespace Schemas {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string;
+    };
+
+    export type IntegrationsJiraAssignableUsersRetrieveParams = {
+    /**
+     * Jira project key whose assignable users to list.
+     * @minLength 1
+     */
+    project_key: string;
+    };
+
+    export type IntegrationsLinearTeamMembersRetrieveParams = {
+    /**
+     * Linear team ID whose members to list.
+     * @minLength 1
+     */
+    team_id: string;
     };
 
     export type IntegrationsUsersRetrieveParams = {

@@ -346,6 +346,18 @@ export interface PatchedIntegrationConfigApi {
     readonly installation_status?: InstallationStatusEnumApi | null
 }
 
+export interface IntegrationAssigneeApi {
+    /** Provider user identifier to pass as error tracking config.assignee: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
+    id: string
+    /** User display name. */
+    name: string
+}
+
+export interface IntegrationAssigneesResponseApi {
+    /** Users who can be assigned an issue, up to 100. */
+    users: IntegrationAssigneeApi[]
+}
+
 export interface GitHubBranchesResponseApi {
     /** List of branch names */
     branches: string[]
@@ -877,6 +889,14 @@ export type IntegrationsChannelsRetrieveParams = {
     search?: string
 }
 
+export type IntegrationsGithubAssigneesRetrieveParams = {
+    /**
+     * Repository name, or owner/name, whose assignable users to list.
+     * @minLength 1
+     */
+    repository: string
+}
+
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -938,6 +958,22 @@ export type IntegrationsGithubTeamsRetrieveParams = {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string
+}
+
+export type IntegrationsJiraAssignableUsersRetrieveParams = {
+    /**
+     * Jira project key whose assignable users to list.
+     * @minLength 1
+     */
+    project_key: string
+}
+
+export type IntegrationsLinearTeamMembersRetrieveParams = {
+    /**
+     * Linear team ID whose members to list.
+     * @minLength 1
+     */
+    team_id: string
 }
 
 export type IntegrationsUsersRetrieveParams = {

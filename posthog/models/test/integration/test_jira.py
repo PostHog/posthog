@@ -146,3 +146,20 @@ class TestJiraIntegrationModel:
             "version": 1,
             "content": expected_content,
         }
+
+    @parameterized.expand(
+        [
+            ("with_assignee", {"assignee": "account-id"}, {"accountId": "account-id"}),
+            ("without_assignee", {}, None),
+        ]
+    )
+    @patch("posthog.models.integration.jira.requests.post")
+    def test_create_issue_sets_assignee_by_account_id(self, _name, extra_config, expected_assignee, mock_post):
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = {"key": "ENG-1", "id": "10001"}
+
+        JiraIntegration(self.integration()).create_issue(
+            {"project_key": "ENG", "title": "Checkout failed", "description": "Details", **extra_config}
+        )
+
+        assert mock_post.call_args.kwargs["json"]["fields"].get("assignee") == expected_assignee

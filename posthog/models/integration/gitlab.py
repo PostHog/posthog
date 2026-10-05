@@ -27,7 +27,7 @@ class GitLabIntegration:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
 
     @staticmethod
-    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+    def get(hostname: str, endpoint: str, project_access_token: str) -> Any:
         url = f"{hostname}/api/v4/{endpoint}"
         GitLabIntegration._validate_api_url(url)
 
@@ -89,23 +89,41 @@ class GitLabIntegration:
     def hostname(self) -> str:
         return common.dot_get(self.integration.config, "hostname")
 
+    def list_members(self) -> list[dict[str, str]]:
+        """Members of the connected project, including inherited ones, up to the first 100."""
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        members = GitLabIntegration.get(
+            hostname, f"projects/{project_id}/members/all?state=active&per_page=100", access_token
+        )
+        if not isinstance(members, list):
+            raise GitLabIntegrationError("Failed to list GitLab project members")
+        return [{"id": str(member["id"]), "name": member.get("name") or member["username"]} for member in members]
+
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
         description: str = config.pop("body")
+        assignee = config.pop("assignee", None)
 
         hostname = self.integration.config.get("hostname")
         project_id = self.integration.config.get("project_id")
         access_token = self.integration.sensitive_config.get("access_token")
 
+        payload: dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "labels": "posthog",
+        }
+        if assignee:
+            payload["assignee_ids"] = [int(assignee)]
+
         issue = GitLabIntegration.post(
             hostname,
             f"projects/{project_id}/issues",
             access_token,
-            {
-                "title": title,
-                "description": description,
-                "labels": "posthog",
-            },
+            payload,
         )
 
         return {"issue_id": issue["iid"]}

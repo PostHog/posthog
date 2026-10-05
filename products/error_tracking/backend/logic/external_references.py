@@ -80,6 +80,19 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
             f"Config fields for {integration.kind} cannot be blank: {', '.join(blank_fields)}."
         )
 
+    assignee = config.get("assignee")
+    if assignee is not None and not isinstance(assignee, str):
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Config field assignee for {integration.kind} must be a string."
+        )
+    if (
+        assignee
+        and assignee.strip()
+        and integration.kind == Integration.IntegrationKind.GITLAB
+        and not assignee.strip().isdigit()
+    ):
+        raise ErrorTrackingExternalReferenceValidationError("GitLab assignee must be a numeric user ID.")
+
     if integration.kind == Integration.IntegrationKind.LINEAR:
         team_id = config["team_id"]
         teams = LinearIntegration(integration).list_teams() or []
@@ -229,6 +242,9 @@ def create_external_reference(
     provider_config = dict(config or {})
     title = provider_config["title"].strip()
     provider_config["title"] = title
+    assignee = (provider_config.pop("assignee", None) or "").strip()
+    if assignee:
+        provider_config["assignee"] = assignee
 
     if integration.kind == Integration.IntegrationKind.GITHUB:
         created_context = GitHubIntegration(integration).create_issue(provider_config)

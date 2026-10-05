@@ -1720,6 +1720,10 @@ class TestIntegrationAPIKeyAccess:
             ("github_branches/?repo=org/repo", "get", "GitHub"),
             ("jira_projects/", "get", "Jira"),
             ("linear_teams/", "get", "Linear"),
+            ("linear_team_members/?team_id=team-id", "get", "Linear"),
+            ("github_assignees/?repository=repo", "get", "GitHub"),
+            ("gitlab_members/", "get", "GitLab"),
+            ("jira_assignable_users/?project_key=ENG", "get", "Jira"),
         ],
     )
     def test_provider_lookup_actions_on_wrong_integration_return_400(
@@ -2055,6 +2059,38 @@ class TestIntegrationAPIKeyAccess:
         assert response.json() == {"teams": [{"id": "team-id", "name": "Engineering"}]}
         mock_ensure_token_valid.assert_called_once_with(linear_integration)
         mock_list_teams.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        "kind,url_suffix,list_method,expected_call",
+        [
+            ("linear", "linear_team_members/?team_id=team-id", "LinearIntegration.list_team_members", ("team-id",)),
+            ("github", "github_assignees/?repository=repo", "GitHubIntegration.list_assignees", ("repo",)),
+            ("gitlab", "gitlab_members/", "GitLabIntegration.list_members", ()),
+            ("jira", "jira_assignable_users/?project_key=ENG", "JiraIntegration.list_assignable_users", ("ENG",)),
+        ],
+    )
+    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    def test_assignee_lookups_with_read_scope_succeed(
+        self, _mock_ensure_token_valid, kind, url_suffix, list_method, expected_call, client: HttpClient
+    ):
+        integration = Integration.objects.create(team=self.team, kind=kind, config={}, sensitive_config={})
+        key_value = "test_key_assignees"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        with patch(f"posthog.api.integration.{list_method}", return_value=[{"id": "u1", "name": "Ada"}]) as mock_list:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{integration.id}/{url_suffix}",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"users": [{"id": "u1", "name": "Ada"}]}
+        mock_list.assert_called_once_with(*expected_call)
 
     @patch("posthog.models.integration.github.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):

@@ -157,6 +157,31 @@ class JiraIntegration:
         projects = body.get("values", [])
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
 
+    def list_assignable_users(self, project_key: str) -> list[dict[str, str]]:
+        """Users who can be assigned issues in the project, up to the first 100."""
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/user/assignable/search",
+            params={"project": project_key, "maxResults": 100},
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise ValidationError("Could not list the Jira project's assignable users.")
+        return [
+            {"id": user["accountId"], "name": user.get("displayName") or user["accountId"]}
+            for user in response.json()
+            if user.get("active", True)
+        ]
+
     def create_issue(self, config: dict[str, str]) -> dict[str, str]:
         """Create a Jira issue and return the issue key"""
         cloud_id = self.cloud_id()
@@ -168,15 +193,17 @@ class JiraIntegration:
         title = config.get("title")
         description = config.get("description")
         project_key = config.get("project_key")
+        assignee = config.get("assignee")
 
-        payload = {
-            "fields": {
-                "project": {"key": project_key},
-                "summary": title,
-                "description": description_to_adf(description or ""),
-                "issuetype": {"name": "Task"},
-            }
+        fields: dict[str, Any] = {
+            "project": {"key": project_key},
+            "summary": title,
+            "description": description_to_adf(description or ""),
+            "issuetype": {"name": "Task"},
         }
+        if assignee:
+            fields["assignee"] = {"accountId": assignee}
+        payload = {"fields": fields}
 
         response = requests.post(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",

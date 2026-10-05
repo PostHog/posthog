@@ -121,3 +121,19 @@ class TestGitLabIntegrationModel:
         assert mock_get.call_count == 2
         assert mock_get.call_args.kwargs["params"]["search"] == "#42"
         assert "iids[]" not in mock_get.call_args.kwargs["params"]
+
+    @patch("posthog.models.integration.gitlab.requests.post")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_create_issue_sends_assignee_as_numeric_id(self, _mock_is_url_allowed, mock_post):
+        from posthog.models.integration import GitLabIntegration
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "project_id": 1},
+            sensitive_config={"access_token": "token123"},
+        )
+        mock_post.return_value.json.return_value = {"iid": 7}
+
+        GitLabIntegration(integration).create_issue({"title": "Checkout failed", "body": "Details", "assignee": "42"})
+
+        assert mock_post.call_args.kwargs["json"]["assignee_ids"] == [42]
