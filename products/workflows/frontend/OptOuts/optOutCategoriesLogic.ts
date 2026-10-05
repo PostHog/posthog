@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 
@@ -91,6 +92,8 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
         deleteCategory: async ({ id }: { id: string }) => {
             try {
                 await messagingCategoriesPartialUpdate(String(ApiConfig.getCurrentTeamId()), id, { deleted: true })
+                // pinned: analytics event name
+                posthog.capture('messaging topic deleted')
                 actions.loadCategories()
             } catch (error) {
                 console.error('Failed to delete category:', error)

@@ -44,6 +44,8 @@ export async function writeToClipboard(value: string, html?: string): Promise<Cl
 function writeThroughSelection(value: string): boolean {
     try {
         const textArea = document.createElement('textarea')
+        // The copied value may be personal data, and copy autocapture would otherwise send the selection.
+        textArea.className = 'ph-no-capture'
         textArea.value = value
         document.body.appendChild(textArea)
         textArea.select()
