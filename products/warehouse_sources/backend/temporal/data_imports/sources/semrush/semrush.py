@@ -34,19 +34,21 @@ def normalize_row(row: dict[str, object], project_id: str, primary_key: str) -> 
 def semrush_resource(api_key: str, project_id: str, endpoint: str, team_id: int, job_id: str) -> Resource:
     validate_project_id(project_id)
     settings = schema_for_resource(ENDPOINTS, endpoint)
+    error_actions: list[ResponseAction] = [
+        {"json_field": "code", "json_values": [code, str(code)], "action": "raise", "message": message}
+        for code, message in ERROR_MESSAGES.items()
+    ]
+    client_error_actions: list[ResponseAction] = [
+        {"status_code": status, "action": "raise", "message": REQUEST_ERROR}
+        for status in range(400, 500)
+        if status != 429
+    ]
     actions: list[ResponseAction] = [
         {"status_code": 401, "action": "raise", "message": AUTH_ERROR},
         {"status_code": 403, "action": "raise", "message": ACCESS_ERROR},
-        *[
-            {"json_field": "code", "json_values": [code, str(code)], "action": "raise", "message": message}
-            for code, message in ERROR_MESSAGES.items()
-        ],
+        *error_actions,
         {"json_field": "code", "json_values": [511, "511"], "action": "retry", "message": "Semrush temporary error."},
-        *[
-            {"status_code": status, "action": "raise", "message": REQUEST_ERROR}
-            for status in range(400, 500)
-            if status != 429
-        ],
+        *client_error_actions,
     ]
     config: RESTAPIConfig = {
         "client": {
