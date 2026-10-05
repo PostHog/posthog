@@ -14,7 +14,6 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.apps import apps
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
@@ -203,15 +202,10 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
 
 
 def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
-    """Whether `canvas_id` is a canvas in this team the user may see.
+    """Whether `canvas_id` is a canvas in this team the user may see."""
+    from products.canvas.backend.facade import access as canvas_facade
 
-    The Canvas model belongs to the canvas product, which depends on tasks —
-    resolved through the app registry so this soft existence check doesn't
-    create a tasks → canvas import cycle.
-    """
-    canvas_model = apps.get_model("canvas", "Canvas")
-    visible = Channel.visible_to_q(user_id, relation="channel")
-    return canvas_model.objects.for_team(team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
+    return canvas_facade.canvas_is_visible(team_id=team_id, canvas_id=canvas_id, user_id=user_id)
 
 
 def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:

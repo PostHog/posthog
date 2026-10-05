@@ -13,13 +13,14 @@ import json
 import base64
 import asyncio
 import hashlib
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Prefetch, Q
+from django.db.models.fields.json import KT
 from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
@@ -46,8 +47,10 @@ from ..models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from ..query import measure_queries
 from ..training import artifacts as artifact_store
-from ..training.recipe_validation import RecipeValidationError, validate_feature_sql, validate_recipe
+from ..training.recipe_validation import RecipeValidationError, feature_sql_hints, validate_feature_sql, validate_recipe
+from ..training.shadow_set import shadow_set_ids
 from .contracts import (
     ArtifactContent,
     ArtifactDeleteResult,
@@ -55,12 +58,15 @@ from .contracts import (
     ArtifactNotFound,
     ArtifactStorageUnavailable,
     AutoresearchConflict,
+    CalibrationBin,
     InvalidArtifactPath as InvalidArtifactPath,
     InvalidTarget,
     Iteration,
     IterationTrailEntry,
     MaterializedFeatures,
     Model,
+    OnlinePerformance,
+    OnlinePerformanceRow,
     Pipeline,
     PipelineNotFound,
     PipelineValidation,
@@ -94,6 +100,9 @@ _AGENT_FEATURE_DIR = "/tmp/workspace/autoresearch/data"
 MAX_BUNDLE_FILES = 32
 
 HISTORY_LIMIT_MAX = 20
+
+ONLINE_PERFORMANCE_DATES_DEFAULT = 60
+ONLINE_PERFORMANCE_DATES_MAX = 180
 
 
 def _as_uuid(value: str | UUID | None) -> UUID | None:
@@ -158,7 +167,7 @@ def _pipeline_with_champion(row: AutoresearchPipeline) -> Pipeline:
     )
 
 
-def _model_to_contract(row: AutoresearchModel) -> Model:
+def _model_to_contract(row: AutoresearchModel, *, in_shadow_set: bool) -> Model:
     return Model(
         id=row.id,
         pipeline=row.pipeline_id,
@@ -179,6 +188,7 @@ def _model_to_contract(row: AutoresearchModel) -> Model:
         archived_at=row.archived_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        in_shadow_set=in_shadow_set,
     )
 
 
@@ -652,7 +662,9 @@ def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, li
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
-    return [_model_to_contract(row) for row in qs[offset : offset + limit]], count
+    rows = list(qs[offset : offset + limit])
+    in_shadow = shadow_set_ids(team_id, {row.pipeline_id for row in rows})
+    return [_model_to_contract(row, in_shadow_set=row.pk in in_shadow) for row in rows], count
 
 
 def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
@@ -663,7 +675,9 @@ def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | N
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     row = qs.first()
-    return _model_to_contract(row) if row else None
+    if row is None:
+        return None
+    return _model_to_contract(row, in_shadow_set=row.pk in shadow_set_ids(team_id, {row.pipeline_id}))
 
 
 # ── Operational runs ───────────────────────────────────────────────────────
@@ -851,6 +865,70 @@ def validate_pipeline_online(
     except Action.DoesNotExist:
         raise AutoresearchConflict("The pipeline's target action no longer exists.")
     return [_run_to_contract(run) for run in runs]
+
+
+def online_performance(
+    team_id: int, pipeline_id: str | UUID, *, limit: int = ONLINE_PERFORMANCE_DATES_DEFAULT
+) -> OnlinePerformance:
+    """Realized metrics per model per validated prediction date, newest date first.
+
+    Reads the completed validation runs, not the model rows: a model row keeps only its newest
+    date, and promotion archives the former champion, but each run keeps every model it scored.
+    ``limit`` bounds the number of (prediction date, horizon) groups. When a group was validated
+    more than once, its newest completed run holds the current evidence.
+    """
+    pipeline = _pipeline_row(team_id, pipeline_id)
+    limit = max(1, min(limit, ONLINE_PERFORMANCE_DATES_MAX))
+    runs = list(
+        AutoresearchRun.objects.for_team(team_id)
+        .filter(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.VALIDATION,
+            status=AutoresearchRun.Status.COMPLETED,
+            metrics__has_key="prediction_date",
+        )
+        .annotate(prediction_date=KT("metrics__prediction_date"), horizon=KT("metrics__horizon_days"))
+        .order_by("-prediction_date", "horizon", F("completed_at").desc(nulls_last=True), "-id")
+        .distinct("prediction_date", "horizon")[:limit]
+    )
+    model_ids = {model_id for run in runs for model_id in (run.metrics.get("per_model") or {})}
+    current_roles = dict(
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(pipeline=pipeline, pk__in=[_as_uuid(model_id) for model_id in model_ids])
+        .values_list("id", "role")
+    )
+    rows: list[OnlinePerformanceRow] = []
+    for run in runs:
+        prediction_date = date.fromisoformat(run.metrics["prediction_date"])
+        for model_id, m in sorted((run.metrics.get("per_model") or {}).items()):
+            model_uuid = UUID(model_id)
+            bins = m.get("calibration_bins")
+            rows.append(
+                OnlinePerformanceRow(
+                    validation_run_id=run.id,
+                    prediction_date=prediction_date,
+                    horizon_days=int(run.metrics.get("horizon_days") or pipeline.horizon_days),
+                    weekday=prediction_date.isoweekday(),
+                    model_id=model_uuid,
+                    emitted_role=m.get("emitted_role") or "",
+                    current_role=current_roles.get(model_uuid, "deleted"),
+                    n_scored=int(m.get("n_scored") or 0),
+                    n_positive=int(m.get("n_positive") or 0),
+                    base_rate=float(m.get("base_rate") or 0.0),
+                    mean_p_y=m.get("mean_p_y"),
+                    realized_auc=m.get("realized_auc"),
+                    realized_auc_ci_low=m.get("realized_auc_ci_low"),
+                    realized_auc_ci_high=m.get("realized_auc_ci_high"),
+                    brier_score=m.get("brier_score"),
+                    calibration_error=m.get("calibration_error"),
+                    lift_at_10=m.get("lift_at_10"),
+                    lift_at_20=m.get("lift_at_20"),
+                    calibration_bins=[CalibrationBin(**b) for b in bins] if bins is not None else None,
+                    warning=m.get("warning"),
+                    validated_at=run.completed_at,
+                )
+            )
+    return OnlinePerformance(rows=rows)
 
 
 # ── Training runs ──────────────────────────────────────────────────────────
@@ -1180,12 +1258,14 @@ def materialize_features(
     sandbox_id = _resolve_run_sandbox_id(training_run)
     team = Team.objects.get(pk=team_id)
     try:
-        data = materialize_training_data(
-            team=team,
-            pipeline=training_run.pipeline,
-            feature_sql=features_sql,
-            user=user,
-            anchor_ts=training_run.anchor_ts,
+        data, cost = measure_queries(
+            lambda: materialize_training_data(
+                team=team,
+                pipeline=training_run.pipeline,
+                feature_sql=features_sql,
+                user=user,
+                anchor_ts=training_run.anchor_ts,
+            )
         )
     except (SandboxInferenceError, RecipeValidationError) as exc:
         raise AutoresearchConflict(f"Feature materialization failed: {exc}") from exc
@@ -1217,6 +1297,9 @@ def materialize_features(
         n_holdout=len(data.holdout_rows),
         n_features=len(data.feature_cols),
         feature_cols=list(data.feature_cols),
+        elapsed_s=cost.elapsed_s,
+        rows_read=cost.rows_read,
+        hints=feature_sql_hints(features_sql),
     )
 
 

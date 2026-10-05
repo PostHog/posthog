@@ -226,6 +226,28 @@ PostgresErrors = {
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
     ),
+    # A server using `pam` auth in pg_hba.conf words a bad password this way, so the libpq
+    # password keys above don't match it.
+    "PAM authentication failed": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # A PgBouncer-style pooler (for example Supabase's on port 6543) rejects a username that isn't
+    # in its own user list before Postgres sees it.
+    "no such user": (
+        "Your connection pooler doesn't recognize this username. Use the username your pooler "
+        "expects, such as postgres.<project-ref> for Supabase, then try again."
+    ),
+    # The role exists but has NOLOGIN, which is the default for a role made with CREATE ROLE.
+    "is not permitted to log in": (
+        "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
+        "different user, then try again."
+    ),
+    # Supavisor rejects a client IP outside the project's network restrictions with
+    # "FATAL: (EADDRNOTALLOWED) address not in tenant allow_list: ...". `get_non_retryable_errors`
+    # already handles this on the streaming path; map it here too so validation returns an
+    # actionable message instead of the generic fallback.
+    "address not in tenant allow_list": (
+        "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
+        "allow list. Add PostHog's IP addresses to that allow list, then try again."
+    ),
     "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
@@ -518,6 +540,16 @@ class PostgresSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # A serverless provider (observed on Xata) refuses the connection while the branch is
+            # hibernated. A hibernated branch does not wake on connect: the refusal itself asks for a
+            # reactivation, which only the customer can do, so every retry re-hits the same refusal.
+            # Match the stable phrase because libpq prefixes it with the customer's host and port.
+            # This entry comes first because the finalizer takes the first match, and a multi-address
+            # refusal can also carry a generic "Connection refused" or timeout for another address.
+            "branch is hibernated": (
+                "Your database provider hibernated this branch, so PostHog can't connect. "
+                "Reactivate the branch in your provider's dashboard, then re-enable the sync."
+            ),
             # xmin can't run against this relation (server < PG13, no primary key, or a partitioned
             # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
             # wraps the failure; the message fragment matches the raw activity-level `str(e)`.

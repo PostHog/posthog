@@ -389,20 +389,6 @@ class LeakedKeyReportThrottle(IPThrottle):
     rate = "10/minute"
 
 
-class VapiWebhookIPThrottle(IPThrottle):
-    """Per-IP cap on the public Vapi webhook endpoint, run by the ingress throttle lane.
-
-    Vapi calls us a small handful of times per interview (status-update + end-of-call-report),
-    but its egress is shared across all of our tenants, so the bucket has to be generous enough
-    that a noisy concurrent interview hour doesn't bleed onto a normal one. 1200/min is well
-    above legitimate aggregate volume while still stopping a persistent attacker from driving
-    HMAC-verification CPU or structured-log volume from a single IP.
-    """
-
-    scope = "user_interviews_vapi_webhook_ip"
-    rate = "1200/minute"
-
-
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.
@@ -1771,28 +1757,6 @@ class AlertLLMSimulationSustainedThrottle(_AlertLLMSimulationThrottle):
 class AlertLLMSimulationDailyThrottle(_AlertLLMSimulationThrottle):
     scope = "alert_llm_simulation_daily"
     rate = "200/day"
-
-
-class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Cap how often a team can fire the user-interview send_invites action.
-    #
-    # The content (subject + intro) and the recipient list are both
-    # user-controlled, so without a limit a member could use the action as a
-    # PostHog-branded spam relay by rotating the topic's interviewee_emails and
-    # re-sending. Idempotency only stops re-sending to the *same*
-    # SharingConfiguration, not sending to fresh addresses.
-    #
-    # Keyed per team (not per personal API key, not per topic) so neither
-    # rotating topics nor minting extra API keys bypasses the limit. Extends
-    # PersonalApiKeyOrUserRateThrottle so every authenticated caller is covered
-    # (PATs, OAuth bearer tokens, and session-cookie UI users alike).
-    scope = "user_interview_invite"
-    rate = "10/minute"
-
-    def get_cache_key(self, request, view):
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
 class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):

@@ -394,6 +394,8 @@ export interface AutoresearchModelApi {
     archived_at?: string | null
     readonly created_at: string
     readonly updated_at: string
+    /** True if this model is in the pipeline's shadow set: the champion, the previous champion, and up to 3 recent fitted challengers with distinct recipes. */
+    readonly in_shadow_set: boolean
 }
 
 export interface PaginatedAutoresearchModelListApi {
@@ -434,7 +436,7 @@ export const ZendeskImportJobStatusEnumApi = {
 } as const
 
 /**
- * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+ * Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest.
  */
 export type AutoresearchRunApiMetrics = { [key: string]: unknown }
 
@@ -467,7 +469,7 @@ export interface AutoresearchRunApi {
      * @nullable
      */
     rows_scored?: number | null
-    /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+    /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
     metrics: AutoresearchRunApiMetrics
     /** Error message if the run failed. */
     error?: string
@@ -1120,6 +1122,12 @@ export interface MaterializeFeaturesResponseApi {
     n_features: number
     /** The numeric feature column names (excludes distinct_id, __label, __fold). */
     feature_cols: string[]
+    /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+    elapsed_s: number
+    /** Rows ClickHouse read to materialize the matrix. */
+    rows_read: number
+    /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+    hints: string[]
 }
 
 /**
@@ -1319,6 +1327,98 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface CalibrationBinApi {
+    /** Number of scored users in this bin. */
+    n: number
+    /** Mean predicted probability of the users in this bin. */
+    mean_p_y: number
+    /** Fraction of the users in this bin who did the target event within the horizon. */
+    positive_rate: number
+}
+
+export interface OnlinePerformanceRowApi {
+    /** UUID of the validation run that recorded these metrics. */
+    validation_run_id: string
+    /** Date the predictions were made for (UTC). */
+    prediction_date: string
+    /** Prediction horizon, in days, the predictions were made under. */
+    horizon_days: number
+    /** ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects. */
+    weekday: number
+    /** UUID of the model that emitted the predictions. */
+    model_id: string
+    /** Role the model had when it emitted the predictions: 'champion' or 'challenger'. */
+    emitted_role: string
+    /** Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows. */
+    current_role: string
+    /** Number of users the model scored on this date. */
+    n_scored: number
+    /** Number of scored users who did the target event in the horizon. */
+    n_positive: number
+    /** Fraction of scored users who did the target event (n_positive / n_scored). */
+    base_rate: number
+    /**
+     * Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    mean_p_y: number | null
+    /**
+     * Realized ROC AUC against actual outcomes. Null when the date has one class only.
+     * @nullable
+     */
+    realized_auc: number | null
+    /**
+     * Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_low: number | null
+    /**
+     * Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_high: number | null
+    /**
+     * Brier score. Lower is better.
+     * @nullable
+     */
+    brier_score: number | null
+    /**
+     * Expected calibration error over 10 equal-width bins. Lower is better.
+     * @nullable
+     */
+    calibration_error: number | null
+    /**
+     * Positives in the top 10% by score, relative to a random 10%.
+     * @nullable
+     */
+    lift_at_10: number | null
+    /**
+     * Positives in the top 20% by score, relative to a random 20%.
+     * @nullable
+     */
+    lift_at_20: number | null
+    /**
+     * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    calibration_bins: CalibrationBinApi[] | null
+    /**
+     * 'single_class_no_auc' when every scored user had the same outcome, otherwise null.
+     * @nullable
+     */
+    warning: string | null
+    /**
+     * When the validation run completed.
+     * @nullable
+     */
+    validated_at: string | null
+}
+
+export interface OnlinePerformanceApi {
+    /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
+    rows: OnlinePerformanceRowApi[]
+}
+
 export interface StartTrainingRequestApi {
     /**
      * Override the pipeline iteration budget for this training run.
@@ -1499,7 +1599,7 @@ export const ValidationWarningSeverityEnumApi = {
 } as const
 
 export interface ValidationWarningApi {
-    /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+    /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population, or each scoring run scores a rolling part of it: users never scored first, then users whose last score was oldest. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
     code: string
     /** Human-readable warning description. */
     message: string
@@ -1512,7 +1612,7 @@ export interface ValidationWarningApi {
 }
 
 export interface ValidatePipelineResponseApi {
-    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
+    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
     can_proceed: boolean
     /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
     requires_acknowledgement: boolean
@@ -1610,6 +1710,15 @@ export type AutoresearchTrainingRunsHistoryRetrieveParams = {
      * Maximum number of prior runs to return (default 5, at most 20).
      * @minimum 1
      * @maximum 20
+     */
+    limit?: number
+}
+
+export type AutoresearchOnlinePerformanceRetrieveParams = {
+    /**
+     * Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.
+     * @minimum 1
+     * @maximum 180
      */
     limit?: number
 }
