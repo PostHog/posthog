@@ -14,6 +14,11 @@
 //! on an error channel; the consumer turns them into a process failure, so
 //! the failure decision stays in the consumer loop.
 
+pub mod key_queues;
+pub mod request_class;
+#[cfg(test)]
+pub(crate) mod test_support;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
