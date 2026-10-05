@@ -50,6 +50,20 @@ describe('todaySectionLayout', () => {
             { pinned: 50, recent: 0, spaces: 80 },
         ],
         [
+            'a saved height below the minimum still opens spaces at two rows',
+            [section('recent', 1000), section('spaces', 1000)],
+            500,
+            { spaces: 10 },
+            { pinned: 0, recent: 436, spaces: 64 },
+        ],
+        [
+            'a short pane takes height from above the minimum before it hides spaces',
+            [section('pinned', 500), section('recent', 500), section('spaces', 500)],
+            200,
+            { pinned: 150, spaces: 40 },
+            { pinned: 80, recent: 56, spaces: 64 },
+        ],
+        [
             'other sections shrink so recent keeps its minimum height',
             [section('pinned', 500), section('recent', 500)],
             100,
@@ -70,6 +84,6 @@ describe('todaySectionLayout', () => {
                 delta: 500,
                 preferred: {},
             })
-        ).toEqual({ spaces: 40 })
+        ).toEqual({ spaces: 64 })
     })
 })

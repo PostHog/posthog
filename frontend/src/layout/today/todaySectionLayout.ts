@@ -15,11 +15,16 @@ const FILL_ORDER: readonly TodayWorkSectionId[] = ['recent', 'spaces', 'pinned']
 export const TODAY_SECTION_HEADER_HEIGHT = 28
 const SHARE_CAP = 0.4
 const MIN_FILL_HEIGHT = 56
-const MIN_DRAG_HEIGHT = 40
+// About two rows, so an open section always shows what it holds.
+const MIN_OPEN_HEIGHT = 64
 const STRETCHING_SECTION: TodayWorkSectionId = 'recent'
 
 function fillingSection(sections: readonly TodaySectionInput[]): TodayWorkSectionId | null {
     return FILL_ORDER.find((id) => sections.some((section) => section.id === id && section.open)) ?? null
+}
+
+function minOpenHeight(contentHeight: number): number {
+    return Math.max(0, Math.min(contentHeight, MIN_OPEN_HEIGHT))
 }
 
 export function layoutTodaySections(
@@ -43,17 +48,22 @@ export function layoutTodaySections(
 
     let used = 0
     for (const section of others) {
-        const wanted = preferred[section.id] ?? share
+        const wanted = Math.max(preferred[section.id] ?? share, minOpenHeight(section.contentHeight))
         heights[section.id] = Math.floor(Math.max(0, Math.min(section.contentHeight, wanted)))
         used += heights[section.id]
     }
 
     const fillFloor = Math.min(fillSection.contentHeight, MIN_FILL_HEIGHT)
     if (available - used < fillFloor && used > 0) {
-        const scale = Math.max(0, available - fillFloor) / used
+        // Take height above the minimum first. Only a very short pane cuts into the minimum.
+        const room = Math.max(0, available - fillFloor)
+        const floors = others.reduce((total, section) => total + minOpenHeight(section.contentHeight), 0)
+        const floorScale = floors > room ? room / floors : 1
+        const extraScale = used > floors ? Math.max(0, room - floors) / (used - floors) : 0
         used = 0
         for (const section of others) {
-            heights[section.id] = Math.floor(heights[section.id] * scale)
+            const floor = minOpenHeight(section.contentHeight)
+            heights[section.id] = Math.floor(floor * floorScale + (heights[section.id] - floor) * extraScale)
             used += heights[section.id]
         }
     }
@@ -98,7 +108,7 @@ export function resizeTodaySections({
 }): PreferredTodaySectionHeights {
     const contentOf = (id: TodayWorkSectionId): number =>
         sections.find((section) => section.id === id)?.contentHeight ?? 0
-    const shrinkable = (id: TodayWorkSectionId): number => Math.max(0, heights[id] - MIN_DRAG_HEIGHT)
+    const shrinkable = (id: TodayWorkSectionId): number => Math.max(0, heights[id] - minOpenHeight(contentOf(id)))
     const growable = (id: TodayWorkSectionId): number =>
         id === STRETCHING_SECTION ? Number.POSITIVE_INFINITY : Math.max(0, contentOf(id) - heights[id])
     const min = -Math.min(shrinkable(upper), growable(lower))
