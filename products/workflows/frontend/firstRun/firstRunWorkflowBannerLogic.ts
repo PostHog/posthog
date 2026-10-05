@@ -27,7 +27,7 @@ export interface firstRunWorkflowBannerLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     originalWorkflow: HogFlow | null // workflowLogic
     banner: FirstRunBannerState | null
-    dismissedBanners: FirstRunBannerState[]
+    dismissed: boolean
     firstRunWorkflowId: string | null
 }
 
@@ -43,9 +43,6 @@ export interface firstRunWorkflowBannerLogicActions {
     dismiss: () => {
         value: true
     }
-    rememberDismissed: (banner: FirstRunBannerState) => {
-        banner: FirstRunBannerState
-    }
     viewMetrics: () => {
         value: true
     }
@@ -59,7 +56,7 @@ export interface firstRunWorkflowBannerLogicMeta {
             originalWorkflow: HogFlow | null,
             firstRunWorkflowId: string | null,
             featureFlags: FeatureFlagsSet,
-            dismissedBanners: FirstRunBannerState[]
+            dismissed: boolean
         ) => FirstRunBannerState | null
     }
 }
@@ -81,46 +78,32 @@ export const firstRunWorkflowBannerLogic = kea<firstRunWorkflowBannerLogicType>(
     })),
     actions({
         dismiss: true,
-        rememberDismissed: (banner: FirstRunBannerState) => ({ banner }),
         viewMetrics: true,
     }),
     reducers(() => ({
         firstRunWorkflowId: [getFirstRunWorkflowId(), {}],
-        dismissedBanners: [
-            [] as FirstRunBannerState[],
-            { persist: true },
-            {
-                rememberDismissed: (dismissed, { banner }) =>
-                    dismissed.includes(banner) ? dismissed : [...dismissed, banner],
-            },
-        ],
+        dismissed: [false, { persist: true }, { dismiss: () => true }],
     })),
     selectors({
         banner: [
-            (s) => [s.originalWorkflow, s.firstRunWorkflowId, s.featureFlags, s.dismissedBanners],
+            (s) => [s.originalWorkflow, s.firstRunWorkflowId, s.featureFlags, s.dismissed],
             (
                 originalWorkflow: HogFlow | null,
                 firstRunWorkflowId: string | null,
                 featureFlags: FeatureFlagsSet,
-                dismissedBanners: FirstRunBannerState[]
+                dismissed: boolean
             ): FirstRunBannerState | null => {
-                if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_FIRST_RUN] || !originalWorkflow) {
+                if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_FIRST_RUN] || !originalWorkflow || dismissed) {
                     return null
                 }
                 if (!firstRunWorkflowId || originalWorkflow.id !== firstRunWorkflowId) {
                     return null
                 }
-                const banner = bannerForStatus(originalWorkflow.status)
-                return banner && !dismissedBanners.includes(banner) ? banner : null
+                return bannerForStatus(originalWorkflow.status)
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
-        dismiss: () => {
-            if (values.banner) {
-                actions.rememberDismissed(values.banner)
-            }
-        },
+    listeners(({ props }) => ({
         viewMetrics: () => {
             router.actions.push(urls.workflow(props.id ?? 'new', 'metrics'))
         },

@@ -112,26 +112,19 @@ describe('firstRunWorkflowBannerLogic', () => {
         expect(globalSetupLogic.values.highlight).toBeNull()
     })
 
-    it('keeps a dismissed banner dismissed when the workflow opens again', async () => {
+    it('keeps a dismissed banner dismissed after enabling and when the workflow opens again', async () => {
         const logic = mountFor(FIRST_RUN_WORKFLOW_ID)
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ banner: 'draft' })
 
         logic.actions.dismiss()
+        workflowLogic({ id: FIRST_RUN_WORKFLOW_ID }).actions.saveWorkflowPartial({ status: 'active' })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ banner: null })
+
         logic.unmount()
         const reopened = firstRunWorkflowBannerLogic({ id: FIRST_RUN_WORKFLOW_ID })
         reopened.mount()
 
         await expectLogic(reopened).toFinishAllListeners().toMatchValues({ banner: null })
-    })
-
-    it('shows the sending banner after the draft banner was dismissed', async () => {
-        const logic = mountFor(FIRST_RUN_WORKFLOW_ID)
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ banner: 'draft' })
-        logic.actions.dismiss()
-
-        workflowLogic({ id: FIRST_RUN_WORKFLOW_ID }).actions.saveWorkflowPartial({ status: 'active' })
-
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ banner: 'sending' })
     })
 
     it('opens the Metrics tab from the sending banner', async () => {
