@@ -113,7 +113,9 @@ def us_eia_source(
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
-        if state is not None:
+        if state is None:
+            manager.clear_state()
+        else:
             manager.save_state(EiaResumeConfig(offset=int(state["offset"]), start=start))
 
     resource = rest_api_resource(

@@ -1,4 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -102,7 +104,7 @@ def test_request_and_row_shaping(
     with requests_mock.Mocker() as http:
         http.get(f"https://api.eia.gov/v2/{path}", json={"response": {"total": "1", "data": [row]}})
         response = us_eia_source("example-key", inputs, manager)
-        pages = list(response.items())
+        pages = list(cast(Iterable[Any], response.items()))
         request = http.request_history[0]
         params = parse_qs(urlsplit(request.url).query)
         assert len(http.request_history) == 1
@@ -136,10 +138,11 @@ def test_pagination_and_checkpoint(
                 {"json": {"response": {"total": str(5000 + terminal_rows), "data": rows[:terminal_rows]}}},
             ],
         )
-        resource = iter(us_eia_source("example-key", inputs, manager).items())
+        resource = iter(cast(Iterable[Any], us_eia_source("example-key", inputs, manager).items()))
         assert len(next(resource)) == 5000
         assert sum(len(page) for page in resource) == terminal_rows
         manager.save_state.assert_called_once_with(EiaResumeConfig(offset=5000, start="2025-01"))
+        manager.clear_state.assert_called_once_with()
         assert [request.qs["offset"] for request in http.request_history] == [["0"], ["5000"]]
         assert all(request.qs["start"] == ["2025-01"] for request in http.request_history)
 
@@ -153,7 +156,7 @@ def test_resume_preserves_original_range(inputs: SourceInputs, manager: MagicMoc
             "https://api.eia.gov/v2/electricity/retail-sales/data/",
             json={"response": {"total": "10000", "data": []}},
         )
-        list(us_eia_source("example-key", inputs, manager).items())
+        list(cast(Iterable[Any], us_eia_source("example-key", inputs, manager).items()))
         assert http.last_request is not None
         assert http.last_request.qs["offset"] == ["10000"]
         assert http.last_request.qs.get("start") == ([saved_start] if saved_start else None)
@@ -165,7 +168,7 @@ def test_string_watermark(inputs: SourceInputs, manager: MagicMock, watermark: s
     inputs.schema_name = "retail_fuel_prices"
     with requests_mock.Mocker() as http:
         http.get("https://api.eia.gov/v2/petroleum/pri/gnd/data/", json={"response": {"data": []}})
-        list(us_eia_source("example-key", inputs, manager).items())
+        list(cast(Iterable[Any], us_eia_source("example-key", inputs, manager).items()))
         assert http.last_request is not None
         assert http.last_request.qs["start"] == ["2025-01-15"]
 
@@ -211,7 +214,7 @@ def test_sync_auth_errors_are_safe_and_not_retried(
             json={"error": {"code": code}},
         )
         with pytest.raises(HTTPError) as error:
-            list(us_eia_source("example-key", inputs, manager).items())
+            list(cast(Iterable[Any], us_eia_source("example-key", inputs, manager).items()))
         assert http.call_count == 1
         assert "example-key" not in str(error.value)
         assert any(pattern in str(error.value) for pattern in UsEiaSource().get_non_retryable_errors())
