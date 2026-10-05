@@ -63,7 +63,7 @@ FAN_OUT_PARENT_CAP_HITS = Counter(
 _RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 _STARTUP_FAILURE_FIRST_SYNC_LOOKBACK = timedelta(days=1)
-_STARTUP_FAILURE_WINDOW = timedelta(minutes=10)
+_STARTUP_FAILURE_MIN_WINDOW = timedelta(minutes=1)
 _GITHUB_FILTERED_RESULT_CAP = 1000
 
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. Every caller —
@@ -1813,6 +1813,35 @@ def _format_github_time(value: datetime) -> str:
     return value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _iter_startup_failure_runs(
+    url_for_window: Callable[[datetime, datetime], str],
+    fetch_pages: Callable[[str], Iterator[tuple[list[dict[str, Any]], str]]],
+    logger: FilteringBoundLogger,
+    window_start: datetime,
+    window_end: datetime,
+) -> Iterator[dict[str, Any]]:
+    """Yield the startup_failure runs created in the window. A window that returns GitHub's 1,000-run
+    cap is split in half and polled again, so a dense range is not truncated and a quiet range costs
+    one call. Runs at a split boundary or from the capped query come back twice; the merge on run id
+    dedupes them."""
+    window_count = 0
+    for runs, _page_url in fetch_pages(url_for_window(window_start, window_end)):
+        for run in runs:
+            window_count += 1
+            yield run
+    if window_count < _GITHUB_FILTERED_RESULT_CAP:
+        return
+    if window_end - window_start <= _STARTUP_FAILURE_MIN_WINDOW:
+        logger.warning(
+            "Github: startup_failure poll hit the 1,000-run cap in its smallest window, so some runs stay queued: "
+            f"window_start={window_start}, window_end={window_end}"
+        )
+        return
+    midpoint = window_start + (window_end - window_start) / 2
+    yield from _iter_startup_failure_runs(url_for_window, fetch_pages, logger, window_start, midpoint)
+    yield from _iter_startup_failure_runs(url_for_window, fetch_pages, logger, midpoint, window_end)
+
+
 def _get_startup_failure_runs(
     personal_access_token: str,
     repository: str,
@@ -1823,21 +1852,20 @@ def _get_startup_failure_runs(
 ) -> Iterator[pa.Table]:
     """Poll the runs that ended in startup_failure since ``created_since``. GitHub sends only the
     `requested` workflow_run webhook (status queued) for such a run and never a `completed` one, so
-    without this poll the webhook-fed table keeps the run queued forever. The `status` filter makes
-    GitHub cap each query at 1,000 runs, so the poll walks the range in 10-minute windows."""
+    without this poll the webhook-fed table keeps the run queued forever."""
     headers = _get_headers(personal_access_token, "workflow_runs", api_version)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    window_start = created_since
-    now = _now_utc()
-    while window_start < now:
-        window_end = min(window_start + _STARTUP_FAILURE_WINDOW, now)
+
+    def url_for_window(window_start: datetime, window_end: datetime) -> str:
         params = {
             "status": "startup_failure",
             "created": f"{_format_github_time(window_start)}..{_format_github_time(window_end)}",
             "per_page": GITHUB_ENDPOINTS["workflow_runs"].page_size,
         }
-        pages = _iter_pages(
-            f"{GITHUB_BASE_URL}/repos/{repository}/actions/runs?{urlencode(params)}",
+        return f"{GITHUB_BASE_URL}/repos/{repository}/actions/runs?{urlencode(params)}"
+
+    def fetch_pages(url: str) -> Iterator[tuple[list[dict[str, Any]], str]]:
+        return _iter_pages(
+            url,
             headers,
             "workflow_runs",
             logger,
@@ -1845,19 +1873,12 @@ def _get_startup_failure_runs(
             repository=repository,
             required_permission=ENDPOINT_REQUIRED_PERMISSION.get("workflow_runs"),
         )
-        window_count = 0
-        for runs, _page_url in pages:
-            for run in runs:
-                window_count += 1
-                batcher.batch(run)
-                if batcher.should_yield():
-                    yield batcher.get_table()
-        if window_count >= _GITHUB_FILTERED_RESULT_CAP:
-            logger.warning(
-                "Github: startup_failure poll hit the 1,000-run cap, so some runs in this window stay queued: "
-                f"repository={repository}, window_start={window_start}, window_end={window_end}"
-            )
-        window_start = window_end
+
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    for run in _iter_startup_failure_runs(url_for_window, fetch_pages, logger, created_since, _now_utc()):
+        batcher.batch(run)
+        if batcher.should_yield():
+            yield batcher.get_table()
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
 
