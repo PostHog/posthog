@@ -4394,7 +4394,7 @@ Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked
 
 ## Invoiced — gaps
 
-Today (9): `coupons`, `credit_notes`, `customers`, `estimates`, `invoices`, `items`, `payments`, `plans`, `subscriptions`
+Today (13): `coupons`, `credit_balance_adjustments`, `credit_notes`, `customers`, `estimates`, `events`, `invoices`, `items`, `payments`, `plans`, `subscriptions`, `tasks`, `tax_rates`
 
 Diffed against: <https://developer.invoiced.com/api/coupons>
 
