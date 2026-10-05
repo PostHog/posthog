@@ -1,6 +1,7 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -62,7 +63,7 @@ def test_pagination_auth_and_checkpoint(
         response({"items": terminal}),
     ]
     result = lodgify_source("test-key", endpoint, 1, "job", manager)
-    assert list(result.items()) == [[{"id": 1}], [{"id": 2}]]
+    assert list(cast(Iterable[Any], result.items())) == [[{"id": 1}], [{"id": 2}]]
     requests = [call.args[0] for call in transport.call_args_list]
     assert [parse_qs(urlsplit(request.url).query)["page"] for request in requests] == [["1"], ["2"], ["3"]]
     for request in requests:
@@ -96,7 +97,7 @@ def test_sync_parameters(
 ) -> None:
     transport.side_effect = [response({"items": [{"id": 1}]}), response({"items": []})]
     result = lodgify_source("test-key", endpoint, 1, "job", manager, incremental, watermark)
-    list(result.items())
+    list(cast(Iterable[Any], result.items()))
     assert result.sort_mode == "desc"
     for call in transport.call_args_list:
         params = parse_qs(urlsplit(call.args[0].url).query)
@@ -113,7 +114,7 @@ def test_resume(transport: MagicMock, manager: MagicMock, saved: LodgifyResumeCo
     manager.can_resume.return_value = True
     manager.load_state.return_value = saved
     transport.side_effect = [response({"items": []})]
-    list(lodgify_source("test-key", "properties", 1, "job", manager).items())
+    list(cast(Iterable[Any], lodgify_source("test-key", "properties", 1, "job", manager).items()))
     params = parse_qs(urlsplit(transport.call_args.args[0].url).query)
     assert params["page"] == ["4" if saved else "1"]
     manager.save_state.assert_not_called()
@@ -133,7 +134,7 @@ def test_room_fanout(transport: MagicMock, manager: MagicMock, resume: bool) -> 
         response({"items": []}),
     ]
     result = lodgify_source("test-key", "rooms", 1, "job", manager, True, "2026-01-01T00:00:00Z")
-    rows = [row for page in result.items() for row in page]
+    rows = [row for page in cast(Iterable[Any], result.items()) for row in page]
     assert rows == [
         *([] if resume else [{"id": 1, "name": "Room one", "property_id": 10}]),
         {"id": 1, "name": "Room two", "property_id": 20},
@@ -172,7 +173,7 @@ def test_credential_validation(transport: MagicMock, status: int, expected: tupl
 def test_permanent_errors(transport: MagicMock, manager: MagicMock, status: int) -> None:
     transport.return_value = response({}, status)
     with pytest.raises(HTTPError) as exc:
-        list(lodgify_source("test-key", "properties", 1, "job", manager).items())
+        list(cast(Iterable[Any], lodgify_source("test-key", "properties", 1, "job", manager).items()))
     matches = [
         message for pattern, message in LodgifySource().get_non_retryable_errors().items() if pattern in str(exc.value)
     ]
@@ -210,4 +211,4 @@ def test_invalid_inputs(manager: MagicMock, endpoint: str, watermark: str | None
 def test_missing_response_list_fails(transport: MagicMock, manager: MagicMock) -> None:
     transport.return_value = response({"unexpected": []})
     with pytest.raises(ValueError):
-        list(lodgify_source("test-key", "properties", 1, "job", manager).items())
+        list(cast(Iterable[Any], lodgify_source("test-key", "properties", 1, "job", manager).items()))
