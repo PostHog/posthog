@@ -1319,7 +1319,30 @@ export const productUrls = {
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
-    businessIntelligence: (): string => '/bi',
+    businessIntelligence: ({
+        insightShortId,
+        viewId,
+        dashboard,
+        filters,
+    }: {
+        insightShortId?: string
+        viewId?: string
+        dashboard?: number
+        filters?: HogQLFilters
+    } = {}): string => {
+        const search = new URLSearchParams()
+        if (insightShortId) {
+            search.set('open_insight', insightShortId)
+        } else if (viewId) {
+            search.set('open_view', viewId)
+        }
+        if (dashboard) {
+            search.set('dashboard', String(dashboard))
+        }
+        const hash = filters ? `#filters=${encodeURIComponent(JSON.stringify(filters))}` : ''
+        const query = search.toString()
+        return `/bi${query ? `?${query}` : ''}${hash}`
+    },
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     businessKnowledgePlayground: (chatId?: string): string =>

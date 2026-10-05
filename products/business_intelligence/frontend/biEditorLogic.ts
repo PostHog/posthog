@@ -7,29 +7,32 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import type { QueryTab } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import {
+    BIAggregation,
+    BIConfig,
+    BIDataSource,
+    BIDateBucket,
+    BIField,
+    BIFilter,
+    BIFilterOperator,
+    BIQueryLimit,
+    BISort,
+} from '~/queries/schema/schema-business-intelligence'
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { captureBIEditorModeSelected } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import {
-    BIAggregation,
     BIChartFit,
-    BIConfig,
     BIDataPaneFields,
-    BIDataSource,
-    BIDateBucket,
     BIEditorState,
     BIEditorView,
-    BIField,
-    BIFilter,
-    BIFilterOperator,
     BIQueryBuildResult,
-    BIQueryLimit,
     BIShelf,
-    BISort,
     BISortOption,
     DEFAULT_BI_CONFIG,
     buildBIQuery,
+    mergeBIChartSettings,
     changeBIFilterOperator,
     createDefaultDateFilter,
     defaultAggregationForField,
@@ -976,16 +979,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
             editorLogic.actions.setSourceQuery({
                 ...sourceQuery,
                 ...values.generatedQuery.node,
-                chartSettings: generatedChartSettings
-                    ? {
-                          ...chartSettings,
-                          ...generatedChartSettings,
-                          heatmap: {
-                              ...sourceQuery.chartSettings?.heatmap,
-                              ...generatedChartSettings.heatmap,
-                          },
-                      }
-                    : chartSettings,
+                chartSettings: mergeBIChartSettings(chartSettings, generatedChartSettings),
                 source: {
                     ...sourceQuery.source,
                     ...values.generatedQuery.node.source,

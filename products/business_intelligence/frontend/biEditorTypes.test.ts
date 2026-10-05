@@ -1,11 +1,9 @@
+import { BIConfig, BIField, BIFilter } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import {
-    BIConfig,
     BIEditorView,
-    BIField,
-    BIFilter,
     DEFAULT_BI_CONFIG,
     buildBIFilterOptionsQuery,
     buildBIQuery,
@@ -220,6 +218,7 @@ describe('BI editor query generation', () => {
                     kind: NodeKind.HogQLQuery,
                     query: expectedQuery,
                     connectionId: undefined,
+                    biConfig: config,
                 },
                 display: ChartDisplayType.ActionsBar,
             },

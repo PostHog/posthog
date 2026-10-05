@@ -1,7 +1,9 @@
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { groupDirectConnectionTableNodesBySchema } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 
-import { BIDataSource, getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
+import { BIDataSource } from '~/queries/schema/schema-business-intelligence'
+
+import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
 
 export function buildBIDataSourceTree(
     tree: TreeDataItem[],

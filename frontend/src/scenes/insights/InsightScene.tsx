@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { isDataVisualizationNode } from '~/queries/utils'
 import { ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -24,16 +25,16 @@ export function InsightScene(): JSX.Element {
     )
 
     useEffect(() => {
-        // Redirect data viz nodes to the sql editor
-        if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
+        if (insightId && isDataVisualizationNode(insight?.query) && insightMode === ItemMode.Edit) {
+            const editorUrl = insight.query.source.biConfig ? urls.businessIntelligence : urls.sqlEditor
             router.actions.push(
-                urls.sqlEditor({
+                editorUrl({
                     insightShortId: insightId,
                     dashboard: dashboardId ?? undefined,
                 })
             )
         }
-    }, [insightId, insight?.query?.kind, insightMode, dashboardId])
+    }, [insightId, insight?.query, insightMode, dashboardId])
 
     if (
         insightId === 'new' ||

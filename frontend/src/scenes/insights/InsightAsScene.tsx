@@ -93,7 +93,9 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
 
                 <InsightRetentionBanner insightProps={insightProps} />
 
-                <InsightQueryScanBanner insightProps={insightProps} />
+                {!(isDataVisualizationNode(query) && query.source.biConfig) && (
+                    <InsightQueryScanBanner insightProps={insightProps} />
+                )}
 
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (

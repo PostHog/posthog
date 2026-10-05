@@ -13,10 +13,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
-import type { DataWarehouseSavedQuery } from '~/types'
+import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
+import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { BIConfig, BIField, buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
+import { buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
 
 import { expect, userEvent } from 'storybook/test'
 
@@ -429,6 +430,76 @@ export const BIEmptyWorksheet: Story = {
         ...BIModeWorksheet.parameters,
         pageUrl: urls.businessIntelligence(),
         testOptions: { waitForSelector: '[data-attr="bi-editor-data-source"]' },
+    },
+}
+
+const BI_SAVED_QUERY = buildBIQuery(BI_WORKSHEET_CONFIG)!.node
+BI_SAVED_QUERY.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
+BI_SAVED_QUERY.tableSettings = {
+    columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'].map((column) => ({
+        column,
+        settings: { formatting: { prefix: '', suffix: '' } },
+    })),
+}
+
+const BI_SAVED_INSIGHT = {
+    ...DISCARD_INSIGHT,
+    short_id: 'bisaved1',
+    name: 'Revenue by event',
+    query: BI_SAVED_QUERY,
+}
+
+export const BISavedInsight: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: urls.insightView('bisaved1' as InsightShortId),
+        testOptions: { waitForSelector: '[data-attr="insight-edit-button"]', viewport: { width: 1600, height: 900 } },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.get,
+                    '/api/environments/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
+                    '/api/environments/:team_id/insights/:id/': [200, BI_SAVED_INSIGHT],
+                    '/api/projects/:team_id/events_retention/': [200, { retention_months: null, retained_from: null }],
+                },
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
+                        types: [
+                            ['bi_row_timestamp', 'DateTime'],
+                            ['bi_column_event', 'String'],
+                            ['sum_revenue', 'Float64'],
+                        ],
+                        results: [
+                            ['2026-06-01', 'purchase', 120],
+                            ['2026-06-02', 'purchase', 180],
+                            ['2026-06-03', 'purchase', 150],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BIEditSavedInsight: Story = {
+    ...BISavedInsight,
+    parameters: {
+        ...BISavedInsight.parameters,
+        pageUrl: urls.businessIntelligence({ insightShortId: 'bisaved1' }),
+        testOptions: BIModeWorksheet.parameters?.testOptions,
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(() =>
+            expect(canvasElement.querySelector('[data-attr="bi-editor-data-pane-measure"]')).not.toBeNull()
+        )
+        await waitFor(() =>
+            expect(within(canvasElement).queryByText('Edited', { exact: true })).not.toBeInTheDocument()
+        )
     },
 }
 

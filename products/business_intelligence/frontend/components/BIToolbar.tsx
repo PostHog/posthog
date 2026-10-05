@@ -7,9 +7,10 @@ import { IconArrowDown, IconArrowUp, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { RunButton } from 'scenes/data-warehouse/editor/RunButton'
 import { Scene } from 'scenes/sceneTypes'
 
+import { BISortDirection } from '~/queries/schema/schema-business-intelligence'
+
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { LIMIT_OPTIONS } from 'products/business_intelligence/frontend/biEditorOptions'
-import { BISortDirection } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 
 export function BIToolbar(): JSX.Element {

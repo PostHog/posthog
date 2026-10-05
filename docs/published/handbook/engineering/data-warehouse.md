@@ -22,6 +22,10 @@ Discarding query edits preserves the worksheet's selected source and shelves.
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
+Saving an insight or warehouse view preserves the worksheet's connection, table, shelves, measures, filters, chart type, limit, and sort order in the query's `biConfig`. Saved insights use the normal insight view; **Edit** reopens the worksheet in Business intelligence, including when reached from a dashboard. Saved BI views also reopen in Business intelligence. **Discard changes** restores the saved worksheet, including edits that did not change the generated SQL.
+
+Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
+
 Use the table picker in the data pane to browse the same source groups and folders as the database tree.
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.

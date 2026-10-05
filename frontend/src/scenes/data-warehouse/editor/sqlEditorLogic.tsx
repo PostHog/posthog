@@ -67,6 +67,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
+import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -122,6 +123,7 @@ import {
     BIEditorView,
     buildBIQuery,
     getBIFilterValidationError,
+    mergeBIChartSettings,
     parseBIEditorState,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 
@@ -402,7 +404,7 @@ function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualiza
             kind: NodeKind.HogQLQuery,
             query: typeof source.query === 'string' ? source.query : '',
         },
-        display: ChartDisplayType.Auto,
+        display: source.biConfig?.chartType ?? ChartDisplayType.Auto,
     }
 }
 
@@ -465,7 +467,11 @@ export function getCurrentVisualizationQuery(
     const visualizationQuery = mountedVisualizationLogic?.values.query ?? fallbackQuery
     return {
         ...visualizationQuery,
-        source: { ...visualizationQuery.source, query: queryInput ?? visualizationQuery.source.query },
+        source: {
+            ...visualizationQuery.source,
+            biConfig: fallbackQuery.source.biConfig,
+            query: queryInput ?? visualizationQuery.source.query,
+        },
     }
 }
 
@@ -1195,7 +1201,11 @@ export interface sqlEditorLogicMeta {
         ) => string | null | undefined
         editingView: (activeTab: QueryTab | null) => DataWarehouseSavedQuery | undefined
         editingMetricName: (activeTab: QueryTab | null) => string | null
-        changesToSave: (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => boolean
+        changesToSave: (
+            editingView: DataWarehouseSavedQuery | undefined,
+            queryInput: string | null,
+            sourceQuery: DataVisualizationNode
+        ) => boolean
         hasEditorChanges: (
             activeTab: QueryTab | null,
             queryInput: string | null,
@@ -1632,6 +1642,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sanitizeSourceQuery(sourceQuery),
+                updateTab: (state, { tab }) =>
+                    props.mode === SQLEditorMode.BusinessIntelligence && tab.biEditorState
+                        ? { ...state, source: { ...state.source, biConfig: tab.biEditorState.config } }
+                        : state,
             },
         ],
         lastRunQuery: [
@@ -1843,7 +1857,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             )
             const savedQuery =
                 draft?.query.query ?? view?.query?.query ?? toDataVisualizationNode(insight?.query)?.source.query
-            if (savedQuery !== undefined && values.queryInput === savedQuery) {
+            if (
+                savedQuery !== undefined &&
+                values.queryInput === savedQuery &&
+                (!(view || insight) || !values.hasEditorChanges)
+            ) {
                 storage?.set(null)
                 return
             }
@@ -1879,9 +1897,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             return resolveSaveCandidatesPure(fullText, cursorOffset, selectionText)
         }
         const getActiveBIEditorState = (): BIEditorState | undefined =>
-            props.mode === SQLEditorMode.BusinessIntelligence && values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]
-                ? values.activeTab?.biEditorState
-                : undefined
+            props.mode === SQLEditorMode.BusinessIntelligence ? values.activeTab?.biEditorState : undefined
 
         return {
             fixErrorsSuccess: ({ response }) => {
@@ -2070,6 +2086,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const insightVisualizationQuery = rawInsightVisualizationQuery
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
                     : undefined
+                const savedBIState = parseBIEditorState(
+                    BIEditorView.BI,
+                    draft?.query.biConfig ?? view?.query?.biConfig ?? insightVisualizationQuery?.source.biConfig
+                )
 
                 if (props.monaco) {
                     const uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
@@ -2105,16 +2125,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         props.mode === SQLEditorMode.BusinessIntelligence
                             ? {
                                   editorView: BIEditorView.BI,
-                                  config: biEditorState?.config ?? {
-                                      ...DEFAULT_BI_CONFIG,
-                                      rows: [],
-                                      columns: [],
-                                      values: [],
-                                      filters: [],
-                                  },
+                                  config: biEditorState?.config ??
+                                      savedBIState?.config ?? {
+                                          ...DEFAULT_BI_CONFIG,
+                                          rows: [],
+                                          columns: [],
+                                          values: [],
+                                          filters: [],
+                                      },
                               }
                             : biEditorState,
                 })
+                if (view || draft) {
+                    actions.setSourceQuery(hogQLEditorSourceQuery(draft?.query ?? view?.query))
+                }
                 if (insightVisualizationQuery) {
                     actions.setLastRunQuery(insightVisualizationQuery)
                 }
@@ -2344,16 +2368,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const nextSourceQuery: DataVisualizationNode = {
                     ...values.sourceQuery,
                     ...biQuery?.node,
-                    chartSettings: biQuery?.node.chartSettings
-                        ? {
-                              ...values.sourceQuery.chartSettings,
-                              ...biQuery.node.chartSettings,
-                              heatmap: {
-                                  ...values.sourceQuery.chartSettings?.heatmap,
-                                  ...biQuery.node.chartSettings.heatmap,
-                              },
-                          }
-                        : values.sourceQuery.chartSettings,
+                    chartSettings: mergeBIChartSettings(values.sourceQuery.chartSettings, biQuery?.node.chartSettings),
                     source: newSource,
                 }
                 actions.setSourceQuery(nextSourceQuery)
@@ -2769,7 +2784,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })?.values.effectiveVisualizationType
 
                 const display = getDisplayTypeToSaveInsight(
-                    values.outputActiveTab,
+                    props.mode === SQLEditorMode.BusinessIntelligence
+                        ? OutputTab.Visualization
+                        : values.outputActiveTab,
                     currentVisualizationQuery.display,
                     effectiveVisualizationType
                 )
@@ -3304,6 +3321,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             reviewViewUpdate: ({ view, draftId }) => {
+                if (props.mode === SQLEditorMode.BusinessIntelligence) {
+                    actions.updateView(view, draftId)
+                    return
+                }
                 // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate
                 // modal: show the saved query alongside the user's edits, and only run the update
                 // once they accept. Mirrors the conflict-review diff in updateView below.
@@ -3339,8 +3360,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const foreignEdit =
                     latestView?.latest_history_id != null &&
                     baselineQuery != null &&
-                    latestView.query?.query !== baselineQuery
+                    (latestView.query?.query !== baselineQuery ||
+                        !equal(latestView.query?.biConfig, values.activeTab?.view?.query?.biConfig))
                 if (foreignEdit) {
+                    if (props.mode === SQLEditorMode.BusinessIntelligence) {
+                        lemonToast.error(
+                            'This worksheet was changed by another user. Reopen it before saving your changes.'
+                        )
+                        return
+                    }
                     actions._setSuggestionPayload({
                         suggestedValue: values.queryInput!,
                         originalValue: latestView?.query?.query,
@@ -3572,9 +3600,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         changesToSave: [
-            (s) => [s.editingView, s.queryInput],
-            (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => {
-                return editingView?.query?.query !== queryInput
+            (s) => [s.editingView, s.queryInput, s.sourceQuery],
+            (
+                editingView: DataWarehouseSavedQuery | undefined,
+                queryInput: string | null,
+                sourceQuery: DataVisualizationNode
+            ) => {
+                return (
+                    editingView?.query?.query !== queryInput ||
+                    !equal(editingView?.query?.biConfig, sourceQuery.source.biConfig)
+                )
             },
         ],
         hasEditorChanges: [
@@ -3920,6 +3955,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             let tabAdded = false
 
+            const redirectToBI = (config: BIConfig | undefined): boolean => {
+                if (
+                    config &&
+                    props.mode !== SQLEditorMode.BusinessIntelligence &&
+                    parseBIEditorState(BIEditorView.BI, config)
+                ) {
+                    router.actions.replace(urls.businessIntelligence(), searchParams, hashParams)
+                    return true
+                }
+                return false
+            }
+
             const createQueryTab = async (): Promise<void> => {
                 if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
                     actions.setActiveTab(outputTabFromUrl)
@@ -3990,6 +4037,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         view = await api.dataWarehouseSavedQueries.get(viewId)
                     } catch {
                         lemonToast.error('Failed to load view details')
+                        actions.setViewLoading(false)
+                        actions.setViewQueryLoading(false)
+                        return
+                    }
+
+                    if (redirectToBI(view.query?.biConfig)) {
                         actions.setViewLoading(false)
                         actions.setViewQueryLoading(false)
                         return
@@ -4073,6 +4126,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
 
                     const insightVisualizationQuery = toDataVisualizationNode(insight.query)
+                    if (redirectToBI(insightVisualizationQuery?.source.biConfig)) {
+                        return
+                    }
                     const query = insightVisualizationQuery?.source.query ?? ''
 
                     const queryToOpen =
@@ -4132,13 +4188,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             ? toDataVisualizationNode(searchParams.open_query)
                             : undefined
                     if (openQueryNode) {
+                        if (redirectToBI(openQueryNode.source.biConfig)) {
+                            return
+                        }
                         actions.createTab(
                             openQueryNode.source.query || '',
                             undefined,
                             undefined,
                             undefined,
                             undefined,
-                            biEditorStateFromUrl ?? undefined
+                            biEditorStateFromUrl ??
+                                parseBIEditorState(BIEditorView.BI, openQueryNode.source.biConfig) ??
+                                undefined
                         )
                         actions.setSourceQuery(hasFiltersHashParam ? applyFiltersFromUrl(openQueryNode) : openQueryNode)
                         if (!outputTabFromUrl) {

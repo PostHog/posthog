@@ -16,6 +16,8 @@ import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 
+import { BIConfig, BIDataSource } from '~/queries/schema/schema-business-intelligence'
+
 import {
     buildBIDataSourceTree,
     getBIDataSourceFolderIds,
@@ -23,7 +25,6 @@ import {
 } from 'products/business_intelligence/frontend/biDataSourceTree'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
-import type { BIConfig, BIDataSource } from 'products/business_intelligence/frontend/biEditorTypes'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 export interface BIDataSourcePickerLogicProps {

@@ -22,6 +22,7 @@ import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '~/queries/query'
+import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -37,10 +38,9 @@ import { biConnectionsLogic } from 'products/business_intelligence/frontend/biCo
 import { BI_EDITOR_EVENTS } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import {
-    BIConfig,
     BIEditorView,
-    BIField,
     DEFAULT_BI_CONFIG,
+    buildBIQuery,
     getBIFieldPillLabel,
     getBIShelfEditorKey,
 } from 'products/business_intelligence/frontend/biEditorTypes'
@@ -2433,6 +2433,139 @@ describe('sqlEditorLogic', () => {
             sort_direction: null,
         }
 
+        it('saves a worksheet and restores it in a fresh editor from the insight alone', async () => {
+            const savedConfig = { ...config, rows: [timestampField], columns: [eventField] }
+            let savedInsight = MOCK_INSIGHT
+            const createSpy = jest.spyOn(insightsApi, 'create').mockImplementation(async (payload) => {
+                savedInsight = { ...MOCK_INSIGHT, ...payload } as InsightModel
+                return savedInsight
+            })
+            const getSpy = jest.spyOn(insightsApi, 'getByShortId').mockImplementation(async () => savedInsight)
+            logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+            logic.mount()
+            let biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            const node = buildBIQuery(savedConfig)!.node
+            node.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
+            logic.actions.createTab(node.source.query, undefined, undefined, undefined, undefined, {
+                editorView: BIEditorView.BI,
+                config: savedConfig,
+            })
+            logic.actions.setSourceQuery(node)
+            await expectLogic(logic, () => logic.actions.saveAsInsightSubmit('Saved worksheet')).toFinishAllListeners()
+            expect(savedInsight.query).toMatchObject({ source: { biConfig: savedConfig } })
+
+            biLogic.unmount()
+            logic.unmount()
+            router.actions.push('/')
+            localStorage.clear()
+            sessionStorage.clear()
+            logic = sqlEditorLogic({ tabId: 'reopened', mode: SQLEditorMode.BusinessIntelligence })
+            logic.mount()
+            biLogic = biEditorLogic({ tabId: 'reopened' })
+            biLogic.mount()
+            await expectLogic(logic, () =>
+                router.actions.push(urls.businessIntelligence({ insightShortId: savedInsight.short_id }))
+            )
+                .toDispatchActions(['editInsight', 'createTab'])
+                .toFinishAllListeners()
+            expect(biLogic.values.config).toEqual(savedConfig)
+            expect(logic.values.sourceQuery.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
+            expect(logic.values.hasEditorChanges).toBe(false)
+            biLogic.unmount()
+            createSpy.mockRestore()
+            getSpy.mockRestore()
+        })
+
+        it.each(['insight', 'view'] as const)(
+            'restores and discards config-only edits to a saved BI %s',
+            async (target) => {
+                const node = buildBIQuery(config)!.node
+                const insight = { ...MOCK_INSIGHT, query: node }
+                const view = { ...MOCK_VIEW, query: node.source }
+                const getSpy = jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(insight)
+                useMocks({ get: { '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, view] } })
+                logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+                logic.mount()
+                const biLogic = biEditorLogic({ tabId: TAB_ID })
+                biLogic.mount()
+                biLogic.actions.setAutoUpdate(false)
+                logic.actions.createTab(
+                    node.source.query,
+                    target === 'view' ? view : undefined,
+                    target === 'insight' ? insight : undefined
+                )
+                logic.actions.setSourceQuery(node)
+                expect(biLogic.values.config).toEqual(config)
+                expect(logic.values.hasEditorChanges).toBe(false)
+
+                biLogic.actions.setChartType(ChartDisplayType.ActionsPie)
+                expect(logic.values.queryInput).toBe(node.source.query)
+                expect(logic.values.hasEditorChanges).toBe(true)
+                if (target === 'view') {
+                    expect(logic.values.changesToSave).toBe(true)
+                }
+                await expectLogic(logic, () => logic.actions.discardChanges()).toFinishAllListeners()
+                expect(biLogic.values.config).toEqual(config)
+                expect(logic.values.hasEditorChanges).toBe(false)
+                biLogic.unmount()
+                getSpy.mockRestore()
+            }
+        )
+
+        it.each(['insight', 'view'] as const)('routes a saved BI %s opened through SQL back to BI', async (target) => {
+            const node = buildBIQuery(config)!.node
+            const getSpy = jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue({ ...MOCK_INSIGHT, query: node })
+            useMocks({
+                get: {
+                    '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, { ...MOCK_VIEW, query: node.source }],
+                },
+            })
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            await expectLogic(logic, () =>
+                router.actions.push(
+                    urls.sqlEditor(
+                        target === 'view' ? { view_id: MOCK_VIEW.id } : { insightShortId: MOCK_INSIGHT.short_id }
+                    )
+                )
+            ).toFinishAllListeners()
+            expect(router.values.location.pathname).toBe(`/project/${MOCK_DEFAULT_TEAM.id}/bi`)
+            getSpy.mockRestore()
+        })
+
+        it('updates a BI view with its worksheet without opening the SQL diff', async () => {
+            const node = buildBIQuery(config)!.node
+            let savedView = { ...MOCK_VIEW, query: node.source }
+            const updateMock = jest.fn(async ({ request }: { request: Request }) => {
+                savedView = { ...savedView, ...(await request.json()) }
+                return [200, savedView]
+            })
+            useMocks({
+                get: { '/api/:scope/:team_id/warehouse_saved_queries/:id/': () => [200, savedView] },
+                patch: { '/api/environments/:team_id/warehouse_saved_queries/:id/': updateMock },
+            })
+            logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.setAutoUpdate(false)
+            logic.actions.createTab(node.source.query, savedView)
+            biLogic.actions.setFilterValue(0, 'purchase')
+            await expectLogic(logic, () =>
+                logic.actions.reviewViewUpdate({
+                    id: savedView.id,
+                    query: { ...logic.values.sourceQuery.source, query: logic.values.queryInput! },
+                    types: [],
+                })
+            ).toFinishAllListeners()
+            expect(updateMock).toHaveBeenCalledTimes(1)
+            expect(savedView.query.biConfig.filters[0].value).toBe('purchase')
+            expect(logic.values.suggestionPayload).toBeNull()
+            expect(logic.values.changesToSave).toBe(false)
+            biLogic.unmount()
+        })
+
         it('opens and restores a BI worksheet without loading Monaco', async () => {
             logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
             logic.mount()
@@ -2594,7 +2727,7 @@ describe('sqlEditorLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: false })
             ;(posthog.capture as jest.Mock).mockClear()
             logic.actions.runQuery()
-            expect(posthog.capture).not.toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, expect.anything())
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, configEventProperties)
 
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
                 [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,

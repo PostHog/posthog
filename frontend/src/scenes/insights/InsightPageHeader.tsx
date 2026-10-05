@@ -199,8 +199,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         tooltipPlacement="bottom"
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
+                                                const editorUrl = query.source.biConfig
+                                                    ? urls.businessIntelligence
+                                                    : urls.sqlEditor
                                                 router.actions.push(
-                                                    urls.sqlEditor({
+                                                    editorUrl({
                                                         insightShortId: insight.short_id,
                                                         dashboard: dashboardId ?? undefined,
                                                         // Carry unsaved view-mode filter edits into the editor so they can be saved

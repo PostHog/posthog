@@ -1,13 +1,10 @@
 import { TableFieldsStatus } from 'scenes/data-management/database/databaseTableListLogic'
 import { resolveFieldTraverserTarget } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 
+import { BIDataSource } from '~/queries/schema/schema-business-intelligence'
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
-import {
-    BIDataPaneFields,
-    BIDataSource,
-    getBIDataPaneFields,
-} from 'products/business_intelligence/frontend/biEditorTypes'
+import { BIDataPaneFields, getBIDataPaneFields } from 'products/business_intelligence/frontend/biEditorTypes'
 
 export interface BIConnection {
     id: string
