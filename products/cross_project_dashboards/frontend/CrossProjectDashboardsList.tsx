@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -9,14 +8,12 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { crossProjectDashboardsListLogic } from './crossProjectDashboardsListLogic'
 import type { CrossProjectDashboardListItemApi } from './generated/api.schemas'
 
-/** The list of cross-project dashboards, usable as a scene or as a tab on the dashboards page. */
+/** The list of cross-project dashboards, usable as a scene or as a tab on the dashboards page. The page header holds its "New" button. */
 export function CrossProjectDashboardsList(): JSX.Element {
     const { dashboards, dashboardsLoading, isNewModalOpen, newName, isCreating } = useValues(
         crossProjectDashboardsListLogic
     )
-    const { openNewModal, closeNewModal, setNewName, createDashboard, deleteDashboard } = useActions(
-        crossProjectDashboardsListLogic
-    )
+    const { closeNewModal, setNewName, createDashboard, deleteDashboard } = useActions(crossProjectDashboardsListLogic)
 
     const columns: LemonTableColumn<
         CrossProjectDashboardListItemApi,
@@ -63,16 +60,6 @@ export function CrossProjectDashboardsList(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    onClick={openNewModal}
-                    data-attr="cross-project-dashboard-new"
-                >
-                    New cross-project dashboard
-                </LemonButton>
-            </div>
             <LemonTable
                 dataSource={dashboards}
                 columns={columns}

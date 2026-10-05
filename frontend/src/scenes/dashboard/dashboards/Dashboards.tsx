@@ -29,6 +29,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/frontend/CrossProjectDashboardsList'
+import { NewCrossProjectDashboardButton } from 'products/cross_project_dashboards/frontend/NewCrossProjectDashboardButton'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
 import { DashboardsTableContainer } from './DashboardsTable'
@@ -47,6 +48,7 @@ export function Dashboards(): JSX.Element {
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const crossProjectEnabled = !!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
+    const crossProjectTabOpen = crossProjectEnabled && currentTab === DashboardsTab.CrossProject
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
@@ -88,7 +90,9 @@ export function Dashboards(): JSX.Element {
                     type: sceneConfigurations[Scene.Dashboards].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <>
+                    crossProjectTabOpen ? (
+                        <NewCrossProjectDashboardButton />
+                    ) : (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -118,7 +122,7 @@ export function Dashboards(): JSX.Element {
                                 </LemonButton>
                             </Shortcut>
                         </AccessControlAction>
-                    </>
+                    )
                 }
             />
             <LemonTabs
@@ -130,7 +134,7 @@ export function Dashboards(): JSX.Element {
                 sceneInset
             />
 
-            {currentTab === DashboardsTab.CrossProject && crossProjectEnabled ? (
+            {crossProjectTabOpen ? (
                 <CrossProjectDashboardsList />
             ) : (
                 <div>
