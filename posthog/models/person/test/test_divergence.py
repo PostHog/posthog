@@ -455,7 +455,11 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             self._ch_person_row(person.uuid, 103, deleted=True)
             return person.uuid
         if case == "stale_without_include_stale":
-            return self._divergent_person("stale").uuid
+            person = self._pg_person(version=5, distinct_ids={"stale-did": 2})
+            self._ch_person_row(person.uuid, 10)
+            self._ch_person_row(person.uuid, 5)
+            self._ch_mapping_row("stale-did", person.uuid, 100, deleted=True)
+            return person.uuid
         absent = uuid4()
         self._ch_person_row(absent, 103, deleted=True)
         return absent
@@ -465,7 +469,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("in_sync", ["skipped_not_divergent", "skipped_not_divergent"]),
             ("tombstoned_in_postgres", ["skipped_not_live"]),
             ("absent_from_postgres", ["skipped_not_live"]),
-            ("stale_without_include_stale", ["skipped_stale"]),
+            ("stale_without_include_stale", ["skipped_stale", "skipped_stale"]),
         ]
     )
     def test_leaves_a_person_alone_unless_it_is_live_in_postgres_and_divergent(
@@ -549,6 +553,49 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         get_active_fake().assert_not_called("set_person_version_floor")
         assert self._pg_mapping_versions(person)["divergent"] == target_version
         assert self._ch_mapping("divergent") == (str(person.uuid), 0, target_version)
+
+    @parameterized.expand(
+        [
+            # A replica without the NULL-version fix leaves the stored version where it was.
+            ("floor_not_applied", None, "skipped_reread_lagging", 2, (1, 100)),
+            # A concurrent write took the mapping past the target, so the publish carries the stored version.
+            ("stored_past_the_target", 5, "repaired", 106, (0, 106)),
+        ]
+    )
+    def test_publishes_a_mapping_only_at_the_version_the_primary_holds(
+        self,
+        _name: str,
+        extra_versions: int | None,
+        outcome: RepairOutcome,
+        stored_version: int,
+        ch_deleted_and_version: tuple[int, int],
+    ) -> None:
+        person = self._pg_person(version=3, distinct_ids={"divergent": 2})
+        self._ch_person_row(person.uuid, 3)
+        self._ch_mapping_row("divergent", person.uuid, 100, deleted=True)
+        fake = get_active_fake()
+        raise_floor = fake.set_person_distinct_id_version_floor
+
+        def raise_floor_differently(
+            request: person_pb2.SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+        ) -> person_pb2.SetPersonDistinctIdVersionFloorResponse:
+            min_version = 0 if extra_versions is None else request.min_version + extra_versions
+            return raise_floor(
+                person_pb2.SetPersonDistinctIdVersionFloorRequest(
+                    team_id=request.team_id, distinct_id=request.distinct_id, min_version=min_version
+                ),
+                timeout,
+            )
+
+        with patch.object(fake, "set_person_distinct_id_version_floor", side_effect=raise_floor_differently):
+            _, actions = self._repair(person.uuid)
+
+        assert [(a.distinct_id, a.outcome, a.target_version) for a in actions] == [
+            (None, "skipped_not_divergent", None),
+            ("divergent", outcome, 101),
+        ]
+        assert self._pg_mapping_versions(person)["divergent"] == stored_version
+        assert self._ch_mapping("divergent") == (str(person.uuid), *ch_deleted_and_version)
 
     def test_repairs_the_person_but_reports_its_mappings_when_it_has_too_many_distinct_ids(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"a": 0, "b": 0, "c": 0})

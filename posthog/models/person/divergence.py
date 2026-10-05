@@ -34,6 +34,8 @@ from posthog.models.person.util import (
 )
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
+    GetDistinctIdsForPersonsRequest,
     ReadOptions,
     SetPersonDistinctIdVersionFloorRequest,
     SetPersonVersionFloorRequest,
@@ -605,6 +607,22 @@ def _raise_mapping_version_floor(team_id: int, distinct_id: str, min_version: in
     return str(UUID(response.person.uuid))
 
 
+def _primary_mapping_versions(team_id: int, person_id: int) -> dict[str, int]:
+    """The live mappings of a person with their stored versions, read from the primary."""
+    response = personhog_call(
+        "person_divergence_confirm_mapping_versions",
+        lambda: require_personhog_client().get_distinct_ids_for_persons(
+            GetDistinctIdsForPersonsRequest(
+                team_id=team_id,
+                person_ids=[person_id],
+                read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
+                limit_per_person=_MAX_REPAIR_DISTINCT_IDS_PER_PERSON + 1,
+            )
+        ),
+    )
+    return {d.distinct_id: int(d.version or 0) for pd in response.person_distinct_ids for d in pd.distinct_ids}
+
+
 def _person_action(plan: _PersonPlan, outcome: RepairOutcome) -> RepairAction:
     return RepairAction(
         team_id=plan.team_id,
@@ -738,17 +756,26 @@ def _execute_plan(
         published(_publish_person(plan.team_id, reread))
         person_outcome = "repaired"
 
+    # The floor call does not say whether it wrote, and a replica without the NULL-version fix leaves a NULL
+    # stored version untouched, so publish only the mappings whose version on the primary reached the target.
+    stored_versions = _primary_mapping_versions(plan.team_id, person.pk) if owned else {}
     for mapping in owned:
-        published(
-            create_person_distinct_id(
-                team_id=plan.team_id,
-                distinct_id=mapping.distinct_id,
-                person_id=plan.person_uuid,
-                version=mapping.target_version,
-                is_deleted=False,
+        stored_version = stored_versions.get(mapping.distinct_id)
+        if stored_version is None:
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_owner_changed"))
+        elif stored_version < mapping.target_version:
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_reread_lagging"))
+        else:
+            published(
+                create_person_distinct_id(
+                    team_id=plan.team_id,
+                    distinct_id=mapping.distinct_id,
+                    person_id=plan.person_uuid,
+                    version=stored_version,
+                    is_deleted=False,
+                )
             )
-        )
-        mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
+            mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
     return [_person_action(plan, person_outcome), *mapping_actions]
 
 
