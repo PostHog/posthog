@@ -3,6 +3,8 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -28,6 +30,20 @@ def build_config(
     if settings.sort:
         params["sort"] = settings.sort
 
+    endpoint_config: Endpoint = {
+        "path": settings.path,
+        "params": params,
+        "data_selector": "results",
+        "data_selector_required": True,
+    }
+    resource: EndpointResource = {
+        "name": endpoint,
+        "table_name": endpoint,
+        "primary_key": settings.primary_key,
+        "write_disposition": "replace",
+        "table_format": "delta",
+        "endpoint": endpoint_config,
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"https://goteamup.com/api/{api_version}/",
@@ -42,21 +58,7 @@ def build_config(
             "allow_redirects": False,
             "request_timeout": 60,
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "table_name": endpoint,
-                "primary_key": settings.primary_key,
-                "write_disposition": "replace",
-                "table_format": "delta",
-                "endpoint": {
-                    "path": settings.path,
-                    "params": params,
-                    "data_selector": "results",
-                    "data_selector_required": True,
-                },
-            }
-        ],
+        "resources": [resource],
     }
     return rest_config
 
