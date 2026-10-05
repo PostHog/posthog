@@ -614,6 +614,24 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(properties).not.toHaveProperty("task_run_span_id");
   });
 
+  it("sends the task id as the Go gateway session header", () => {
+    const env = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskId: "task-1",
+    });
+
+    expect(env.anthropicCustomHeaders).toContain(
+      "X-PostHog-Session-Id: task-1",
+    );
+    expect(env.openaiCustomHeaders).toMatchObject({
+      "X-PostHog-Session-Id": "task-1",
+    });
+    expect(parseBlob(env.anthropicCustomHeaders ?? "")).not.toHaveProperty(
+      "$ai_session_id",
+    );
+  });
+
   // The gateway writes the tier into the OpenAI body from this header, so a
   // run that loses it silently runs on the standard queue and a flex trial
   // measures nothing. Codex-only: the Claude header lines never carry it.
