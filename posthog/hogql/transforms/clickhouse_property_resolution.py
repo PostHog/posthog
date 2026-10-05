@@ -60,6 +60,7 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERMANENT_SDK_DEBUG_PROPERTIES,
     TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
     TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_COLUMN,
@@ -654,7 +655,24 @@ def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
         "or",
         [
             _call("has", [ast.Array(exprs=[_const(root) for root in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS)]), name]),
-            _call("startsWith", [clone_expr(name), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+            _call(
+                "and",
+                [
+                    _call("startsWith", [clone_expr(name), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+                    _call(
+                        "not",
+                        [
+                            _call(
+                                "has",
+                                [
+                                    ast.Array(exprs=[_const(key) for key in sorted(PERMANENT_SDK_DEBUG_PROPERTIES)]),
+                                    clone_expr(name),
+                                ],
+                            )
+                        ],
+                    ),
+                ],
+            ),
         ],
     )
 
