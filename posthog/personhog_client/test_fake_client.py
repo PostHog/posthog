@@ -664,3 +664,79 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
             self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=2)).HasField("person")
             is False
         )
+
+
+class TestFakePersonHogClientVersionRpcs:
+    TEAM_ID = 7
+    OTHER_TEAM_ID = 8
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=1,
+            uuid="live",
+            version=2,
+            distinct_ids=["live-did"],
+            distinct_id_versions={"live-did": 1},
+        )
+        self.client.add_person(team_id=self.TEAM_ID, person_id=2, uuid="tomb-low", version=3, is_deleted=True)
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=3,
+            uuid="tomb-high",
+            version=9,
+            is_deleted=True,
+            distinct_ids=["tomb-did"],
+            distinct_id_versions={"tomb-did": 4},
+            tombstoned_distinct_ids=["tomb-did"],
+        )
+        self.client.add_orphan_distinct_id(team_id=self.TEAM_ID, distinct_id="orphan", version=2)
+        self.client.add_person(
+            team_id=self.OTHER_TEAM_ID, person_id=4, uuid="elsewhere", version=1, distinct_ids=["elsewhere-did"]
+        )
+
+    def _distinct_id_head(self, distinct_id: str) -> person_pb2.DistinctIdVersionHead | None:
+        response = self.client.get_distinct_id_version_heads(
+            person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=[distinct_id])
+        )
+        return response.heads[0] if response.heads else None
+
+    def test_heads_include_tombstones_and_orphans_and_skip_absent_and_other_team_keys(self):
+        persons = self.client.get_person_version_heads(
+            person_pb2.GetPersonVersionHeadsRequest(
+                team_id=self.TEAM_ID, person_uuids=["live", "tomb-high", "missing", "elsewhere"]
+            )
+        )
+        assert [(h.person_uuid, h.version, h.is_deleted) for h in persons.heads] == [
+            ("live", 2, False),
+            ("tomb-high", 9, True),
+        ]
+        head = person_pb2.DistinctIdVersionHead
+        assert self._distinct_id_head("tomb-did") == head(
+            distinct_id="tomb-did", version=4, is_deleted=True, person_uuid="tomb-high"
+        )
+        assert self._distinct_id_head("orphan") == head(distinct_id="orphan", version=2, is_deleted=False)
+        assert self._distinct_id_head("missing") is None
+        assert self._distinct_id_head("elsewhere-did") is None
+
+    @pytest.mark.parametrize(
+        "rpc,keys,error",
+        [
+            ("person_heads", [f"k-{i}" for i in range(251)], "Maximum 250"),
+            ("distinct_id_heads", [f"k-{i}" for i in range(251)], "Maximum 250"),
+        ],
+    )
+    def test_rejects_batches_the_replica_rejects(self, rpc, keys, error):
+        calls = {
+            "person_heads": lambda: self.client.get_person_version_heads(
+                person_pb2.GetPersonVersionHeadsRequest(team_id=self.TEAM_ID, person_uuids=keys)
+            ),
+            "distinct_id_heads": lambda: self.client.get_distinct_id_version_heads(
+                person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=keys)
+            ),
+        }
+        with pytest.raises(ValueError, match=error):
+            calls[rpc]()
+        assert self.client.stored_person(self.TEAM_ID, keys[0]) is None
+        assert self._distinct_id_head(keys[0]) is None

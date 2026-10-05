@@ -5,15 +5,17 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
-    DeletePersonsRequest, DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DistinctIdVersionHead,
+    GetDistinctIdVersionHeadsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
-    TeamDistinctId, UpsertHashKeyOverridesRequest,
+    GetPersonRequest, GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier,
+    GroupKey, PersonVersionHead, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
+    UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1666,6 +1668,66 @@ async fn test_set_person_version_floor() {
         .await
         .expect("RPC failed");
     assert!(!response.into_inner().updated);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_sweep_rpcs_map_results_to_proto() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_sweep_live", None).await.unwrap();
+    let orphan_owner = ctx.insert_person("svc_sweep_orphan", None).await.unwrap();
+    let mut tx = ctx.pool.begin().await.unwrap();
+    // Skips the FK check, so the distinct id row outlives its person row.
+    sqlx::query("SET LOCAL session_replication_role = replica")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(ctx.team_id)
+        .bind(orphan_owner.id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let team_id = ctx.team_id;
+
+    let person_heads = ctx
+        .service
+        .get_person_version_heads(Request::new(GetPersonVersionHeadsRequest {
+            team_id,
+            person_uuids: vec![person.uuid.to_string()],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        person_heads.heads,
+        vec![PersonVersionHead {
+            person_uuid: person.uuid.to_string(),
+            version: 0,
+            is_deleted: false,
+        }]
+    );
+
+    let distinct_id_heads = ctx
+        .service
+        .get_distinct_id_version_heads(Request::new(GetDistinctIdVersionHeadsRequest {
+            team_id,
+            distinct_ids: vec!["svc_sweep_orphan".to_string()],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        distinct_id_heads.heads,
+        vec![DistinctIdVersionHead {
+            distinct_id: "svc_sweep_orphan".to_string(),
+            version: 0,
+            is_deleted: false,
+            person_uuid: None,
+        }]
+    );
 
     ctx.cleanup().await.ok();
 }

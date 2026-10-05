@@ -387,6 +387,46 @@ message SetPersonVersionFloorResponse {
   bool updated = 1;
 }
 
+// GetPersonVersionHeadsRequest reads the stored version of each person row, tombstones
+// included, from a replica; persons with no row are left out of the response.
+message GetPersonVersionHeadsRequest {
+  int64 team_id = 1;
+  // Max 250 per request.
+  repeated string person_uuids = 2;
+}
+
+message PersonVersionHead {
+  string person_uuid = 1;
+  // A NULL stored version reads as 0.
+  int64 version = 2;
+  bool is_deleted = 3;
+}
+
+message GetPersonVersionHeadsResponse {
+  repeated PersonVersionHead heads = 1;
+}
+
+// GetDistinctIdVersionHeadsRequest is GetPersonVersionHeadsRequest for
+// posthog_persondistinctid rows.
+message GetDistinctIdVersionHeadsRequest {
+  int64 team_id = 1;
+  // Max 250 per request.
+  repeated string distinct_ids = 2;
+}
+
+message DistinctIdVersionHead {
+  string distinct_id = 1;
+  // A NULL stored version reads as 0.
+  int64 version = 2;
+  bool is_deleted = 3;
+  // The person the row points at. Absent when that person row does not exist.
+  optional string person_uuid = 4;
+}
+
+message GetDistinctIdVersionHeadsResponse {
+  repeated DistinctIdVersionHead heads = 1;
+}
+
 // FencePersonRequest freezes a person for a lifecycle operation (see
 // PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
 // op_type selects the rejection surfaced to writers while the fence holds.

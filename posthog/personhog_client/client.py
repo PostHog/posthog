@@ -50,6 +50,8 @@ from posthog.personhog_client.proto import (
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
     GetDistinctIdsForPersonsResponse,
+    GetDistinctIdVersionHeadsRequest,
+    GetDistinctIdVersionHeadsResponse,
     GetGroupRequest,
     GetGroupResponse,
     GetGroupsBatchRequest,
@@ -70,6 +72,8 @@ from posthog.personhog_client.proto import (
     GetPersonsRequest,
     GetPersonTombstonesRequest,
     GetPersonTombstonesResponse,
+    GetPersonVersionHeadsRequest,
+    GetPersonVersionHeadsResponse,
     GroupsResponse,
     GroupTypeMappingsBatchResponse,
     GroupTypeMappingsResponse,
@@ -260,6 +264,18 @@ class PersonHogClient:
         self, request: SetPersonVersionFloorRequest, timeout: float | None = None
     ) -> SetPersonVersionFloorResponse:
         return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
+
+    # -- Version heads --
+
+    def get_person_version_heads(
+        self, request: GetPersonVersionHeadsRequest, timeout: float | None = None
+    ) -> GetPersonVersionHeadsResponse:
+        return self._stub.GetPersonVersionHeads(request, timeout=timeout or self._timeout)
+
+    def get_distinct_id_version_heads(
+        self, request: GetDistinctIdVersionHeadsRequest, timeout: float | None = None
+    ) -> GetDistinctIdVersionHeadsResponse:
+        return self._stub.GetDistinctIdVersionHeads(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

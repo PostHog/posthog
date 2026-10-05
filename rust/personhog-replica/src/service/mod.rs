@@ -22,16 +22,18 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteTombstonedPersonsResponse, DistinctIdVersionHead, DistinctIdWithVersion,
+    GetDistinctIdVersionHeadsRequest, GetDistinctIdVersionHeadsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonVersionHeadsRequest,
+    GetPersonVersionHeadsResponse, GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupKey,
     GroupTypeMapping, GroupTypeMappingCount, GroupTypeMappingsBatchResponse,
     GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
@@ -39,7 +41,7 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
-    PersonTombstoneQueueEntry, PersonWithDistinctIds, PersonWithTeamDistinctId,
+    PersonTombstoneQueueEntry, PersonVersionHead, PersonWithDistinctIds, PersonWithTeamDistinctId,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
     SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
@@ -1512,6 +1514,81 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(SetPersonVersionFloorResponse { updated }))
     }
+
+    // ============================================================
+    // Sweep reconciliation version heads
+    // ============================================================
+
+    async fn get_person_version_heads(
+        &self,
+        request: Request<GetPersonVersionHeadsRequest>,
+    ) -> Result<Response<GetPersonVersionHeadsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_uuids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} person UUIDs per request"
+            )));
+        }
+        let uuids: Vec<Uuid> = req
+            .person_uuids
+            .iter()
+            .map(|s| parse_uuid(s))
+            .collect::<Result<_, _>>()?;
+
+        let heads = self
+            .storage
+            .get_person_version_heads(req.team_id, &uuids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "get_person_version_heads"))?;
+
+        Ok(Response::new(GetPersonVersionHeadsResponse {
+            heads: heads
+                .into_iter()
+                .map(|head| PersonVersionHead {
+                    person_uuid: head.uuid.to_string(),
+                    version: head.version,
+                    is_deleted: head.is_deleted,
+                })
+                .collect(),
+        }))
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        request: Request<GetDistinctIdVersionHeadsRequest>,
+    ) -> Result<Response<GetDistinctIdVersionHeadsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.distinct_ids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} distinct IDs per request"
+            )));
+        }
+
+        let heads = self
+            .storage
+            .get_distinct_id_version_heads(req.team_id, &req.distinct_ids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "get_distinct_id_version_heads"))?;
+
+        Ok(Response::new(GetDistinctIdVersionHeadsResponse {
+            heads: heads
+                .into_iter()
+                .map(|head| DistinctIdVersionHead {
+                    distinct_id: head.distinct_id,
+                    version: head.version,
+                    is_deleted: head.is_deleted,
+                    person_uuid: head.person_uuid.map(|uuid| uuid.to_string()),
+                })
+                .collect(),
+        }))
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_uuid(s: &str) -> Result<Uuid, Status> {
+    Uuid::parse_str(s).map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))
 }
 
 fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPerson {
