@@ -6,7 +6,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitGuardianEndpointConfig:
     name: str
     path: str
@@ -37,6 +37,11 @@ class GitGuardianEndpointConfig:
     # (e.g. `share_url`, which grants secret access without a GitGuardian account) that would
     # otherwise leak the very secrets this data is meant to help remediate.
     excluded_fields: AbstractSet[str] = field(default_factory=frozenset)
+    # Fan-out: walk this parent endpoint and fetch `path` once per parent row, substituting the
+    # parent's `id` into the `{parent_id}` placeholder. The probe for scope checks hits the parent
+    # instead, since the child path can't be requested without a real id.
+    parent_endpoint: Optional[str] = None
+    statuses: tuple[str, ...] = ()
 
 
 _DATE_INCREMENTAL_FIELD: list[IncrementalField] = [
@@ -109,6 +114,52 @@ GITGUARDIAN_ENDPOINTS: dict[str, GitGuardianEndpointConfig] = {
         name="teams",
         path="/v1/teams",
         required_scope="teams:read",
+        incremental_fields=[],
+    ),
+    # Team memberships: the member <-> team join table, fanned out per team. The row carries
+    # `team_id` itself, so it leads the key to keep it unique across the fanned-out teams.
+    "team_memberships": GitGuardianEndpointConfig(
+        name="team_memberships",
+        path="/v1/teams/{parent_id}/team_memberships",
+        parent_endpoint="teams",
+        primary_keys=["team_id", "id"],
+        required_scope="teams:read",
+        incremental_fields=[],
+    ),
+    # Honeytoken events: every trigger of every honeytoken. `triggered_at` is immutable and the
+    # endpoint accepts `ordering=triggered_at`, but there is no server-side time filter and
+    # `status` mutates on triage, so full refresh.
+    "honeytoken_events": GitGuardianEndpointConfig(
+        name="honeytoken_events",
+        path="/v1/honeytokens_events",
+        partition_key="triggered_at",
+        ordering="triggered_at",
+        required_scope="honeytokens:read",
+        incremental_fields=[],
+        statuses=("open", "archived", "allowed"),
+    ),
+    # Incident activity logs: the state-transition and notes history of each secret incident,
+    # fanned out per incident. There is no server-side time filter, so full refresh. Off by
+    # default because it costs at least one request per incident.
+    "secret_incident_activity_logs": GitGuardianEndpointConfig(
+        name="secret_incident_activity_logs",
+        path="/v1/incidents/secrets/{parent_id}/activity-logs",
+        parent_endpoint="secret_incidents",
+        partition_key="created_at",
+        ordering="created_at",
+        primary_keys=["incident_id", "id"],
+        required_scope="incidents:read",
+        should_sync_default=False,
+        incremental_fields=[],
+    ),
+    # Secret detectors: lookup for the detector stamped on incidents and occurrences. Keyed by
+    # `name` (the API has no numeric id); open/resolved counts mutate, so full refresh.
+    "secret_detectors": GitGuardianEndpointConfig(
+        name="secret_detectors",
+        path="/v1/secret_detectors",
+        ordering="name",
+        primary_keys=["name"],
+        required_scope="incidents:read",
         incremental_fields=[],
     ),
 }

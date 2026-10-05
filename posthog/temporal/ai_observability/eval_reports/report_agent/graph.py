@@ -130,9 +130,11 @@ def _fallback_content(
             f"No evaluation runs recorded for **{evaluation_name}** in this period. "
             f"Check that the evaluation is enabled and that {ingestion_hint}."
         )
-    elif metrics.output_type == "numeric" and metrics.pass_rate is None:
-        summary = f"No numeric scores were produced across {metrics.total_runs} runs. All results were not applicable."
-    elif metrics.output_type in ("boolean", "numeric"):
+    elif metrics.output_type in ("numeric", "categorical") and metrics.pass_rate is None:
+        summary = (
+            f"No applicable results were produced across {metrics.total_runs} runs. All results were not applicable."
+        )
+    elif metrics.output_type in ("boolean", "numeric", "categorical"):
         trend = ""
         if metrics.pass_rate is not None and metrics.previous_pass_rate is not None:
             diff = metrics.pass_rate - metrics.previous_pass_rate
@@ -273,7 +275,7 @@ def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
     detector_evaluation_ids: Sequence[str] = (),
-    numeric_output_configs: dict[str, dict[str, Any]] | None = None,
+    evaluation_output_configs: dict[str, dict[str, Any]] | None = None,
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -374,7 +376,7 @@ def run_eval_report_agent(
         "true_is_failure": inputs.true_is_failure,
         "output_config": inputs.output_config,
         "detector_evaluation_ids": list(detector_evaluation_ids),
-        "numeric_output_configs": {**(numeric_output_configs or {}), inputs.evaluation_id: inputs.output_config},
+        "evaluation_output_configs": {**(evaluation_output_configs or {}), inputs.evaluation_id: inputs.output_config},
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,

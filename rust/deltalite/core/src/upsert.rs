@@ -9,8 +9,10 @@
 //! up to `max_parallel_files` concurrent readers feeding one writer task through a
 //! channel; every surviving batch holds byte-budget permits from decode until it has
 //! been handed to the write buffer, so decompressed survivor data in flight never
-//! exceeds the budget no matter what the product of the parallelism knobs is. All three
-//! budgets are enforced twice: per call (the `UpsertOptions` knobs) and per process
+//! exceeds the budget no matter what the product of the parallelism knobs is. Before a
+//! reader fetches anything it also takes a fetch-budget permit for the largest
+//! compressed row group it will pull from storage, which the decode budget cannot see.
+//! All budgets are enforced twice: per call (the `UpsertOptions` knobs) and per process
 //! ([`ProcessLimits`]), because production runs many upserts concurrently as threads in
 //! one worker process.
 //!
@@ -19,8 +21,9 @@
 //! only inside its worker -- transiently for the PK set (narrow columns) and the final
 //! write. Peak memory is bounded by `source (1x, shared with the caller)
 //!  + max_parallel_partitions * (one partition's slice + PK set + write buffer)
-//!  + max_buffered_bytes + in-flight read batches`, and the source term is guarded by
-//! [`crate::limits::check_source_size`].
+//!  + max_buffered_bytes + max_fetch_bytes`, and the source term is guarded by
+//! [`crate::limits::check_source_size`]. The write buffer is about one
+//! `target_file_size` per partition worker (see `crate::writer`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -36,10 +39,12 @@ use deltalake::kernel::{Action, MetadataExt as _, Remove, StructType};
 use deltalake::protocol::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::table::config::TablePropertiesExt;
-use deltalake::writer::{DeltaWriter, RecordBatchWriter};
+use deltalake::table::state::DeltaTableState;
+use deltalake::writer::RecordBatchWriter;
 use deltalake::{DeltaTable, ObjectStore, PartitionFilter, PartitionValue, Path};
 use futures::{StreamExt, TryStreamExt};
 use metrics::{counter, histogram};
+use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::async_reader::ParquetObjectReader;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
@@ -55,6 +60,7 @@ use crate::limits::{
 };
 use crate::pkset::PkSet;
 use crate::schema::{cast_to_schema, unknown_columns};
+use crate::writer::StreamingWriter;
 
 /// One logical group of work: a partition value (or the whole table when unpartitioned).
 const WHOLE_TABLE: &str = "__deltalite_whole_table__";
@@ -64,6 +70,17 @@ const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
 const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+
+/// Default per-call fetch budget. Readers of ordinary files (a few MB per row group)
+/// never wait on it at the default `max_parallel_files`; readers of files whose single
+/// row group is tens of MB do.
+pub const DEFAULT_MAX_FETCH_BYTES: usize = 128 * 1024 * 1024;
+
+/// Tail bytes fetched when a data file is opened. Without a hint parquet reads the
+/// 8-byte trailer first and the metadata second: two round trips per open. 64 KiB covers
+/// the footer of a file with on the order of a hundred columns, and over-fetching on a
+/// small file costs bytes, which are cheap, not a round trip, which is not.
+const FOOTER_SIZE_HINT: usize = 64 * 1024;
 
 /// Read batch size (in rows) that keeps a decoded batch near `target_bytes`, derived from
 /// the widest row group's average *uncompressed* bytes/row.
@@ -98,6 +115,28 @@ fn batch_rows_for_bytes_per_row(
         return cap;
     }
     (target_bytes / max_bytes_per_row).clamp(1, cap)
+}
+
+/// Compressed bytes the async reader fetches for the largest row group of a file,
+/// counting only the leaf columns under the projected root columns (`None` = all). The
+/// reader requests every projected column chunk of a row group at once and keeps them
+/// until the row group is decoded, so this is what one reader holds.
+fn max_row_group_fetch_bytes(meta: &ParquetMetaData, roots: Option<&[usize]>) -> usize {
+    let schema = meta.file_metadata().schema_descr();
+    meta.row_groups()
+        .iter()
+        .map(|rg| {
+            rg.columns()
+                .iter()
+                .enumerate()
+                .filter(|(leaf, _)| {
+                    roots.is_none_or(|r| r.contains(&schema.get_column_root_idx(*leaf)))
+                })
+                .map(|(_, c)| c.byte_range().1 as usize)
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// How the set of existing files to rewrite is chosen within each affected partition.
@@ -173,6 +212,13 @@ pub struct UpsertOptions {
     /// call's partition workers and file readers. The process-wide cap in
     /// [`ProcessLimits`] applies on top.
     pub max_buffered_bytes: usize,
+    /// Per-call cap (bytes) on compressed row-group data that this call's readers hold
+    /// after fetching it from storage and before it is decoded. A reader reserves its
+    /// file's largest projected row group before fetching, so a table of large
+    /// single-row-group files runs fewer readers at once instead of holding
+    /// `max_parallel_files` whole files. A row group larger than the cap still runs, alone.
+    /// The process-wide cap in [`ProcessLimits`] applies on top.
+    pub max_fetch_bytes: usize,
     /// Commit retry budget handed to `CommitBuilder`.
     pub commit_max_retries: usize,
     /// Row-count granularity for Parquet reads and source-slice writes.
@@ -208,6 +254,7 @@ impl Default for UpsertOptions {
             probe_concurrency: 8,
             max_parallel_files: 4,
             max_buffered_bytes: 64 * 1024 * 1024,
+            max_fetch_bytes: DEFAULT_MAX_FETCH_BYTES,
             commit_max_retries: 15,
             read_batch_size: 8192,
             target_file_size: None,
@@ -255,6 +302,11 @@ pub struct UpsertStats {
     /// (initial refresh, conflict-retry refreshes, post-commit refresh). Set by
     /// [`crate::handle::TableHandle::upsert`]; 0 when the core `upsert` runs directly.
     pub open_ms: u64,
+    /// Wall-clock ms of the full snapshot load that opened the handle. Reported on the
+    /// first upsert through a [`crate::handle::TableHandle`] and 0 on every later one,
+    /// so summing it over a handle's upserts gives the open cost exactly once; 0 when
+    /// the core `upsert` runs directly.
+    pub initial_open_ms: u64,
     /// Wall-clock ms spent importing the caller's source data into Arrow batches. Set
     /// by the language binding that owns the import; 0 when unset.
     pub ingest_ms: u64,
@@ -321,6 +373,9 @@ struct TargetFile {
     size: u64,
     stats: Option<String>,
     remove: Remove,
+    /// Footer the probe parsed, handed to the rewrite so a hit file is opened once. Lives
+    /// only as long as this partition's rewrite: the reader task consumes it.
+    metadata: Option<Arc<ParquetMetaData>>,
 }
 
 /// Which rows of one source batch belong to a partition. Chosen so the common shapes
@@ -452,17 +507,64 @@ struct BudgetPermit {
     held_global_kb: u32,
 }
 
+/// Fetch-budget permits held by one reader from before its first data fetch until its
+/// stream is dropped.
+struct FetchPermit {
+    _local: OwnedSemaphorePermit,
+    _global: OwnedSemaphorePermit,
+}
+
 /// Per-call view of the budget semaphores plus their process-global counterparts.
 #[derive(Clone)]
 struct Budgets {
     local: Arc<Semaphore>,
     local_cap_kb: u32,
+    fetch_local: Arc<Semaphore>,
+    fetch_local_cap_kb: u32,
     limits: Arc<ProcessLimits>,
 }
 
 impl Budgets {
+    fn new(max_buffered_bytes: usize, max_fetch_bytes: usize, limits: Arc<ProcessLimits>) -> Self {
+        // KiB units: tokio's acquire_many takes u32.
+        let local_cap_kb = (max_buffered_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
+        let fetch_local_cap_kb = (max_fetch_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
+        Self {
+            local: Arc::new(Semaphore::new(local_cap_kb as usize)),
+            local_cap_kb,
+            fetch_local: Arc::new(Semaphore::new(fetch_local_cap_kb as usize)),
+            fetch_local_cap_kb,
+            limits,
+        }
+    }
+
     fn kb(bytes: usize) -> u64 {
         (bytes / 1024).max(1) as u64
+    }
+
+    /// Reserve fetch budget for `bytes` of compressed row-group data, capped at each
+    /// budget's capacity so a row group larger than the whole budget still runs: it
+    /// takes all of it and runs alone. Local before global, as everywhere.
+    ///
+    /// Deadlock freedom: a reader takes this once per file, before it holds any decode
+    /// budget, and keeps it while it takes decode permits. Decode permits are released
+    /// by the writer task, which never waits on the fetch budget, so every fetch holder
+    /// can always finish and release.
+    async fn acquire_fetch(&self, bytes: usize) -> Result<FetchPermit> {
+        let want = Self::kb(bytes);
+        let local_kb = want.min(self.fetch_local_cap_kb as u64) as u32;
+        let global_kb = want.min(self.limits.fetch_cap_kb() as u64) as u32;
+        let local = self
+            .fetch_local
+            .clone()
+            .acquire_many_owned(local_kb)
+            .await
+            .map_err(|_| Error::Generic("fetch-budget semaphore closed".into()))?;
+        let global = self.limits.acquire_fetch_kb(global_kb).await?;
+        Ok(FetchPermit {
+            _local: local,
+            _global: global,
+        })
     }
 
     /// Acquire byte budget for `bytes`, capped at both budgets' capacities so a batch
@@ -574,6 +676,22 @@ pub async fn upsert_cached(
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
 ) -> Result<UpsertStats> {
+    upsert_cached_with_state(table, source_batches, source_schema, opts, relax_cache)
+        .await
+        .map(|(stats, _)| stats)
+}
+
+/// [`upsert_cached`] that also returns the table state delta-rs derived for the commit
+/// it wrote (what every delta-rs operation returns as its resulting table), so a
+/// long-lived handle can adopt it instead of reading the log again. When delta-rs had to
+/// retry the commit behind another writer, the state includes that writer's commit.
+pub async fn upsert_cached_with_state(
+    table: &DeltaTable,
+    source_batches: Vec<RecordBatch>,
+    source_schema: SchemaRef,
+    opts: UpsertOptions,
+    relax_cache: &mut RelaxCache,
+) -> Result<(UpsertStats, DeltaTableState)> {
     let started = Instant::now();
     let strategy = opts.prune_strategy.as_str();
     let result = upsert_with_relax(table, source_batches, source_schema, opts, relax_cache).await;
@@ -581,7 +699,7 @@ pub async fn upsert_cached(
     // Static label values only -- no per-call allocation (rust/CLAUDE.md).
     histogram!("deltalite_upsert_duration_seconds").record(started.elapsed().as_secs_f64());
     match &result {
-        Ok(stats) => {
+        Ok((stats, _)) => {
             counter!("deltalite_upserts_total", "outcome" => "ok", "prune_strategy" => strategy)
                 .increment(1);
             counter!("deltalite_files_added_total").increment(stats.files_added as u64);
@@ -623,12 +741,12 @@ async fn upsert_with_relax(
     source_schema: SchemaRef,
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     let relax_started = Instant::now();
     let relax = columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
     if relax.is_empty() {
         let relax_ms = relax_started.elapsed().as_millis() as u64;
-        let mut stats = upsert_inner(table, source_batches, source_schema, opts).await?;
+        let (mut stats, state) = upsert_inner(table, source_batches, source_schema, opts).await?;
         stats.relax_ms = relax_ms;
         // Our own commit added no nulls to the verified-clean columns (the source was
         // checked above; existing rows only move between files), so the memo may follow
@@ -637,19 +755,20 @@ async fn upsert_with_relax(
         if let Ok(committed) = u64::try_from(stats.version) {
             relax_cache.advance_own_commit(committed);
         }
-        return Ok(stats);
+        return Ok((stats, state));
     }
 
     relax_columns_to_nullable(table, &relax).await?;
     // Re-read the log so the writer (and every schema derived from the table) observes
-    // the relaxed metadata; the borrowed handle still sees the old snapshot.
+    // the relaxed metadata; the borrowed handle still sees the old snapshot. The state
+    // the upsert's commit then yields sits on top of the relax commit, so it is complete.
     let mut fresh = table.clone();
     fresh.update_incremental(None).await?;
     let relax_ms = relax_started.elapsed().as_millis() as u64;
-    let mut stats = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
+    let (mut stats, state) = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
     stats.columns_relaxed = relax.len();
     stats.relax_ms = relax_ms;
-    Ok(stats)
+    Ok((stats, state))
 }
 
 /// Non-nullable table columns that verifiably contain nulls -- in the incoming batch
@@ -780,7 +899,7 @@ async fn upsert_inner(
     mut source_batches: Vec<RecordBatch>,
     source_schema: SchemaRef,
     opts: UpsertOptions,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     if opts.primary_keys.is_empty() {
         return Err(Error::Generic(
             "primary_keys must not be empty for an upsert".into(),
@@ -897,14 +1016,12 @@ async fn upsert_inner(
     let rewrite_started = Instant::now();
     let partitions_touched = work.len();
     let semaphore = Arc::new(Semaphore::new(opts.max_parallel_partitions.max(1)));
-    // Per-call byte budget in KiB units (tokio's acquire_many takes u32); the
-    // process-global budget in `opts.limits` applies on top of it.
-    let local_cap_kb: u32 = (opts.max_buffered_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
-    let budgets = Budgets {
-        local: Arc::new(Semaphore::new(local_cap_kb as usize)),
-        local_cap_kb,
-        limits: opts.limits.clone(),
-    };
+    // Per-call budgets; the process-global ones in `opts.limits` apply on top.
+    let budgets = Budgets::new(
+        opts.max_buffered_bytes,
+        opts.max_fetch_bytes,
+        opts.limits.clone(),
+    );
     let opts = Arc::new(opts);
     let mut handles = Vec::new();
 
@@ -1038,7 +1155,7 @@ async fn upsert_inner(
         commit_ms = stats.commit_ms,
         "upsert committed"
     );
-    Ok(stats)
+    Ok((stats, finalized.snapshot))
 }
 
 /// Checkpoint and expired-log cleanup after a durable commit, tolerating failure: the
@@ -1369,8 +1486,31 @@ async fn list_partition_files(
             size: v.size() as u64,
             stats: v.stats(),
             remove: v.remove_action(true),
+            metadata: None,
         })
         .collect())
+}
+
+/// Open a Parquet stream builder for `f`. A footer the probe already parsed is reused
+/// without I/O; otherwise the footer is read with [`FOOTER_SIZE_HINT`] so it arrives in
+/// one round trip.
+async fn open_builder(
+    store: &Arc<dyn ObjectStore>,
+    f: &TargetFile,
+) -> Result<ParquetRecordBatchStreamBuilder<ParquetObjectReader>> {
+    let path = Path::parse(&f.path)
+        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
+    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
+    if let Some(meta) = &f.metadata {
+        let arrow_meta = ArrowReaderMetadata::try_new(meta.clone(), Default::default())?;
+        return Ok(ParquetRecordBatchStreamBuilder::new_with_metadata(
+            reader, arrow_meta,
+        ));
+    }
+    Ok(
+        ParquetRecordBatchStreamBuilder::new(reader.with_footer_size_hint(FOOTER_SIZE_HINT))
+            .await?,
+    )
 }
 
 /// Drop files whose Add-action stats prove they hold no match: min/max disjointness on
@@ -1600,11 +1740,9 @@ async fn probe_file(
     partition_value: &str,
     opts: &UpsertOptions,
     budgets: &Budgets,
-) -> Result<bool> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+) -> Result<(bool, Arc<ParquetMetaData>)> {
+    let builder = open_builder(store, f).await?;
+    let metadata = builder.metadata().clone();
     let file_schema = builder.schema().clone();
 
     let mut pk_types: Vec<DataType> = Vec::with_capacity(opts.primary_keys.len());
@@ -1629,7 +1767,7 @@ async fn probe_file(
         } else {
             // The column is physically absent (file predates schema evolution): every
             // row has NULL for this PK component, and NULL never matches.
-            return Ok(false);
+            return Ok((false, metadata));
         }
     }
 
@@ -1644,9 +1782,16 @@ async fn probe_file(
             partition_value,
             &pk_types,
         )?;
-        return pkset.contains_any_columns(&cols, 1);
+        return Ok((pkset.contains_any_columns(&cols, 1)?, metadata));
     }
 
+    // Fetch budget before any data is fetched; held until the stream is gone.
+    let fetch = budgets
+        .acquire_fetch(max_row_group_fetch_bytes(
+            builder.metadata(),
+            Some(&projection),
+        ))
+        .await?;
     let mask = ProjectionMask::roots(builder.parquet_schema(), projection);
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
@@ -1681,14 +1826,20 @@ async fn probe_file(
         let hit = pkset.contains_any_columns(&cols, batch.num_rows())?;
         drop(permit);
         if hit {
-            return Ok(true);
+            drop(stream);
+            drop(fetch);
+            return Ok((true, metadata));
         }
     }
-    Ok(false)
+    drop(stream);
+    drop(fetch);
+    Ok((false, metadata))
 }
 
 /// Probe `files` with bounded concurrency, splitting them into (files that contain at
-/// least one match, count of files proven match-free). Order is preserved.
+/// least one match, count of files proven match-free). Order is preserved. Up to one
+/// reader wave of kept files carries the footer its probe parsed; retaining every hit
+/// footer would make memory grow with the partition's file count before rewrites start.
 #[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
@@ -1700,10 +1851,10 @@ async fn probe_files(
     opts: &UpsertOptions,
     budgets: &Budgets,
 ) -> Result<(Vec<TargetFile>, usize)> {
-    let results: Vec<(TargetFile, bool)> = futures::stream::iter(files.into_iter().map(|f| {
+    let results = futures::stream::iter(files.into_iter().map(|f| {
         let store = store.clone();
         async move {
-            let hit = probe_file(
+            let (hit, metadata) = probe_file(
                 &store,
                 &f,
                 pkset,
@@ -1714,17 +1865,20 @@ async fn probe_files(
                 budgets,
             )
             .await?;
-            Ok::<_, Error>((f, hit))
+            Ok::<_, Error>((f, hit, metadata))
         }
     }))
-    .buffered(opts.probe_concurrency.max(1))
-    .try_collect()
-    .await?;
+    .buffered(opts.probe_concurrency.max(1));
+    futures::pin_mut!(results);
 
+    let retained_footer_limit = opts.max_parallel_files.max(1);
     let mut keep = Vec::new();
     let mut skipped = 0usize;
-    for (f, hit) in results {
+    while let Some((mut f, hit, metadata)) = results.try_next().await? {
         if hit {
+            if keep.len() < retained_footer_limit {
+                f.metadata = Some(metadata);
+            }
             keep.push(f);
         } else {
             skipped += 1;
@@ -1757,10 +1911,12 @@ async fn filter_file(
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
 ) -> Result<FileOutcome> {
-    let path = Path::parse(&f.path)
-        .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store, path).with_file_size(f.size);
-    let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
+    let builder = open_builder(&store, &f).await?;
+    // Reserve the compressed bytes the reader will hold before it fetches any data.
+    // Taken once per file and before any decode budget (see `Budgets::acquire_fetch`).
+    let fetch = budgets
+        .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
+        .await?;
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
         INITIAL_DECODE_ESTIMATE_BYTES,
@@ -1812,6 +1968,9 @@ async fn filter_file(
         tx.send((survivors, permit))
             .map_err(|_| Error::Generic("writer task ended before its readers".into()))?;
     }
+    // The fetched row-group bytes live in the stream; release the budget only after it.
+    drop(stream);
+    drop(fetch);
 
     Ok(FileOutcome {
         rows_updated,
@@ -1877,7 +2036,7 @@ async fn rewrite_partition(
     // Insert phase done; from here the set is read-only and shared by every reader.
     let pkset = Arc::new(pkset);
 
-    let writer = RecordBatchWriter::for_table(table)?;
+    let writer = StreamingWriter::for_table(table)?;
     let store: Arc<dyn ObjectStore> = table.object_store();
 
     // Content-based file selection: keep only files that actually contain a matched
@@ -1916,13 +2075,13 @@ async fn rewrite_partition(
         let mut writer = writer;
         let mut adds = Vec::new();
         while let Some((batch, permit)) = rx.recv().await {
-            writer.write(batch).await?;
-            // The batch now lives (compressed) in the write buffer; release its budget.
+            writer.write(batch)?;
+            // The batch now lives (encoded) in the writer; release its budget.
             drop(permit);
 
-            // Bound resident memory: RecordBatchWriter buffers the whole partition as
-            // compressed Parquet until flushed, so flush on a size threshold instead of
-            // once at the end. Each flush yields Add actions and resets the buffer.
+            // Bound resident memory: the writer holds the open file until flushed, so
+            // flush on a size threshold instead of once at the end. Each flush yields
+            // Add actions and starts a new file.
             if writer.buffer_len() >= target_file_size {
                 adds.extend(writer.flush().await?);
             }
@@ -2007,7 +2166,7 @@ async fn rewrite_partition(
         let mut offset = 0usize;
         while offset < selected.num_rows() {
             let n = (selected.num_rows() - offset).min(opts.read_batch_size.max(1));
-            writer.write(selected.slice(offset, n)).await?;
+            writer.write(selected.slice(offset, n))?;
             offset += n;
             if writer.buffer_len() >= target_file_size {
                 adds.extend(writer.flush().await?);
@@ -2252,11 +2411,8 @@ mod tests {
     #[tokio::test]
     async fn budget_permit_tops_up_and_caps_at_capacity() {
         let limits = Arc::new(crate::limits::ProcessLimits::new(1, 1, 1024 * 1024));
-        let budgets = Budgets {
-            local: Arc::new(Semaphore::new(512)), // 512 KiB per-call budget
-            local_cap_kb: 512,
-            limits: limits.clone(),
-        };
+        // 512 KiB per-call budget.
+        let budgets = Budgets::new(512 * 1024, DEFAULT_MAX_FETCH_BYTES, limits.clone());
         // Pre-acquire a small estimate, then top up to something bigger.
         let mut p = budgets.acquire_bytes(64 * 1024).await.unwrap();
         assert_eq!(p.held_local_kb, 64);
@@ -2304,11 +2460,8 @@ mod tests {
         // estimate and none could grow -- a permanent wedge. Release-and-reacquire makes
         // them serialize instead, so every reader completes.
         let limits = Arc::new(crate::limits::ProcessLimits::new(1, 1, 100 * 1024));
-        let budgets = Budgets {
-            local: Arc::new(Semaphore::new(100)), // 100 KiB per-call budget
-            local_cap_kb: 100,
-            limits,
-        };
+        // 100 KiB per-call budget.
+        let budgets = Budgets::new(100 * 1024, DEFAULT_MAX_FETCH_BYTES, limits);
         let tasks: Vec<_> = (0..8)
             .map(|_| {
                 let budgets = budgets.clone();
@@ -2350,6 +2503,7 @@ mod tests {
             size: 1,
             stats: stats.map(|s| s.to_string()),
             remove: Remove::default(),
+            metadata: None,
         }
     }
 

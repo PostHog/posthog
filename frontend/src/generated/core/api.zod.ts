@@ -944,6 +944,51 @@ export const FileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create and delete several of the current user's shortcuts in one transaction, then return the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.
+ */
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault = ``
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax = 100
+
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax = 4000
+
+export const fileSystemShortcutBulkUpdateCreateBodyAddMax = 500
+
+export const fileSystemShortcutBulkUpdateCreateBodyRemoveIdsMax = 500
+
+export const FileSystemShortcutBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    add: zod
+        .array(
+            zod.object({
+                path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+                type: zod
+                    .string()
+                    .max(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax)
+                    .default(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault)
+                    .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+                ref: zod
+                    .string()
+                    .max(fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax)
+                    .nullish()
+                    .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+                href: zod
+                    .string()
+                    .nullish()
+                    .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+            })
+        )
+        .max(fileSystemShortcutBulkUpdateCreateBodyAddMax)
+        .optional()
+        .describe(
+            'Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.'
+        ),
+    remove_ids: zod
+        .array(zod.uuid())
+        .max(fileSystemShortcutBulkUpdateCreateBodyRemoveIdsMax)
+        .optional()
+        .describe("IDs of the current user's shortcuts to delete."),
+})
+
+/**
  * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
  */
 export const FileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
@@ -1171,6 +1216,19 @@ export const TaxonomicSearchIntentClassifyCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
+ * Guess which PostHog core events a search that matched no event name describes.
+ * @summary Match an events search to core events
+ */
+export const taxonomicSearchIntentMatchEventsCreateBodyQueryMax = 200
+
+export const TaxonomicSearchIntentMatchEventsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(taxonomicSearchIntentMatchEventsCreateBodyQueryMax)
+        .describe('What the person typed into the events list search box, which matched no event name.'),
+})
+
+/**
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
  *
@@ -1311,7 +1369,7 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1402,7 +1460,7 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1490,7 +1548,7 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1766,7 +1824,7 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1857,7 +1915,7 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1948,7 +2006,7 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2036,7 +2094,7 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2124,7 +2182,7 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2212,7 +2270,7 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2300,7 +2358,7 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 

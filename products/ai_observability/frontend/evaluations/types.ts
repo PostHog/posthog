@@ -13,7 +13,7 @@ import { LLMProvider } from '../settings/llmProviderKeysLogic'
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
-export type EvaluationOutputType = 'boolean' | 'sentiment' | 'numeric'
+export type EvaluationOutputType = 'boolean' | 'sentiment' | 'numeric' | 'categorical'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
@@ -24,6 +24,7 @@ export type EvaluationStatusReason =
     | 'provider_key_quota_exceeded'
     | 'provider_key_rate_limited'
     | 'model_not_found'
+    | 'model_not_supported'
     | 'hog_error'
 
 export interface ModelConfiguration {
@@ -90,13 +91,13 @@ export interface BaseEvaluationConfig {
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'llm_judge'
-    output_type: 'boolean' | 'numeric'
+    output_type: 'boolean' | 'numeric' | 'categorical'
     evaluation_config: LLMJudgeEvaluationConfig
 }
 
 export interface HogEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'hog'
-    output_type: 'boolean' | 'numeric'
+    output_type: 'boolean' | 'numeric' | 'categorical'
     evaluation_config: HogEvaluationConfig
 }
 
@@ -129,11 +130,16 @@ export interface EvaluationRun {
     // identifies what was graded. Absent on every other target.
     session_id?: string | null
     timestamp: string
+    // When the verdict was produced. A backfilled verdict's timestamp is its unit's own time, so
+    // this is what orders two verdicts for the same unit.
+    start_time?: string | null
+    backfill_id?: string | null
     evaluation_type?: EvaluationType
     result_type?: EvaluationOutputType
     result: boolean | null
     sentiment_label?: string | null
     sentiment_score?: number | null
+    categories?: string[] | null
     score?: number | null
     score_min?: number | null
     score_max?: number | null
@@ -142,6 +148,7 @@ export interface EvaluationRun {
     // evaluation disallows N/A, so it has to be read alongside this rather than on its own.
     skipped?: boolean
     reasoning: string
+    probability?: number | null
     status: 'completed' | 'failed' | 'running'
 }
 

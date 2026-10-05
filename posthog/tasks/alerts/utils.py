@@ -19,8 +19,6 @@ from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_sche
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
-from products.alerts.backend.facade.contracts import AlertDelivery
-from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
@@ -30,13 +28,6 @@ from products.alerts.backend.facade.destinations import (
     serialize_deliveries,
 )
 from products.alerts.backend.facade.email import send_alert_email
-from products.alerts.backend.facade.scheduling import (
-    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
-    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
-    is_weekend,
-    next_calendar_check_time,
-    to_calendar_interval,
-)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
     apply_outcome,
@@ -44,6 +35,15 @@ from products.alerts.backend.insight_alert_state_machine import (
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts_platform.backend.facade.scheduling import (
+    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
+    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
+    is_weekend,
+    next_calendar_check_time,
+    to_calendar_interval,
+)
 from products.exports.backend.facade import api as exports
 
 logger = structlog.get_logger(__name__)
@@ -69,6 +69,7 @@ class AlertEvaluationResult:
     triggered_dates: list[str] | None = None
     interval: str | None = None
     triggered_metadata: dict | None = None
+    skipped_reason: str | None = None
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
@@ -123,18 +124,21 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
         now=datetime.now(pytz.UTC),
         tz_name=alert.team.timezone,
         next_check_at=alert.next_check_at,
+        alert_id=alert.id,
         schedule_start_time=alert.schedule_start_time,
     )
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:
     """
-    Rule by calculation interval
+    Rule by calculation interval. Each alert keeps a stable offset after the interval boundary
+    (alert_check_offset), so alerts that share an interval do not all run at its start.
 
-    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
-    daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
-    weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
-    monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
+    every 15 minutes alerts -> 1 to 3 minutes after each quarter hour
+    hourly alerts -> 2 to 13 minutes after each hour
+    daily alerts -> in the 1am hour of the team's timezone
+    weekly alerts -> in the 3am hour on Monday, in the team's timezone
+    monthly alerts -> in the 4am hour on the first day of the month, in the team's timezone
     """
     candidate = _next_check_time_core(alert)
     return snap_candidate_utc_to_schedule_restriction(alert, candidate)
@@ -608,6 +612,19 @@ def add_alert_check(
     """
     # Evaluation never ran (query error): record an all-empty result so the check row still lands.
     result = evaluation_result if evaluation_result is not None else AlertEvaluationResult(value=None, breaches=None)
+    if result.skipped_reason is not None:
+        alert.last_checked_at = datetime.now(UTC)
+        alert.next_check_at = next_check_time(alert)
+        alert_check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=None,
+            condition=alert.condition,
+            state=alert.state,
+            targets_notified={},
+            triggered_metadata={**(result.triggered_metadata or {}), "skipped_reason": result.skipped_reason},
+        )
+        alert.save(update_fields=["last_checked_at", "next_check_at"])
+        return alert_check, False
     error_message = error.get("message") if error else None
     outcome = evaluate_alert_check(
         alert,

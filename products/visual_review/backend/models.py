@@ -7,10 +7,12 @@ import uuid
 from django.db import models
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.models.utils import uuid7
 
 from .facade.enums import (
     ActorType,
     ClassificationReason,
+    QuarantineLiftState,
     ReviewDecision,
     ReviewState,
     RunPurpose,
@@ -124,8 +126,10 @@ class Run(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
 
-    status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
-    run_type = models.CharField(max_length=64, default=RunType.OTHER)
+    status = models.CharField(
+        max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING.value
+    )
+    run_type = models.CharField(max_length=64, default=RunType.OTHER.value)
 
     # Git context
     commit_sha = models.CharField(max_length=40)
@@ -134,10 +138,10 @@ class Run(ProductTeamModel):
 
     # Purpose and review
     purpose = models.CharField(
-        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW
+        max_length=20, choices=[(p.value, p.value) for p in RunPurpose], default=RunPurpose.REVIEW.value
     )
     review_decision = models.CharField(
-        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING
+        max_length=20, choices=[(d.value, d.value) for d in ReviewDecision], default=ReviewDecision.PENDING.value
     )
     # Legacy — derived from review_decision, kept for backward compat during migration
     approved = models.BooleanField(default=False)
@@ -227,7 +231,7 @@ class RunSnapshot(ProductTeamModel):
     )
 
     result = models.CharField(
-        max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED
+        max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED.value
     )
     # Why this snapshot was classified as UNCHANGED (empty for CHANGED/NEW/REMOVED)
     classification_reason = models.CharField(
@@ -393,7 +397,7 @@ class QuarantinedIdentifier(ProductTeamModel):
     source = models.CharField(
         max_length=10,
         choices=[(a.value, a.value) for a in ActorType],
-        default=ActorType.HUMAN,
+        default=ActorType.HUMAN.value,
     )
 
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -425,3 +429,72 @@ class QuarantinedIdentifier(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.identifier} ({self.reason[:40]})"
+
+
+class QuarantineLiftRequest(ProductTeamModel):
+    """
+    A request to lift one quarantine event once a pull request merges.
+
+    A pull request that fixes a flaky story usually renders it exactly as its
+    baseline, so nothing else records the fix. The request names the picture
+    the fix produces. A default-branch run that contains the merge and renders
+    that picture against a matching baseline lifts the quarantine.
+
+    Not stored on RunSnapshot, because every push supersedes the run and the
+    retention sweep deletes superseded pull request runs.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantine_lift_requests")
+    # The exact quarantine event. A later quarantine of the same story is a new row, so this
+    # request can never lift it.
+    quarantine = models.ForeignKey(QuarantinedIdentifier, on_delete=models.CASCADE, related_name="lift_requests")
+    identifier = models.CharField(max_length=512)
+    run_type = models.CharField(max_length=64)
+    pr_number = models.IntegerField()
+    expected_hash = models.CharField(max_length=128)
+
+    source_run = models.ForeignKey(
+        Run, on_delete=models.SET_NULL, null=True, blank=True, related_name="requested_quarantine_lifts"
+    )
+    # References posthog.User in the main database, which a foreign key cannot reach.
+    requested_by_id = models.BigIntegerField(null=True, blank=True)
+    source = models.CharField(
+        max_length=10,
+        choices=[(a.value, a.value) for a in ActorType],
+        default=ActorType.HUMAN.value,
+    )
+
+    state = models.CharField(
+        max_length=20,
+        choices=QuarantineLiftState.choices,
+        default=QuarantineLiftState.PENDING.value,
+    )
+    # The latest verification outcome, in words a reviewer can read.
+    detail = models.CharField(max_length=255, blank=True)
+
+    merge_commit_sha = models.CharField(max_length=40, null=True, blank=True)
+    applied_run = models.ForeignKey(
+        Run, on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_quarantine_lifts"
+    )
+    lifted_at_sha = models.CharField(max_length=40, null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["quarantine", "pr_number"],
+                condition=models.Q(state=QuarantineLiftState.PENDING.value),
+                name="unique_pending_lift_per_quarantine_pr",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["repo", "state"], name="quarantine_lift_repo_state"),
+            models.Index(fields=["repo", "pr_number"], name="quarantine_lift_repo_pr"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} #{self.pr_number} ({self.state})"

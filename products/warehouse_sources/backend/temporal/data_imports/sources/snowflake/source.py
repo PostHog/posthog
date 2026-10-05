@@ -405,6 +405,22 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # cleanly, so this is a self-recovering network blip rather than a bug. The errno and OS-
             # specific wrapping vary, so we match the stable requests-library wrapper phrase.
             "Connection broken: ConnectionResetError",
+            # Snowflake connector error 290503 (ER_HTTP_GENERAL_ERROR + 503): Snowflake's own backend
+            # briefly returned HTTP 503 while the connector was already retrying internally (it
+            # re-raises only after exhausting its own `RetryRequest` budget). A fresh Temporal-level
+            # retry opens a new connection and re-executes the query from scratch, which recovers
+            # cleanly once the backend blip clears, so this is self-recovering rather than a bug.
+            # The errno prefix is volatile, so we match the stable status text.
+            "HTTP 503: Service Unavailable",
+            # Snowflake error 000604 (57014): the connector arms a client-side "timebomb" on
+            # `cursor.execute()` using `network_timeout` (see `_SNOWFLAKE_QUERY_TIMEOUT_SECONDS`) and
+            # cancels the query once it elapses. The metadata/listing queries (column discovery,
+            # primary-key and clustering-key lookups) don't pass the long explicit per-query timeout,
+            # so they inherit the shorter connection-level one — usually plenty, but a cold warehouse
+            # resume or a transient backend slowdown can push a catalog scan past it. A fresh attempt
+            # opens a new connection and re-executes from scratch, so this is self-recovering rather
+            # than a bug. The query id in the message is volatile, so we match the stable phrase.
+            "SQL execution was cancelled by the client due to a timeout",
         }
 
     def reconcile_schema_metadata(

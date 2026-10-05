@@ -95,7 +95,8 @@ _REVIEWS_SELECT = f"""
 # Skipped runs add no red or running time, and the shared gate-attempt read handles queue runs.
 _RUNS_SELECT = f"""
     SELECT
-        id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
+        id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at,
+        stopped_reporting, ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
@@ -111,16 +112,17 @@ _JOB_ATTEMPTS_SELECT = f"""
         max(completed_at) AS completed_at,
         countIf(status != 'completed') AS unfinished,
         groupArrayIf(name, conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failed_jobs,
-        countIf(conclusion NOT IN ('success', 'skipped')) AS unsuccessful
+        countIf(conclusion NOT IN ('success', 'skipped')) AS unsuccessful,
+        ci_engine
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND NOT is_rerun_copy
-    GROUP BY run_id, attempt_number
+    GROUP BY ci_engine, run_id, attempt_number
 """
 
 _MASTER_FAILURES_SELECT = f"""
-    SELECT j.workflow_name, j.name, j.completed_at, j.id AS job_id
+    SELECT j.workflow_name, j.name, j.completed_at, j.id AS job_id, j.ci_engine AS ci_engine
     FROM __JOBS_SOURCE__ AS j
-    INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id
+    INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id AND r.ci_engine = j.ci_engine
     WHERE r.head_branch = {{default_branch}}
         AND NOT r.is_merge_queue
         AND r.run_started_at >= {{run_from}}
@@ -391,15 +393,16 @@ class PullRequestTimelinesQuery:
     def _query_run_attempts(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[RunAttempt]]:
         rows = self._curated.run_paged(
             _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)),
-            page_key=(("id", 0),),
+            page_key=(("id", 0), ("ci_engine", 11)),
             query_type="engineering_analytics.pull_request_timelines_runs",
             placeholders=self._runs_placeholders(pr_numbers, run_from),
         )
         runs = [row for row in rows if row[6] is not None]
         # A run on its first attempt that did not fail has exactly one attempt, and its run row already
-        # describes it. Only re-runs (earlier attempts) and failures (failed job names) need the jobs.
+        # describes it. Only re-runs (earlier attempts), failures (failed job names) and runs that stopped
+        # reporting (whose job rows are the only settled outcome) need the jobs.
         job_attempts = self._query_job_attempts(
-            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS],
+            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS or row[10]],
             run_from,
         )
 
@@ -415,11 +418,16 @@ class PullRequestTimelinesQuery:
             updated_at,
             attempt,
             created_at,
+            stopped_reporting,
+            ci_engine,
         ) in runs:
-            run_attempts = job_attempts.get(int(run_id), [])
+            run_attempts = job_attempts.get((ci_engine, int(run_id)), [])
             queued_at = created_at or started_at
-            completed = status == "completed"
-            run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
+            # A run that stopped reporting ends at its last update, but its conclusion is not settled, so only
+            # a failed job row can mark it failed. The friction view applies the same split.
+            settled = status == "completed"
+            ended = settled or bool(stopped_reporting)
+            run_failed = settled and conclusion in DECISIVE_FAILURE_CONCLUSIONS
             newest_attempt = int(attempt or 1)
             for job_attempt in run_attempts:
                 # The run row decides its newest attempt's outcome and end: the jobs sync can still hold a
@@ -429,9 +437,9 @@ class PullRequestTimelinesQuery:
                 failed = bool(job_attempt.failed_jobs) or (is_newest and run_failed)
                 completed_at = job_attempt.completed_at
                 succeeded = job_attempt.succeeded and not failed
-                if is_newest and completed:
+                if is_newest and ended:
                     completed_at = updated_at or completed_at
-                    succeeded = conclusion == "success" and not failed
+                    succeeded = settled and conclusion == "success" and not failed
                 attempts[int(number)].append(
                     RunAttempt(
                         run_id=int(run_id),
@@ -458,9 +466,9 @@ class PullRequestTimelinesQuery:
                     attempt=newest_attempt,
                     queued_at=queued_at,
                     started_at=started_at,
-                    completed_at=updated_at if completed else None,
+                    completed_at=updated_at if ended else None,
                     failed=run_failed,
-                    succeeded=completed and conclusion == "success",
+                    succeeded=settled and conclusion == "success",
                     failed_jobs=(),
                 )
             )
@@ -513,24 +521,24 @@ class PullRequestTimelinesQuery:
                 )
         return gates
 
-    def _query_job_attempts(self, run_ids: list[int], run_from: datetime) -> dict[int, list[_JobAttempt]]:
+    def _query_job_attempts(self, run_ids: list[int], run_from: datetime) -> dict[tuple[str, int], list[_JobAttempt]]:
         source = self._curated.jobs_source(created_floor=True)
         if source is None or not run_ids:
             return {}
         rows = self._curated.run_paged(
             _JOB_ATTEMPTS_SELECT.replace("__JOBS_SOURCE__", source),
-            page_key=(("run_id", 0), ("attempt_number", 1)),
+            page_key=(("run_id", 0), ("attempt_number", 1), ("ci_engine", 7)),
             query_type="engineering_analytics.pull_request_timelines_job_attempts",
             placeholders={
                 "run_ids": ast.Constant(value=run_ids),
                 "job_created_floor": run_windowed_job_created_floor_constant(run_from),
             },
         )
-        by_run: dict[int, list[_JobAttempt]] = defaultdict(list)
-        for run_id, run_attempt, started_at, completed_at, unfinished, failed_jobs, unsuccessful in rows:
+        by_run: dict[tuple[str, int], list[_JobAttempt]] = defaultdict(list)
+        for run_id, run_attempt, started_at, completed_at, unfinished, failed_jobs, unsuccessful, ci_engine in rows:
             if started_at is None:
                 continue
-            by_run[int(run_id)].append(
+            by_run[(ci_engine, int(run_id))].append(
                 _JobAttempt(
                     attempt=int(run_attempt or 1),
                     started_at=started_at,
@@ -561,7 +569,7 @@ class PullRequestTimelinesQuery:
             _MASTER_FAILURES_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
                 "__RUNS_SOURCE__", self._curated.run_source(started_floor=True)
             ),
-            page_key=(("job_id", 3),),
+            page_key=(("job_id", 3), ("ci_engine", 4)),
             query_type="engineering_analytics.pull_request_timelines_master_failures",
             placeholders={
                 "default_branch": ast.Constant(value=default_branch),
@@ -572,7 +580,7 @@ class PullRequestTimelinesQuery:
             },
         )
         return MasterFailureIndex(
-            [(workflow or "", name or "", completed_at) for workflow, name, completed_at, _job_id in rows]
+            [(workflow or "", name or "", completed_at) for workflow, name, completed_at, _job_id, _ci_engine in rows]
         )
 
     def _query_out_of_queue(self, pr_numbers: list[int]) -> set[int]:

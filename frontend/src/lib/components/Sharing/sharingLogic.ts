@@ -2,10 +2,10 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -386,7 +386,9 @@ export const sharingLogic = kea<sharingLogicType>([
     listeners(({ props, values, actions }) => ({
         setIsEnabled: (enabled) => {
             if (props.dashboardId) {
-                eventUsageLogic.actions.reportDashboardShareToggled(props.dashboardId, enabled)
+                posthog.capture(`dashboard share toggled`, { dashboard_id: props.dashboardId, is_shared: enabled })
+            } else if (props.insightShortId) {
+                posthog.capture('insight share toggled', { insight_short_id: props.insightShortId, is_shared: enabled })
             }
         },
         setIsEnabledSuccess: () => {
@@ -396,10 +398,13 @@ export const sharingLogic = kea<sharingLogicType>([
         },
         setSharingSettingsValue: ({ name, value }) => {
             if (name === 'whitelabel' && props.dashboardId) {
-                eventUsageLogic.actions.reportDashboardWhitelabelToggled(props.dashboardId, value)
+                posthog.capture(`dashboard whitelabel toggled`, {
+                    dashboard_id: props.dashboardId,
+                    is_whitelabelled: value,
+                })
             }
             if (name === 'whitelabel' && props.insightShortId) {
-                eventUsageLogic.actions.reportInsightWhitelabelToggled(value)
+                posthog.capture(`insight whitelabel toggled`, { is_whitelabelled: value })
             }
             // Auto-save all embed config changes to settings
             if (values.sharingConfiguration) {

@@ -1924,7 +1924,13 @@ class TestSharedCohortInlining(APIBaseTest):
             team=self.team, insight=insight, name="High event count", enabled=True, created_by=self.user
         )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight)
-        text = Text.objects.create(team=self.team, body="Read me", created_by=self.user, last_modified_by=self.user)
+        text = Text.objects.create(
+            team=self.team,
+            body="Read me",
+            agent_context="Private agent context",
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, text=text)
         button = ButtonTile.objects.create(
             team=self.team,
@@ -1942,6 +1948,7 @@ class TestSharedCohortInlining(APIBaseTest):
 
         body = response.content.decode()
         assert self.user.email not in body
+        assert "Private agent context" not in body
 
         exported = self._parse_exported_data(body)
         exported_dashboard = exported["dashboard"]
@@ -1951,6 +1958,8 @@ class TestSharedCohortInlining(APIBaseTest):
                 if tile_content is not None:
                     assert "created_by" not in tile_content
                     assert "last_modified_by" not in tile_content
+            if tile.get("text") is not None:
+                assert "agent_context" not in tile["text"]
             if tile.get("insight") is not None:
                 assert tile["insight"]["alerts"] == []
         for theme in exported["themes"]:

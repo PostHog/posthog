@@ -27,6 +27,7 @@ import type {
     MarketingDiagnosticResponseApi,
     PatchedConversionGoalUpdateApi,
     SetupPlanResponseApi,
+    SourceValidationApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
@@ -272,6 +273,24 @@ export const marketingAnalyticsSetupPlanRetrieve = async (
     options?: RequestInit
 ): Promise<SetupPlanResponseApi> => {
     return apiMutator<SetupPlanResponseApi>(getMarketingAnalyticsSetupPlanRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsSourceValidationRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/source_validation/`
+}
+
+/**
+ * Check connected marketing sources using the same validators as campaign queries. Read-only.
+ * @summary Validate marketing sources
+ */
+export const marketingAnalyticsSourceValidationRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SourceValidationApi> => {
+    return apiMutator<SourceValidationApi>(getMarketingAnalyticsSourceValidationRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
