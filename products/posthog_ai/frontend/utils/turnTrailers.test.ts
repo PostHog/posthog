@@ -1,16 +1,16 @@
 import type { ThreadItem } from '../types/streamTypes'
-import { computeTurnTrailers } from './turnTrailers'
+import { computeTurnTrailers, mapRowsToRevealGroup } from './turnTrailers'
 
 function item(type: ThreadItem['type'], id: string, text?: string): ThreadItem {
     return { id, type, text }
 }
 
-describe('computeTurnTrailers', () => {
-    it('assigns stable ordinals, per-turn text, and per-turn trace ids across multiple turns', () => {
+describe('turnTrailers', () => {
+    it('assigns stable ordinals, per-turn text, trace ids, and timestamps across multiple turns', () => {
         const trailers = computeTurnTrailers([
             item('human_message', 'h0', 'q1'),
             item('assistant_message', 'a0', 'first answer'),
-            { ...item('turn_separator', 'turn-0'), traceId: 'trace-a' },
+            { ...item('turn_separator', 'turn-0'), traceId: 'trace-a', startedAt: 1700000000000 },
             item('human_message', 'h1', 'q2'),
             item('assistant_thought', 't0', 'thinking'),
             item('assistant_message', 'a1', 'second answer'),
@@ -23,6 +23,7 @@ describe('computeTurnTrailers', () => {
             isLastTurn: false,
             turnText: 'first answer',
             traceId: 'trace-a',
+            timestamp: 1700000000000,
         })
         expect(trailers.get('turn-1')).toEqual({
             turnIndex: 1,
@@ -63,5 +64,28 @@ describe('computeTurnTrailers', () => {
             item('assistant_message', 'a0', 'still streaming'),
         ])
         expect(trailers.size).toBe(0)
+    })
+
+    it('maps answer rows to their turn separator, human messages to themselves, and skips unfinished rows', () => {
+        const membership = mapRowsToRevealGroup([
+            item('human_message', 'h0'),
+            item('assistant_message', 'a0'),
+            item('turn_separator', 'turn-0'),
+            item('human_message', 'h1'),
+            item('assistant_thought', 't1'),
+            item('assistant_message', 'a1'),
+            item('turn_separator', 'turn-1'),
+            item('human_message', 'h2'),
+            item('assistant_message', 'a2'),
+        ])
+
+        expect(Object.fromEntries(membership)).toEqual({
+            h0: 'h0',
+            a0: 'turn-0',
+            h1: 'h1',
+            t1: 'turn-1',
+            a1: 'turn-1',
+            h2: 'h2',
+        })
     })
 })

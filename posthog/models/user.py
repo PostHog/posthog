@@ -15,7 +15,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
+from posthog.helpers.email_utils import (
+    GMAIL_CANONICAL_LOCAL_EXPRESSION,
+    STRIPPED_EMAIL_EXPRESSION,
+    EmailLookupHandler,
+    EmailNormalizer,
+)
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization_notification_lock import GovernedSetting, effective_notification_settings
@@ -58,6 +63,7 @@ class Notifications(TypedDict, total=False):
     materialized_view_sync_failed_immediate: bool  # One email each time a view starts failing
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
+    data_catalog_weekly_digest: bool
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
@@ -84,6 +90,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "materialized_view_sync_failed_daily": True,  # Digest is the default delivery once failures are turned on
     "materialized_view_sync_failed_immediate": False,
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
+    "data_catalog_weekly_digest": True,  # Data catalog pending-review digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
     "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
@@ -219,6 +226,31 @@ def default_ui_configuration_for_new_users() -> dict[str, Any]:
     }
 
 
+def preserve_starred_products_setup(
+    user: Optional["User"], configuration: Optional[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    """Carry the completed starred products setup into a new configuration that omits it.
+
+    Writers send the whole configuration, so a client that does not know this key (an API call,
+    the MCP tool, an older frontend) would otherwise drop it and show the setup again.
+    Sending the key explicitly, even as false, still wins.
+    """
+    stored = user.ui_configuration if user else None
+    if not isinstance(stored, dict):
+        return configuration
+    stored_sidebar = stored.get("sidebar")
+    if not (isinstance(stored_sidebar, dict) and stored_sidebar.get("starred_products_setup_completed")):
+        return configuration
+    if configuration is None:
+        return {"version": stored.get("version", 1), "sidebar": {"starred_products_setup_completed": True}}
+    sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
+    if not isinstance(configuration, dict) or not isinstance(sidebar, dict | None):
+        return configuration
+    if sidebar is not None and "starred_products_setup_completed" in sidebar:
+        return configuration
+    return {**configuration, "sidebar": {**(sidebar or {}), "starred_products_setup_completed": True}}
+
+
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
@@ -346,6 +378,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         verbose_name_plural = _("users")
         indexes = [
             models.Index(STRIPPED_EMAIL_EXPRESSION, name="user_stripped_alias_idx"),
+            models.Index(GMAIL_CANONICAL_LOCAL_EXPRESSION, name="user_gmail_canonical_idx"),
             # Serves the `LOWER(email)` fold `EmailLookupHandler.get_user_by_email` resolves on.
             models.Index(Lower("email"), name="posthog_user_lower_email_idx"),
         ]

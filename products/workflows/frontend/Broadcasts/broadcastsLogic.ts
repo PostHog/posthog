@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { TeamPublicType, TeamType } from '~/types'
 
-import { hogFlowsBatchJobsList, hogFlowsList } from 'products/workflows/frontend/generated/api'
+import { hogFlowsBatchJobsList, hogFlowsList, hogFlowsSchedulesList } from 'products/workflows/frontend/generated/api'
 import type {
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -22,19 +22,38 @@ import type {
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import {
+    ManagedBroadcast,
+    confirmArchiveBroadcast,
+    confirmDeleteBroadcast,
+    restoreBroadcast,
+} from './broadcastLifecycle'
+
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'archived' | 'unknown'
 
 export interface BroadcastRowDetails {
     latestBatchJob: HogFlowBatchJobApi | null
     /** Null until the run's metrics load, or when they fail to. */
     totals: Record<string, number> | null
+    /** Whether an active schedule has sends still to come. Unset when the schedules couldn't load. */
+    hasPendingSchedule?: boolean
+    /** Every run's status, newest first. An older run can still be sending after a newer one finished. */
+    batchJobStatuses?: (string | null | undefined)[]
 }
 
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
 export const BROADCASTS_PAGE_SIZE = 30
 
-export type BroadcastsStatusFilter = 'all' | 'draft' | 'active' | 'archived'
-const BROADCASTS_STATUS_FILTERS: BroadcastsStatusFilter[] = ['all', 'draft', 'active', 'archived']
+export type BroadcastsStatusFilter = 'all' | Exclude<BroadcastStatus, 'unknown'>
+const BROADCASTS_STATUS_FILTERS: BroadcastsStatusFilter[] = [
+    'all',
+    'draft',
+    'scheduled',
+    'sending',
+    'sent',
+    'failed',
+    'archived',
+]
 
 export interface BroadcastsFilters {
     search: string
@@ -57,14 +76,13 @@ export function isBroadcastShaped(
     )
 }
 
-const DEFAULT_RECIPIENT = '{{ person.properties.email }}'
-
 type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 type FlowEdge = { from?: string; to?: string }
 
 /**
  * Whether the broadcast wizard can edit a broadcast-shaped workflow without misdescribing it. The
- * wizard only models a person audience sent to each person's own email along trigger, email, exit;
+ * wizard only models a person audience along trigger, email, exit. Its Content step edits the email's
+ * "To" like any other field, so a custom recipient is fine;
  * anything else opens as the read-only summary instead.
  */
 export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
@@ -76,13 +94,11 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
     if (steps.length !== 3 || trigger.length !== 1 || email.length !== 1 || exit.length !== 1) {
         return false
     }
-    const recipient = email[0].config?.inputs?.email?.value?.to?.email
     // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
     // that skips the email.
     const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
     return (
         trigger[0].config?.filters?.audience_type !== 'accounts' &&
-        (!recipient || recipient === DEFAULT_RECIPIENT) &&
         paths.size === 2 &&
         paths.has(`${trigger[0].id}->${email[0].id}`) &&
         paths.has(`${email[0].id}->${exit[0].id}`)
@@ -101,12 +117,15 @@ export function canMoveToDraft(
     broadcast: StoppableBroadcast | null,
     batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
 ): boolean {
+    const schedules = broadcast?.schedules ?? []
+    const neverSent = batchJobs?.length === 0
     return (
         broadcast?.status === 'active' &&
         // Only a send still to come can be stopped, since relaunching one that went out resends it. The
-        // wizard models a single schedule, so a relaunch would fold several into one.
-        broadcast.schedules?.length === 1 &&
-        broadcast.schedules[0].status !== 'completed' &&
+        // wizard models a single schedule, so a relaunch would fold several into one. A launch or a
+        // one-time schedule that never started a run sent nothing, so it can go back to draft too.
+        schedules.length <= 1 &&
+        (neverSent || (schedules.length === 1 && schedules[0].status !== 'completed')) &&
         batchJobs !== null &&
         !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
@@ -119,7 +138,7 @@ export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product
 }
 
 export function getBroadcastStatus(
-    broadcast: HogFlowMinimalApi,
+    broadcast: { status?: string | null; origin_product?: string | null },
     details: BroadcastRowDetails | undefined
 ): BroadcastStatus {
     if (broadcast.status === 'draft') {
@@ -137,13 +156,22 @@ export function getBroadcastStatus(
             return 'sending'
         }
         if (latestJob.status === 'completed') {
-            return 'sent'
+            // A recurring broadcast between runs has more to send. A failed run still reads as failed.
+            if (details.hasPendingSchedule === undefined) {
+                return 'unknown'
+            }
+            return details.hasPendingSchedule ? 'scheduled' : 'sent'
         }
         // Without this a failed or cancelled run falls through to the no-run fallback below, which
         // tells the sender another send is still pending when nothing is coming.
         return 'failed'
     }
-    // Active with no batch job yet: it's waiting on its schedule (or a manual send).
+    // Live with no run and nothing scheduled: a launch from the wizard that never finished, so nothing
+    // will ever send. A workflow opened here can wait for a send started through the API instead.
+    if (details.hasPendingSchedule === false && broadcast.origin_product === 'broadcasts') {
+        return 'failed'
+    }
+    // Active with no batch job yet: it's waiting on its schedule.
     return 'scheduled'
 }
 
@@ -181,8 +209,14 @@ export interface broadcastsLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface broadcastsLogicActions {
+    archiveBroadcast: (broadcast: ManagedBroadcast) => {
+        broadcast: ManagedBroadcast
+    }
     clearRowDetails: (id: string) => {
         id: string
+    }
+    deleteBroadcast: (broadcast: ManagedBroadcast) => {
+        broadcast: ManagedBroadcast
     }
     loadBroadcasts: () => {
         value: true
@@ -204,6 +238,9 @@ export interface broadcastsLogicActions {
         payload?: {
             value: true
         }
+    }
+    restoreBroadcast: (broadcast: ManagedBroadcast) => {
+        broadcast: ManagedBroadcast
     }
     setFilters: (filters: Partial<BroadcastsFilters>) => {
         filters: Partial<BroadcastsFilters>
@@ -249,6 +286,9 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
         clearRowDetails: (id: string) => ({ id }),
         setLoadedFilters: (filters: BroadcastsFilters) => ({ filters }),
+        archiveBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
+        restoreBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
+        deleteBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
     }),
     loaders(({ actions, values }) => ({
         broadcasts: [
@@ -264,7 +304,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         // trigger and a single email), so existing sends show up here too.
                         broadcast_eligible: true,
                         search: values.filters.search || undefined,
-                        status: values.filters.status !== 'all' ? values.filters.status : undefined,
+                        broadcast_status: values.filters.status !== 'all' ? values.filters.status : undefined,
                         created_by: values.filters.createdBy || undefined,
                         limit: BROADCASTS_PAGE_SIZE,
                         offset: (values.filters.page - 1) * BROADCASTS_PAGE_SIZE,
@@ -281,6 +321,12 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             {} as Record<string, BroadcastRowDetails>,
             {
                 setRowDetails: (state, { id, details }) => ({ ...state, [id]: details }),
+                // A send can start between loads, so the run statuses that gate Archive are refetched with the
+                // list. The status tags and counts stay on screen until then.
+                loadBroadcasts: (state) =>
+                    Object.fromEntries(
+                        Object.entries(state).map(([id, { batchJobStatuses: _, ...details }]) => [id, details])
+                    ),
                 clearRowDetails: (state, { id }) => {
                     const { [id]: _, ...rest } = state
                     return rest
@@ -331,6 +377,22 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        // Each change moves the row between status filters, so the page reloads rather than patching the row.
+        archiveBroadcast: ({ broadcast }) => {
+            if (values.currentProjectId) {
+                confirmArchiveBroadcast(String(values.currentProjectId), broadcast, actions.loadBroadcasts)
+            }
+        },
+        restoreBroadcast: async ({ broadcast }) => {
+            if (values.currentProjectId) {
+                await restoreBroadcast(String(values.currentProjectId), broadcast, actions.loadBroadcasts)
+            }
+        },
+        deleteBroadcast: ({ broadcast }) => {
+            if (values.currentProjectId) {
+                confirmDeleteBroadcast(String(values.currentProjectId), broadcast, actions.loadBroadcasts)
+            }
+        },
         loadBroadcastsSuccess: ({ broadcasts }) => {
             const projectId = values.currentProjectId
             if (!projectId) {
@@ -351,12 +413,21 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             for (const broadcast of broadcasts.results ?? []) {
                 void (async () => {
                     let latestBatchJob: HogFlowBatchJobApi | null
+                    let batchJobStatuses: (string | null | undefined)[]
+                    let hasPendingSchedule: boolean | undefined
                     try {
-                        const batchJobs =
+                        // The list rows carry no schedules, and a recurring broadcast between runs needs them
+                        // to read as scheduled. A failed schedules request only loses that distinction.
+                        const [batchJobs, schedules] =
                             broadcast.status === 'draft'
-                                ? ([] as HogFlowBatchJobApi[])
-                                : await hogFlowsBatchJobsList(String(projectId), broadcast.id)
+                                ? [[] as HogFlowBatchJobApi[], undefined]
+                                : await Promise.all([
+                                      hogFlowsBatchJobsList(String(projectId), broadcast.id),
+                                      hogFlowsSchedulesList(String(projectId), broadcast.id).catch(() => undefined),
+                                  ])
                         latestBatchJob = batchJobs[0] ?? null
+                        batchJobStatuses = batchJobs.map((job) => job.status)
+                        hasPendingSchedule = schedules?.some((schedule) => schedule.status === 'active')
                     } catch {
                         if (isCurrent()) {
                             actions.clearRowDetails(broadcast.id)
@@ -366,14 +437,24 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     if (!isCurrent()) {
                         return
                     }
-                    actions.setRowDetails(broadcast.id, { latestBatchJob, totals: latestBatchJob ? null : {} })
+                    actions.setRowDetails(broadcast.id, {
+                        latestBatchJob,
+                        totals: latestBatchJob ? null : {},
+                        hasPendingSchedule,
+                        batchJobStatuses,
+                    })
                     if (!latestBatchJob) {
                         return
                     }
                     try {
                         const totals = await loadRunMetricTotals(latestBatchJob, values.currentTeam?.timezone ?? 'UTC')
                         if (isCurrent()) {
-                            actions.setRowDetails(broadcast.id, { latestBatchJob, totals })
+                            actions.setRowDetails(broadcast.id, {
+                                latestBatchJob,
+                                totals,
+                                hasPendingSchedule,
+                                batchJobStatuses,
+                            })
                         }
                     } catch {
                         // The counts stay unknown; the status already rendered from the run.

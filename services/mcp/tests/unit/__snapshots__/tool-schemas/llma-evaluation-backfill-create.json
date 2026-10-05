@@ -1,0 +1,61 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conditions": {
+            "description": "Condition sets to match. Defaults to the evaluation's own condition sets.",
+            "items": {
+                "description": "A trigger condition set controlling which generations an evaluation runs on.",
+                "properties": {
+                    "id": {
+                        "description": "Stable identifier for this condition set.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "properties": {
+                        "description": "Property filters (event or person) that scope which generations match this condition set.",
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "rollout_percentage": {
+                        "default": 100,
+                        "description": "Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "number"
+                    }
+                },
+                "required": ["id"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "evaluation_id": {
+            "type": "string"
+        },
+        "rerun_existing": {
+            "default": false,
+            "description": "Evaluate units again even when this evaluation already has a result for them.",
+            "type": "boolean"
+        },
+        "window_end": {
+            "description": "Exclusive end of the window. Values in the future are clamped to now.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "window_start": {
+            "description": "Inclusive start of the window, by unit timestamp.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        }
+    },
+    "required": ["evaluation_id", "window_start", "window_end"],
+    "type": "object"
+}

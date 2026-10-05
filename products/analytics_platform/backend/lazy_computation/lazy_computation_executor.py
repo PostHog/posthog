@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from django.db import DEFAULT_DB_ALIAS
@@ -49,6 +50,9 @@ from products.analytics_platform.backend.lazy_computation.computation_notificati
     subscribe_to_jobs,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
 
@@ -1612,6 +1616,7 @@ def ensure_precomputed(
     end_is_data_horizon: bool = False,
     cache_key_context: dict[str, str] | None = None,
     read_after_write: bool = True,
+    database: "Database | None" = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1691,6 +1696,11 @@ def ensure_precomputed(
                       newest parts until replication catches up — usually fast, but
                       with no guaranteed bound. The post-build settle wait covers the
                       builder's own read-back; later readers accept the residual risk.
+        database: A prebuilt HogQL database to print the INSERT against. Without it, every
+                      INSERT builds the team's database from scratch, which costs Postgres reads
+                      and CPU per job. A caller that ensures many windows for one team should
+                      build it once, userless with warehouse access control bypassed and with
+                      the same `modifiers`, and pass it here.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1753,6 +1763,7 @@ def ensure_precomputed(
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
+        print_start = time.monotonic()
         insert_sql, values = _build_manual_insert_sql(
             team=t,
             job=job,
@@ -1760,7 +1771,9 @@ def ensure_precomputed(
             table=table,
             base_placeholders=base_placeholders,
             modifiers=modifiers,
+            database=database,
         )
+        print_end = time.monotonic()
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
             "client_query_id": str(job.id),
@@ -1770,14 +1783,27 @@ def ensure_precomputed(
         }
         if query_type:
             tag_kwargs["query_type"] = query_type
+        execute_start = time.monotonic()
         with tags_context(**tag_kwargs):
-            return _written_rows(
+            rows_written = _written_rows(
                 sync_execute(
                     insert_sql,
                     values,
                     settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
                 )
             )
+        # Splits the job's insert_duration_ms: printing builds the team's HogQL database, which can cost
+        # as much as the ClickHouse INSERT itself.
+        logger.info(
+            "lazy_computation.insert_phases",
+            team_id=t.id,
+            job_id=str(job.id),
+            table=str(table),
+            print_ms=round((print_end - print_start) * 1000),
+            setup_ms=round((execute_start - print_end) * 1000),
+            execute_ms=round((time.monotonic() - execute_start) * 1000),
+        )
+        return rows_written
 
     # A caller can hand in a fully-built TtlSchedule (e.g. one carrying a max_window_days
     # cap) to bound job width — "switch the schedule"; otherwise parse int/dict as usual.
@@ -1836,6 +1862,7 @@ def _build_manual_insert_sql(
     table: LazyComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
     modifiers: HogQLQueryModifiers | None = None,
+    database: "Database | None" = None,
 ) -> tuple[str, dict]:
     """
     Build INSERT SQL for manual lazy computation.
@@ -1887,6 +1914,7 @@ def _build_manual_insert_sql(
         limit_top_select=False,
         modifiers=modifiers if modifiers is not None else create_default_modifiers_for_team(team),
         bypass_warehouse_access_control=True,
+        database=database,
     )
     select_sql, _ = prepare_and_print_ast(
         query,

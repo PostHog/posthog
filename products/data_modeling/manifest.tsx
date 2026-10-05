@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/ModelsScene'),
             projectBased: true,
             description: 'Create and manage views and materialized views for transforming and organizing your data.',
-            iconType: 'sql_editor',
+            iconType: 'data_modeling',
         },
         NodeDetail: {
             name: 'Model detail',
@@ -33,11 +33,12 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Models',
-            category: 'Tools',
+            category: 'Data',
             type: 'sql',
-            iconType: 'sql_editor',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconType: 'data_modeling',
+            iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
             href: urls.models(),
+            searchKeywords: ['data quality', 'lineage', 'materialized views', 'materialization', 'tests'],
             sceneKey: 'Models',
             sceneKeys: ['Models'],
         },

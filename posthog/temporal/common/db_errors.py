@@ -1,6 +1,9 @@
 import errno
 
-from django.db import InterfaceError, InternalError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
+
+import psycopg
+import psycopg.errors
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
 # for a backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
@@ -81,8 +84,30 @@ def is_transient_db_error(error: BaseException) -> bool:
     for _ in range(_MAX_CAUSE_CHAIN_DEPTH):
         if _is_too_many_open_files_error(error):
             return True
-        if isinstance(error, OperationalError | InterfaceError | InternalError):
-            sqlstate = getattr(error.__cause__, "sqlstate", None)
+        # SQLSTATE 42703/42P01: a migration adding a column/table and the activity code that reads
+        # it ship in the same deploy, but a worker can roll out ahead of the migration completing.
+        # Every activity here already retries via Temporal's retry policy, and the query succeeds
+        # once the migration lands, so this is a self-healing race, not a bug. Mirrors the
+        # schema-lag handling in batch_consumer.py, loop_retention.py and task_auto_archive.py.
+        if isinstance(error, ProgrammingError) and isinstance(
+            error.__cause__, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable
+        ):
+            return True
+        # Code that talks to Postgres through a raw psycopg connection instead of Django's ORM
+        # (e.g. the warehouse-sources postgres queue producer) raises psycopg's own exception
+        # classes directly, never wrapped in Django's — so both class families are checked here,
+        # and sqlstate is read off the error itself first since a native psycopg error carries it
+        # directly, falling back to __cause__ for Django's wrapped errors.
+        if isinstance(
+            error,
+            OperationalError
+            | InterfaceError
+            | InternalError
+            | psycopg.OperationalError
+            | psycopg.InterfaceError
+            | psycopg.InternalError,
+        ):
+            sqlstate = getattr(error, "sqlstate", None) or getattr(error.__cause__, "sqlstate", None)
             if isinstance(sqlstate, str) and (
                 sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
             ):

@@ -22,6 +22,8 @@ pub const SAVED_SYMBOL_SET_ERROR_RETURNED: &str = "cymbal_saved_symbol_set_error
 pub const SYMBOL_SET_NEGATIVE_CACHE_HIT: &str = "cymbal_symbol_set_negative_cache_hit";
 pub const SYMBOL_SET_FETCH_RETRY: &str = "cymbal_symbol_set_fetch_retry";
 pub const FRAME_RESOLVED: &str = "cymbal_frame_resolved";
+// Source-map ignore-list matches, labelled by `runtime` (`browser` / `node`).
+pub const SOURCEMAP_IGNORED_FRAME: &str = "cymbal_sourcemap_ignored_frame";
 pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
 pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
