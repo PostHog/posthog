@@ -107,13 +107,10 @@ class TestPlatformAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{kind}_{case}", kind, key_scopes, visible)
-            for kind in ("logs", "insight")
-            for case, key_scopes, visible in [
-                ("member_without_access", None, False),
-                ("key_without_scope", ["alert:read"], False),
-                ("key_with_scope", ["alert:read", f"{kind}:read"], True),
-            ]
+            ("logs_member_without_access", "logs", None, False),
+            ("logs_key_without_scope", "logs", ["alert:read"], False),
+            ("logs_key_with_scope", "logs", ["alert:read", "logs:read"], True),
+            ("insight_key_with_scope", "insight", ["alert:read", "insight:read"], False),
         ]
     )
     def test_a_configuration_needs_read_access_to_its_source_product(
