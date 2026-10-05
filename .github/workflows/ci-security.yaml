@@ -406,11 +406,53 @@ jobs:
                       --exclude /services
                       --jobs 4
 
-    # Devex / hygiene rules. Two passes:
-    #   - WARNING-severity rules print findings without failing the job
-    #     (used while migrating away from a pattern with a known backlog).
-    #   - ERROR-severity rules fail the job on any finding (regression guards).
+    # Devex / hygiene rules, WARNING severity. This pass prints findings without
+    # failing the job (used while migrating away from a pattern with a known
+    # backlog), so it runs beside the required gate instead of inside it.
     # See `.semgrep/rules/devex/README.md`.
+    semgrep-devex-warnings:
+        needs: changes
+        if: needs.changes.outputs.devex == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        steps:
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            # Pass 1: print WARNING-severity findings. No --error — this step
+            # does not fail CI. Backlogs from migration-in-progress rules show
+            # up here.
+            - name: Warnings (informational)
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/devex/" \
+                      --severity=WARNING \
+                      --metrics=off \
+                      --verbose \
+                      --timeout 300 \
+                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+
+    # Devex / hygiene rules that block: ERROR-severity rules fail the job on any
+    # finding (regression guards), and on pull requests newly introduced
+    # WARNING-severity findings fail it too. See `.semgrep/rules/devex/README.md`.
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
@@ -437,22 +479,6 @@ jobs:
                   # pass can baseline against the PR base (HEAD^1)
                   fetch-depth: 2
                   persist-credentials: false
-
-            # Pass 1: print WARNING-severity findings. No --error — this step
-            # does not fail CI. Backlogs from migration-in-progress rules show
-            # up here.
-            - name: Warnings (informational)
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config ".semgrep/rules/devex/" \
-                      --severity=WARNING \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
