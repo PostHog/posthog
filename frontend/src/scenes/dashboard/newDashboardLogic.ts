@@ -430,9 +430,19 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         showVariableSelectModal: ({ template }) => {
             actions.setActiveDashboardTemplate(template)
         },
-        submitNewDashboardSuccessWithResult: ({ result, setAsHomeTabDashboard, openAI }) => {
+        submitNewDashboardSuccessWithResult: async ({ result, setAsHomeTabDashboard, openAI }) => {
             if (setAsHomeTabDashboard) {
-                teamLogic.actions.updateCurrentTeam({ home_tab_dashboard: result.id })
+                try {
+                    await teamLogic.asyncActions.updateCurrentTeam({ home_tab_dashboard: result.id })
+                    // Loader failures finish asyncActions without throwing, so confirm the saved selection.
+                    if (teamLogic.values.currentTeam?.home_tab_dashboard !== result.id) {
+                        lemonToast.error('Could not set this dashboard as Home. Please try again.')
+                        return
+                    }
+                } catch {
+                    lemonToast.error('Could not set this dashboard as Home. Please try again.')
+                    return
+                }
             }
             if (openAI) {
                 sidePanelStateLogic.actions.openSidePanel(
