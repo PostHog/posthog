@@ -136,6 +136,13 @@ export type CdpConfig = ClickhouseConfig & {
     // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
     // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
     SES_UNTRACKED_CONFIGURATION_SET: string
+    WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
+    // An empty or invalid value blocks every sandbox send.
+    WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: string
+    WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: string
+    SES_SANDBOX_TENANT_NAME: string
+    SES_SANDBOX_CONFIGURATION_SET: string
+    SES_SANDBOX_FROM_ADDRESS: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
@@ -344,6 +351,12 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
+        WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
+        WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: '25',
+        WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: '5',
+        SES_SANDBOX_TENANT_NAME: '',
+        SES_SANDBOX_CONFIGURATION_SET: '',
+        SES_SANDBOX_FROM_ADDRESS: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
