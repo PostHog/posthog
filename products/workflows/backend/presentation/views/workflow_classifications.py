@@ -146,7 +146,9 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
             # those. The worker also retries 502, so a rejection gets 422 to fail the step without a retry.
             if error.status_code is None or error.status_code == 429 or error.status_code >= 500:
                 return _error("Jev is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
-            return _error("Jev rejected the request. Check the step inputs.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+            return _error(
+                f"Jev refused the request (gateway status {error.status_code}).", status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
 
         answer = cast(ChoiceAnswer, result.answers[_QUESTION_ID])
         return Response(
