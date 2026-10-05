@@ -182,6 +182,51 @@ class TestBuildDefaultSchemas:
         assert [s["name"] for s in schemas] == ["a", "b", "c"]
         assert all(s["should_sync"] for s in schemas)
 
+    def test_inferred_primary_key_does_not_default_to_incremental(self) -> None:
+        [schema] = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("created_at")],
+                    detected_primary_keys=["id"],
+                    primary_keys_inferred=True,
+                )
+            ]
+        )
+        assert schema["sync_type"] == "append"
+        assert schema["incremental_field"] == "created_at"
+
+    def test_inferred_primary_key_falls_back_to_full_refresh_without_append(self) -> None:
+        [schema] = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events",
+                    supports_incremental=True,
+                    supports_append=False,
+                    incremental_fields=[_field("created_at")],
+                    detected_primary_keys=["id"],
+                    primary_keys_inferred=True,
+                )
+            ]
+        )
+        assert schema["sync_type"] == "full_refresh"
+
+    def test_declared_primary_key_still_defaults_to_incremental(self) -> None:
+        [schema] = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("created_at")],
+                    detected_primary_keys=["id"],
+                )
+            ]
+        )
+        assert schema["sync_type"] == "incremental"
+
 
 class TestBuildEndpointSchemas:
     ENDPOINTS = ["campaigns", "contacts", "events"]
