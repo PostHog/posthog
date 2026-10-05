@@ -11,6 +11,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from structlog.processors import format_exc_info
 from structlog.testing import capture_logs
@@ -18,7 +19,6 @@ from structlog.testing import capture_logs
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
-from posthog.redis import get_client
 from posthog.token_bucket import BucketDecision, BucketUnavailable
 
 from products.ml_inference.backend.facade.contracts import (
@@ -71,6 +71,10 @@ def _answer_with_unknown_option() -> DecisionResult:
     )
 
 
+def _too_deep_to_read() -> Any:
+    return json.loads("[" * 300 + '"state-secret"' + "]" * 300)
+
+
 def _pick_one_result() -> DecisionResult:
     return DecisionResult(
         model="posthog/hogference/jevk5-fp8-0.2",
@@ -87,7 +91,6 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         flag = patch(_FLAG, return_value=True)
         self.flag = flag.start()
         self.addCleanup(flag.stop)
-        get_client().flushdb()
 
     def _post(
         self, body: dict | None = None, token: str | None = None, team_id: int | None = None, omit: tuple[str, ...] = ()
@@ -435,7 +438,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         ]
     )
     def test_logs_never_carry_the_state_or_a_gateway_body(self, _name: str, error: Exception | None) -> None:
-        reply: Any = json.loads("[" * 300 + '"state-secret"' + "]" * 300) if error is None else "state-secret"
+        reply: Any = _too_deep_to_read() if error is None else "state-secret"
         with capture_logs(processors=[format_exc_info]) as logs, patch(_DECIDE, side_effect=error):
             response = self._post({"state": {"reply": reply}})
 
@@ -466,3 +469,25 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             self._post()
 
         assert [entry["log_level"] for entry in logs if entry["event"] in _OUTCOME_LOG_EVENTS] == [level]
+
+    @parameterized.expand(
+        [
+            ("gateway_refusal", {}, patch(_DECIDE, side_effect=DecisionGatewayError(400, "bad")), "gateway_status"),
+            ("unreadable_state", {"state": {"reply": _too_deep_to_read()}}, patch(_DECIDE), "unreadable_state"),
+            (
+                "answer_does_not_fit_question",
+                {},
+                patch(_DECIDE, return_value=_answer_with_unknown_option()),
+                "answer_does_not_fit_question",
+            ),
+        ]
+    )
+    def test_counts_each_refusal_by_its_reason(
+        self, _name: str, body: dict[str, Any], gateway: Any, reason: str
+    ) -> None:
+        labels = {"outcome": "failed", "code": "model_refused", "reason": reason}
+        before = REGISTRY.get_sample_value("workflows_ai_decision_outcomes_total", labels) or 0
+        with gateway:
+            self._post(body)
+
+        assert REGISTRY.get_sample_value("workflows_ai_decision_outcomes_total", labels) == before + 1

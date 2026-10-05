@@ -31,8 +31,8 @@ logger = structlog.get_logger(__name__)
 
 AI_DECISION_OUTCOMES = Counter(
     "workflows_ai_decision_outcomes",
-    "Workflow AI decision route outcomes, by the code, throttle source, or unavailable cause.",
-    ["outcome", "reason"],
+    "Workflow AI decision route outcomes, by the failure code and the failure reason, throttle source, or unavailable cause.",
+    ["outcome", "code", "reason"],
 )
 
 ERROR_MESSAGES: dict[AIDecisionErrorCode, str] = {
@@ -40,7 +40,7 @@ ERROR_MESSAGES: dict[AIDecisionErrorCode, str] = {
     AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED: "Your organization hasn't approved AI data processing. An organization admin can approve it in organization settings.",
     AIDecisionErrorCode.QUOTA_EXCEEDED: "Your organization is out of AI credits. Add credits in billing settings, then try again.",
     AIDecisionErrorCode.STATE_TOO_LARGE: f"The step's context is larger than {MAX_AI_DECISION_STATE_BYTES // 1024} KB. Remove fields from the context or shorten them.",
-    AIDecisionErrorCode.MODEL_REFUSED: "The AI model refused the request. Check the step's question, options, and context.",
+    AIDecisionErrorCode.MODEL_REFUSED: "The AI model couldn't answer this request. Check the step's question, options, and context, and contact support if this keeps happening.",
     AIDecisionErrorCode.GATEWAY_UNAVAILABLE: "The AI service couldn't take the request. Contact support if this keeps happening.",
 }
 
@@ -123,7 +123,7 @@ def _fails_every_decision(code: AIDecisionErrorCode, reason: AIDecisionFailureRe
 def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
     match outcome:
         case AIDecisionAnswered(probabilities=probabilities, model=model, input_tokens=input_tokens):
-            AI_DECISION_OUTCOMES.labels("succeeded", "").inc()
+            AI_DECISION_OUTCOMES.labels("succeeded", "", "").inc()
             body = {
                 "status": AIDecisionStatus.SUCCEEDED,
                 "probabilities": probabilities,
@@ -132,7 +132,7 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             }
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
         case AIDecisionFailed(code=code, reason=reason, status_code=status_code):
-            AI_DECISION_OUTCOMES.labels("failed", code.value).inc()
+            AI_DECISION_OUTCOMES.labels("failed", code.value, reason or "").inc()
             # Causes about one organization or one input repeat for every person a batch run sends, so the
             # counter carries their rate. Causes that fail every decision on this deployment stay visible.
             log = logger.warning if _fails_every_decision(code, reason) else logger.debug
@@ -140,7 +140,7 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             body = {"status": AIDecisionStatus.FAILED, "error": {"code": code, "message": ERROR_MESSAGES[code]}}
             return Response(WorkflowAIDecisionResponseSerializer(body).data)
         case AIDecisionThrottled(retry_after_seconds=retry_after_seconds, source=source):
-            AI_DECISION_OUTCOMES.labels("throttled", source).inc()
+            AI_DECISION_OUTCOMES.labels("throttled", "", source).inc()
             # Debug level because a large batch run can throttle thousands of times; the counter carries the rate.
             logger.debug("workflow_ai_decision_throttled", team_id=team_id, source=source)
             return Response(
@@ -149,7 +149,7 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
                 headers={"Retry-After": str(retry_after_seconds)},
             )
         case AIDecisionUnavailable(reason=reason, status_code=status_code):
-            AI_DECISION_OUTCOMES.labels("unavailable", reason).inc()
+            AI_DECISION_OUTCOMES.labels("unavailable", "", reason).inc()
             # Causes before admission (flag, Redis) repeat for every person a batch run sends, so the counter
             # carries their rate. Gateway causes come after admission, so their rate is already bounded.
             log = logger.warning if reason in ("gateway_error", "gateway_unreachable") else logger.debug
