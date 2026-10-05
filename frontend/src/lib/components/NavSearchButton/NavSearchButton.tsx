@@ -42,7 +42,7 @@ export function NavSearchBar({ toggleCommand }: { toggleCommand: (source: Comman
         <ButtonPrimitive
             fullWidth
             data-attr="nav-search-bar"
-            className="justify-between border border-primary bg-surface-primary rounded-md px-2"
+            className="justify-between border border-primary bg-surface-primary rounded-lg pl-2 pr-1"
             onClick={() => {
                 posthog.capture('nav search clicked')
                 toggleCommand('nav-search-bar')
