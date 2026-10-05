@@ -41,6 +41,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_catalog',
             iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
             href: urls.dataCatalog(),
+            searchKeywords: ['semantic layer', 'metrics', 'certification'],
             tags: ['beta'],
             sceneKey: 'DataCatalog',
         },

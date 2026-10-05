@@ -391,6 +391,9 @@ func applyKafkaConfigOverrides(config *kafka.ConfigMap, consumerConfig configs.C
 	if consumerConfig.ClientID != "" {
 		_ = config.SetKey("client.id", consumerConfig.ClientID)
 	}
+	if consumerConfig.ClientRack != "" {
+		_ = config.SetKey("client.rack", consumerConfig.ClientRack)
+	}
 	if consumerConfig.SessionTimeoutMs > 0 {
 		_ = config.SetKey("session.timeout.ms", consumerConfig.SessionTimeoutMs)
 	}
