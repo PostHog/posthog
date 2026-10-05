@@ -15,6 +15,7 @@ from products.managed_warehouse.backend.temporal.model_alias_workflow import (
     ModelAliasBatch,
     ModelAliasInputs,
     ReconcileModelAliasesWorkflow,
+    reconcile_trino_model_aliases_activity,
 )
 from products.managed_warehouse.backend.trino_model_aliases import ModelAliasReconciliation
 
@@ -115,3 +116,34 @@ async def test_batches_large_refresh_and_stops_when_team_becomes_inactive() -> N
             )
     assert [len(batch or ()) for batch in batches] == [100, 100, 1]
     assert sorted(item for batch in batches for item in batch or ()) == sorted(ids)
+
+
+@pytest.mark.asyncio
+async def test_real_activity_checkpoint_runs_off_the_event_loop() -> None:
+    def reconcile(team_id, checkpoint, saved_query_ids, control) -> ModelAliasReconciliation:
+        checkpoint()
+        return ModelAliasReconciliation(published=1, active=False)
+
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        queue = f"model-alias-test-{uuid4()}"
+        with patch(
+            "products.managed_warehouse.backend.temporal.model_alias_workflow.reconcile_trino_model_aliases", reconcile
+        ):
+            async with Worker(
+                environment.client,
+                task_queue=queue,
+                workflows=[ReconcileModelAliasesWorkflow],
+                activities=[reconcile_trino_model_aliases_activity],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                handle = await environment.client.start_workflow(
+                    ReconcileModelAliasesWorkflow.run,
+                    ModelAliasInputs(team_id=42),
+                    id=f"model-alias-{uuid4()}",
+                    task_queue=queue,
+                    execution_timeout=dt.timedelta(minutes=10),
+                )
+                await handle.result()
+                assert await handle.query(ReconcileModelAliasesWorkflow.status) == ModelAliasReconciliation(
+                    published=1, active=False
+                )
