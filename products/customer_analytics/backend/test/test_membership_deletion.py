@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -13,7 +14,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.cluster import LightweightDeleteMutationRunner, MutationWaiter, get_cluster
+from posthog.clickhouse.cluster import LightweightDeleteMutationRunner, MutationWaiter, Query, get_cluster
 from posthog.dags.data_deletion_requests import (
     DeletionRequestContext,
     PersonRemovalContext,
@@ -466,6 +467,35 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
             request.refresh_from_db()
             assert request.delete_verified_at is None
             assert len(self._rows()) == 4
+
+    def test_interrupted_cleanup_keeps_person_deletion_working(self) -> None:
+        stage_membership_deletion(
+            self.cluster,
+            self.operation_id,
+            [("events", False, "team_id = %(team_id)s AND event = 'only'", {"team_id": self.team.pk})],
+        )
+        reconcile_membership_deletion(self.cluster, self.operation_id, [("events", False)])
+        original_call = Query.__call__
+        drops: list[str] = []
+
+        def interrupt_second_drop(query: Query, client: Client) -> Any:
+            if query.query.startswith("DROP TABLE"):
+                drops.append(query.query)
+                if query.query != drops[0]:
+                    raise RuntimeError("cleanup interrupted")
+            return original_call(query, client)
+
+        with (
+            patch.object(Query, "__call__", autospec=True, side_effect=interrupt_second_drop),
+            self.assertRaises(ExceptionGroup),
+        ):
+            cleanup_membership_deletion(self.cluster, self.operation_id)
+        with patch("posthog.models.person.bulk_delete.queue_person_training_deletion"):
+            result = delete_persons_profile(self.team.pk, [self.person_a], actor=None)
+        assert result.failures == []
+        assert result.deleted_count == 1
+        reconcile_membership_deletion(self.cluster, self.operation_id, [("events", False)])
+        cleanup_membership_deletion(self.cluster, self.operation_id)
 
     @parameterized.expand([("missing", True), ("empty", False)])
     def test_missing_or_empty_tables_allow_existing_deletions(self, _name: str, missing: bool) -> None:

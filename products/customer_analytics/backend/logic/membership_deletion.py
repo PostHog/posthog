@@ -208,6 +208,16 @@ class MembershipReconciliation:
         return placements[0] if placements else None
 
     def _create(self, placement: TargetPlacement) -> None:
+        # _staged_placements finds storage tables and reads them through their proxies, so storage
+        # must never exist without its proxy. Create the proxy first and drop it last.
+        distributed = Distributed(
+            self.storage_table, sharding_key="cityHash64(distinct_id)", cluster=placement.cluster.data_cluster_name
+        )
+        create_proxy = Query(
+            f"CREATE TABLE IF NOT EXISTS {_name(self.read_table)} ({KEY_COLUMNS}) ENGINE = {distributed}"
+        )
+        self.cluster.map_hosts_by_role(create_proxy, NodeRole.DATA).result()
+        placement.cluster.map_hosts_by_role(create_proxy, placement.cluster.shard_role).result()
         engine = ReplacingMergeTree(self.storage_table, ReplicationScheme.SHARDED, ver="version")
         # Retries must join the same replica set even when TEST assigns unique Keeper paths.
         engine.set_zookeeper_path_key(f"{settings.CLICKHOUSE_DATABASE}_{self.storage_table}")
@@ -218,14 +228,6 @@ class MembershipReconciliation:
             ),
             placement.cluster.shard_role,
         ).result()
-        distributed = Distributed(
-            self.storage_table, sharding_key="cityHash64(distinct_id)", cluster=placement.cluster.data_cluster_name
-        )
-        create_proxy = Query(
-            f"CREATE TABLE IF NOT EXISTS {_name(self.read_table)} ({KEY_COLUMNS}) ENGINE = {distributed}"
-        )
-        self.cluster.map_hosts_by_role(create_proxy, NodeRole.DATA).result()
-        placement.cluster.map_hosts_by_role(create_proxy, placement.cluster.shard_role).result()
 
     @staticmethod
     def _event_keys(table: str, json_schema: bool, predicate: str) -> str:
@@ -305,7 +307,9 @@ class MembershipReconciliation:
         placement = self._placement()
         if (
             placement is None
-            or not self.cluster.any_host_by_role(partial(_exists, table=self.read_table), NodeRole.DATA).result()
+            or not placement.cluster.any_host_by_role(
+                partial(_exists, table=self.storage_table), placement.cluster.shard_role
+            ).result()
         ):
             return
         if not sources:
@@ -344,7 +348,8 @@ class MembershipReconciliation:
         placement = self._placement()
         if placement is None:
             return
-        for table in (self.read_table, self.storage_table):
+        # Storage goes before its proxy, for the reason in _create.
+        for table in (self.storage_table, self.read_table):
             query = Query(f"DROP TABLE IF EXISTS {_name(table)} SYNC")
             self.cluster.map_hosts_by_role(query, NodeRole.DATA).result()
             placement.cluster.map_hosts_by_role(query, placement.cluster.shard_role).result()
