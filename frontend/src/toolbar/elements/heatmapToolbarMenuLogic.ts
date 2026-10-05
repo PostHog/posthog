@@ -20,7 +20,6 @@ import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { escapeUnescapedRegex, heatmapUrlPatternToRegex } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { createSliceYielder } from 'lib/utils/async'
 import { createVersionChecker } from 'lib/utils/semver'
 
@@ -1099,7 +1098,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 cache as ElementProcessingCache,
                 href
             )
-            const useDiscriminators = !!toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_CLICKMAP_DISCRIMINATORS)
             const eventsToProcess = elementStats.results
             const totalEvents = eventsToProcess.length
 
@@ -1138,7 +1136,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         matched = matchEventToElementUsingIndex(event, domIndex, {
                             dataAttributes,
                             matchLinksByHref,
-                            useDiscriminators,
                         })
                         if (matched) {
                             indexMatchedCount += 1
@@ -1208,7 +1205,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     cache_hit: cacheHit,
                     completed,
                     ...chainConsistencyProperties({
-                        useDiscriminators,
                         consistentClicks,
                         inconsistentClicks,
                         matchedClicks: allTrimmedElements.reduce((total, element) => total + element.count, 0),
