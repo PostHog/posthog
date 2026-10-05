@@ -9546,6 +9546,10 @@ snapshots:
         hash: v1.k794b7964.d0440befffca1dd59f9c1ac2e2c6d6426d33eeea67e4d88442d55f990be1a1c5.m8IL1-1OvSPM3romBZjpwiPSA0MNh9v2nAS-LkwQ9HI
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--light:
         hash: v1.k794b7964.5df84066a65ce86e3747075a17ba15d69b305b721e86d89c51d449bf09a98ec6.-PhhHAq0nBqAjxgbpSXwNToeEqW3rldWkmSoVr-OLVc
+    scenes-app-data-warehouse-sql-editor--bi-edit-saved-insight--dark:
+        hash: v1.k794b7964.15050ce3a59cae5153fc0b5477186d48b722a840fd791445464b6136d4dc973f.8tYMhupRhIYDP-UjtlcQtBZWgj_mfemgrT6ytTSNOtg
+    scenes-app-data-warehouse-sql-editor--bi-edit-saved-insight--light:
+        hash: v1.k794b7964.caa981c8bab84113a44d6057e09290dfca13e2c6daa612ee6a600f226a7e5a75.5xgUf1FGrXEs-1sB91iLqgQdjvskmyEEj8wc1fl1M0U
     scenes-app-data-warehouse-sql-editor--bi-empty-worksheet--dark:
         hash: v1.k794b7964.25ca60ab3b6a8a145943a36e5ffd5a4545780102137b6934459cdf68cfe84362.B2hkGTtj1tGzx46nOdwvzrnzGXZLo-35IqPmny88x8s
     scenes-app-data-warehouse-sql-editor--bi-empty-worksheet--light:
@@ -9562,6 +9566,10 @@ snapshots:
         hash: v1.k794b7964.0d530bd2913cfd22c22ed60a9285d12b68737d3558dca5577ab9f4fcac4eb0d3.-JqBL5KmtMrF4ZtfyKT65AOils1mrFZjlqInCGPdSOs
     scenes-app-data-warehouse-sql-editor--bi-quick-filters-narrow--light:
         hash: v1.k794b7964.9765f8c25dcf91c7cce0c14eab7ab4eebae8c6748f0d489ecb55b2d89aaa55dc.7alrfcAikJhVuMlo6_s85O3vANBxSj24UxR5XuCd4Dw
+    scenes-app-data-warehouse-sql-editor--bi-saved-insight--dark:
+        hash: v1.k794b7964.89a1d706b8f7844cd7f6feb3e8f33ddd4c90c17a71a0d53e7ba41526747bf9f1.__f_Gvf5zJQZpaZYIQsQ5mVTVtoAOCw_skgfuJhBlFk
+    scenes-app-data-warehouse-sql-editor--bi-saved-insight--light:
+        hash: v1.k794b7964.23e01cc0ea1a891915818180335099b4791cefe13366b23b5758ada24eb749d2.lAbew8pVJQoADw0B6vlstQ7g9zDX1TP4h-WmWtmWsqI
     scenes-app-data-warehouse-sql-editor--edited-insight--dark:
         hash: v1.k794b7964.334b216a8359c768613cdec5b99a8a8ee26b6b5fac76397eaed8d6d1401a23c0.0pI7NMTufzUIfDel9Ngmhv3P3sdBu6IgpSj5xYNmYrY
     scenes-app-data-warehouse-sql-editor--edited-insight--light:
