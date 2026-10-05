@@ -867,3 +867,104 @@ export const JevEarlySelection: Story = {
     parameters: chartExperimentParameters(true, 100, 3000),
     decorators: [withAIConsent(true)],
 }
+const BI_CONNECTIONS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [],
+    columns: [],
+    filters: [],
+}
+
+export const BIConnections: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+            q: buildBIQuery(BI_CONNECTIONS_CONFIG)?.query ?? '',
+            mode: 'bi',
+            bi: JSON.stringify(BI_CONNECTIONS_CONFIG),
+        })}`,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-connection-fields"] [data-attr="bi-editor-connection-fields"]',
+            viewport: { width: 1280, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: {
+                                    event: BI_EVENTS_FIELDS.event,
+                                    revenue: BI_EVENTS_FIELDS.revenue,
+                                    person: {
+                                        name: 'person',
+                                        type: 'lazy_table',
+                                        table: 'persons',
+                                        schema_valid: true,
+                                        hogql_value: 'person',
+                                    },
+                                },
+                            },
+                            persons: {
+                                id: 'persons',
+                                name: 'persons',
+                                type: 'posthog',
+                                fields: {
+                                    email: { name: 'email', type: 'string', schema_valid: true, hogql_value: 'email' },
+                                    lifetime_value: {
+                                        name: 'lifetime_value',
+                                        type: 'float',
+                                        schema_valid: true,
+                                        hogql_value: 'lifetime_value',
+                                    },
+                                    company: {
+                                        name: 'company',
+                                        type: 'lazy_table',
+                                        table: 'companies',
+                                        schema_valid: true,
+                                        hogql_value: 'company',
+                                    },
+                                },
+                            },
+                            companies: {
+                                id: 'companies',
+                                name: 'companies',
+                                type: 'data_warehouse',
+                                fields: {
+                                    name: { name: 'name', type: 'string', schema_valid: true, hogql_value: 'name' },
+                                    annual_revenue: {
+                                        name: 'annual_revenue',
+                                        type: 'decimal',
+                                        schema_valid: true,
+                                        hogql_value: 'annual_revenue',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
+            timeout: 15000,
+        })
+        await userEvent.click(canvas.getByRole('button', { name: 'SQL' }))
+        await userEvent.click(canvas.getByRole('button', { name: 'BI' }))
+        const autoUpdate = canvasElement.querySelector('[data-attr="bi-editor-auto-update"]')!
+        if (autoUpdate.getAttribute('aria-checked') === 'true') {
+            await userEvent.click(autoUpdate)
+        }
+        await userEvent.click(await canvas.findByRole('button', { name: 'person' }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'person.company' }))
+        await waitFor(() => expect(canvas.getByText('annual_revenue')).toBeVisible())
+    },
+}
