@@ -227,11 +227,12 @@ describe('integrationsLogic', () => {
         it('forgets the request and an in-flight result when the project switches', async () => {
             enableFlag()
             let releaseEnsure: () => void = () => {}
+            const ensureGate = new Promise<void>((resolve) => (releaseEnsure = resolve))
             useMocks({
                 post: {
                     '/api/projects/:team_id/integrations/email_sandbox_sender/': async () => {
                         ensureCalls += 1
-                        await new Promise<void>((resolve) => (releaseEnsure = resolve))
+                        await ensureGate
                         return [404, {}]
                     },
                 },

@@ -19,8 +19,8 @@ export function SandboxEmailSenderRow({ integration }: { integration: Integratio
                         <div className="flex flex-wrap gap-2 items-center">
                             <strong>Sandbox sender</strong>
                             <LemonTag type="highlight">Sandbox</LemonTag>
-                            <span className="text-xs text-secondary truncate">
-                                {integration.config.name} &lt;{integration.config.email}&gt;
+                            <span className="text-xs text-secondary truncate" translate="no">
+                                {`${integration.config.name} <${integration.config.email}>`}
                             </span>
                         </div>
                         <span className="text-sm text-secondary">

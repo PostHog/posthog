@@ -52,7 +52,7 @@ type SandboxEmailSenderProvisionResult = 'provisioned' | 'unavailable' | 'failed
 
 const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
 
-async function provisionSandboxEmailSender(projectId: string): Promise<SandboxEmailSenderProvisionResult> {
+async function requestSandboxEmailSender(projectId: string): Promise<SandboxEmailSenderProvisionResult> {
     try {
         await integrationsEmailSandboxSenderCreate(projectId)
         return 'provisioned'
@@ -211,24 +211,6 @@ export interface integrationsLogicActions {
     } // teamLogic
     clearIntegrations: () => {
         value: true
-    }
-    clearIntegrationsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    clearIntegrationsSuccess: (
-        sandboxEmailSenderProvisionResult: null,
-        payload?: {
-            value: true
-        }
-    ) => {
-        sandboxEmailSenderProvisionResult: null
-        payload?: {
-            value: true
-        }
     }
     closeNewIntegrationModal: () => {
         value: true
@@ -881,6 +863,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
     }),
     reducers({
         integrations: [null as IntegrationType[] | null, { clearIntegrations: () => null }],
+        sandboxEmailSenderProvisionResult: [
+            null as SandboxEmailSenderProvisionResult | null,
+            { clearIntegrations: () => null },
+        ],
         githubDisconnecting: [false, { setGithubDisconnecting: (_, { disconnecting }) => disconnecting }],
         githubDiscoveryGeneration: [
             0,
@@ -1147,10 +1133,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
         sandboxEmailSenderProvisionResult: [
             null as SandboxEmailSenderProvisionResult | null,
             {
-                clearIntegrations: () => null,
                 provisionSandboxEmailSender: async (): Promise<SandboxEmailSenderProvisionResult | null> => {
                     const projectId = values.currentProjectId
-                    const result = await provisionSandboxEmailSender(String(projectId))
+                    const result = await requestSandboxEmailSender(String(projectId))
                     if (values.currentProjectId !== projectId) {
                         return values.sandboxEmailSenderProvisionResult
                     }

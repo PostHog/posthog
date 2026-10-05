@@ -45,46 +45,10 @@ import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { selectedSenderIds } from './selectSenders'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
-
-function selectedSenderIds(value: EmailTemplateFrom | undefined): number[] {
-    if (value?.integrationIds?.length) {
-        return value.integrationIds
-    }
-    return value?.integrationId ? [value.integrationId] : []
-}
-
-function exclusiveSandboxSenders(
-    integrationIds: number[],
-    sandboxSenderId: number | undefined,
-    sandboxSelected: boolean
-): number[] {
-    if (sandboxSenderId === undefined || !integrationIds.includes(sandboxSenderId)) {
-        return integrationIds
-    }
-    return sandboxSelected ? integrationIds.filter((id) => id !== sandboxSenderId) : [sandboxSenderId]
-}
-
-export function selectSenders(
-    value: EmailTemplateFrom | undefined,
-    integrationIds: number[],
-    sandboxSenderId: number | undefined
-): EmailTemplateFrom | null {
-    const sandboxSelected = sandboxSenderId !== undefined && selectedSenderIds(value).includes(sandboxSenderId)
-    const senders = exclusiveSandboxSenders(integrationIds, sandboxSenderId, sandboxSelected)
-    if (senders.length > MAX_WORKFLOW_EMAIL_SENDERS) {
-        return null
-    }
-    const sandboxChosen = sandboxSenderId !== undefined && senders.includes(sandboxSenderId)
-    return {
-        ...value,
-        integrationId: senders[0],
-        integrationIds: senders.length > 1 ? senders : undefined,
-        ...(sandboxChosen ? { email: undefined, name: undefined } : {}),
-    }
-}
 
 // Maps a templater field key onto its validation message slot. Only the sender, recipient, and
 // subject rows have their own message; body content is reported separately near the editor.
@@ -314,9 +278,9 @@ export function NativeEmailIntegrationChoice({
     onChange: (value: EmailTemplateFrom) => void
     value?: EmailTemplateFrom
 }): JSX.Element {
-    const { logicProps, senderIntegrations, sandboxEmailSender, emailIntegrationsLoading } =
+    const { logicProps, senderIntegrations, sandboxEmailSender, senderIntegrationsLoading } =
         useValues(emailTemplaterLogic)
-    const { setEmailTemplateValue, hideAdvancedField } = useActions(emailTemplaterLogic)
+    const { chooseSenders } = useActions(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const selectedIntegrationIds = selectedSenderIds(value)
     const sandboxSenderId =
@@ -327,29 +291,17 @@ export function NativeEmailIntegrationChoice({
     // visible again on reopen without any separate reveal state.
     const overridesVisible = !sandboxSelected && (value?.email !== undefined || value?.name !== undefined)
 
-    const changeSenders = (integrationIds: number[]): void => {
-        const next = selectSenders(value, integrationIds, sandboxSenderId)
-        if (!next) {
-            return
-        }
-        if (sandboxSenderId !== undefined && next.integrationId === sandboxSenderId) {
-            setEmailTemplateValue('replyTo', '')
-            hideAdvancedField('replyTo')
-        }
-        onChange(next)
-    }
-
     const onChangeIntegration = (integrationId: number): void => {
         if (integrationId === -1) {
             window.open(urls.workflows('channels'), '_blank')
             return
         }
-        changeSenders([integrationId])
+        chooseSenders([integrationId])
     }
 
     const senderLabel = (integration: IntegrationType): JSX.Element => (
         <>
-            {integration.display_name}
+            <span translate="no">{integration.display_name}</span>
             {integration.id === sandboxSenderId && (
                 <LemonTag type="highlight" className="ml-2 align-middle">
                     Sandbox
@@ -358,7 +310,7 @@ export function NativeEmailIntegrationChoice({
         </>
     )
 
-    if (!emailIntegrationsLoading && senderIntegrations.length === 0) {
+    if (!senderIntegrationsLoading && senderIntegrations.length === 0) {
         return (
             <div className="flex gap-2 justify-between items-center">
                 {label}
@@ -389,7 +341,7 @@ export function NativeEmailIntegrationChoice({
                             className="m-1 flex-1"
                             mode="multiple"
                             placeholder="Choose email senders"
-                            loading={emailIntegrationsLoading}
+                            loading={senderIntegrationsLoading}
                             options={senderIntegrations.map((integration) => ({
                                 key: String(integration.id),
                                 label: integration.display_name,
@@ -400,7 +352,7 @@ export function NativeEmailIntegrationChoice({
                             size="small"
                             fullWidth
                             autoWidth={false}
-                            onChange={changeSenders}
+                            onChange={chooseSenders}
                             data-attr="workflow-email-sender-select"
                             action={{
                                 children: 'Add new email sender',
@@ -420,7 +372,7 @@ export function NativeEmailIntegrationChoice({
                             className="m-1 flex-1"
                             type="tertiary"
                             placeholder="Choose email sender"
-                            loading={emailIntegrationsLoading}
+                            loading={senderIntegrationsLoading}
                             options={[
                                 {
                                     title: 'Email senders',

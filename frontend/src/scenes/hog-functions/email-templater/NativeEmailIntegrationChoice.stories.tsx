@@ -57,7 +57,7 @@ const Template: StoryFn<StoryArgs> = ({ from, sandboxSenderAllowed }) => {
     const [value, setValue] = useState<EmailTemplateFrom>(from)
     const logicProps: EmailTemplaterLogicProps = {
         value: null,
-        onChange: () => {},
+        onChange: (template) => setValue(template.from as EmailTemplateFrom),
         type: 'native_email',
         sandboxSenderAllowed,
     }

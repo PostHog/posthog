@@ -36,7 +36,7 @@ function senderOption(
         ...option,
         labelInMenu: (
             <span className="flex items-center gap-2">
-                {integration.display_name}
+                <span translate="no">{integration.display_name}</span>
                 <LemonTag type="highlight">Sandbox</LemonTag>
             </span>
         ),
@@ -105,8 +105,11 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                                 targetBlank: true,
                             }}
                         >
-                            {recipientEmail} is not a member of your organization. The sandbox sender only delivers to
-                            verified members. Pick a teammate, or add your own sender to email anyone.
+                            <span translate="no" className="break-all">
+                                {recipientEmail}
+                            </span>{' '}
+                            is not a verified member of your organization. The sandbox sender only delivers to verified
+                            members. Pick a teammate, or add your own sender to email anyone.
                         </LemonBanner>
                     )}
                 </div>

@@ -309,7 +309,7 @@ describe('messageTemplateTestSendLogic', () => {
                 .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
                 .toMatchValues({
                     recipientOutsideOrganization: true,
-                    sendDisabledReason: 'The sandbox sender only delivers to members of your organization',
+                    sendDisabledReason: 'The sandbox sender only delivers to verified members of your organization',
                     recipientSuggestions: expect.arrayContaining(['rose.dawson@posthog.com']),
                 })
 
@@ -331,11 +331,21 @@ describe('messageTemplateTestSendLogic', () => {
             })
         })
 
-        it('does not warn before the member list has loaded', async () => {
+        it('holds the send while the member list loads, and does not warn before it has loaded', async () => {
             await loadIntegrations([SANDBOX_SENDER])
+            templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
             logic.actions.setRecipientEmail('outsider@example.com')
 
-            await expectLogic(logic).toMatchValues({ recipientOutsideOrganization: false })
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembers'])
+                .toMatchValues({
+                    recipientOutsideOrganization: false,
+                    sendDisabledReason: 'Checking your organization members',
+                })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientOutsideOrganization: true })
         })
     })
 
