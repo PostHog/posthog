@@ -124,7 +124,9 @@ def semaphore_source(
         # The API uses exclusive whole seconds; overlap one second to preserve records at the boundary.
         params["created_after"] = int(watermark.timestamp()) - 1
 
-    endpoint_config = cast(Endpoint, {"path": endpoint.path, "params": params, "data_selector_required": True})
+    endpoint_config: Endpoint = cast(
+        Endpoint, {"path": endpoint.path, "params": params, "data_selector_required": True}
+    )
     resource_config: EndpointResource = {
         "name": inputs.schema_name,
         "endpoint": endpoint_config,
