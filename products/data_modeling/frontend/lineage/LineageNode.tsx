@@ -372,7 +372,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                     to={data.openUrl}
                                     targetBlank
                                     stopPropagation
-                                    tooltip={`Open ${node.name} in new tab`}
+                                    tooltip="Open in new tab"
                                     aria-label={`Open ${node.name} in new tab`}
                                     icon={<IconExternal />}
                                     data-attr="lineage-node-open"
