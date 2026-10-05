@@ -130,7 +130,7 @@ def promptwatch_source(
         from_date = start.isoformat()
     if resume:
         from_date, until = resume.from_date, resume.until
-    params: dict[str, str | int] = {}
+    params: dict[str, Any] = {}
     if paginated:
         params.update(size=PAGE_SIZE, sortBy="createdAt", sortOrder="asc")
     if from_date is not None:
