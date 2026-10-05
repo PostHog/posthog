@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.clickhouse.client import sync_execute
 from posthog.dags.detach_distinct_id import (
     _count_other_distinct_ids,
     _insert_ch_override,
@@ -14,6 +15,11 @@ from posthog.dags.detach_distinct_id import (
     detach_distinct_id_job,
 )
 from posthog.kafka_client.topics import KAFKA_PERSON_DISTINCT_ID
+from posthog.models.person.sql import (
+    TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+)
+from posthog.models.person.util import create_person_distinct_id
 from posthog.persons_db import persons_db_connection
 
 PERSON_UUID = "5e00024e-cb68-59f6-821f-6150fcffc431"
@@ -33,6 +39,11 @@ def _make_cursor(fetchone_values: list | None = None) -> MagicMock:
     if fetchone_values is not None:
         cursor.fetchone.side_effect = fetchone_values
     return cursor
+
+
+def _override_insert_rows(mock_sync_execute: MagicMock) -> list:
+    [insert] = [c for c in mock_sync_execute.call_args_list if "INSERT INTO person_distinct_id_overrides" in c.args[0]]
+    return insert.args[1]
 
 
 class TestLookupDistinctId:
@@ -96,7 +107,7 @@ class TestTombstoneDistinctIdRow:
     def test_tombstones_the_row_and_returns_the_stamped_version(self, row):
         cursor = _make_cursor(fetchone_values=[row])
 
-        version = _tombstone_distinct_id_row(cursor, PDI_ID)
+        version = _tombstone_distinct_id_row(cursor, PDI_ID, min_version=1)
 
         assert version == PDI_VERSION + 1
         sql = cursor.execute.call_args.args[0]
@@ -109,7 +120,7 @@ class TestTombstoneDistinctIdRow:
         cursor = _make_cursor(fetchone_values=[None])
 
         with pytest.raises(RuntimeError, match="disappeared"):
-            _tombstone_distinct_id_row(cursor, PDI_ID)
+            _tombstone_distinct_id_row(cursor, PDI_ID, min_version=1)
 
 
 class TestPublishDeletionToKafka:
@@ -205,6 +216,7 @@ class TestDetachDistinctIdJob:
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     @patch("posthog.dags.detach_distinct_id.uuid.uuid4", return_value=UUID(DUMMY_OVERRIDE_UUID))
     def test_detaches_publishes_kafka_and_inserts_override(self, _mock_uuid4, mock_sync_execute):
+        mock_sync_execute.return_value = [(0,)]
         lookup_row = (PDI_ID, PDI_VERSION, PERSON_PK, UUID(PERSON_UUID))
         conn, cursor = self._make_connection(lookup_row, other_count=2)
         producer = MagicMock()
@@ -227,8 +239,7 @@ class TestDetachDistinctIdJob:
         producer.flush.assert_called_once()
 
         # ClickHouse override
-        mock_sync_execute.assert_called_once()
-        override_rows = mock_sync_execute.call_args.args[1]
+        override_rows = _override_insert_rows(mock_sync_execute)
         assert override_rows[0][0] == TEAM_ID
         assert override_rows[0][1] == "$posthog_cookieless"
         assert override_rows[0][2] == DUMMY_OVERRIDE_UUID
@@ -236,6 +247,7 @@ class TestDetachDistinctIdJob:
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_uses_explicit_override_person_id(self, mock_sync_execute):
+        mock_sync_execute.return_value = [(0,)]
         explicit_uuid = "11111111-2222-3333-4444-555555555555"
         lookup_row = (PDI_ID, PDI_VERSION, PERSON_PK, UUID(PERSON_UUID))
         conn, cursor = self._make_connection(lookup_row, other_count=2)
@@ -247,8 +259,7 @@ class TestDetachDistinctIdJob:
         )
 
         assert result.success
-        mock_sync_execute.assert_called_once()
-        override_rows = mock_sync_execute.call_args.args[1]
+        override_rows = _override_insert_rows(mock_sync_execute)
         assert override_rows[0][2] == explicit_uuid
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
@@ -310,7 +321,7 @@ class TestDetachDistinctIdIntegration:
 
     Exercises the full Dagster job against real DB rows so cursor return types
     (tuple vs dict) are tested against production-like conditions.
-    Kafka and ClickHouse (sync_execute) remain mocked.
+    Kafka stays mocked. ClickHouse is mocked except in the live-run test, which needs the real version reads.
     """
 
     @pytest.fixture
@@ -365,19 +376,23 @@ class TestDetachDistinctIdIntegration:
         return person, pdi_keep, pdi_detach
 
     @staticmethod
-    def _run_config(team_id: int, person_uuid: str, *, dry_run: bool, distinct_id: str = "$posthog_cookieless") -> dict:
-        return {
-            "ops": {
-                "detach_distinct_id_op": {
-                    "config": {
-                        "team_id": team_id,
-                        "distinct_id": distinct_id,
-                        "expected_person_id": person_uuid,
-                        "dry_run": dry_run,
-                    }
-                }
-            }
+    def _run_config(
+        team_id: int,
+        person_uuid: str,
+        *,
+        dry_run: bool,
+        distinct_id: str = "$posthog_cookieless",
+        override_person_id: str | None = None,
+    ) -> dict:
+        config: dict = {
+            "team_id": team_id,
+            "distinct_id": distinct_id,
+            "expected_person_id": person_uuid,
+            "dry_run": dry_run,
         }
+        if override_person_id is not None:
+            config["override_person_id"] = override_person_id
+        return {"ops": {"detach_distinct_id_op": {"config": config}}}
 
     @staticmethod
     @contextlib.contextmanager
@@ -404,37 +419,57 @@ class TestDetachDistinctIdIntegration:
         producer.produce.assert_not_called()
         mock_sync_execute.assert_not_called()
 
-    @patch("posthog.dags.detach_distinct_id.sync_execute")
-    def test_live_run_tombstones_and_publishes(self, mock_sync_execute, team, person_with_two_distinct_ids):
+    @pytest.mark.parametrize(
+        "clickhouse_table, expected_version",
+        [
+            # (table holding a version-20 row for the distinct id, version the tombstone and override get)
+            (None, 4),
+            ("person_distinct_id2", 21),
+            ("person_distinct_id_overrides", 21),
+        ],
+    )
+    def test_live_run_tombstones_above_postgres_and_clickhouse(
+        self, clickhouse_table, expected_version, team, person_with_two_distinct_ids
+    ):
         person, pdi_keep, pdi_detach = person_with_two_distinct_ids
+        override_target = str(uuid_module.uuid4())
+        sync_execute(TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL)
+        sync_execute(TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL())
+        if clickhouse_table == "person_distinct_id2":
+            create_person_distinct_id(team.id, pdi_detach.distinct_id, str(person.uuid), version=20)
+        elif clickhouse_table == "person_distinct_id_overrides":
+            _insert_ch_override(team.id, pdi_detach.distinct_id, str(uuid_module.uuid4()), version=20)
         producer = MagicMock()
 
         with self._get_persons_conn() as conn:
             result = detach_distinct_id_job.execute_in_process(
-                run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
+                run_config=self._run_config(
+                    team.id, str(person.uuid), dry_run=False, override_person_id=override_target
+                ),
                 resources={"persons_database": conn, "kafka_producer": producer},
             )
 
         assert result.success
-
-        # PDI row tombstoned at the next version, the other mapping untouched
-        assert self._pdi_state(pdi_detach.id) == (True, pdi_detach.version + 1)
+        assert self._pdi_state(pdi_detach.id) == (True, expected_version)
         assert self._pdi_state(pdi_keep.id) == (False, pdi_keep.version)
-
-        # Kafka deletion published
-        producer.produce.assert_called_once()
-        kafka_data = producer.produce.call_args.kwargs["data"]
-        assert kafka_data["distinct_id"] == "$posthog_cookieless"
-        assert kafka_data["person_id"] == str(person.uuid)
-        assert kafka_data["team_id"] == team.id
-        assert kafka_data["is_deleted"] == 1
-        assert kafka_data["version"] == pdi_detach.version + 1
-
-        # ClickHouse override inserted
-        mock_sync_execute.assert_called_once()
-        override_rows = mock_sync_execute.call_args.args[1]
-        assert override_rows[0][0] == team.id
-        assert override_rows[0][1] == "$posthog_cookieless"
+        producer.produce.assert_called_once_with(
+            topic=KAFKA_PERSON_DISTINCT_ID,
+            data={
+                "distinct_id": pdi_detach.distinct_id,
+                "person_id": str(person.uuid),
+                "team_id": team.id,
+                "version": expected_version,
+                "is_deleted": 1,
+            },
+        )
+        override = sync_execute(
+            """
+            SELECT argMax(person_id, version), max(version) FROM person_distinct_id_overrides
+            WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s
+            """,
+            {"team_id": team.id, "distinct_id": pdi_detach.distinct_id},
+        )
+        assert override == [(UUID(override_target), expected_version)]
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_fails_on_person_id_mismatch(self, mock_sync_execute, team, person_with_two_distinct_ids):

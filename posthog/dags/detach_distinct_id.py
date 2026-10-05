@@ -2,8 +2,9 @@
 
 Three cleanup phases, all required:
   1. Postgres — tombstone the posthog_persondistinctid row (stops future ingestion lookups).
-     The row keeps its version counter, so a later re-add of the distinct id revives it above
-     the ClickHouse tombstone instead of starting at version 0 underneath it.
+     The tombstone version is above both the row's own version and the highest version ClickHouse
+     holds for the distinct id, so the ClickHouse tombstone and override win, and a later re-add
+     revives the row above them instead of starting at version 0 underneath them.
   2. Kafka  — publish is_deleted to person_distinct_id2 at that exact version (stops ClickHouse lookups).
   3. Override — insert into person_distinct_id_overrides so the HogQL query layer
      immediately re-attributes historical events whose person_id was baked in at
@@ -118,19 +119,36 @@ def _count_other_distinct_ids(
     return row["count"] if isinstance(row, dict) else row[0]
 
 
+def _clickhouse_max_version(team_id: int, distinct_id: str) -> int:
+    """Return the highest ClickHouse version of the distinct id across the mapping and override tables, or 0."""
+    rows = sync_execute(
+        """
+        SELECT greatest(
+            (SELECT max(version) FROM person_distinct_id2
+             WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s),
+            (SELECT max(version) FROM person_distinct_id_overrides
+             WHERE team_id = %(team_id)s AND distinct_id = %(distinct_id)s)
+        )
+        """,
+        {"team_id": team_id, "distinct_id": distinct_id},
+    )
+    return int(rows[0][0])
+
+
 def _tombstone_distinct_id_row(
     cursor: psycopg2.extensions.cursor,
     pdi_id: int,
+    min_version: int,
 ) -> int:
-    """Tombstone the posthog_persondistinctid row and return the version it was stamped with."""
+    """Tombstone the row at ``min_version`` or above and return the version it was stamped with."""
     cursor.execute(
         """
         UPDATE posthog_persondistinctid
-        SET is_deleted = true, version = COALESCE(version, 0) + 1
+        SET is_deleted = true, version = GREATEST(COALESCE(version, 0) + 1, %s)
         WHERE id = %s AND is_deleted = false
         RETURNING version
         """,
-        [pdi_id],
+        [min_version, pdi_id],
     )
     row = cursor.fetchone()
     if row is None:
@@ -236,9 +254,13 @@ def detach_distinct_id_op(
             persons_database.rollback()
             return
 
-        version = _tombstone_distinct_id_row(cursor, info["pdi_id"])
+        ch_max_version = _clickhouse_max_version(config.team_id, config.distinct_id)
+        version = _tombstone_distinct_id_row(cursor, info["pdi_id"], min_version=ch_max_version + 1)
         persons_database.commit()
-        log.info(f"Tombstoned posthog_persondistinctid id={info['pdi_id']} (version={version})")
+        log.info(
+            f"Tombstoned posthog_persondistinctid id={info['pdi_id']} "
+            f"(version={version}, ClickHouse max version={ch_max_version})"
+        )
 
     # --- 4. Sync deletion to ClickHouse via Kafka ---
     _publish_deletion_to_kafka(
