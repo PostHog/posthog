@@ -16,8 +16,8 @@ _FLUSH_TIMEOUT_SECONDS = 5 * 60
 
 class Command(BaseCommand):
     help = (
-        "Tombstone ClickHouse person rows that are live in ClickHouse but absent from the persons DB "
-        "(the inverse of fix_person_distinct_ids_after_delete). Dry-run by default."
+        "Tombstone ClickHouse person rows that are live in ClickHouse but absent from the persons DB. "
+        "Dry-run by default."
     )
 
     def add_arguments(self, parser):
@@ -107,7 +107,7 @@ def _log_result(team_id: int, result: OrphanRepairResult) -> None:
     if result.reverse_drift_mappings:
         logger.warning(
             "Found distinct_ids tombstoned in ClickHouse whose person is still live in the persons DB "
-            "(reverse drift). Repair these with fix_person_distinct_ids_after_delete, not this command.",
+            "(reverse drift). Repair these with person_divergence repair, not this command.",
             team_id=team_id,
             reverse_drift=result.reverse_drift_mappings,
         )

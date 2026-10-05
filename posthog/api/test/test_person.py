@@ -28,7 +28,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-import posthog.models.person.deletion
+import posthog.models.person.divergence
 from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
@@ -2388,8 +2388,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert person_after.version is not None and person_after.version > 105
 
     @mock.patch(
-        f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
-        wraps=posthog.models.person.deletion.create_person_distinct_id,
+        f"{posthog.models.person.divergence.__name__}.create_person_distinct_id",
+        wraps=posthog.models.person.divergence.create_person_distinct_id,
     )
     @pytest.mark.flaky(reruns=2)
     def test_reset_person_distinct_id_not_found(self, mocked_ch_call):

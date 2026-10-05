@@ -21,7 +21,6 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
-from posthog.kafka_client.routing import flush_all_producers
 from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
 from posthog.models.person.sql import INSERT_PERSON_SQL
@@ -29,8 +28,10 @@ from posthog.models.person.util import (
     _batched_get_distinct_ids_for_persons,
     _batched_get_persons_by_distinct_ids,
     _batched_get_persons_by_uuids,
+    _flush_person_producers,
     _person_row,
     create_person_distinct_id,
+    get_person_by_distinct_id,
     get_person_tombstones,
     get_persons_by_uuids,
 )
@@ -689,7 +690,7 @@ def _ch_mapping_states(team_id: int, distinct_ids: list[str]) -> dict[str, _ChMa
     return states
 
 
-def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
+def _plan_chunk(team_id: int, person_uuids: Sequence[str], *, only_distinct_id: str | None = None) -> list[_PersonPlan]:
     live = {str(p.uuid): p for p in get_persons_by_uuids(team_id, list(person_uuids), distinct_id_limit=0)}
     person_states = _ch_person_states(team_id, list(live)) if live else {}
     distinct_ids_by_person = (
@@ -702,6 +703,11 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
         if live
         else {}
     )
+    if only_distinct_id is not None:
+        distinct_ids_by_person = {
+            person_id: [d for d in dids if d.id == only_distinct_id]
+            for person_id, dids in distinct_ids_by_person.items()
+        }
     all_distinct_ids = [
         d.id
         for dids in distinct_ids_by_person.values()
@@ -983,7 +989,7 @@ class _Deliveries:
             self._prune()
 
     def undelivered(self, timeout: float) -> int:
-        flush_all_producers(timeout)
+        _flush_person_producers(timeout)
         self._prune()
         return self.failed + len(self.pending)
 
@@ -998,6 +1004,25 @@ class _Deliveries:
             except Exception:
                 self.failed += 1
         self.pending = waiting
+
+
+@frozen(frozen=False)
+class _OutcomeCounts:
+    person: Counter[RepairOutcome] = field(default_factory=Counter)
+    mapping: Counter[RepairOutcome] = field(default_factory=Counter)
+
+    def add(self, action: RepairAction) -> None:
+        is_person_row = action.distinct_id is None and action.outcome != "skipped_too_many_distinct_ids"
+        (self.person if is_person_row else self.mapping)[action.outcome] += 1
+
+    def summary(self, *, applied: bool, persons: int, undelivered: int) -> RepairSummary:
+        return RepairSummary(
+            applied=applied,
+            persons=persons,
+            person_outcomes=dict(self.person),
+            mapping_outcomes=dict(self.mapping),
+            undelivered=undelivered,
+        )
 
 
 def repair_persons(
@@ -1027,8 +1052,7 @@ def repair_persons(
     for target in dict.fromkeys(targets):
         by_team[target.team_id].append(target.person_uuid)
 
-    person_outcomes: Counter[RepairOutcome] = Counter()
-    mapping_outcomes: Counter[RepairOutcome] = Counter()
+    outcomes = _OutcomeCounts()
     processed = 0
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
@@ -1044,8 +1068,7 @@ def repair_persons(
                         before_write=pacer.before_write,
                         published=deliveries.track,
                     ):
-                        is_person_row = action.distinct_id is None and action.outcome != "skipped_too_many_distinct_ids"
-                        (person_outcomes if is_person_row else mapping_outcomes)[action.outcome] += 1
+                        outcomes.add(action)
                         on_action(action)
                     processed += 1
             log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")
@@ -1054,10 +1077,23 @@ def repair_persons(
             undelivered = deliveries.undelivered(_FLUSH_TIMEOUT_SECONDS)
             if undelivered:
                 log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")
-    return RepairSummary(
-        applied=apply,
-        persons=processed,
-        person_outcomes=dict(person_outcomes),
-        mapping_outcomes=dict(mapping_outcomes),
-        undelivered=undelivered,
-    )
+    return outcomes.summary(applied=apply, persons=processed, undelivered=undelivered)
+
+
+def repair_distinct_id(team_id: int, distinct_id: str, *, delivery_timeout_seconds: float) -> RepairSummary | None:
+    """Repair the live person that owns ``distinct_id``, and that one mapping, where ClickHouse disagrees.
+
+    It writes and publishes like ``repair_persons`` with ``apply``, and leaves a stale person alone.
+    Returns None when no live person owns the distinct id.
+    """
+    owner = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
+    if owner is None:
+        return None
+    outcomes = _OutcomeCounts()
+    deliveries = _Deliveries()
+    for plan in _plan_chunk(team_id, [str(owner.uuid)], only_distinct_id=distinct_id):
+        for action in _execute_plan(
+            plan, apply=True, include_stale=False, before_write=lambda: None, published=deliveries.track
+        ):
+            outcomes.add(action)
+    return outcomes.summary(applied=True, persons=1, undelivered=deliveries.undelivered(delivery_timeout_seconds))

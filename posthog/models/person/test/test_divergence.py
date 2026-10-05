@@ -32,6 +32,7 @@ from posthog.models.person.divergence import (
     TeamCheck,
     _WritePacer,
     check_team,
+    repair_distinct_id,
     repair_persons,
     scan_hidden_persons,
     scan_sample,
@@ -671,6 +672,24 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         ]
         assert self._pg_mapping_versions(person)["divergent"] == stored_version
         assert self._ch_mapping("divergent") == (str(person.uuid), *ch_deleted_and_version)
+
+    def test_repairing_one_distinct_id_repairs_its_owner_and_leaves_its_other_mappings(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"target": 2, "other": 2})
+        self._ch_person_row(person.uuid, 103, deleted=True)
+        self._ch_mapping_row("target", person.uuid, 100, deleted=True)
+        self._ch_mapping_row("other", person.uuid, 100, deleted=True)
+
+        summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+
+        assert summary is not None
+        assert (summary.person_outcomes, summary.mapping_outcomes, summary.undelivered) == (
+            {"repaired": 1},
+            {"repaired": 1},
+            0,
+        )
+        assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
+        assert self._ch_mapping("target") == (str(person.uuid), 0, 101)
+        assert self._ch_mapping("other") == (str(person.uuid), 1, 100)
 
     def test_repairs_the_person_but_reports_its_mappings_when_it_has_too_many_distinct_ids(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"a": 0, "b": 0, "c": 0})
