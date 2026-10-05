@@ -58,12 +58,13 @@ def validate_credentials(config: TicketmasterSourceConfig, endpoint: str, api_ve
     path = schema_for_resource(ENDPOINTS, endpoint)
     if not config.keyword.strip():
         return False, KEYWORD_ERROR
+    params: dict[str, str | int] = {"size": 1, "keyword": config.keyword.strip()}
     try:
         with make_tracked_session(redact_values=(config.api_key,)) as session:
             response = session.get(
                 f"https://app.ticketmaster.com/discovery/{api_version}/{path}",
                 auth=APIKeyAuth(api_key=config.api_key, name="apikey", location="query"),
-                params={"size": 1, "keyword": config.keyword.strip()},
+                params=params,
                 timeout=30,
                 allow_redirects=False,
             )
