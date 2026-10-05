@@ -65,6 +65,7 @@ function setUp(
         openGate = Promise.resolve(),
         env = { CLUB_HOGUIN_URL: 'http://club.test/' } as Record<string, string>,
         tools = [] as unknown[],
+        picture = false,
     } = {}
 ): Club {
     const calls: Call[] = []
@@ -112,7 +113,7 @@ function setUp(
         return { value: { exitCode: 0, stdout: '', stderr: '' } }
     })
     // The tests draw the text map. The picture needs Chrome, which the test environment has not.
-    mock.store(on, { showPicture: false })
+    mock.store(on, { showPicture: picture })
     mock.env(on, env)
     const clock = mock.clock(on)
     return { calls, panes, toasts, clock, opened }
@@ -216,4 +217,20 @@ test('/hoguin web opens the club in the browser', async ($, on) => {
 
     expect(opened).toEqual([['open', 'http://club.test/']])
     expect(result.text).toContain('http://club.test/')
+})
+
+test('in a terminal that cannot draw pictures, the club stays closed and says where it works', async ($, on) => {
+    const { calls, panes, clock } = setUp(on, {
+        env: { CLUB_HOGUIN_URL: 'http://club.test/', TERM_PROGRAM: 'Apple_Terminal' },
+        picture: true,
+    })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+    const result = await $.command.run({ command: 'hoguin', args: '' })
+    await $.turn.start({ text: 'refactor everything', turnId: 't1' })
+    await clock.advance(60_000)
+
+    expect(result.text).toContain("can't draw pictures")
+    expect(panes.opened).toEqual([])
+    expect(posts(calls, '/api/join')).toEqual([])
 })

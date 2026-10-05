@@ -26,6 +26,12 @@ let baseUrl = DEFAULT_URL
 let autoJoin = true
 // The pane shows a picture of the town where the terminal can draw one. `/hoguin map` switches to text.
 let showPicture = true
+// Terminal.app has no way to draw a picture. There the club stays closed unless the person asks for the map.
+let canDrawPictures = true
+const wantsPicture = () => showPicture && canDrawPictures
+const hasNoPane = () => showPicture && !canDrawPictures
+const NO_PICTURES =
+    "This terminal can't draw pictures. Open Claude Code in Ghostty, iTerm2, kitty or WezTerm for the pane, or run /hoguin web to open the club in your browser."
 // The viewer: the real web page, run by Chrome without a window and shown as pictures (see view.mjs).
 let viewer = null
 let world = null
@@ -348,7 +354,7 @@ async function sendKey($, key) {
     }
 }
 
-const usesViewer = () => showPicture && viewer !== null && viewer.failed === null
+const usesViewer = () => wantsPicture() && viewer !== null && viewer.failed === null
 
 async function act($, path, body) {
     if (!session) {
@@ -420,7 +426,7 @@ async function showClub($, byTurn, number) {
     }
     isOpen = true
     openedByTurn = byTurn
-    if (showPicture) {
+    if (wantsPicture()) {
         startViewer($)
     }
     if (!pollTimer) {
@@ -509,6 +515,7 @@ function mapLines(currentWorld, currentSnapshot) {
 
 export function register(on) {
     on('session.start', async ($, e, next) => {
+        canDrawPictures = (await $.env.get('TERM_PROGRAM')) !== 'Apple_Terminal'
         const url = await $.env.get('CLUB_HOGUIN_URL')
         if (url) {
             baseUrl = url.replace(/\/+$/, '')
@@ -545,7 +552,7 @@ export function register(on) {
             showPicture = args === 'picture'
             await $.store.set('showPicture', showPicture)
             if (isOpen) {
-                if (showPicture) {
+                if (wantsPicture()) {
                     startViewer($)
                 } else {
                     await stopViewer($)
@@ -553,9 +560,11 @@ export function register(on) {
             }
             $.ui.invalidate('ui.render')
             return {
-                text: showPicture
-                    ? 'The pane shows a picture of the town. Run /hoguin map for the text map.'
-                    : 'The pane shows the text map. Run /hoguin picture for the picture.',
+                text: hasNoPane()
+                    ? NO_PICTURES
+                    : showPicture
+                      ? 'The pane shows a picture of the town. Run /hoguin map for the text map.'
+                      : 'The pane shows the text map. Run /hoguin picture for the picture.',
             }
         }
         if (args === 'web') {
@@ -574,6 +583,8 @@ export function register(on) {
         }
         if (isOpen) {
             await leaveClub($, true)
+        } else if (hasNoPane()) {
+            return { text: NO_PICTURES }
         } else {
             await openClub($, false)
         }
@@ -581,7 +592,7 @@ export function register(on) {
     })
 
     on('turn.start', async ($, e, next) => {
-        if (autoJoin && !isOpen && !autoTimer) {
+        if (autoJoin && !isOpen && !autoTimer && !hasNoPane()) {
             autoTimer = $.clock.after(AUTO_OPEN_AFTER_MS, () => {
                 autoTimer = null
                 void openClub($, true)
@@ -640,7 +651,7 @@ export function register(on) {
         }
 
         const map =
-            e.surface === 'terminal' && showPicture && viewer && viewer.frame && !viewer.failed
+            e.surface === 'terminal' && wantsPicture() && viewer && viewer.frame && !viewer.failed
                 ? Image({
                       key: 'picture',
                       source: { file: viewer.frame, format: 'png', generation: viewer.generation },
@@ -648,9 +659,9 @@ export function register(on) {
                       rows: PICTURE_ROWS,
                       alt: mapLines(world, snapshot).join('\n'),
                   })
-                : e.surface === 'terminal' && showPicture && viewer && !viewer.failed
+                : e.surface === 'terminal' && wantsPicture() && viewer && !viewer.failed
                   ? Text({ dimColor: true, children: ['Starting the town… (Chrome opens it without a window)'] })
-                  : e.surface === 'terminal' && showPicture && viewer && viewer.failed
+                  : e.surface === 'terminal' && wantsPicture() && viewer && viewer.failed
                     ? Text({
                           color: 'red',
                           wrap: 'wrap',
