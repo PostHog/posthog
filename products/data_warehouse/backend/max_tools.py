@@ -6,11 +6,15 @@ from langchain_core.prompts import ChatPromptTemplate
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import get_direct_connection_source
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.clickhouse.client import sync_execute
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
@@ -79,6 +83,7 @@ Important HogQL differences versus other SQL dialects:
 - `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 - Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 - HogQL statements should not end with a semi-colon - this is invalid syntax
+- JSON property access such as `properties.foo` returns `Nullable(String)`. ClickHouse doesn't allow `Array`, `Map` or `Tuple` inside `Nullable`, so wrap the property in `ifNull(..., '')` before you extract one of these types from it
 
 HogQL examples:
 Invalid: SELECT * FROM events WHERE properties->foo = 'bar'
@@ -98,6 +103,11 @@ Example 2:
 Bad Query: SELECT COUNT(user_id) FROM persons
 Error: No column 'user_id'
 Fixed Query: SELECT COUNT(id) FROM persons
+
+Example 3:
+Bad Query: SELECT JSONExtract(properties.tags, 'Array(String)') FROM events
+Error: Nested type Array(String) cannot be inside Nullable type
+Fixed Query: SELECT JSONExtract(ifNull(properties.tags, ''), 'Array(String)') FROM events
 
 This is a list of all the available tables in the database:
 ```
@@ -268,10 +278,28 @@ The newly updated query gave us this error:
             return result.query
         # We also ensure the generated SQL is valid
         try:
-            prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
-        except (ExposedHogQLError, ResolutionError) as err:
+            clickhouse_sql, _ = prepare_and_print_ast(
+                parse_select(result.query), context=hogql_context, dialect="clickhouse"
+            )
+        except BaseHogQLError as err:
             raise PydanticOutputParserException(
                 llm_output=result.query, validation_message=hogql_validation_message(err, result.query)
             )
+
+        # Printing does not type-check the query, so ClickHouse type errors only show up when it plans the query.
+        try:
+            # nosemgrep: clickhouse-injection-taint - clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in hogql_context.values
+            sync_execute(
+                f"EXPLAIN {clickhouse_sql}",
+                hogql_context.values,
+                team_id=self._team.pk,
+                readonly=True,
+                external_tables=list(hogql_context.external_tables.values()) or None,
+            )
+        except ExposedCHQueryError as err:
+            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(err))
+        except Exception as err:
+            # An infrastructure fault says nothing about the query, so don't make the model rewrite it.
+            capture_exception(err)
 
         return result.query
