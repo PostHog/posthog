@@ -59,6 +59,12 @@ describe('reportCheckPresentation', () => {
                 'Starts 7 days after this report is resolved · Error tracking runs it',
             ],
             [
+                'a pending metric check names its minimum wait',
+                { status: 'pending', kind: 'metric_threshold', soak_minutes: 1440 },
+                'Waiting',
+                'At least 1 day after this report is resolved',
+            ],
+            [
                 'a scheduled check leads with its run date and its lane',
                 {},
                 'Runs Sep 27',
@@ -91,6 +97,12 @@ describe('reportCheckPresentation', () => {
                 { status: 'errored', last_run_at: '2026-09-27T09:00:00Z', consecutive_errors: 3 },
                 "Couldn't measure",
                 'Gave up after 3 tries · Sep 27 · 11 rageclicks in the last 14 days.',
+            ],
+            [
+                'an inconclusive check preserves its explanation',
+                { status: 'inconclusive', last_run_at: '2026-09-27T09:00:00Z' },
+                'Inconclusive',
+                'Sep 27 · 11 rageclicks in the last 14 days.',
             ],
             [
                 'a check that expired before its first run says so',
@@ -249,7 +261,7 @@ describe('reportCheckPresentation', () => {
                     })
                 ).toEqual({
                     tag: { label: 'Waiting for resolve', type: 'muted' },
-                    detail: `Starts ${label} after this report is resolved`,
+                    detail: `At least ${label} after this report is resolved · Waits for a full query window`,
                 })
             }
         )
@@ -265,6 +277,9 @@ describe('reportCheckPresentation', () => {
         it('names which path stopped a check, and falls back when the reason is unknown', () => {
             expect(checkCancelledEntry({ reason: 'replaced_by_research' }).detail).toEqual(
                 'Replaced when research re-ran on this report and wrote a new check'
+            )
+            expect(checkCancelledEntry({ reason: 'replaced_by_request' }).detail).toEqual(
+                'Replaced on request by a revised check'
             )
             expect(checkCancelledEntry({}).detail).toEqual('Stopped before it could settle')
         })

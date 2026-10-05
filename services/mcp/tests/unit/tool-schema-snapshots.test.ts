@@ -102,6 +102,7 @@ describe('Tool schema snapshots', () => {
             'agent-platform': true,
             'billing-alerts': true,
             'experiment-setup-context': true,
+            'scout-trials': true,
             'signals-report-checks-replace': true,
             'ai-observability-offline-evaluations': true,
         }

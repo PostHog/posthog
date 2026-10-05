@@ -10,6 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { searchLogic } from './searchLogic'
+import { filterSearchItems } from './utils'
 
 /** Poll until a condition holds. The searches settle in no fixed order, so an ordered
  *  `toDispatchActions` list would wait on an action that had already gone past. */
@@ -169,6 +170,15 @@ describe('searchLogic', () => {
         // The superseded run must not settle the loader the newer run now owns.
         await expectLogic(logic).toNotHaveDispatchedActions(['loadPersonSearchResultsFailure'])
         expect(logic.values.personSearchResultsLoading).toBe(true)
+    })
+
+    it.each([
+        ['data quality', 'dataManagementItems', 'Models'],
+        ['batch exports', 'dataManagementItems', 'Destinations'],
+        ['insights', 'productsItems', 'Product analytics'],
+    ] as const)('finds an item by a manifest search keyword: %s', (search, selector, itemName) => {
+        const matches = filterSearchItems(logic.values[selector], search)
+        expect(matches.map((item) => item.name)).toContain(itemName)
     })
 
     it('maps matching support tickets into their own category', async () => {

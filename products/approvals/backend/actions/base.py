@@ -74,6 +74,16 @@ class BaseAction(ABC):
         return base_context
 
     @classmethod
+    def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Return ChangeRequest filters that identify the target of a change request with no resource id.
+
+        Every such change request stores resource_id as NULL, so without these filters the
+        duplicate check matches every other one for the same action.
+        """
+        return {}
+
+    @classmethod
     @abstractmethod
     def detect(cls, request, view, *args, **kwargs) -> bool:
         """

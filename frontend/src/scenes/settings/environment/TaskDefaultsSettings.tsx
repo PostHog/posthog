@@ -30,7 +30,7 @@ export function TaskDefaultsSettings(): JSX.Element {
                 bordered
                 fullWidth
                 label="Start new tasks in plan mode"
-                checked={taskDefaults.start_in_plan_mode}
+                checked={taskDefaults.start_in_plan_mode ?? false}
                 onChange={(start_in_plan_mode) => saveTaskDefaults({ start_in_plan_mode })}
                 disabledReason={savingReason}
                 data-attr="task-defaults-plan-mode"
@@ -39,7 +39,7 @@ export function TaskDefaultsSettings(): JSX.Element {
                 bordered
                 fullWidth
                 label="Open a draft pull request when a cloud run changes code"
-                checked={taskDefaults.auto_publish_cloud_runs}
+                checked={taskDefaults.auto_publish_cloud_runs ?? false}
                 onChange={(auto_publish_cloud_runs) => saveTaskDefaults({ auto_publish_cloud_runs })}
                 disabledReason={savingReason}
                 data-attr="task-defaults-auto-publish"

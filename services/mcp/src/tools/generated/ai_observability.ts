@@ -2821,6 +2821,9 @@ const llmaSummarizationCreate = (): ToolBase<
         if (params.force_refresh !== undefined) {
             body['force_refresh'] = params.force_refresh
         }
+        if (params.compact_context !== undefined) {
+            body['compact_context'] = params.compact_context
+        }
         if (params.model !== undefined) {
             body['model'] = params.model
         }

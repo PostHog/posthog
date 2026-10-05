@@ -182,6 +182,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             type: 'insight',
             href: urls.insights(),
+            searchKeywords: ['insights'],
             iconType: 'product_analytics',
             iconColor: ['var(--color-product-product-analytics-light)'],
             sceneKey: 'SavedInsights',

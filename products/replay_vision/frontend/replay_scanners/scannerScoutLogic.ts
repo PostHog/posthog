@@ -35,7 +35,7 @@ import {
 } from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import { isScannerScoutConfig, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
+import { isScannerScoutConfig, isTemplateScout, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -125,6 +125,7 @@ export interface scannerScoutLogicValues {
     openedReport: ScoutReportApi | null
     openedReportLoading: boolean
     reportsBySkill: Map<string, ScoutReportApi[]>
+    rootCauseScout: SignalScoutConfigApi | null
     runningRun: SignalScoutRunSummary | null
     scoutConfigsFailed: boolean
     scoutConfigsForScanner: SignalScoutConfigApi[]
@@ -337,6 +338,7 @@ export interface scannerScoutLogicMeta {
         ) => string
         latestReportRow: (scoutReports: ScoutReportApi[]) => ScoutReportApi | null
         reportsBySkill: (scoutReports: ScoutReportApi[]) => Map<string, ScoutReportApi[]>
+        rootCauseScout: (scoutConfigsForScanner: SignalScoutConfigApi[]) => SignalScoutConfigApi | null
         latestRun: (
             rollups: Map<string, ScoutRollup>,
             scoutConfigsForScanner: SignalScoutConfigApi[]
@@ -660,6 +662,12 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 }
                 return bySkill
             },
+        ],
+        // The scanner's root cause scout, if any. While one exists the prompts stop offering another.
+        rootCauseScout: [
+            (s) => [s.scoutConfigsForScanner],
+            (scoutConfigsForScanner: SignalScoutConfigApi[]): SignalScoutConfigApi | null =>
+                scoutConfigsForScanner.find((config) => isTemplateScout(config.skill_name, 'root-cause')) ?? null,
         ],
         // Newest run across all of the scanner's scouts, for the quiet-day "last checked" line.
         latestRun: [
