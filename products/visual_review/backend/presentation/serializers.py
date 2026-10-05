@@ -413,6 +413,13 @@ class UnquarantineQuerySerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
 
 
+class ErrorDetailSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What went wrong and what to do next.")
+    code = serializers.CharField(
+        required=False, help_text="A stable code for the error, such as `lift_commit_unknown` or `rate_limited`."
+    )
+
+
 class LiftOnMergeInputSerializer(DataclassSerializer):
     identifier = serializers.CharField(
         max_length=512,

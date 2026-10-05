@@ -38211,6 +38211,13 @@ export namespace Schemas {
       readonly warehouse_origin: unknown;
     }
 
+    export interface ErrorDetail {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
+    }
+
     export interface ErrorResponse {
       /** Error message */
       error: string;
