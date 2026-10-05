@@ -175,10 +175,6 @@ def _process_query_request(
     if request_data.async_:  # TODO: Legacy async, use "refresh=async" instead
         execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 
-    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-        # Here in query endpoint we always want to calculate if the cache is stale
-        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-
     qt = get_query_tags()
     if request_data.name:
         qt.request_name = request_data.name

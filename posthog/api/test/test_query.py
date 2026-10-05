@@ -736,6 +736,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_force_cache_returns_a_miss_without_calculating(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "SELECT * FROM table_that_does_not_exist"},
+                "refresh": "force_cache",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(response.json()["cache_key"], str)
+
     @patch("posthog.hogql_queries.query_runner.QueryRunner.run", side_effect=RuntimeError("source query failed"))
     def test_data_visualization_source_error_is_not_chained_to_wrapper_runner_lookup(self, _mock_run):
         query = {
