@@ -3,13 +3,17 @@ import json
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
+# A tightly bounded window of the kind an agent uses to measure one service.
+_NINETY_MINUTES = {"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T10:30:00Z"}
 
 
 class TestCountApi(ClickhouseTestMixin, APIBaseTest):
@@ -71,6 +75,29 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
     def test_count_service_filter(self, services, expected):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "serviceNames": services})
         self.assertEqual(response["count"], expected)
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_count_single_service_over_ninety_minutes_matches_query_logs(self):
+        params = {"dateRange": _NINETY_MINUTES, "serviceNames": ["argo-rollouts"]}
+        count = self._count(params)["count"]
+
+        logs_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/query",
+            data={"query": {**params, "limit": 1000}},
+        )
+        self.assertEqual(logs_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(count, len(logs_response.json()["results"]))
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_count_read_cap_breach_returns_the_cause(self):
+        # The count runs under a ClickHouse read cap. Breaching it used to escape the action as a
+        # bare 500, so the caller could not tell a capped scan from a broken endpoint.
+        with patch(
+            "products.logs.backend.presentation.views.api.CountQueryRunner.run",
+            side_effect=CHQueryErrorTooManyBytes("DB::Exception: Limit for bytes to read exceeded"),
+        ):
+            response = self._count({"dateRange": _FIXTURE_WINDOW}, expected_status=status.HTTP_400_BAD_REQUEST)
+        self.assertIn("bytes to read", response.json()["error"])
 
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_search_term_matches_body_text(self):

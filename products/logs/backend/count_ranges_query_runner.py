@@ -48,7 +48,9 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        return fail_fast_aggregate_settings(max_bytes_to_read=1_000_000_000)
+        # Same read cap as CountQueryRunner: bucketing scans the same rows as the scalar count,
+        # so a tighter cap here fails windows whose plain count succeeds.
+        return fail_fast_aggregate_settings()
 
     def _calculate(self) -> LogsQueryResponse:
         response = execute_hogql_query(

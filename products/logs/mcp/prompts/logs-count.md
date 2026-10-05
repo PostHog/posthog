@@ -39,6 +39,14 @@ Full-text search across log bodies.
 
 Property filters to narrow results. Same format as `query-logs` filters.
 
+## query.personId, query.sessionId
+
+Scope the count to one person or one session, the same way `query-logs` does.
+
+# When the count is refused
+
+A window that scans too much data comes back as a 400 whose `error` names the cap it went past. That is a sizing signal, not a broken tool. Narrow the window or add a `serviceNames` filter, then retry.
+
 # Examples
 
 ## Count errors in a service over the last day
