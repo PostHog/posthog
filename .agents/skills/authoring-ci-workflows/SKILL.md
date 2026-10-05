@@ -502,6 +502,7 @@ Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex
 
 Backend CI's hourly run is the one test suite whose cron is on Depot CI: `.depot/workflows/ci-backend.yml` has the `schedule` trigger and `.github/workflows/ci-backend.yml` has none.
 GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter names it in `DEPOT_SCHEDULED_GATING_WORKFLOW`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
+The master run trace reporter reads the same Depot lane. Depot's public API exposes workflow and job timestamps, so those traces omit step and job-queue spans.
 
 ## Backwards-compat with unrebased PRs
 

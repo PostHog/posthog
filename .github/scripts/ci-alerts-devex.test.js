@@ -848,6 +848,13 @@ describe('ci-alerts-devex', () => {
         ['pages on a red streak', runs('Backend CI', ['failure', 'failure']), { action: 'create', blocking: '1' }],
         ['stays quiet when green', runs('Backend CI', ['success', 'failure']), { action: 'none', blocking: '0' }],
         ['holds an open incident when the file is missing', null, { action: 'hold', blocking: '0' }],
+        ['holds an open incident for a non-array payload', 'invalid', { action: 'hold', blocking: '0' }],
+        [
+            'holds an open incident for missing run timestamps',
+            [{ status: 'completed', conclusion: 'success' }],
+            { action: 'hold', blocking: '0' },
+        ],
+        ['holds an open incident for null run entries', [null], { action: 'hold', blocking: '0' }],
     ]) {
         it(`scheduled lane read from Depot CI: ${scenario}`, async () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depot-runs-'))
@@ -865,7 +872,7 @@ describe('ci-alerts-devex', () => {
                     DEPOT_SCHEDULED_GATING_WORKFLOW: 'ci-backend.yml',
                     DEPOT_SCHEDULED_RUNS_FILE: runsFile,
                 },
-                history: depotRuns ? [] : [activeAnchor({ workflows: ['Backend CI (scheduled)'] })],
+                history: expected.action === 'hold' ? [activeAnchor({ workflows: ['Backend CI (scheduled)'] })] : [],
             })
             assert.equal(outputs.action, expected.action)
             assert.equal(outputs.blocking_count, expected.blocking)

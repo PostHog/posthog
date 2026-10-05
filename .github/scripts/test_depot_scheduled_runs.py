@@ -1,18 +1,11 @@
 import json
-import importlib.util
-from pathlib import Path
+import subprocess
 from typing import Any
 
 import pytest
 
 import ci_backend_relay
-
-SCRIPT_PATH = Path(__file__).with_name("depot_scheduled_runs.py")
-SPEC = importlib.util.spec_from_file_location("depot_scheduled_runs", SCRIPT_PATH)
-assert SPEC is not None
-assert SPEC.loader is not None
-script = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(script)
+import depot_scheduled_runs as script
 
 
 @pytest.mark.parametrize(
@@ -54,6 +47,50 @@ def test_gate_run_reports_the_gate_verdict(
 def test_names_the_workflow_and_gate_job_the_relay_reads() -> None:
     assert script.WORKFLOW_NAME == ci_backend_relay.DEPOT_WORKFLOW
     assert script.GATE_JOB_KEY == ci_backend_relay.GATE_JOB_KEY
+
+
+def test_retries_a_workflow_listing_timeout_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    def depot_response(*args: str) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise subprocess.TimeoutExpired("depot", script.CLI_TIMEOUT_SECONDS)
+        return "[]"
+
+    monkeypatch.setattr(script, "depot", depot_response)
+
+    assert script.scheduled_workflows(["finished"], 5) == []
+    assert calls == 2
+
+
+@pytest.mark.parametrize("status", [None, "running", "cancelled", "finished", "failed"])
+def test_gate_window_requires_a_settled_verdict(monkeypatch: pytest.MonkeyPatch, status: str | None) -> None:
+    def depot_response(*args: str) -> str:
+        if args[:2] == ("workflow", "list"):
+            return json.dumps(
+                [
+                    {
+                        "workflow_id": "wf",
+                        "run_id": "run",
+                        "sha": "abc",
+                        "status": status,
+                        "created_at": "2026-10-05T12:23:00Z",
+                    }
+                ]
+                if status
+                else []
+            )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": status}]})
+
+    monkeypatch.setattr(script, "depot", depot_response)
+
+    if status in ("finished", "failed"):
+        assert script.gate_runs()[0]["conclusion"] == script.GATE_CONCLUSIONS[status]
+    else:
+        with pytest.raises(ValueError, match="No settled Backend CI verdict"):
+            script.gate_runs()
 
 
 def test_download_keeps_the_newest_artifact_per_name() -> None:

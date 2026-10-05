@@ -45,7 +45,7 @@
 # - Hourly scheduled master run: only this workflow has the `schedule` trigger, so the run
 #   needs no hand-off and `wait-for-handoff` accepts it outright. Every `schedule` arm
 #   here is depot-only: the paths-filter skip, the `!= 'schedule'` gates on the per-commit
-#   checks, the events_json hours in build_django_matrix, the events schema recording and
+#   checks, the events_json cron in build_django_matrix, the events schema recording and
 #   its upload, and POSTHOG_PYTEST_HARD_EXIT.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
@@ -152,7 +152,9 @@ on:
         # trunk-merge/** run already gated every commit before it landed, so this is where
         # master's matrix coverage, flaky-test baseline, and per-test timing data come from.
         # GitHub Actions has no schedule trigger for Backend CI, so this run needs no hand-off.
-        - cron: '23 * * * *'
+        # Keep the events_json cadence tied to the trigger, even when a job starts late.
+        - cron: '23 */3 * * *'
+        - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -207,6 +209,8 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
+    # Scheduled runs test master even when Depot does not populate github.ref.
+    IS_MASTER: ${{ github.event_name == 'schedule' || github.ref == 'refs/heads/master' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -1469,7 +1473,7 @@ jobs:
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
-                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && env.IS_MASTER == 'true' && '--store-durations' || '' }}
                       ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && '--junitxml=junit-product.xml' || '' }}
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=' || '' }}
@@ -1580,7 +1584,7 @@ jobs:
               # timings either. Its artifact would hold only the restored map, and the timing
               # refresh then rejects the whole Products slice because the timing and JUnit shard
               # sets differ.
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.ref == 'refs/heads/master' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (env.IS_MASTER == 'true' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '') }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
@@ -1915,7 +1919,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ env.IS_MASTER == 'true' }}
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -2622,7 +2626,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ env.IS_MASTER == 'true' }}
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -2831,6 +2835,7 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
+                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == '23 */3 * * *' }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
@@ -3142,10 +3147,7 @@ jobs:
                       json_targets_count="${JSON_TARGETS_SHARDS:-0}"
                   fi
 
-                  # Only every third hourly run takes the events_json leg. The merge queue already
-                  # runs that leg before every commit lands, and this cadence still gives Trunk's
-                  # master monitors enough runs.
-                  if [[ "$GITHUB_EVENT_NAME" == "schedule" ]] && (( 10#$(date -u +%H) % 3 != 0 )); then
+                  if [[ "$RUN_JSON_TARGETS" != "true" ]]; then
                       echo "Skipping the events_json rows on this hourly run"
                       json_targets_count=0
                   fi
@@ -3302,7 +3304,7 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
             - name: Save Python tool cache
-              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              if: env.IS_MASTER == 'true' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3315,7 +3317,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ env.IS_MASTER == 'true' }}
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash
@@ -3896,7 +3898,7 @@ jobs:
               # cache miss must never red a green run.
               continue-on-error: true
               if: |
-                  github.ref == 'refs/heads/master' &&
+                  env.IS_MASTER == 'true' &&
                   matrix.segment == 'Core' &&
                   matrix.group == 1 &&
                   !matrix.person-on-events &&
@@ -3958,7 +3960,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Upload on master, or on PRs that change timing/sharding scripts (for validation)
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((env.IS_MASTER == 'true' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -4629,6 +4631,7 @@ jobs:
             github.repository == 'PostHog/posthog' &&
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
+            github.event_name == 'schedule' ||
             (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')

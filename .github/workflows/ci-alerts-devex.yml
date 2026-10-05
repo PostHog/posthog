@@ -103,8 +103,9 @@ jobs:
 
             # A failed read leaves no file, and the script then treats the lane as unreadable.
             - name: Read the hourly Backend CI runs from Depot CI
+              id: depot-runs
               continue-on-error: true
-              timeout-minutes: 3
+              timeout-minutes: 1
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
               run: |
@@ -140,3 +141,10 @@ jobs:
                   script: |
                       const script = require('./.github/scripts/ci-alerts-devex.js')
                       await script({ github, context, core })
+
+            # Reconcile the other lanes before surfacing a broken monitoring input.
+            - name: Report a failed Depot read
+              if: always() && steps.depot-runs.outcome == 'failure'
+              run: |
+                  echo "::error::The scheduled Backend CI lane could not be read from Depot CI"
+                  exit 1

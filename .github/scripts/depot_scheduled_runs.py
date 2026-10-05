@@ -89,13 +89,17 @@ def depot(*args: str, timeout: int = CLI_TIMEOUT_SECONDS) -> str:
     return result.stdout
 
 
-def scheduled_workflows(statuses: list[str], limit: int) -> list[ListedWorkflow]:
+def scheduled_workflows(statuses: list[str], limit: int, *, repo: str = REPO) -> list[ListedWorkflow]:
     """The hourly Backend CI workflows in the given states, newest first."""
-    args = ["workflow", "list", "--repo", REPO, "--name", WORKFLOW_NAME, "--trigger", "schedule", "-n", str(limit)]
+    args = ["workflow", "list", "--repo", repo, "--name", WORKFLOW_NAME, "--trigger", "schedule", "-n", str(limit)]
     for status in statuses:
         args += ["--status", status]
     # The CLI prints `null` when nothing matches.
-    workflows = cast(list[ListedWorkflow], json.loads(depot(*args, "--output", "json") or "null") or [])
+    try:
+        output = depot(*args, "--output", "json")
+    except subprocess.TimeoutExpired:
+        output = depot(*args, "--output", "json")
+    workflows = cast(list[ListedWorkflow], json.loads(output or "null") or [])
     return sorted(workflows, key=lambda w: w["created_at"], reverse=True)
 
 
@@ -181,6 +185,18 @@ def gate_run(listed: ListedWorkflow) -> GateRun:
     }
 
 
+def gate_runs() -> list[GateRun]:
+    listed = scheduled_workflows(["queued", "running", *sorted(ENDED)], GATE_RUNS_LISTED)
+    with ThreadPoolExecutor(max_workers=PARALLEL_CLI_CALLS) as pool:
+        runs = list(pool.map(gate_run, listed))
+    # An empty or inconclusive window must not resolve an existing CI incident.
+    if not any(
+        run["status"] == "completed" and run["conclusion"] not in (None, "cancelled", "skipped") for run in runs
+    ):
+        raise ValueError("No settled Backend CI verdict in the scheduled run window")
+    return runs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -201,9 +217,7 @@ def main() -> int:
             sys.stdout.write(f"{workflow['run_id']} {workflow['sha']}\n")
         return 0
     if args.command == "gate-runs":
-        listed = scheduled_workflows(["queued", "running", *sorted(ENDED)], GATE_RUNS_LISTED)
-        with ThreadPoolExecutor(max_workers=PARALLEL_CLI_CALLS) as pool:
-            json.dump(list(pool.map(gate_run, listed)), sys.stdout)
+        json.dump(gate_runs(), sys.stdout)
         return 0
     count = download(args.run_id, args.pattern, args.dir)
     sys.stderr.write(f"Downloaded {count} artifacts matching {args.pattern} from run {args.run_id}\n")

@@ -105,7 +105,26 @@ function buildLanes(env) {
     if (env.DEPOT_SCHEDULED_GATING_WORKFLOW) {
         scheduled.push({
             workflowFile: env.DEPOT_SCHEDULED_GATING_WORKFLOW,
-            listRuns: (page) => (page === 1 ? JSON.parse(fs.readFileSync(env.DEPOT_SCHEDULED_RUNS_FILE, 'utf8')) : []),
+            listRuns: (page) => {
+                if (page !== 1) {
+                    return []
+                }
+                const runs = JSON.parse(fs.readFileSync(env.DEPOT_SCHEDULED_RUNS_FILE, 'utf8'))
+                if (
+                    !Array.isArray(runs) ||
+                    runs.some(
+                        (run) =>
+                            !run ||
+                            !['completed', 'in_progress'].includes(run.status) ||
+                            !Number.isFinite(Date.parse(run.created_at)) ||
+                            (run.status === 'completed' &&
+                                !['success', 'failure', 'cancelled'].includes(run.conclusion))
+                    )
+                ) {
+                    throw new Error('Depot scheduled runs file contains invalid run data')
+                }
+                return runs
+            },
             // GitHub has no run history for this lane, so the alert links its failing run.
             linkFailingRun: true,
         })
@@ -179,11 +198,11 @@ async function fetchSettledRuns(listPage, workflowFile, perPage, { event, maxLag
     const MAX_PAGES = 5
     const settled = []
     for (let page = 1; page <= MAX_PAGES; page++) {
-        const data = { workflow_runs: await listPage(page) }
+        const runs = await listPage(page)
         // Freshness is judged on the raw page-1 head (any status) before paging deeper; an empty
         // page is the same anomaly — every lane has master run history.
         if (page === 1 && freshAsOf) {
-            const head = data.workflow_runs[0]
+            const head = runs[0]
             // Empty page → Infinity (stale); NaN (unparseable dates) falls through to fresh.
             const lagMins = head
                 ? (new Date(freshAsOf).getTime() - new Date(head.created_at).getTime()) / 60000
@@ -196,7 +215,7 @@ async function fetchSettledRuns(listPage, workflowFile, perPage, { event, maxLag
                 throw err
             }
         }
-        for (const run of data.workflow_runs) {
+        for (const run of runs) {
             // In-progress/queued must neither count as nor break a failure streak (mirroring how
             // unreported commits classify 'unknown'); cancelled/skipped never reflect real health.
             if (run.status !== 'completed') {continue}
@@ -215,7 +234,7 @@ async function fetchSettledRuns(listPage, workflowFile, perPage, { event, maxLag
         // Once a kept run is a non-failure it terminates the leading streak, so we have all we need.
         // A short raw page means there are no older runs to fetch.
         const streakBounded = settled.some((r) => !isFailure(r))
-        if (streakBounded || data.workflow_runs.length < perPage) {break}
+        if (streakBounded || runs.length < perPage) {break}
     }
     return settled
 }
