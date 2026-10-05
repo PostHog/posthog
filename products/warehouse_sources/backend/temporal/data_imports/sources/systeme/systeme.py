@@ -6,6 +6,7 @@ from requests import HTTPError, Response
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
@@ -97,15 +98,13 @@ def systeme_source(
             SystemeResumeConfig(cursor=int(state["cursor"])) if state else SystemeResumeConfig(completed=True)
         )
 
-    resource_config: EndpointResource = {
-        "name": endpoint,
-        "endpoint": {
-            "path": path,
-            "params": params,
-            "data_selector": "items",
-            "data_selector_required": True,
-        },
+    endpoint_config: Endpoint = {
+        "path": path,
+        "params": params,
+        "data_selector": "items",
+        "data_selector_required": True,
     }
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
