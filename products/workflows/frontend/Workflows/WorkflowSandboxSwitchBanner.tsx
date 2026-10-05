@@ -25,8 +25,8 @@ export function WorkflowSandboxSwitchBanner(props: WorkflowLogicProps): JSX.Elem
     )
 
     return (
-        <LemonBanner type="info" data-attr="workflow-sandbox-switch-banner">
-            <div className="flex flex-col gap-2 @md:flex-row @md:items-center">
+        <LemonBanner type="info" alignItems="start" data-attr="workflow-sandbox-switch-banner">
+            <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center">
                 <span className="grow">
                     Your own email sender is verified. This workflow still sends from the sandbox sender, which only
                     delivers to members of your organization.
@@ -55,7 +55,7 @@ function SwitchSenderButton({
         size: 'small' as const,
         disabledReason,
         'data-attr': 'workflow-sandbox-switch-sender',
-        className: 'shrink-0',
+        className: 'shrink-0 self-start @xl:self-auto',
     }
 
     if (senders.length === 1) {
