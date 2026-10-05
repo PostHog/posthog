@@ -409,14 +409,12 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             (
                 "collapses_attributes_the_response_discards",
-                True,
                 [("sign up", {"attr__data-attr": "signup-cta", "attr__ngcspnonce": nonce}) for nonce in NONCES]
                 + [("log in", {"attr__data-attr": "login-cta"})],
                 [3, 1],
             ),
             (
                 "collapses_attribute_values_holding_escaped_quotes",
-                True,
                 [
                     (
                         "sign up",
@@ -430,30 +428,22 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
                 [2],
             ),
-            (
-                "leaves_grouping_untouched_while_the_flag_is_off",
-                False,
-                [("sign up", {"attr__data-attr": "signup-cta", "attr__ngcspnonce": nonce}) for nonce in NONCES],
-                [1, 1, 1],
-            ),
         ]
     )
     def test_element_stats_chain_normalization(
-        self, _name: str, flag_enabled: bool, events: list[tuple[str, dict]], expected_counts: list[int]
+        self, _name: str, events: list[tuple[str, dict]], expected_counts: list[int]
     ) -> None:
         _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
         for text, attributes in events:
             self._create_autocapture(text, attributes)
 
-        with mock.patch("posthog.api.element.posthog_feature_flag_enabled", return_value=flag_enabled):
-            results = self.client.get(self.STATS_URL).json()["results"]
+        results = self.client.get(self.STATS_URL).json()["results"]
 
         assert [row["count"] for row in results] == expected_counts
         assert results[0]["elements"][0]["text"] == "sign up"
         assert results[0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
 
-    @mock.patch("posthog.api.element.posthog_feature_flag_enabled", return_value=True)
-    def test_element_stats_keeps_requested_data_attributes_distinct(self, _flag: mock.MagicMock) -> None:
+    def test_element_stats_keeps_requested_data_attributes_distinct(self) -> None:
         _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
         self._create_autocapture("sign up", {"attr__data-attr": "signup-cta"})
         self._create_autocapture("sign up", {"attr__data-attr": "signup-secondary"})
