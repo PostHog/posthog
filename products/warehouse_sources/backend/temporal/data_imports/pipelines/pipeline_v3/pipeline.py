@@ -141,8 +141,9 @@ class PipelineV3(Generic[ResumableData]):
     _pg_producer: PostgresProducer
     _accumulated_pa_schema: pa.Schema | None
     _batch_results: list[BatchWriteResult]
-    # A class default, so a pipeline a test builds without `__init__` still has it.
+    # Class defaults, so a pipeline a test builds without `__init__` still has them.
     _on_rows_extracted: Callable[[int], None] | None = None
+    _always_final_marker: bool = False
 
     def __init__(
         self,
@@ -334,7 +335,18 @@ class PipelineV3(Generic[ResumableData]):
 
     def _consumer_finalizes_this_run(self) -> bool:
         """Whether the load consumer will finalize THIS job, so the workflow must not."""
-        return self._total_batches() > 0
+        return self._always_final_marker or self._total_batches() > 0
+
+    async def _send_final_marker(self) -> None:
+        """Hand a run without batches for the schema's job to the loader, so the loader finalizes it."""
+        await commit_source_cursor(
+            self._source_cursor_manager,
+            self._schema,
+            self._logger,
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+            log_prefix="V3 Pipeline: ",
+        )
+        self._pg_producer.send_final_marker(data_folder=self._s3_batch_writer.get_data_folder())
 
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
@@ -578,8 +590,8 @@ class PipelineV3(Generic[ResumableData]):
 
             await self._finalize(row_count=row_count)
 
-            # With zero batches, `_finalize` sent no final-batch notification, so the load
-            # consumer will never hear about this run and cannot finalize it — the workflow must.
+            # With zero batches and no final marker, `_finalize` sent no final row, so the load
+            # consumer never hears about this run and cannot finalize it. The workflow must.
             # See the PipelineResult docstring for the full ownership contract.
             consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
@@ -724,6 +736,11 @@ class PipelineV3(Generic[ResumableData]):
             # no batches the load consumer is never notified. Without this a v3 schema whose
             # source stays quiet could never satisfy `_fast_return_eligible`.
             await self._stamp_full_run()
+            if self._always_final_marker:
+                # The loader promotes the staged cursor when it completes the job from the marker.
+                await self._send_final_marker()
+                self._logger.debug("V3 Pipeline: No batches extracted, sent the final marker")
+                return
             # No batch reaches the loader, so nothing would promote a staged cursor. With no rows
             # outstanding the cursor is already safe to store.
             await commit_source_cursor(

@@ -51,6 +51,9 @@ class ExportSignalMessage:
     # Snapshotted when the run started. Empty means the PostHog warehouse only, which is
     # also what an old message that predates destinations decodes to.
     destination_ids: list[str] = field(default_factory=list)
+    # A final row without data: the run staged no batch for this job, and the loader only
+    # finalizes it. `s3_path` is empty.
+    marker_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -87,4 +90,5 @@ class ExportSignalMessage:
             cdc_write_mode=data.get("cdc_write_mode"),
             cdc_table_mode=data.get("cdc_table_mode"),
             destination_ids=data.get("destination_ids") or [],
+            marker_only=data.get("marker_only", False),
         )

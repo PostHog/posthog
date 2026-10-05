@@ -172,6 +172,26 @@ class PostgresProducer:
             cumulative_row_count=total_rows,
         )
 
+    def send_final_marker(self, *, data_folder: str | None) -> None:
+        """Insert a final row without data, for a run that staged no batch of its own.
+
+        The loader finalizes the run from this row as from any final batch, but it reads and
+        writes nothing. The marker is the run's first row, so it supersedes other runs of the job
+        as batch 0 does. Otherwise a zero-row attempt after a cancelled one leaves the cancelled
+        attempt's rows claimable.
+        """
+        if not self._is_resume:
+            self._supersede_other_runs()
+        self._insert(
+            BatchWriteResult(batch_index=0, s3_path="", row_count=0, byte_size=0, timestamp_ns=time.time_ns()),
+            is_final_batch=True,
+            total_batches=0,
+            total_rows=0,
+            data_folder=data_folder,
+            cumulative_row_count=0,
+            marker_only=True,
+        )
+
     def send_batch_notification(
         self,
         batch_result: BatchWriteResult,
@@ -223,8 +243,11 @@ class PostgresProducer:
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
         cumulative_row_count: int = 0,
+        marker_only: bool = False,
     ) -> None:
         metadata: dict[str, Any] = {}
+        if marker_only:
+            metadata["marker_only"] = True
         if data_folder is not None:
             metadata["data_folder"] = data_folder
         if schema_path is not None:

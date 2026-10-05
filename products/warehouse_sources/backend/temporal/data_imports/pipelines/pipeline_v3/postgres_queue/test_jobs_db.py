@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
@@ -941,6 +942,35 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+        assert signal["marker_only"] is False
+
+    @pytest.mark.parametrize("metadata,expected", [({}, False), ({"marker_only": True}, True)])
+    def test_surfaces_the_final_marker_flag(self, metadata, expected):
+        # A marker the loader cannot tell apart from a data batch sends it to read an empty s3_path.
+        batch = PendingBatch(
+            id="00000000-0000-0000-0000-000000000002",
+            team_id=42,
+            schema_id="schema-1",
+            source_id="source-1",
+            job_id="job-1",
+            run_uuid="run-1",
+            batch_index=0,
+            s3_path="",
+            row_count=0,
+            byte_size=0,
+            is_final_batch=True,
+            total_batches=0,
+            total_rows=0,
+            sync_type="full_refresh",
+            cumulative_row_count=0,
+            resource_name="users",
+            is_resume=False,
+            is_first_ever_sync=False,
+            metadata=metadata,
+            latest_attempt=0,
+        )
+
+        assert ExportSignalMessage.from_dict(batch.to_export_signal()).marker_only is expected
 
 
 @pytest.mark.django_db(transaction=True)

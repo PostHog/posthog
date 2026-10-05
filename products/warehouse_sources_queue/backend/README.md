@@ -170,8 +170,9 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
 4. Extract: `run_extraction` stages batches for the loader, as a Temporal run does.
    The wall-clock budget is 24 hours for a full refresh and 6 days for other runs, and never past the job's claim window.
    A run past its budget fails with the "sync ran too long" message.
-5. Handoff: a run with batches gets `phase = loading`, and the loader finishes it (status, cursor, lock, post-import).
-   A run with no batch never reaches the loader, so the handler completes it through the workflow's finalizer and starts the post-import workflow itself.
+5. Handoff: the run gets `phase = loading`, and the loader finishes it (status, cursor, lock, post-import).
+   A run with no batch sends a final marker: a final queue row with no file (`metadata.marker_only`). The loader reads and writes nothing for it, runs post-load only when the table exists, and then completes the job as for any final batch.
+   A run that returns before the pipeline (a fast return, a repartition hold) has no marker, so the handler completes it through the workflow's finalizer.
    After the extraction, the handler also starts the CDP producer and the person-property sync workflows and creates the source templates, with the same ids and conditions as the workflow.
 
 ### Failures, retries and shutdown
@@ -213,7 +214,6 @@ Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work unti
 ### Not migrated yet
 
 - Nothing enqueues `sync.extract` (the scheduler and the trigger paths come later).
-- A run with no batch is finalized by the handler, not by a final marker for the loader.
-- Post-import still starts from the loader (or from the handler for a run with no batch), not through a follower job.
+- Post-import still starts from the loader (or from the handler for a run that returns before the pipeline), not through a follower job.
 - Queue runs do not take the V3 Redis lock, and the Temporal lock activity does not yet refuse a schema with a live queue run.
 - Repartition, CDC extraction and V2 runs stay on Temporal.

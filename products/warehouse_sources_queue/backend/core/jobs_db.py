@@ -682,6 +682,7 @@ class PendingBatch:
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
+            "marker_only": bool(self.metadata.get("marker_only", False)),
         }
 
 

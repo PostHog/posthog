@@ -401,10 +401,11 @@ async def _handle_partial_data_loading(
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> str | None:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
-    Two deliveries land here: a redelivered final row whose earlier attempt committed the write
-    but failed before post-load finished, and the final-only marker row an older producer inserts
-    as a copy of the run's last data batch. Either way the data is in the table; only the post-load
-    operations (compaction, S3 queryable folder prep, schema validation) are left.
+    Three deliveries land here: a redelivered final row whose earlier attempt committed the write
+    but failed before post-load finished, the final-only marker row an older producer inserts
+    as a copy of the run's last data batch, and a final marker without data (`marker_only`).
+    Either way the data is in the table; only the post-load operations (compaction, S3 queryable
+    folder prep, schema validation) are left.
 
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
@@ -428,17 +429,21 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         delta_table = await delta_table_ref.get_delta_table()
         if delta_table is None:
-            logger.error(
-                "no_delta_table_for_post_load",
-                external_data_job_id=export_signal.job_id,
-                batch_index=export_signal.batch_index,
-            )
+            if export_signal.marker_only:
+                # A run without rows never creates the table, so there is nothing to post-load.
+                logger.info("no_delta_table_for_final_marker", external_data_job_id=export_signal.job_id)
+            else:
+                logger.error(
+                    "no_delta_table_for_post_load",
+                    external_data_job_id=export_signal.job_id,
+                    batch_index=export_signal.batch_index,
+                )
             return None
 
-        pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
-        internal_schema.add_pyarrow_table(pa_table)
+        if not export_signal.marker_only:
+            internal_schema.add_pyarrow_table(read_parquet(export_signal.s3_path))
         table_schema_dict = internal_schema.to_hogql_types()
 
         prepared_queryable_folder = await run_post_load_operations(
@@ -480,7 +485,8 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
         capture_exception(e)
 
 
-def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
+    """Complete the job and promote its staged cursor. Returns False when a terminal status absorbed the write."""
     # Reconnect stale connections before the transaction; close_old_connections must never
     # run inside an atomic block since it can drop the connection mid-transaction.
     close_old_connections()
@@ -523,6 +529,59 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         )
 
     _release_pipeline_lock_for_job(export_signal)
+    return job_completed
+
+
+def _finalize_from_marker(
+    export_signal: ExportSignalMessage,
+    *,
+    writes_warehouse: bool,
+    verify_ownership: Callable[[], None] | None,
+) -> None:
+    """Finalize a run from its final marker: the run staged no batch for this job.
+
+    The marker has no file, so nothing is read or written. The processed flag is set last. A
+    redelivery after a crash repeats the steps, and each step tolerates a repeat. A redelivery
+    after a success does nothing.
+    """
+    if is_batch_already_processed(
+        export_signal.team_id,
+        export_signal.schema_id,
+        export_signal.run_uuid,
+        export_signal.batch_index,
+        # A marker never commits to the table, so only the dedup flag can know about it.
+        is_first_attempt=True,
+    ):
+        logger.info("final_marker_already_processed", external_data_job_id=export_signal.job_id)
+        return
+
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
+        finalize_empty_run_to_destinations,
+    )
+
+    report_phase("deliver")
+    finalize_empty_run_to_destinations(export_signal, verify_ownership=verify_ownership)
+    logger.info("final_marker_received", external_data_job_id=export_signal.job_id, run_uuid=export_signal.run_uuid)
+    prepared_queryable_folder = None
+    if writes_warehouse:
+        if verify_ownership is not None:
+            verify_ownership()
+        report_phase("post_load")
+        prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
+
+    if verify_ownership is not None:
+        verify_ownership()
+    report_phase("finalize")
+    completed = _mark_job_completed(export_signal)
+    # A cancelled run gets no post-import. A run for external destinations only never gets one.
+    if completed and writes_warehouse:
+        if prepared_queryable_folder:
+            _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+        _trigger_post_import_workflow(export_signal)
+
+    mark_batch_as_processed(
+        export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
+    )
 
 
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
@@ -1037,6 +1096,14 @@ def _process_message_reported(
             logger=logger,
             is_first_sync=export_signal.is_first_ever_sync,
         )
+
+        if export_signal.marker_only:
+            _finalize_from_marker(
+                export_signal,
+                writes_warehouse=warehouse_is_a_destination(export_signal),
+                verify_ownership=verify_ownership,
+            )
+            return
 
         if not warehouse_is_a_destination(export_signal):
             # The customer asked for their data elsewhere and not here, so there is no delta
