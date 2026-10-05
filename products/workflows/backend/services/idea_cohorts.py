@@ -5,9 +5,8 @@ through Workflows at volume. So it runs on a small cohort of the projects most l
 a fixed trial, and the cohort then rotates. A project that tried it once waits out a cooldown before
 it can be picked again, so every cohort reaches new projects.
 
-Selection reads three signals that production data ties to large Workflows senders: the project
-already sends through another messaging tool, it has many people with an email address, and it
-records revenue events. Every pick, and what the project did during its trial, is kept on a
+Selection reads three adoption signals: the project already sends through another messaging tool,
+it has many people with an email address, and it records revenue events. Every pick, and what the project did during its trial, is kept on a
 `WorkflowIdeaTrial` row.
 """
 
@@ -256,7 +255,7 @@ def _segment(feature: dict[str, Any], emailable: int) -> WorkflowIdeaTrial.Segme
 
 
 def _score(feature: dict[str, Any], emailable: int, segment: WorkflowIdeaTrial.Segment) -> float:
-    # Weights follow the lift each signal showed over the base rate of projects that became large senders.
+    # Another messaging tool counts double: a project paying for one already sends at volume.
     segment_weight = {
         WorkflowIdeaTrial.Segment.STALLED: 1.4,
         WorkflowIdeaTrial.Segment.COMPETITOR: 1.3,
