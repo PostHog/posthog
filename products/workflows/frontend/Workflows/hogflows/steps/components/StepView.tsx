@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
+import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -13,10 +14,9 @@ import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { DEFAULT_NODE_SIZE, getNodeSize } from '../../react_flow_utils/nodeSize'
 import { HogFlowAction } from '../../types'
-import { hasEmailPreview } from '../emailStepHtml'
+import { getEmailStepHtml } from '../emailStepHtml'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { isScheduleTrigger } from '../types'
-import { EmailStepPreview } from './EmailStepPreview'
 import { buildSummary } from './rrule-helpers'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 import { StepViewMetrics } from './StepViewMetrics'
@@ -75,8 +75,8 @@ export function StepView({
     } = useActions(stepViewLogic(stepViewLogicProps))
 
     const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
-    const showsEmailPreview = showEmailPreview && hasEmailPreview(action)
-    const { width, height: nodeHeight } = showsEmailPreview ? getNodeSize(action) : DEFAULT_NODE_SIZE
+    const emailHtml = showEmailPreview ? getEmailStepHtml(action) : undefined
+    const { width, height: nodeHeight } = emailHtml ? getNodeSize(action) : DEFAULT_NODE_SIZE
     const height = shouldShowMetricsSummary ? nodeHeight + 10 : nodeHeight
 
     const Step = useHogFlowStep(action)
@@ -260,11 +260,12 @@ export function StepView({
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
             ) : null}
-            {showsEmailPreview && (
-                <EmailStepPreview
-                    action={action}
-                    emailWidth={width}
-                    className="flex-1 min-h-0 rounded-b border-t border-primary"
+            {emailHtml && (
+                <EmailPreviewThumbnail
+                    html={emailHtml}
+                    title={`Preview of ${action.name}`}
+                    size="graphNode"
+                    className="flex-1 min-h-0 rounded-b-sm dark:invert dark:hue-rotate-180"
                 />
             )}
             {shouldShowMetricsSummary && (

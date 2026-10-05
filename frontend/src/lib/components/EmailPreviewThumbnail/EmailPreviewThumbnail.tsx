@@ -5,6 +5,8 @@ import { cn } from 'lib/utils/css-classes'
 const SIZE_CLASSES = {
     attachment: 'w-24 h-16 [--email-preview-scale:0.16]',
     card: 'w-40 h-28 [--email-preview-scale:0.2667]',
+    graphNode: 'w-45 h-50 [--email-preview-scale:0.3]',
+    listItem: 'w-72 h-56 [--email-preview-scale:0.48]',
 } as const
 
 export interface EmailPreviewThumbnailProps {

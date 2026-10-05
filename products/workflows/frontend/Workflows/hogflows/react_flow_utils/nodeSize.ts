@@ -2,7 +2,9 @@ import { hasEmailPreview } from '../steps/emailStepHtml'
 import type { HogFlowAction } from '../types'
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 
-const EMAIL_NODE_WIDTH = 180
+const EMAIL_THUMBNAIL_WIDTH = 180
+const NODE_BORDER_WIDTH = 1
+const EMAIL_NODE_WIDTH = EMAIL_THUMBNAIL_WIDTH + 2 * NODE_BORDER_WIDTH
 const EMAIL_NODE_PREVIEW_HEIGHT = 200
 
 export type NodeSize = { width: number; height: number }

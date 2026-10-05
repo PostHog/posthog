@@ -4,6 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
 import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { NODE_WIDTH } from './react_flow_utils/constants'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -813,6 +814,20 @@ describe('hogFlowEditorLogic', () => {
             logic.actions.setEdges(edges)
             logic.actions.showDropzones()
             expect(branchJoinDropzones()).toEqual(expected)
+        })
+
+        it('centers the branch-join dropzone on a target wider than a regular step', () => {
+            const wideTarget = { ...makeNode('email'), position: { x: 100, y: 300 }, width: 180 }
+            logic.actions.setNodesRaw([makeNode('trigger'), makeNode('cond'), wideTarget])
+            logic.actions.setEdges([
+                makeEdge('trigger', 'cond', 'continue'),
+                makeEdge('cond', 'email', 'branch', 0),
+                makeEdge('cond', 'email', 'continue'),
+            ])
+            logic.actions.showDropzones()
+
+            const dropzone = logic.values.dropzoneNodes.find((node) => node.data.isBranchJoinDropzone)!
+            expect(dropzone.position.x + NODE_WIDTH / 2).toBe(wideTarget.position.x + wideTarget.width / 2)
         })
     })
 })

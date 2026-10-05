@@ -2706,7 +2706,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 id: branchJoinDropzoneTargetId,
                                 type: 'dropzone',
                                 position: {
-                                    x: targetNode.position.x,
+                                    x: targetNode.position.x + ((targetNode.width ?? NODE_WIDTH) - NODE_WIDTH) / 2,
                                     y: targetNode.position.y - NODE_HEIGHT,
                                 },
                                 data: {

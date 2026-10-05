@@ -58,7 +58,7 @@ const getTicket = (id: string, name: string, description: string): HogFlowAction
 const exampleEmailHtml = (subject: string, body: string): string => `<!doctype html>
 <html><body style="margin:0;background:#f3f4f0;font-family:Helvetica,Arial,sans-serif;color:#151515">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:8px">
 <tr><td style="padding:28px 40px;border-bottom:1px solid #e5e7e0;font-weight:700;font-size:18px">Example Co.</td></tr>
 <tr><td style="padding:36px 40px 8px;font-size:30px;font-weight:700;line-height:1.2">${subject}</td></tr>
 <tr><td style="padding:12px 40px;font-size:16px;line-height:1.6">Hi {{ person.properties.first_name | default: "there" }},</td></tr>

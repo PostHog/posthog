@@ -4,19 +4,17 @@ import type { DragEvent, ReactNode } from 'react'
 
 import { IconCopy, IconDrag, IconTrash } from '@posthog/icons'
 
+import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
 import { Badge, Button, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, cn } from 'lib/ui/quill'
 
 import { workflowLogic } from '../../workflowLogic'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { EmailStepPreview } from '../steps/components/EmailStepPreview'
 import { StepView } from '../steps/components/StepView'
-import { hasEmailPreview } from '../steps/emailStepHtml'
+import { getEmailStepHtml } from '../steps/emailStepHtml'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
 import { isBranchingAction } from './workflowTree'
-
-const TREE_EMAIL_PREVIEW_WIDTH = 320
 
 export function HogFlowTreeStep({
     action,
@@ -63,8 +61,8 @@ export function HogFlowTreeStep({
     const isAnimationTarget = animatingEdgePair?.endsWith(`->${action.id}`) ?? false
     const previews = step?.previews ?? []
     const hasFooterContent = !!action.description || previews.length > 0
-    const showsEmailPreview = hasEmailPreview(action)
-    const mediaAlignment = showsEmailPreview ? 'flex-start' : 'center'
+    const emailHtml = getEmailStepHtml(action)
+    const mediaAlignment = emailHtml ? 'flex-start' : 'center'
 
     return (
         <Item
@@ -95,7 +93,7 @@ export function HogFlowTreeStep({
                     draggable
                     className={cn(
                         'relative z-10 -ms-0.5 -me-1 flex size-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing',
-                        showsEmailPreview && 'self-start'
+                        emailHtml && 'self-start'
                     )}
                     onDragStart={(event) => onDragStart(event, action.id, dragPreviewRef.current)}
                     onDragEnd={onDragEnd}
@@ -187,11 +185,16 @@ export function HogFlowTreeStep({
                         )}
                     </div>
                 )}
-                <EmailStepPreview
-                    action={action}
-                    emailWidth={TREE_EMAIL_PREVIEW_WIDTH}
-                    className="mt-1 h-56 rounded border"
-                />
+                {emailHtml && (
+                    <div className="mt-1 w-fit max-w-full overflow-hidden rounded border">
+                        <EmailPreviewThumbnail
+                            html={emailHtml}
+                            title={`Preview of ${action.name}`}
+                            size="listItem"
+                            className="max-w-full dark:invert dark:hue-rotate-180"
+                        />
+                    </div>
+                )}
             </ItemContent>
             {collapseControl && (
                 <div className="pointer-events-auto relative z-10 -my-1.5 -me-2 flex w-10 shrink-0 items-center justify-center border-s">
