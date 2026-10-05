@@ -569,8 +569,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         for key, value in updates.items():
             try:
-                DatabaseSerializedFieldType[value.upper()]
-            except:
+                clickhouse_type = SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[DatabaseSerializedFieldType[value.upper()]]
+            except (KeyError, AttributeError):
                 return response.Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": f"Can not parse type {value} for column {key} - type does not exist"},
@@ -581,8 +581,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             if isinstance(current_value, str):
                 columns[key] = {}
 
-            columns[key]["clickhouse"] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
-            columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]].__name__
+            columns[key]["clickhouse"] = f"Nullable({clickhouse_type})"
+            columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[clickhouse_type].__name__
 
         table.columns = columns
         table.save()

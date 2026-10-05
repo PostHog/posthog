@@ -283,11 +283,12 @@ class TestTable(APIBaseTest):
         assert columns is not None
         assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
+    @parameterized.expand([("float",), ("Float",), ("FLOAT",)])
     @patch(
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
-    def test_update_schema_200_new_column_style(self, patch_validate_column_type):
+    def test_update_schema_200_new_column_style(self, type_name, patch_validate_column_type):
         table = DataWarehouseTable.objects.create(
             name="test_table",
             format="Parquet",
@@ -296,7 +297,7 @@ class TestTable(APIBaseTest):
             columns={"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}},
         )
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/update_schema", {"updates": {"id": "float"}}
+            f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/update_schema", {"updates": {"id": type_name}}
         )
 
         table.refresh_from_db()
@@ -374,7 +375,8 @@ class TestTable(APIBaseTest):
         assert response.json()["message"] == "Column some_other_column does not exist on table"
         assert table.columns == columns
 
-    def test_update_schema_400_with_invalid_type(self):
+    @parameterized.expand([("another_type",), ("view",)])
+    def test_update_schema_400_with_invalid_type(self, type_name):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
 
         table = DataWarehouseTable.objects.create(
@@ -386,13 +388,13 @@ class TestTable(APIBaseTest):
         )
         response = self.client.post(
             f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/update_schema",
-            {"updates": {"id": "another_type"}},
+            {"updates": {"id": type_name}},
         )
 
         table.refresh_from_db()
 
         assert response.status_code == 400
-        assert response.json()["message"] == "Can not parse type another_type for column id - type does not exist"
+        assert response.json()["message"] == f"Can not parse type {type_name} for column id - type does not exist"
         assert table.columns == columns
 
     @patch(
