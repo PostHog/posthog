@@ -607,13 +607,25 @@ class TestWorkflowProposals(APIBaseTest):
         self._toggle(second, False)
         assert self._suggestions_scout() is None
 
-    @parameterized.expand([("paused by a person", "paused"), ("api key without the proposal scope", "key")])
-    def test_suggestions_scout_is_not_switched_on(self, _mock_flag, _name: str, case: str):
+    @parameterized.expand(
+        [
+            ("paused by a person", "paused"),
+            ("api key without the proposal scope turning one on", "key_on"),
+            ("api key without the proposal scope turning one off", "key_off"),
+            ("a scout a person set up", "own"),
+        ]
+    )
+    def test_suggestions_scout_gains_no_grant(self, _mock_flag, _name: str, case: str):
         flow_id = self._create_active_flow(optimize=False)
-        headers = {}
+        headers: dict = {}
+        enabled = True
         if case == "paused":
             SignalScoutConfig.objects.for_team(self.team.id).create(
                 team=self.team, skill_name="signals-scout-workflows", enabled=False
+            )
+        elif case == "own":
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team, skill_name="signals-scout-workflows", enabled=True
             )
         else:
             key = generate_random_token_personal()
@@ -621,12 +633,41 @@ class TestWorkflowProposals(APIBaseTest):
                 label="toggle", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
             )
             headers = {"authorization": f"Bearer {key}"}
+            if case == "key_off":
+                for flow in (flow_id, self._create_active_flow(optimize=False)):
+                    HogFlowOptimization.objects.for_team(self.team.id).create(hog_flow_id=flow, enabled=True)
+                enabled = False
             self.client.logout()
 
-        self._toggle(flow_id, True, headers)
+        self._toggle(flow_id, enabled, headers)
 
         scout = self._suggestions_scout()
-        assert scout is None or not scout.enabled
+        assert scout is None or scout.write_scopes == []
+
+    def test_suggestions_scout_keeps_a_persons_pause_across_opt_out(self, _mock_flag):
+        flow_id = self._create_active_flow(optimize=False)
+        self._toggle(flow_id, True)
+        scout = self._suggestions_scout()
+        assert scout is not None
+        scout.enabled = False
+        scout.save()
+
+        self._toggle(flow_id, False)
+        self._toggle(flow_id, True)
+
+        scout = self._suggestions_scout()
+        assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_USER
+
+    def test_archiving_the_last_opted_in_workflow_stops_the_suggestions_scout(self, _mock_flag):
+        flow_id = self._create_active_flow(optimize=False)
+        self._toggle(flow_id, True)
+        assert self._suggestions_scout() is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "archived"})
+        assert response.status_code == 200, response.json()
+
+        assert self._suggestions_scout() is None
 
     def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
         flow_id = self._create_active_flow()

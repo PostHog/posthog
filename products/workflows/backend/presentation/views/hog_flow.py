@@ -5496,25 +5496,19 @@ class HogFlowViewSet(
                 self._report_workflow_action(
                     "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
                 )
-                self._sync_suggestions_scout(request, enabled=enabled)
+                self._sync_suggestions_scout(request)
         else:
             enabled = is_optimization_enabled(instance.id)
 
         return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
 
-    def _sync_suggestions_scout(self, request: Request, *, enabled: bool) -> None:
-        # Switching the scout on grants it a write scope that its runs use as this person, so a scoped
-        # API key has to carry that scope itself. A failure never fails the toggle: the next toggle syncs again.
+    def _sync_suggestions_scout(self, request: Request) -> None:
+        # Switching the scout on grants a write scope that its runs use as this person, so a scoped API
+        # key has to carry that scope itself, whichever way it toggles. A failure never fails the toggle.
         token_scopes = get_authenticator_scopes(request.successful_authenticator)
-        if (
-            enabled
-            and token_scopes is not None
-            and "*" not in token_scopes
-            and PROPOSAL_WRITE_SCOPE not in token_scopes
-        ):
-            return
+        may_grant = token_scopes is None or "*" in token_scopes or PROPOSAL_WRITE_SCOPE in token_scopes
         try:
-            sync_suggestions_scout(self.team, acting_user=cast(User, request.user))
+            sync_suggestions_scout(self.team, acting_user=cast(User, request.user), may_grant=may_grant)
         except Exception as error:
             capture_exception(error)
 

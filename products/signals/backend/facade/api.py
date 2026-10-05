@@ -1457,7 +1457,8 @@ def enable_scout_for_product(
     )
     if created:
         return True
-    if config.source_product not in (None, source_product) or config.status == SignalScoutConfig.Status.PAUSED_BY_USER:
+    # A config this product did not create is somebody's own scout, and its write access is theirs to grant.
+    if config.source_product != source_product or config.status == SignalScoutConfig.Status.PAUSED_BY_USER:
         return False
 
     update_fields = ["updated_at"]
@@ -1477,12 +1478,14 @@ def enable_scout_for_product(
 def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: str) -> bool:
     """Remove the config a product created when it switched a scout on.
 
-    A config the product did not create is left alone, so a scout a person set up keeps running.
-    The run history stays. Returns False when the product owns no config for the scout.
+    A config the product did not create is left alone, so a scout a person set up keeps running. A
+    config a person paused is kept, so the pause still holds if the product switches the scout on
+    again. The run history stays. Returns False when nothing was removed.
     """
     deleted, _ = (
         SignalScoutConfig.objects.for_team(team_id)
         .filter(skill_name=skill_name, source_product=source_product)
+        .exclude(status=SignalScoutConfig.Status.PAUSED_BY_USER)
         .delete()
     )
     return deleted > 0
