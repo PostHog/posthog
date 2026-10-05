@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -488,7 +489,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         insights: {
             updateInsight: (state, { insight }) => ({
                 ...state,
@@ -502,6 +503,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         },
         rawFilters: [
             null as Partial<SavedInsightFilters> | null,
+            {
+                persist: true,
+                storageKey: `scenes.saved-insights.savedInsightsLogic.${getCurrentUserIdOrNone() ?? 'anonymous'}.${getCurrentTeamId()}.rawFilters`,
+            },
             {
                 setSavedInsightsFilters: (state, { filters, merge }) =>
                     cleanFilters({
@@ -534,7 +539,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 setDraftQuery: (_, { draftQuery }) => draftQuery,
             },
         ],
-    }),
+    })),
     selectors({
         showHomeTab: [
             (s) => [s.featureFlags],
@@ -857,6 +862,15 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
             // The insight editor may have written or cleared a draft since this logic mounted
             actions.loadDraftQuery()
+
+            const hasFilterParams = Object.keys(cleanFilters({})).some((key) => key !== 'page' && key in searchParams)
+            if (!hasFilterParams && values.rawFilters !== null) {
+                actions.setSavedInsightsFilters(
+                    { ...values.rawFilters, page: 'page' in searchParams ? searchParams.page : 1 },
+                    false
+                )
+                return
+            }
 
             const currentFilters = cleanFilters(values.filters)
             const defaultTab = getDefaultSavedInsightsTab(searchParams, values.showHomeTab)
