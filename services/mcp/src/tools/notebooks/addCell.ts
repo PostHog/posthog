@@ -24,6 +24,12 @@ import {
     upsertProp,
     type CellTagBlock,
 } from './cellTags'
+import {
+    applyVisualization,
+    CellVisualizationSchema,
+    VISUALIZATION_PARAM_DESCRIPTION,
+    visualizationWarnings,
+} from './cellVisualization'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 import { getNotebookWidgetTagNames, getNotebookWidgetViewError } from './widgetCatalog'
@@ -56,7 +62,7 @@ const AddCellInputSchema = z
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
+                'Component cells: the props for the tag, matching what the notebook UI stores for that component. Object widgets take their identity prop plus an optional view, for example {"id": 123, "view": "summary"}. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here: use cell_type sql, and set visualization to chart its result.'
             ),
         dataframe_name: z
             .string()
@@ -78,6 +84,7 @@ const AddCellInputSchema = z
             .describe(
                 'Insert after this block: any node_id notebooks-get returns, a markdown block included. Defaults to the end of the document. A markdown block id comes from the text, so pass one from the read you are acting on.'
             ),
+        visualization: CellVisualizationSchema.optional().describe(VISUALIZATION_PARAM_DESCRIPTION),
     })
     .strict()
 
@@ -87,6 +94,7 @@ export interface AddCellResult {
     node_id?: string
     dataframe_name?: string
     run?: ShapedRunResult
+    visualization_warnings?: string[]
 }
 
 /**
@@ -305,7 +313,7 @@ async function runAndWriteBack(
     outputName: string,
     cells: CellTagBlock[],
     variables: Schemas.NotebookVariable[] | undefined
-): Promise<ShapedRunResult> {
+): Promise<{ run: ShapedRunResult; warnings: string[] }> {
     const projectId = await context.stateManager.getProjectId()
     const notebookPath = notebookPathFor(projectId, notebookId)
     const refs = collectRunRefs(cells, nodeId)
@@ -318,6 +326,7 @@ async function runAndWriteBack(
         variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
+    let warnings: string[] = []
     // Mirror the editor's write-back so humans opening the notebook see the result: runId
     // always, the envelope once terminal. Anchored on nodeId, so concurrent edits to other
     // parts of the document survive the retry inside applyMarkdownEdit.
@@ -329,10 +338,11 @@ async function runAndWriteBack(
         let source = upsertProp(block.source, 'runId', runId)
         if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
             source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
+            warnings = visualizationWarnings(source, outcome.envelope)
         }
         return replaceCellTag(markdown, block, source)
     })
-    return shapeRunForModel(outcome)
+    return { run: shapeRunForModel(outcome), warnings }
 }
 
 /**
@@ -364,6 +374,11 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     if (params.cell_type === 'markdown' && !params.markdown?.trim()) {
         throw new Error('A markdown cell requires non-empty markdown.')
     }
+    if (params.visualization && params.cell_type !== 'sql') {
+        throw new Error(
+            `visualization applies to sql cells only, not ${params.cell_type} cells. A python cell plots with matplotlib.`
+        )
+    }
     if (params.cell_type === 'saved_insight' && !params.insight_short_id?.trim()) {
         throw new Error('A saved_insight cell requires insight_short_id.')
     }
@@ -380,7 +395,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         }
         if (hasHogQLQuerySource(params.props)) {
             throw new Error(
-                "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result."
+                "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result when you set visualization."
             )
         }
         const widgetViewError = getNotebookWidgetViewError(params.tag_name, params.props?.view)
@@ -445,7 +460,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             parseCellTags(initial.markdown),
             (initial.notebook.variables ?? []).map((variable) => variable.name)
         )
-    const tag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
+    const plainTag = buildCellTag(tagName, { nodeId, title, code: params.code, returnVariable: dataframeName })
+    const tag = params.visualization ? applyVisualization(plainTag, params.visualization) : plainTag
 
     // The save response carries the notebook as it stood when the save committed, so it holds a
     // variable edit that landed after the read above. The run binds those values to stay in step
@@ -453,7 +469,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current, version) =>
         insertBlock(current, tag, params.after_node_id, proseAnchor, version)
     )
-    const run = await runAndWriteBack(
+    const { run, warnings } = await runAndWriteBack(
         context,
         params.notebook_id,
         nodeId,
@@ -463,7 +479,12 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         parseCellTags(markdown),
         notebook.variables
     )
-    return wrapRunResultAsInformational({ node_id: nodeId, dataframe_name: dataframeName, run })
+    return wrapRunResultAsInformational({
+        node_id: nodeId,
+        dataframe_name: dataframeName,
+        run,
+        ...(warnings.length ? { visualization_warnings: warnings } : {}),
+    })
 }
 
 const tool = (): ToolBase<typeof NotebooksAddCellSchema, AddCellResult> => ({

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
-import { addCellHandler } from '@/tools/notebooks/addCell'
+import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
@@ -319,6 +319,161 @@ describe('notebook cell tools', () => {
         const writtenBack = state.saveBodies[1].content.content[0].attrs.markdown
         expect(writtenBack).toContain('runId="run-1"')
         expect(writtenBack).not.toContain('result={')
+    })
+
+    describe('sql cell charts', () => {
+        const doneWith = (result: Record<string, unknown>): Record<string, unknown> => ({
+            status: 'done',
+            result: { status: 'ok', has_more: false, ...result },
+            error: null,
+        })
+
+        it('add sql cell with a visualization opens the chart tab and stores the chart without its source', async () => {
+            const state = makeState('# Doc\n')
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'sql',
+                code: 'select 1 as x',
+                visualization: { display: 'ActionsBar', chartSettings: { yAxis: [{ column: 'x' }] } },
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted).toContain('outputTab="visualization"')
+            expect(inserted).toContain(
+                'vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar","chartSettings":{"yAxis":[{"column":"x"}]}}}'
+            )
+            expect(inserted).not.toContain('"source"')
+            expect(result).not.toHaveProperty('visualization_warnings')
+        })
+
+        it.each([
+            {
+                label: 'an axis column the query does not return',
+                chartSettings: { xAxis: { column: 'month' } },
+                run: doneWith({ columns: ['x'], types: [['x', 'Int64']], row_count: 1, first_page: [[1]] }),
+                warning: "xAxis column 'month' is not in the result columns: x.",
+            },
+            {
+                label: 'a Y column that is not numeric',
+                chartSettings: { xAxis: { column: 'month' }, yAxis: [{ column: 'orgs' }] },
+                run: doneWith({
+                    columns: ['month', 'orgs'],
+                    types: [
+                        ['month', 'Date'],
+                        ['orgs', 'String'],
+                    ],
+                    row_count: 1,
+                    first_page: [['2026-09-01', '12']],
+                }),
+                warning: "yAxis column 'orgs' is not numeric (String), so the chart cannot plot it.",
+            },
+            {
+                label: 'more rows than the chart plots',
+                chartSettings: { yAxis: [{ column: 'x' }] },
+                run: doneWith({
+                    columns: ['x'],
+                    types: [['x', 'Int64']],
+                    row_count: 120,
+                    first_page: Array.from({ length: 50 }, (_, index) => [index]),
+                    has_more: true,
+                }),
+                warning: 'The chart plots only the first 50 rows of 120. Aggregate in SQL so the result fits.',
+            },
+        ])('add sql cell warns about $label', async ({ chartSettings, run, warning }) => {
+            const state = makeState('# Doc\n')
+            state.runStatusResponses.push(run)
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'sql',
+                code: 'select 1',
+                visualization: { display: 'ActionsLineGraph', chartSettings },
+            })
+
+            expect(result.visualization_warnings).toContain(warning)
+        })
+
+        it('update cell with only a visualization changes the chart without re-running, and null restores the table', async () => {
+            const state = makeState(
+                '# Doc\n\n<SQLV2 nodeId="target" code="select 1 as x" returnVariable="df" runId="old" result={{"columns":["x"],"types":[["x","Int64"]],"row_count":20,"first_page":[[1]],"has_more":true,"previewOnly":true}} />\n'
+            )
+            const context = createMockContext(state)
+
+            const charted = await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: 'target',
+                visualization: { display: 'ActionsLineGraph', chartSettings: { yAxis: [{ column: 'y' }] } },
+            })
+
+            expect(state.runBodies).toHaveLength(0)
+            expect(state.markdown).toContain('outputTab="visualization"')
+            expect(state.markdown).toContain('"display":"ActionsLineGraph"')
+            expect(charted).toMatchObject({
+                updated: true,
+                visualization_warnings: expect.arrayContaining(["yAxis column 'y' is not in the result columns: x."]),
+            })
+            // The stored preview holds fewer rows than the chart restores, so it must not claim truncation.
+            expect(JSON.stringify(charted)).not.toContain('plots only')
+
+            await updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', visualization: null })
+
+            expect(state.runBodies).toHaveLength(0)
+            expect(state.markdown).toContain('outputTab="results"')
+            expect(state.markdown).not.toContain('vizQuery')
+            expect(state.markdown).toContain('runId="old"')
+        })
+
+        it.each(['WorldMap', 'TwoDimensionalHeatmap'])(
+            'refuses the %s display, which opens a sql cell on an empty chart',
+            (display) => {
+                expect(
+                    NotebooksAddCellSchema.safeParse({
+                        notebook_id: 'aBcD1234',
+                        cell_type: 'sql',
+                        code: 'select 1',
+                        visualization: { display },
+                    }).success
+                ).toBe(false)
+            }
+        )
+
+        it.each([
+            {
+                label: 'add a python cell',
+                markdown: '# Doc\n',
+                run: (context: Context) =>
+                    addCellHandler(context, {
+                        notebook_id: 'aBcD1234',
+                        cell_type: 'python',
+                        code: 'df.plot()',
+                        visualization: { display: 'ActionsBar' },
+                    }),
+            },
+            {
+                label: 'update a python cell',
+                markdown: '# Doc\n\n<PythonV2 nodeId="py" code="x = 1" returnVariable="out" />\n',
+                run: (context: Context) =>
+                    updateCellHandler(context, {
+                        notebook_id: 'aBcD1234',
+                        node_id: 'py',
+                        visualization: { display: 'ActionsBar' },
+                    }),
+            },
+        ] as { label: string; markdown: string; run: (context: Context) => Promise<unknown> }[])(
+            'refuses a visualization to $label without saving or running',
+            async ({ markdown, run }) => {
+                const state = makeState(markdown)
+                const context = createMockContext(state)
+
+                await expect(run(context)).rejects.toThrow(/sql cells only/)
+                expect(state.saveBodies).toHaveLength(0)
+                expect(state.runBodies).toHaveLength(0)
+            }
+        )
     })
 
     it('add markdown cell appends prose without dispatching a run', async () => {
