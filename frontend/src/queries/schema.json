@@ -56639,6 +56639,9 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }

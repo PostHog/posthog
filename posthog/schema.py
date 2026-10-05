@@ -25359,6 +25359,7 @@ class WebAnalyticsAssistantFilters(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
 
 

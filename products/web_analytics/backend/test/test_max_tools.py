@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -5,6 +7,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from posthog.schema import (
     CompareFilter,
@@ -15,7 +18,9 @@ from posthog.schema import (
     WebAnalyticsAssistantFilters,
 )
 
-from ..max_tools import WebAnalyticsFilterOptionsToolkit
+from ee.hogai.utils.types import AssistantState
+
+from ..max_tools import FilterWebAnalyticsTool, WebAnalyticsFilterOptionsToolkit
 
 
 class TestWebAnalyticsFilterOptionsToolkit(APIBaseTest):
@@ -188,3 +193,34 @@ class TestWebAnalyticsAssistantFilters(APIBaseTest):
         event_props = [p for p in filters.properties if p.type == "event"]
         assert len(session_props) == 2
         assert len(event_props) == 1
+
+
+class TestFilterWebAnalyticsTool(APIBaseTest):
+    async def test_keeps_page_filters_including_test_account_toggle_when_agent_asks_for_help(self):
+        current_filters: dict[str, Any] = {
+            "date_from": "-7d",
+            "date_to": None,
+            "properties": [],
+            "doPathCleaning": False,
+            "compareFilter": None,
+            "filterTestAccounts": True,
+        }
+        tool = FilterWebAnalyticsTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
+        help_step = MagicMock(tool_input="Which traffic do you want to exclude?")
+        with (
+            patch.object(
+                FilterWebAnalyticsTool,
+                "context",
+                new_callable=PropertyMock,
+                return_value={"current_filters": current_filters},
+            ),
+            patch.object(
+                FilterWebAnalyticsTool,
+                "_invoke_graph",
+                return_value={"output": None, "intermediate_steps": [(help_step, None)]},
+            ),
+        ):
+            content, filters = await tool._arun_impl("exclude my own traffic")
+
+        assert content == "Which traffic do you want to exclude?"
+        assert filters.filterTestAccounts is True
