@@ -20,8 +20,15 @@ from products.visual_review.backend.facade.contracts import (
     CreateRunInput,
     SnapshotManifestItem,
 )
-from products.visual_review.backend.facade.enums import ActorType, RunPurpose, RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.logic import artifact_store, quarantine, runs
+from products.visual_review.backend.facade.enums import (
+    ActorType,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
+from products.visual_review.backend.logic import artifact_store, github_api, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
@@ -82,7 +89,13 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_expire_quarantine_takes_only_an_identifier(self):
+    @parameterized.expand(
+        [
+            ("head_known", "abc123", status.HTTP_204_NO_CONTENT, []),
+            ("head_unknown", None, status.HTTP_503_SERVICE_UNAVAILABLE, ["Button"]),
+        ]
+    )
+    def test_expire_quarantine_takes_only_an_identifier(self, _name, head_sha, expected_status, expected_active):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
         quarantine.quarantine_identifier(
             repo_id=repo.id,
@@ -93,14 +106,16 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
-            {"identifier": "Button"},
-            format="json",
-        )
+        with patch.object(github_api, "default_branch_head_sha", return_value=head_sha):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+                {"identifier": "Button"},
+                format="json",
+            )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+        assert response.status_code == expected_status
+        active = quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        assert [entry.identifier for entry in active] == expected_active
 
     @parameterized.expand(
         [
@@ -320,25 +335,41 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("quarantined_excluded_by_default", {}, {"Card", "Dialog"}, 1),
-            ("quarantined_included_when_requested", {"include_quarantined": "true"}, {"Button", "Card", "Dialog"}, 1),
+            ("quarantined_excluded_by_default", "Button", {}, {"Card", "Dialog"}, 1),
+            (
+                "quarantined_included_when_requested",
+                "Button",
+                {"include_quarantined": "true"},
+                {"Button", "Card", "Dialog"},
+                1,
+            ),
             (
                 "unchanged_excluded",
+                "Button",
                 {"include_quarantined": "true", "exclude_unchanged": "true"},
                 {"Button", "Card"},
                 1,
             ),
-            ("unchanged_and_quarantined_excluded", {"exclude_unchanged": "true"}, {"Card"}, 1),
-            ("one_snapshot_by_id", {"include_quarantined": "true", "snapshot_id": "Dialog"}, {"Dialog"}, 0),
+            ("unchanged_and_quarantined_excluded", "Button", {"exclude_unchanged": "true"}, {"Card"}, 1),
+            ("one_snapshot_by_id", "Button", {"include_quarantined": "true", "snapshot_id": "Dialog"}, {"Dialog"}, 0),
+            (
+                "only_quarantined_with_unchanged",
+                "Dialog",
+                {"include_quarantined": "true", "quarantined_only": "true"},
+                {"Dialog"},
+                1,
+            ),
         ]
     )
-    def test_get_run_snapshots_filters(self, _name, params, expected_identifiers, expected_quarantined_count):
+    def test_get_run_snapshots_filters(
+        self, _name, quarantined_identifier, params, expected_identifiers, expected_quarantined_count
+    ):
         run_id, snapshot_ids = self._create_run_with_results(
             {"Button": SnapshotResult.CHANGED, "Card": SnapshotResult.CHANGED, "Dialog": SnapshotResult.UNCHANGED}
         )
         quarantine.quarantine_identifier(
             repo_id=self.vr_project.id,
-            identifier="Button",
+            identifier=quarantined_identifier,
             run_type=RunType.STORYBOOK,
             reason="flaky",
             user_id=self.user.id,
@@ -572,6 +603,63 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("unchanged_picture", "", SnapshotResult.UNCHANGED, status.HTTP_201_CREATED),
+            ("unapproved_change", ReviewState.PENDING, SnapshotResult.CHANGED, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_lift_on_merge_records_a_request_or_explains_the_refusal(
+        self, _name: str, review_state: str, result: str, expected_status: int
+    ):
+        quarantined = quarantine.quarantine_identifier(
+            repo_id=self.vr_project.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+        run = Run.objects.create(
+            team_id=self.team.id,
+            repo_id=self.vr_project.id,
+            run_type=RunType.STORYBOOK,
+            branch="fix-flake",
+            commit_sha="abc123",
+            pr_number=7,
+            status=RunStatus.COMPLETED,
+        )
+        snapshot = RunSnapshot.objects.create(
+            team_id=self.team.id,
+            run=run,
+            identifier="Button",
+            current_hash="h1",
+            baseline_hash="h1" if result == SnapshotResult.UNCHANGED else "h0",
+            result=result,
+            review_state=review_state,
+            is_quarantined=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run.id}/lift_on_merge/",
+            {"identifier": snapshot.identifier},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            body = response.json()
+            assert (body["quarantine_id"], body["pr_number"], body["expected_hash"], body["state"]) == (
+                str(quarantined.id),
+                7,
+                "h1",
+                "pending",
+            )
+            listed = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{run.id}/quarantine_lifts/")
+            assert [entry["id"] for entry in listed.json()] == [body["id"]]
+        else:
+            assert "Approve the new picture first" in response.json()["detail"]
 
     def _seed_history_row(
         self,

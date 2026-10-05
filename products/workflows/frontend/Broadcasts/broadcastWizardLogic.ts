@@ -113,6 +113,43 @@ export const DEFAULT_BROADCAST_EMAIL: BroadcastEmailValue = {
     design: null,
 }
 
+/** Settings on the email step that the email content itself does not carry. */
+export interface BroadcastEmailSettings {
+    /** The opt-out category. People who opted out of it are skipped. */
+    messageCategoryId: string | null
+    messageCategoryType: string | null
+    trackingEnabled: boolean
+}
+
+export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
+    messageCategoryId: null,
+    messageCategoryType: null,
+    trackingEnabled: true,
+}
+
+function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null {
+    const config = findAction(broadcast, 'function_email')?.config
+    if (!config) {
+        return null
+    }
+    return {
+        messageCategoryId: config.message_category_id ?? null,
+        messageCategoryType: config.message_category_type ?? null,
+        trackingEnabled: config.tracking_enabled !== false,
+    }
+}
+
+function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Record<string, any> {
+    if (!settings) {
+        return {}
+    }
+    return {
+        message_category_id: settings.messageCategoryId ?? undefined,
+        message_category_type: settings.messageCategoryType ?? undefined,
+        tracking_enabled: settings.trackingEnabled,
+    }
+}
+
 export const DEFAULT_BROADCAST_CONVERSION: HogFlowConversionApi = {
     events: [],
     filters: [],
@@ -172,6 +209,7 @@ export interface broadcastWizardLogicValues {
     effectiveTimezone: string
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    emailSettings: BroadcastEmailSettings
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
     firstInvalidStep: BroadcastWizardStep | null
@@ -332,6 +370,9 @@ export interface broadcastWizardLogicActions {
     setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => {
         emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     }
+    setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => {
+        settings: Partial<BroadcastEmailSettings>
+    }
     setExpandedRunOverride: (runIds: string[]) => {
         runIds: string[]
     }
@@ -395,7 +436,8 @@ export interface broadcastWizardLogicMeta {
             goalEnabled: boolean,
             conversion: HogFlowConversionApi,
             email: BroadcastEmailValue,
-            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
+            emailSettings: BroadcastEmailSettings
         ) => HogFlowApi | null
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
         expandedRunIds: (expandedRunOverride: string[] | null, batchJobs: HogFlowBatchJobApi[]) => string[]
@@ -480,6 +522,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
+        setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setScheduleMode: (mode: BroadcastScheduleMode) => ({ mode }),
         setSendAt: (sendAt: string | null) => ({ sendAt }),
@@ -650,6 +693,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         : state,
             },
         ],
+        emailSettings: [
+            DEFAULT_BROADCAST_EMAIL_SETTINGS,
+            {
+                setEmailSettings: (state, { settings }) => ({ ...state, ...settings }),
+                hydrateFromBroadcast: (state, { broadcast }) => readEmailSettings(broadcast) ?? state,
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, readEmailSettings)
+                        ? (readEmailSettings(broadcast) ?? state)
+                        : state,
+            },
+        ],
         email: [
             DEFAULT_BROADCAST_EMAIL,
             {
@@ -769,7 +823,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     selectors({
         // The saved broadcast overlaid with the editor's unsaved state, in the shape the AI assistant reads.
         broadcastAsWorkflow: [
-            (s) => [s.broadcast, s.name, s.audienceProperties, s.goalEnabled, s.conversion, s.email, s.emailRateLimit],
+            (s) => [
+                s.broadcast,
+                s.name,
+                s.audienceProperties,
+                s.goalEnabled,
+                s.conversion,
+                s.email,
+                s.emailRateLimit,
+                s.emailSettings,
+            ],
             (
                 broadcast: HogFlowApi | null,
                 name: string,
@@ -777,7 +840,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 goalEnabled: boolean,
                 conversion: HogFlowConversionApi,
                 email: BroadcastEmailValue,
-                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
+                emailSettings: BroadcastEmailSettings
             ): HogFlowApi | null =>
                 broadcast
                     ? ({
@@ -789,6 +853,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                               conversion,
                               email,
                               emailRateLimit,
+                              emailSettings,
                               // A workflow shaped like a broadcast keeps its own step ids in the agent's view.
                               broadcast,
                           }),
@@ -1108,6 +1173,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
             }
         },
+        setEmailSettings: () => {
+            // Tracking and category live on the email step, so they share its autosave and pending flag.
+            actions.setEmail(values.email)
+        },
         setEmail: async (_, breakpoint) => {
             // Keeps the saved draft in step with the editor, so an AI edit starts from what the user
             // sees rather than from the last Continue.
@@ -1370,9 +1439,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.setStep('recipients')
                     actions.showSavedDraftUrl()
                     lemonToast.error(
-                        `This audience is above the project's batch limit of ${humanFriendlyNumber(
+                        `This project can send a broadcast to up to ${humanFriendlyNumber(
                             blastRadius.limit
-                        )}. Add filters to narrow it, then launch again.`
+                        )} people right now. Add filters to narrow the audience, then launch again.`,
+                        {
+                            button: {
+                                label: 'See sending limits',
+                                action: () => router.actions.push(urls.workflows('reputation')),
+                                dataAttr: 'broadcast-launch-limit-see-sending-limits',
+                            },
+                        }
                     )
                     return
                 }
@@ -1695,6 +1771,7 @@ export function buildBroadcastPayload(values: {
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    emailSettings?: BroadcastEmailSettings
     broadcast?: HogFlowApi | null
 }): Record<string, any> {
     const existing = values.broadcast
@@ -1719,6 +1796,7 @@ export function buildBroadcastPayload(values: {
                             ...action,
                             config: {
                                 ...action.config,
+                                ...emailSettingsConfig(values.emailSettings),
                                 inputs: {
                                     ...action.config?.inputs,
                                     email: { ...action.config?.inputs?.email, value: values.email },
@@ -1759,6 +1837,7 @@ export function buildBroadcastPayload(values: {
                 updated_at: 0,
                 config: {
                     template_id: 'template-email',
+                    ...emailSettingsConfig(values.emailSettings),
                     inputs: {
                         email: { value: values.email },
                     },

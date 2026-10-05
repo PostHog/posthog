@@ -269,9 +269,28 @@ The label only widens a Storybook run that happens anyway, so the PR must also c
 
 Neither the gate nor the PR comment shows a quarantined story's diff.
 So the author of a change to a quarantined story has to look for it: list the run's snapshots with `include_quarantined=true`.
-A fix for the flake itself leaves nothing in the run to approve, and nothing records it, so the PR description names the identifiers the fix should release.
+A fix for the flake itself usually renders the story exactly as its entry, so the run has nothing to approve.
+To record the fix, request a lift on merge for each snapshot the fix should release: the "Lift quarantine when #N merges" button on the run scene, `POST /api/projects/{team_id}/visual_review/runs/{id}/lift_on_merge/` with the snapshot's `identifier`, or the `visual-review-runs-lift-on-merge-create` MCP tool.
+The request takes the identifier, not a snapshot UUID, because a listing with `exclude_unchanged` leaves the `unchanged` snapshot out.
+To find such a snapshot, the run scene of a PR run lists the quarantined stories that rendered clean, and `quarantined_only=true` on the run snapshots endpoint lists only quarantined snapshots, `unchanged` ones included.
+The request names one quarantine event, so a later quarantine of the same story is never lifted by an old request.
+It also names the picture the default branch must render.
+An `unchanged` snapshot names its entry.
+A `changed` or `new` snapshot must be approved by identifier first, and then names the approved picture, which finalize commits as the entry.
+Requesting a lift never approves a picture, and approving a picture never requests a lift.
 
-Lift the quarantine after the merge.
+A request is `pending` until one of these happens:
+
+- **`applied`.** A completed, full default-branch run without a PR contains the merge commit and renders the story with a hash equal to both the requested picture and the entry. Then the quarantine event ends and records the commit of that run as its lift commit, the same as a manual lift. Other pending requests on that event become `superseded`.
+- **`cancelled`.** A reviewer withdraws it, the PR closes without merging, or the PR merges into another branch.
+- **`superseded`.** The quarantine ended some other way, or another request lifted it.
+
+The match is exact on purpose: a stale or missing entry never gets a lift, and the request waits for a later run.
+Each completed default-branch run enqueues the check only when the repo has a pending request for its run type, so the check costs nothing for most runs.
+`detail` on the request says what the latest check found, for example that the default branch rendered a different picture.
+The lift records the verifying run's commit and not the merge commit, because that run is where the entry was proven to hold the picture.
+
+To lift by hand instead, lift the quarantine after the merge.
 Check first that the default branch renders the story as its entry.
 When the latest default-branch run still lists the story as changed, the lift fails nearly every run, and so does the expiry date.
 A `broken` entry is the usual sign, but its state covers 7 days, so it can lag a fix.
