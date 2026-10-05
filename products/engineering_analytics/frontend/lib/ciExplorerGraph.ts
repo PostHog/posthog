@@ -3,7 +3,7 @@
 
 import type { ELK, ElkNode } from 'elkjs'
 
-import type { WorkflowJobApi } from '../generated/api.schemas'
+import type { WorkflowJobApi, WorkflowJobStepApi } from '../generated/api.schemas'
 import { JobGroupConclusion, collapseTemplates, groupJobs } from './jobGroups'
 import { jobCacheKey } from './jobs'
 import { WorkflowRun, isDecisiveFailure } from './lifecycle'
@@ -221,12 +221,62 @@ export function buildWorkflows(runs: WorkflowRun[], jobsByRun: Record<string, Wo
         })
 }
 
-/** The space a node takes, known before it is drawn so the layout can run first. */
-export function itemSize(item: CIExplorerItem): { height: number; titleHeight: number; gridHeight: number } {
-    const rows = Math.ceil(item.shards.length / SHARDS_PER_ROW)
-    const gridHeight = (rows * SHARD_HEIGHT + Math.max(0, rows - 1) * SHARD_GAP) * INNER_SCALE
+const QUICK_STEP_SECONDS = 1
+export const STEP_HEIGHT = 32
+export const STEP_GAP = 4
+/** Space above and below the step list inside a focused shard. */
+export const SHARD_STEPS_PADDING = 14
+const JOB_STEPS_MARGIN = 4
+
+/** The steps worth a row. Quick steps that passed are left out, unless that leaves none. */
+export function shownSteps(job: WorkflowJobApi): WorkflowJobStepApi[] {
+    const notable = job.steps.filter(
+        (step) => (step.duration_seconds ?? 0) >= QUICK_STEP_SECONDS || (step.conclusion ?? 'success') !== 'success'
+    )
+    return notable.length ? notable : job.steps
+}
+
+function stepsHeight(job: WorkflowJobApi): number {
+    const count = shownSteps(job).length
+    return count ? count * STEP_HEIGHT + (count - 1) * STEP_GAP : 0
+}
+
+/**
+ * The space a node takes, known before it is drawn so the layout can run first.
+ * A focused job shows its steps, so it is taller. A focused shard takes a grid row of its own.
+ */
+export function itemSize(
+    item: CIExplorerItem,
+    focusedNodeId: string | null = null
+): { height: number; titleHeight: number; gridHeight: number; stepsHeight: number } {
     const titleHeight = 20 + Math.min(3, Math.ceil(item.name.length / TITLE_CHARS_PER_LINE)) * 17
-    return { gridHeight, titleHeight, height: titleHeight + 2 + 10 + (rows ? 12 + gridHeight : 0) }
+    const jobSteps = item.job && focusedNodeId === item.id ? stepsHeight(item.job) * INNER_SCALE : 0
+    const focusedShard = item.shards.findIndex((shard) => shard.id === focusedNodeId)
+    const rowHeights: number[] = []
+    if (focusedShard === -1) {
+        rowHeights.push(...Array(Math.ceil(item.shards.length / SHARDS_PER_ROW)).fill(SHARD_HEIGHT))
+    } else {
+        const shardSteps = stepsHeight(item.shards[focusedShard].job)
+        rowHeights.push(
+            ...Array(Math.ceil(focusedShard / SHARDS_PER_ROW)).fill(SHARD_HEIGHT),
+            SHARD_HEIGHT + (shardSteps ? shardSteps + SHARD_STEPS_PADDING : 0),
+            ...Array(Math.ceil((item.shards.length - focusedShard - 1) / SHARDS_PER_ROW)).fill(SHARD_HEIGHT)
+        )
+    }
+    const gridHeight =
+        (rowHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, rowHeights.length - 1) * SHARD_GAP) *
+        INNER_SCALE
+    return {
+        gridHeight,
+        titleHeight,
+        stepsHeight: jobSteps,
+        height:
+            titleHeight +
+            2 +
+            10 +
+            (rowHeights.length ? 12 + gridHeight : 0) +
+            (jobSteps ? JOB_STEPS_MARGIN + jobSteps : 0),
+    }
 }
 
 // Partitioning pins each node to the column `columnsOf` chose for it.
@@ -265,7 +315,11 @@ function wirePath(points: Point[]): string {
     return d
 }
 
-export async function layoutWorkflow(elk: ELK, workflow: CIExplorerWorkflow): Promise<CIExplorerLayout> {
+export async function layoutWorkflow(
+    elk: ELK,
+    workflow: CIExplorerWorkflow,
+    focusedNodeId: string | null = null
+): Promise<CIExplorerLayout> {
     const items = workflow.items ?? []
     if (!items.length) {
         return { at: {}, width: NODE_WIDTH, height: 1, wires: [], ends: [] }
@@ -276,7 +330,7 @@ export async function layoutWorkflow(elk: ELK, workflow: CIExplorerWorkflow): Pr
         children: items.map((item) => ({
             id: item.id,
             width: NODE_WIDTH,
-            height: itemSize(item).height,
+            height: itemSize(item, focusedNodeId).height,
             layoutOptions: { 'elk.partitioning.partition': String(workflow.columnOf[item.id]) },
         })),
         edges: workflow.edges.map(([from, to], index) => ({ id: `e${index}`, sources: [from], targets: [to] })),

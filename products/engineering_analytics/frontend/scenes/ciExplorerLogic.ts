@@ -190,7 +190,7 @@ export interface ciExplorerLogicMeta {
                 job: WorkflowJobApi
                 run: WorkflowRun
             } | null,
-            failureLogs: any
+            failureLogs: CIFailureLogsApi | null
         ) => CIJobFailureLogApi | null
         pushDurationSeconds: (activePush: PrCommitRuns | null) => number | null
         breadcrumbs: (
@@ -290,7 +290,7 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                         workflows.map(
                             async (workflow): Promise<[string, CIExplorerLayout]> => [
                                 workflow.id,
-                                await layoutWorkflow(elk, workflow),
+                                await layoutWorkflow(elk, workflow, values.focusedNodeId),
                             ]
                         )
                     )
@@ -416,7 +416,7 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, selectors }) => {
         const loadMissingJobs = (): void => {
             const missing = values.workflowRuns.filter((run) => {
                 const cacheKey = runJobsKey(run)
@@ -440,6 +440,18 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 loadMissingLayouts()
             },
             loadJobsSuccess: loadMissingLayouts,
+            // A focused job shows its steps, so it is taller. Its workflow is placed again when it gains or loses the focus.
+            setFocus: ({ nodeId }, _, __, previousState) => {
+                const previous = selectors.focusedNodeId(previousState)
+                const resized = values.workflows.filter(
+                    (workflow) =>
+                        workflow.items !== null &&
+                        [previous, nodeId].some((id) => id !== null && id.startsWith(`${workflow.id}/`))
+                )
+                if (resized.length) {
+                    actions.loadLayouts(resized)
+                }
+            },
             loadPrRunsSuccess: () => {
                 loadMissingJobs()
                 if (

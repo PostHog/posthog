@@ -55,6 +55,8 @@ const OVERVIEW_MARGIN_X = 48
 const OVERVIEW_MARGIN_Y = 128
 // A tall node is framed by its width down to this many pixels, so its text stays readable.
 const MIN_FRAMED_WIDTH = 680
+const JOB_PANEL_ROOM = 320
+const NARROW_STAGE = 900
 
 interface PlacedTile {
     workflow: CIExplorerWorkflow
@@ -101,7 +103,8 @@ function railPaths(count: number, rows: number): { paths: string[]; dots: [numbe
 }
 
 function CIExplorerCanvasContent(): JSX.Element {
-    const { workflows, layouts, focusedNodeId, focusLevels, focusedJob, activePush } = useValues(ciExplorerLogic)
+    const { workflows, layouts, layoutsLoading, focusedNodeId, focusLevels, focusedJob, activePush } =
+        useValues(ciExplorerLogic)
     const { setFocus } = useActions(ciExplorerLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { setViewport, getViewport, zoomTo } = useReactFlow()
@@ -110,6 +113,7 @@ function CIExplorerCanvasContent(): JSX.Element {
     const stageHeight = useStore((state) => state.height)
     const stage = useRef<HTMLDivElement>(null)
     const world = useRef<HTMLDivElement>(null)
+    const hasJobPanel = focusedJob !== null
     const [deep, setDeep] = useState(false)
     const [pastOverview, setPastOverview] = useState(false)
 
@@ -156,10 +160,9 @@ function CIExplorerCanvasContent(): JSX.Element {
         })
     }, [store, overviewZoom])
 
-    const layoutsReady = workflows.every((workflow) => workflow.items === null || workflow.id in layouts)
-
     useEffect(() => {
-        if (!stageWidth || !stageHeight || !world.current) {
+        // A focus change can resize a node, so the camera waits for the new layout before it frames anything.
+        if (!stageWidth || !stageHeight || !world.current || layoutsLoading) {
             return
         }
         const target = focusedNodeId
@@ -181,7 +184,9 @@ function CIExplorerCanvasContent(): JSX.Element {
             width: inner.width / current,
             height: inner.height / current,
         }
-        const fitWidth = (stageWidth - 2 * FRAME_PADDING) / box.width
+        // The job details panel covers the right of a wide stage, so a focused job is framed in what is left.
+        const room = stageWidth - (hasJobPanel && stageWidth > NARROW_STAGE ? JOB_PANEL_ROOM : 0)
+        const fitWidth = (room - 2 * FRAME_PADDING) / box.width
         const fitHeight = (stageHeight - 2 * FRAME_PADDING) / box.height
         const zoom = graph
             ? Math.min(1 / Number(target.dataset.graphScale), fitWidth, fitHeight)
@@ -189,7 +194,7 @@ function CIExplorerCanvasContent(): JSX.Element {
         void setViewport(
             {
                 zoom,
-                x: (stageWidth - box.width * zoom) / 2 - box.x * zoom,
+                x: (room - box.width * zoom) / 2 - box.x * zoom,
                 y:
                     (graph
                         ? (stageHeight - box.height * zoom) / 2
@@ -198,8 +203,20 @@ function CIExplorerCanvasContent(): JSX.Element {
             },
             { duration }
         )
-        // `layoutsReady` and `rows` are dependencies because both move what the camera frames.
-    }, [focusedNodeId, layoutsReady, rows, stageWidth, stageHeight, duration, frameOverview, setViewport, getViewport])
+        // `layouts` and `rows` are dependencies because both move what the camera frames.
+    }, [
+        focusedNodeId,
+        hasJobPanel,
+        layouts,
+        layoutsLoading,
+        rows,
+        stageWidth,
+        stageHeight,
+        duration,
+        frameOverview,
+        setViewport,
+        getViewport,
+    ])
 
     const zoomOut = (): void => {
         if (focusLevels.length) {

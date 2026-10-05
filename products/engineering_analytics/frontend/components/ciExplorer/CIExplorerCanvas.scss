@@ -382,22 +382,48 @@
     }
 
     &__cell {
+        box-sizing: border-box;
+        min-width: 0;
+        overflow: hidden;
+        font-size: 12px;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid color-mix(in oklab, var(--color-text-primary) 22%, var(--color-bg-primary));
+        border-radius: 4px;
+
+        &:hover {
+            background: var(--color-bg-surface-secondary);
+        }
+
+        &--failure {
+            color: var(--danger);
+            background: var(--color-bg-fill-error-tertiary);
+            border-color: var(--danger);
+        }
+
+        // A focused shard takes a row of its own, which makes room for its steps.
+        &--focus {
+            grid-column: 1 / -1;
+            background: var(--color-bg-surface-primary);
+            border-color: var(--color-text-primary);
+        }
+    }
+
+    &__cellHead {
         position: relative;
         box-sizing: border-box;
         display: flex;
         gap: 8px;
         align-items: center;
-        min-width: 0;
-        height: 40px;
+        width: 100%;
+
+        // The cell's border takes the other two pixels of a 40px grid row.
+        height: 38px;
         padding: 4px 10px;
-        overflow: hidden;
-        font-size: 12px;
         color: inherit;
         text-align: left;
         cursor: zoom-in;
-        background: var(--color-bg-surface-primary);
-        border: 1px solid color-mix(in oklab, var(--color-text-primary) 22%, var(--color-bg-primary));
-        border-radius: 4px;
+        background: none;
+        border: 0;
 
         // The shard's share of the slowest shard, as a fill behind its name.
         &::before {
@@ -412,21 +438,99 @@
             position: relative;
         }
 
-        &:hover {
-            background: var(--color-bg-surface-secondary);
+        &[aria-pressed='true'] {
+            font-size: 14px;
+            font-weight: 600;
+            cursor: default;
+        }
+    }
+
+    &__cellSteps {
+        padding: 4px 10px 10px;
+    }
+
+    // The steps of a focused job are laid out as wide as a shard grid, then scaled down to fit the node.
+    &__cells--steps {
+        margin-top: 4px;
+    }
+
+    &__scaled {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 744px;
+        transform-origin: 0 0;
+    }
+
+    &__steps {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+    }
+
+    &__step {
+        position: relative;
+        box-sizing: border-box;
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        height: 32px;
+        padding: 4px 10px;
+        overflow: hidden;
+        font-size: 13px;
+        font-weight: 400;
+        line-height: 18px;
+        color: var(--color-text-primary);
+        text-decoration: none;
+        border-radius: 6px;
+
+        // The step's share of the slowest step, as a fill behind its name.
+        &::before {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: calc(var(--w, 0) * 100%);
+            content: '';
+            background: color-mix(in oklab, var(--color-text-primary) 12%, transparent);
+            border-radius: 6px;
+        }
+
+        > * {
+            position: relative;
         }
 
         &--failure {
             color: var(--danger);
-            background: var(--color-bg-fill-error-tertiary);
-            border-color: var(--danger);
-        }
 
-        &[aria-pressed='true'] {
-            cursor: default;
-            border-color: var(--color-text-primary);
-            box-shadow: 0 0 0 1px var(--color-text-primary);
+            &::before {
+                background: var(--color-bg-fill-error-tertiary);
+            }
         }
+    }
+
+    a#{&}__step:hover {
+        color: var(--color-text-primary);
+        text-decoration: underline;
+    }
+
+    &__stepIndex {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--color-text-tertiary);
+        text-align: right;
+    }
+
+    &__stepName {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__step &__duration {
+        font-size: 12px;
     }
 
     &__cellName {
