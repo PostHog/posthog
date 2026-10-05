@@ -20,35 +20,47 @@ def _json_size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
+def _cap_string(value: str, budget: int) -> str | None:
+    lower, upper = 0, min(len(value), RESULT_STRING_CAP)
+    while lower < upper:
+        midpoint = (lower + upper + 1) // 2
+        if _json_size(value[:midpoint]) <= budget:
+            lower = midpoint
+        else:
+            upper = midpoint - 1
+    return value[:lower] if budget >= 2 else None
+
+
+def _cap_mapping(value: Mapping[Any, Any], budget: int) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        available = budget - _json_size({**result, key: None}) + 4
+        if available <= 0:
+            break
+        capped = cap_value(item, available)
+        if capped is not None and _json_size(capped) <= available:
+            result[key] = capped
+    return result
+
+
+def _cap_list(value: list[Any], budget: int) -> list[Any]:
+    items: list[Any] = []
+    for item in value:
+        available = budget - _json_size(items) - bool(items)
+        capped = cap_value(item, available)
+        if capped is None or _json_size(capped) > available or (isinstance(item, str) and capped != item):
+            break
+        items.append(capped)
+    return items
+
+
 def cap_value(value: Any, budget: int) -> Any:
     if isinstance(value, str):
-        lower, upper = 0, min(len(value), RESULT_STRING_CAP)
-        while lower < upper:
-            midpoint = (lower + upper + 1) // 2
-            if _json_size(value[:midpoint]) <= budget:
-                lower = midpoint
-            else:
-                upper = midpoint - 1
-        return value[:lower] if budget >= 2 else None
+        return _cap_string(value, budget)
     if isinstance(value, Mapping):
-        result: dict[str, Any] = {}
-        for key, item in value.items():
-            available = budget - _json_size({**result, key: None}) + 4
-            if available <= 0:
-                break
-            capped = cap_value(item, available)
-            if capped is not None and _json_size(capped) <= available:
-                result[key] = capped
-        return result
+        return _cap_mapping(value, budget)
     if isinstance(value, list):
-        items: list[Any] = []
-        for item in value:
-            available = budget - _json_size(items) - bool(items)
-            capped = cap_value(item, available)
-            if capped is None or _json_size(capped) > available or (isinstance(item, str) and capped != item):
-                break
-            items.append(capped)
-        return items
+        return _cap_list(value, budget)
     return value if value is not None and _json_size(value) <= budget else None
 
 
