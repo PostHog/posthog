@@ -288,6 +288,14 @@ impl Work {
         self.pending_messages() - self.packer.open_messages()
     }
 
+    /// No timer runs while nothing can stall, so the stall clock starts when
+    /// work becomes stuck, not at the last action before the quiet period.
+    fn restart_stall_clock_if_quiet(&mut self, now: Instant) {
+        if self.stuck_messages() == 0 && self.in_flight.is_empty() {
+            self.last_progress = now;
+        }
+    }
+
     fn is_drained(&self) -> bool {
         self.pending_messages() == 0 && self.in_flight.is_empty()
     }
@@ -299,11 +307,7 @@ impl Work {
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> Result<Step, String> {
-        // No timer runs while nothing can stall, so the stall clock starts
-        // when work arrives, not at the last action before the quiet period.
-        if self.stuck_messages() == 0 && self.in_flight.is_empty() {
-            self.last_progress = now;
-        }
+        self.restart_stall_clock_if_quiet(now);
         for run in runs {
             self.keys
                 .push(&run.routing_key, assignment_epoch, run.messages, now);
@@ -464,6 +468,9 @@ impl Work {
         draining: bool,
         step: &mut Step,
     ) -> Result<(), String> {
+        // An open batch that seals below waited by design, so its wait does
+        // not count toward a stall.
+        self.restart_stall_clock_if_quiet(now);
         for ready in self.keys.take_ready(now) {
             self.packer.push(ready, now);
         }
@@ -472,7 +479,14 @@ impl Work {
         } else {
             self.packer.seal_expired(now);
         }
-        self.place(now, pool, step);
+        // Past the stall deadline, no new request starts, so overlapping
+        // failures drain to nothing in flight and the watchdog can fire. A
+        // request still in flight may yet be accepted, which resets it.
+        let stalled = self.stuck_messages() > 0
+            && now >= self.last_progress + self.config.stall_timeout;
+        if !stalled {
+            self.place(now, pool, step);
+        }
         self.finish(now, step)
     }
 
@@ -986,6 +1000,27 @@ mod tests {
         let (machine, step) = machine.on_wakeup(late, &workers);
         assert!(matches!(machine, BatcherState::Running(_)));
         assert!(step.next_wakeup.is_some_and(|at| at > late));
+    }
+
+    #[test]
+    fn past_the_stall_deadline_no_new_request_starts_until_the_in_flight_one_settles() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let machine = machine(config(1, Duration::ZERO, 1), now);
+        let (machine, step) =
+            machine.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let request = step.sends[0].request;
+
+        let late = now + STALL;
+        let (machine, step) = machine.on_request_failed(
+            late,
+            &workers,
+            request,
+            FailureCause::Busy,
+            vec![message("a", 0, 1)],
+        );
+        assert!(step.sends.is_empty(), "b stays unsent past the deadline");
+        assert!(matches!(machine, BatcherState::Failed));
     }
 
     #[test]
