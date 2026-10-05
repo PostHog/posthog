@@ -9,7 +9,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone as django_timezone
@@ -28,6 +28,7 @@ from products.slack_app.backend.facade.api import slack_artifact_delivery_state_
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.facade.api import SandboxNetworkAccessLevel, upsert_internal_sandbox_env
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 from products.tasks.backend.logic.services.run_actor import (
@@ -47,6 +48,9 @@ from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_
 logger = structlog.get_logger(__name__)
 
 ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
+
+WorkflowTaskNetworkAccess = Literal["full", "posthog_only"]
+WORKFLOW_TASK_POSTHOG_ONLY_ENV_NAME = "WORKFLOW_TASK_POSTHOG_ONLY"
 
 # Caps how much of the triggering event enters the agent's prompt. Slack Block Kit payloads
 # are the usual offender; the flat properties beside them carry the same content.
@@ -156,6 +160,7 @@ def create_workflow_task(
     connector_ids: list[str] | None = None,
     skill_names: list[str] | None = None,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    network_access: WorkflowTaskNetworkAccess = "full",
     max_parallel_tasks: int = 5,
     origin_key: str | None = None,
     event: dict[str, Any] | None = None,
@@ -196,6 +201,11 @@ def create_workflow_task(
 
     `output_schema` is the schema `build_output_schema` made from the step's output fields. It
     becomes `Task.json_schema`, which the agent runtime enforces at the end of the run.
+
+    `network_access` decides what the run's sandbox may reach. `full` leaves egress open, as it
+    always was. `posthog_only` pins the run to an internal environment that admits only the
+    always-on infrastructure hosts (PostHog and the model provider), for steps that feed the agent
+    untrusted text.
     """
     replay = _find_replayed_task(team.id, hog_flow_id, origin_key)
     if replay is not None:
@@ -244,6 +254,10 @@ def create_workflow_task(
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
     skills = resolve_attached_skills(team, gate_owner, skill_names)
+
+    # Also outside the transaction, like the skills read: the upsert is idempotent, so a create
+    # rejected below leaves only a reusable environment behind.
+    sandbox_environment_id = _posthog_only_sandbox_env(team.id) if network_access == "posthog_only" else None
 
     # Snapshot the connector selection onto the run, next to the PostHog MCP scopes the token
     # minter reads back. The mounts themselves follow the same list stamped on the task as its
@@ -387,6 +401,7 @@ def create_workflow_task(
                 mcp_builtin_agent_key="workflow",
                 mcp_credential_owner_id=None,
                 mcp_gateway_server_ids=gateway_server_ids,
+                sandbox_environment_id=sandbox_environment_id,
             )
 
             if slack_binding is not None:
@@ -408,6 +423,23 @@ def create_workflow_task(
     # replay path above, which counts as replayed instead.
     observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
+
+
+def _posthog_only_sandbox_env(team_id: int) -> str:
+    """The environment a `posthog_only` workflow run is pinned to: custom with an empty allowlist
+    and no default domains, the same posture as the support reply drafter. The agent keeps the
+    always-on infrastructure hosts it needs for the PostHog MCP and the model, and nothing else."""
+    return str(
+        upsert_internal_sandbox_env(
+            team_id,
+            WORKFLOW_TASK_POSTHOG_ONLY_ENV_NAME,
+            SandboxNetworkAccessLevel.CUSTOM,
+            private=False,
+            internal=True,
+            allowed_domains=[],
+            include_default_domains=False,
+        )
+    )
 
 
 def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Channel | None:

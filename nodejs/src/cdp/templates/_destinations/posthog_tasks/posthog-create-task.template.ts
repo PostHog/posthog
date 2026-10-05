@@ -57,6 +57,10 @@ if (not empty(inputs.max_parallel_tasks)) {
   payload.max_parallel_tasks := inputs.max_parallel_tasks
 }
 
+if (not empty(inputs.network_access)) {
+  payload.network_access := inputs.network_access
+}
+
 if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_received' and not empty(event.properties.channel) and not empty(event.properties.ts)) {
   payload.slack_context := {
     'integration_id': event.properties.integration_id,
@@ -146,6 +150,20 @@ return task
                 { label: 'Full access', value: 'full' },
             ],
             description: 'What the agent can do in your PostHog project. Read only blocks changes.',
+        },
+        {
+            key: 'network_access',
+            type: 'choice',
+            label: 'Internet access',
+            secret: false,
+            required: false,
+            default: 'full',
+            choices: [
+                { label: 'Full internet', value: 'full' },
+                { label: 'PostHog only', value: 'posthog_only' },
+            ],
+            description:
+                'What the agent can reach directly from its sandbox. PostHog only blocks every site except PostHog and the AI model. Connectors and Full access still reach other services through PostHog, so for untrusted text such as support tickets, pair it with Read only and no connectors. It cannot be combined with a repository.',
         },
         {
             key: 'max_parallel_tasks',

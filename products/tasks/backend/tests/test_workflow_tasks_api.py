@@ -31,7 +31,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
 )
-from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -657,6 +657,41 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state["pending_dispatch"]["create_pr"] is with_repository
+
+    def test_full_network_access_leaves_the_run_unpinned(self) -> None:
+        response = self._post()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "sandbox_environment_id" not in run.state
+
+    def test_posthog_only_pins_the_run_to_a_deny_by_default_environment(self) -> None:
+        response = self._post({"network_access": "posthog_only"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        env = SandboxEnvironment.objects.get(id=run.state["sandbox_environment_id"])
+        assert env.team_id == self.team.id
+        assert env.internal is True
+        assert env.network_access_level == SandboxEnvironment.NetworkAccessLevel.CUSTOM
+        assert env.include_default_domains is False
+        # No requested hosts: the run keeps only the always-on infrastructure hosts.
+        assert env.get_effective_domains() == []
+
+    @parameterized.expand(
+        [
+            ("posthog only with a repository", {"network_access": "posthog_only", "repository": "posthog/posthog"}),
+            ("an unknown level", {"network_access": "trusted"}),
+        ]
+    )
+    def test_rejects_a_network_access_the_run_cannot_honour(self, _name: str, body: dict) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+
+        response = self._post(body)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "network_access"
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:
         teammate = self._create_user("teammate@posthog.com")

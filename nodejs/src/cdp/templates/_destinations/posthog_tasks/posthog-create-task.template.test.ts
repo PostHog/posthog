@@ -81,6 +81,7 @@ describe('posthog create task template', () => {
             connectors: ['0198c9f1-aaaa-0000-0000-000000000001'],
             skills: ['error-triage', 'db-runbook'],
             posthog_mcp_scopes: 'full',
+            network_access: 'full',
             max_parallel_tasks: 3,
             channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
             event: defaultEventBody,
@@ -105,10 +106,17 @@ describe('posthog create task template', () => {
         expect(parseJSON(params.body!)).toEqual({
             prompt: 'Do the thing',
             posthog_mcp_scopes: 'read_only',
+            network_access: 'full',
             max_parallel_tasks: 5,
             event: defaultEventBody,
             idempotency_key: `${invocation.id}:action_1:0`,
         })
+    })
+
+    it('forwards a PostHog-only network choice for the backend to pin', async () => {
+        const { params } = await invokeAndGetFetch({ prompt: 'Summarize the ticket', network_access: 'posthog_only' })
+
+        expect(parseJSON(params.body!).network_access).toBe('posthog_only')
     })
 
     it('asks the agent for the fields the output variables read from the output', async () => {

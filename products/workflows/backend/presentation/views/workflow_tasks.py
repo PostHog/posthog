@@ -138,6 +138,14 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         default="read_only",
         help_text="What the PostHog MCP inside the sandbox may do.",
     )
+    network_access = serializers.ChoiceField(
+        choices=["full", "posthog_only"],
+        default="full",
+        help_text=(
+            "What the agent's sandbox may reach. `posthog_only` allows only PostHog and the model provider, "
+            "and cannot be combined with a repository."
+        ),
+    )
     max_parallel_tasks = serializers.IntegerField(
         min_value=1,
         max_value=100,
@@ -158,6 +166,15 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
             "result as `output.<name>`; text fields are cut at 1500 characters."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # A PostHog-only sandbox cannot reach GitHub, so a repository run would fail at clone time.
+        # Rejected here, where the step's error names the field, rather than as a failed run.
+        if attrs.get("network_access") == "posthog_only" and attrs.get("repository"):
+            raise serializers.ValidationError(
+                {"network_access": "PostHog only cannot be combined with a repository: the agent could not clone it."}
+            )
+        return attrs
 
     def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
         if value is None:
@@ -239,6 +256,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 connector_ids=data.get("connectors"),
                 skill_names=data.get("skills"),
                 posthog_mcp_scopes=data["posthog_mcp_scopes"],
+                network_access=data["network_access"],
                 max_parallel_tasks=data["max_parallel_tasks"],
                 origin_key=data.get("idempotency_key"),
                 event=data.get("event"),
