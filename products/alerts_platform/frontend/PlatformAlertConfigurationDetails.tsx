@@ -3,7 +3,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { OptionalTimeLabel } from './OptionalTimeLabel'
 import {
-    SOURCE_KIND_LABELS,
+    SOURCE_KINDS,
     configurationStatus,
     describeCondition,
     describeQuietHours,
@@ -17,7 +17,7 @@ export function PlatformAlertConfigurationDetails({
     configuration: PlatformAlertConfigurationApi
 }): JSX.Element {
     const rows: [string, JSX.Element | string | number][] = [
-        ['Source', SOURCE_KIND_LABELS[configuration.source_kind] ?? configuration.source_kind],
+        ['Source', SOURCE_KINDS[configuration.source_kind].label],
         ['Status', <PlatformAlertStatusTag key="status" status={configurationStatus(configuration)} />],
         ['Condition', describeCondition(configuration)],
         ['Schedule', describeSchedule(configuration)],

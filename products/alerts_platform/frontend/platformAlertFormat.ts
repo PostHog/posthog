@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
@@ -7,8 +9,22 @@ import {
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
 
-export const SOURCE_KIND_LABELS: Record<PlatformAlertConfigurationSourceKindEnumApi, string> = {
-    [PlatformAlertConfigurationSourceKindEnumApi.Logs]: 'Logs',
+interface SourceKind {
+    label: string
+    // The source product's own page for the alert, reached through the legacy configuration id.
+    alertUrl?: (legacyConfigurationId: string) => string
+}
+
+export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, SourceKind> = {
+    [PlatformAlertConfigurationSourceKindEnumApi.Logs]: {
+        label: 'Logs',
+        alertUrl: (legacyConfigurationId) => urls.logsAlertDetail(legacyConfigurationId),
+    },
+}
+
+export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {
+    const { alertUrl } = SOURCE_KINDS[configuration.source_kind]
+    return alertUrl && configuration.legacy_configuration_id ? alertUrl(configuration.legacy_configuration_id) : null
 }
 
 // Most urgent first, so a configuration shows the state that needs attention.

@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,7 +12,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PlatformAlertConfigurationApi } from './generated/api.schemas'
-import { SOURCE_KIND_LABELS, configurationStatus, describeCondition, describeSchedule } from './platformAlertFormat'
+import { OptionalTimeLabel } from './OptionalTimeLabel'
+import { SOURCE_KINDS, configurationStatus, describeCondition, describeSchedule } from './platformAlertFormat'
 import { PLATFORM_ALERTS_PAGE_SIZE, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStatusTag } from './PlatformAlertStatusTag'
 
@@ -21,6 +21,44 @@ export const scene: SceneExport = {
     component: PlatformAlertsScene,
     logic: platformAlertsLogic,
 }
+
+const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
+    {
+        title: 'Name',
+        dataIndex: 'name',
+        render: (_, configuration) => (
+            <Link to={urls.platformAlert(configuration.id)} data-attr="platform-alerts-row-link">
+                {configuration.name}
+            </Link>
+        ),
+    },
+    {
+        title: 'Source',
+        dataIndex: 'source_kind',
+        render: (_, configuration) => SOURCE_KINDS[configuration.source_kind].label,
+    },
+    {
+        title: 'Status',
+        render: (_, configuration) => <PlatformAlertStatusTag status={configurationStatus(configuration)} />,
+    },
+    {
+        title: 'Condition',
+        render: (_, configuration) => describeCondition(configuration),
+    },
+    {
+        title: 'Schedule',
+        render: (_, configuration) => describeSchedule(configuration),
+    },
+    {
+        title: 'Groups',
+        render: (_, configuration) => configuration.alerts.length,
+    },
+    {
+        title: 'Next check',
+        dataIndex: 'next_check_at',
+        render: (_, configuration) => <OptionalTimeLabel time={configuration.next_check_at} fallback="Not scheduled" />,
+    },
+]
 
 export function PlatformAlertsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -31,49 +69,6 @@ export function PlatformAlertsScene(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    const columns: LemonTableColumns<PlatformAlertConfigurationApi> = [
-        {
-            title: 'Name',
-            dataIndex: 'name',
-            render: (_, configuration) => (
-                <Link to={urls.platformAlert(configuration.id)} data-attr="platform-alerts-row-link">
-                    {configuration.name}
-                </Link>
-            ),
-        },
-        {
-            title: 'Source',
-            dataIndex: 'source_kind',
-            render: (_, configuration) => SOURCE_KIND_LABELS[configuration.source_kind] ?? configuration.source_kind,
-        },
-        {
-            title: 'Status',
-            render: (_, configuration) => <PlatformAlertStatusTag status={configurationStatus(configuration)} />,
-        },
-        {
-            title: 'Condition',
-            render: (_, configuration) => describeCondition(configuration),
-        },
-        {
-            title: 'Schedule',
-            render: (_, configuration) => describeSchedule(configuration),
-        },
-        {
-            title: 'Groups',
-            render: (_, configuration) => configuration.alerts.length,
-        },
-        {
-            title: 'Next check',
-            dataIndex: 'next_check_at',
-            render: (_, configuration) =>
-                configuration.next_check_at ? (
-                    <TZLabel time={configuration.next_check_at} />
-                ) : (
-                    <span className="text-secondary">Not scheduled</span>
-                ),
-        },
-    ]
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -81,7 +76,7 @@ export function PlatformAlertsScene(): JSX.Element {
                 description="Alert configurations evaluated by the shared alerts platform. Read only."
                 resourceType={{ type: 'inbox' }}
             />
-            {configurationsError && !configurationsPage ? (
+            {configurationsError ? (
                 <LemonBanner
                     type="error"
                     action={{
@@ -92,10 +87,11 @@ export function PlatformAlertsScene(): JSX.Element {
                 >
                     Couldn't load alert configurations. Try again in a moment.
                 </LemonBanner>
-            ) : (
+            ) : null}
+            {configurationsPage || !configurationsError ? (
                 <LemonTable
                     dataSource={configurationsPage?.results ?? []}
-                    columns={columns}
+                    columns={COLUMNS}
                     loading={configurationsPageLoading}
                     rowKey="id"
                     emptyState="No alert configurations on the platform for this project yet."
@@ -108,7 +104,7 @@ export function PlatformAlertsScene(): JSX.Element {
                         onBackward: page > 1 ? () => setPage(page - 1) : undefined,
                     }}
                 />
-            )}
+            ) : null}
         </SceneContent>
     )
 }

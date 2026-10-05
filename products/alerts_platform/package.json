@@ -6,15 +6,12 @@
     },
     "dependencies": {
         "kea": "catalog:",
-        "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-loaders": "catalog:"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:",
-        "kea-test-utils": "catalog:"
+        "@storybook/react": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
         "react": "*"
