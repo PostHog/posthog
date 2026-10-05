@@ -14,6 +14,7 @@ import {
 } from '~/types'
 
 import {
+    getHomeTabAudienceOptions,
     getHomeTabBreakdownOptions,
     getHomeTabChartOptions,
     getHomeTabExploreUrl,
@@ -197,6 +198,37 @@ describe('homeTabDefaultTiles', () => {
         }
         const destination = combineUrl(getHomeTabExploreUrl(options[2].query))
         expect(JSON.parse(destination.hashParams.q).source.breakdownFilter.breakdown).toBe('event')
+    })
+
+    it('counts web and mobile activity with the series and filters supported by each audience chart', () => {
+        const [map, devices, calendar] = getHomeTabAudienceOptions({ date_from: '-1h', date_to: null })
+        expect(map.query.source).toMatchObject({
+            series: [
+                {
+                    kind: NodeKind.GroupNode,
+                    math: BaseMathType.UniqueUsers,
+                    nodes: [{ event: '$pageview' }, { event: '$screen' }],
+                },
+            ],
+            dateRange: { date_from: '-1h', date_to: null },
+            compareFilter: { compare: false },
+            trendsFilter: { display: ChartDisplayType.WorldMap },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event', breakdown_limit: 250 },
+        })
+        expect(devices.query.source).toMatchObject({
+            series: [{ math: BaseMathType.UniqueSessions }],
+            trendsFilter: { display: ChartDisplayType.ActionsDonut },
+            breakdownFilter: { breakdown: '$device_type' },
+        })
+        expect(calendar.query.source).toMatchObject({
+            series: [{ kind: NodeKind.EventsNode, event: null, math: BaseMathType.UniqueUsers }],
+            properties: [{ key: 'event', type: 'event_metadata', operator: 'exact', value: ['$pageview', '$screen'] }],
+            trendsFilter: { display: ChartDisplayType.CalendarHeatmap },
+        })
+        for (const chart of [map, devices, calendar]) {
+            const destination = combineUrl(getHomeTabExploreUrl(chart.query))
+            expect(JSON.parse(destination.hashParams.q).source).toEqual(JSON.parse(JSON.stringify(chart.query.source)))
+        }
     })
 
     it.each(['active_users', 'retention'])('opens %s in the insight editor with its selected range', (key) => {

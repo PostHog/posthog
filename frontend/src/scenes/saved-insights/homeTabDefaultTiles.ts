@@ -109,7 +109,7 @@ function getHomeTabRetentionIntervals(dateRange: DateRange): number {
     return Math.min(12, Math.max(2, Math.ceil(rangeDays / 7) + 1))
 }
 
-function trendsQuery(series: GroupNode, dateRange: DateRange, compare: boolean): TrendsQuery {
+function trendsQuery(series: GroupNode | EventsNode, dateRange: DateRange, compare: boolean): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [series],
@@ -314,6 +314,77 @@ export function getHomeTabChartOptions(dateRange: DateRange, compare: boolean): 
                             ],
                         },
                     },
+                },
+            },
+        },
+    ]
+}
+
+export function getHomeTabAudienceOptions(dateRange: DateRange): HomeTabChartOption[] {
+    return [
+        {
+            key: 'users_by_country',
+            title: 'Active users by country',
+            description: 'Where people use your product, based on IP geolocation.',
+            query: {
+                kind: NodeKind.InsightVizNode,
+                embedded: true,
+                source: {
+                    ...trendsQuery(activityEvent(BaseMathType.UniqueUsers), dateRange, false),
+                    trendsFilter: { display: ChartDisplayType.WorldMap },
+                    breakdownFilter: {
+                        breakdown: '$geoip_country_code',
+                        breakdown_type: 'event',
+                        breakdown_limit: 250,
+                        breakdown_hide_other_aggregation: true,
+                    },
+                },
+            },
+        },
+        {
+            key: 'sessions_by_device',
+            title: 'Sessions by device',
+            description: 'See the mix of desktop, mobile, and tablet sessions.',
+            query: {
+                kind: NodeKind.InsightVizNode,
+                embedded: true,
+                source: {
+                    ...trendsQuery(activityEvent(BaseMathType.UniqueSessions), dateRange, false),
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsDonut,
+                        showLegend: true,
+                        legendPosition: 'bottom',
+                    },
+                    breakdownFilter: {
+                        breakdown: '$device_type',
+                        breakdown_type: 'event',
+                        breakdown_limit: 8,
+                    },
+                },
+            },
+        },
+        {
+            key: 'active_hours',
+            title: 'Active hours',
+            description: 'See when people are active by weekday and hour, in your project timezone.',
+            query: {
+                kind: NodeKind.InsightVizNode,
+                embedded: true,
+                source: {
+                    ...trendsQuery(
+                        { kind: NodeKind.EventsNode, event: null, math: BaseMathType.UniqueUsers },
+                        dateRange,
+                        false
+                    ),
+                    properties: [
+                        {
+                            key: 'event',
+                            type: PropertyFilterType.EventMetadata,
+                            operator: PropertyOperator.Exact,
+                            value: ['$pageview', '$screen'],
+                        },
+                    ],
+                    trendsFilter: { display: ChartDisplayType.CalendarHeatmap },
                 },
             },
         },
