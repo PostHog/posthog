@@ -202,8 +202,14 @@ export function MaxFileSizeField(): JSX.Element {
 }
 
 // Included in every destination's event table preview except HTTP, which posts capture-format
-// payloads and does not export the column.
-export const PERSON_PROPERTIES_EVENT_FIELD: Record<string, DatabaseSchemaField> = {
+// payloads and does not export these columns.
+export const PERSON_EVENT_FIELDS: Record<string, DatabaseSchemaField> = {
+    person_id: {
+        name: 'person_id',
+        hogql_value: 'toString(person_id)',
+        type: 'string',
+        schema_valid: true,
+    },
     person_properties: {
         name: 'person_properties',
         hogql_value: "nullIf(person_properties, '')",
@@ -214,13 +220,7 @@ export const PERSON_PROPERTIES_EVENT_FIELD: Record<string, DatabaseSchemaField> 
 
 // Event table preview columns shared by every S3-family destination (S3, AwsS3, S3Compatible).
 export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaField> = {
-    person_id: {
-        name: 'person_id',
-        hogql_value: 'toString(person_id)',
-        type: 'string',
-        schema_valid: true,
-    },
-    ...PERSON_PROPERTIES_EVENT_FIELD,
+    ...PERSON_EVENT_FIELDS,
     created_at: {
         name: 'created_at',
         hogql_value: 'created_at',
