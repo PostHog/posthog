@@ -188,7 +188,7 @@ function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): 
 }
 
 const meta: Meta<typeof PipelineOverviewScene> = {
-    title: 'Scenes-App/ELT',
+    title: 'Scenes-App/ETL',
     component: PipelineOverviewScene,
     parameters: {
         layout: 'fullscreen',
