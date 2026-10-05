@@ -729,7 +729,7 @@ _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
 
 
 def _get_product_from_module(module: str) -> str | None:
-    """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
+    """Extract product folder name from module path like 'products.batch_exports.backend.presentation.views'."""
     if is_product_module(module):
         parts = module.split(".")
         if len(parts) >= 2:

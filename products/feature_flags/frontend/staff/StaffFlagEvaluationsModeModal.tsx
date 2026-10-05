@@ -20,7 +20,7 @@ import { FLAG_EVALUATIONS_MODE_LABELS, featureFlagsStaffToolsLogic } from './fea
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
     0: 'The Usage tab reads $feature_flag_called events from the events table.',
     1: 'The Usage tab reads the flag_evaluations table, and the table is available in SQL. While the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, the Usage tab reads the events table instead.',
-    2: 'The Usage tab and any events list filtered to $feature_flag_called read the flag_evaluations table, and the table is available in SQL. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.',
+    2: "The Usage tab, the per-project counts on a flag's Projects tab, and any events list filtered to $feature_flag_called read the flag_evaluations table, and the table is available in SQL. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.",
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {
