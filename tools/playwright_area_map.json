@@ -158,6 +158,7 @@
         ],
         "products/data_quality/frontend/**": ["playwright/e2e/data-quality-overview.spec.ts"],
         "products/workflows/frontend/**": [
+            "playwright/e2e/workflows-email-step-test-send.spec.ts",
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts"
         ],
