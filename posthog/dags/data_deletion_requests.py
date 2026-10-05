@@ -1145,14 +1145,19 @@ def _cleaned_select_list(
         "AND default_kind NOT IN ('MATERIALIZED', 'ALIAS', 'EPHEMERAL') ORDER BY position",
         {"db": django_settings.CLICKHOUSE_DATABASE, "table": target.table},
     )
+    [[engine]] = client.execute(
+        "SELECT engine FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        {"db": django_settings.CLICKHOUSE_DATABASE, "table": target.table},
+    )
     params: dict = {"inserted_at_marker": marker_str}
-    replacements: dict[str, str] = {
-        "inserted_at": "toDateTime64(%(inserted_at_marker)s, 6, 'UTC')",
-        # Bump the ReplacingMergeTree version (ver=_timestamp) past the original's, so a merge that
-        # meets a cleaned row and an original with the same sorting key keeps the cleaned row. +1
-        # second because _timestamp is second-precision while the marker is microsecond-precision.
-        "_timestamp": "toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1",
-    }
+    replacements: dict[str, str] = {"inserted_at": "toDateTime64(%(inserted_at_marker)s, 6, 'UTC')"}
+    # Bump the ReplacingMergeTree version (ver=_timestamp) past the original's, so a merge that
+    # meets a cleaned row and an original with the same sorting key keeps the cleaned row. +1
+    # second because _timestamp is second-precision while the marker is microsecond-precision.
+    # A plain MergeTree such as flag_evaluations keeps the original value, because there _timestamp
+    # is the Kafka message time that flag_evaluations_backfill reads as the consumer position.
+    if "ReplacingMergeTree" in engine:
+        replacements["_timestamp"] = "toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1"
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and
     # let the cast below turn the cleaned string back into the JSON column type.
     if deletion_request.properties:

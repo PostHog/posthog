@@ -134,13 +134,15 @@ def _truncate_writable_events(client: Client) -> None:
 
 
 def _insert_flag_evaluations_with_properties(rows: list[tuple], client: Client) -> None:
-    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at). The event name is
-    # stamped here because a property-removal request narrows on it. inserted_at is set explicitly
-    # rather than left to its `DEFAULT timestamp` so a test can place a row before or after the
-    # removal marker, which is what the marker-bounded gate keys on.
+    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at[, _timestamp]). The
+    # event name is stamped here because a property-removal request narrows on it. inserted_at is set
+    # explicitly rather than left to its `DEFAULT timestamp` so a test can place a row before or after
+    # the removal marker, which is what the marker-bounded gate keys on.
+    columns = "team_id, distinct_id, properties, uuid, timestamp, inserted_at"
+    if rows and len(rows[0]) == 7:
+        columns += ", _timestamp"
     client.execute(
-        "INSERT INTO writable_flag_evaluations "
-        "(team_id, distinct_id, properties, uuid, timestamp, inserted_at, event) VALUES",
+        f"INSERT INTO writable_flag_evaluations ({columns}, event) VALUES",
         [(*row, FLAG_EVALUATIONS_SOURCE_EVENT) for row in rows],
     )
 
@@ -1034,11 +1036,14 @@ PROP_TEAM_ID = 88888
 
 def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
     client = Mock(spec=Client)
-    client.execute.return_value = [
-        ("properties", "String"),
-        ("person_properties", "String"),
-        ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
-        ("_timestamp", "DateTime"),
+    client.execute.side_effect = [
+        [
+            ("properties", "String"),
+            ("person_properties", "String"),
+            ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
+            ("_timestamp", "DateTime"),
+        ],
+        [("ReplicatedReplacingMergeTree",)],
     ]
     request = DeletionRequestContext(
         request_id=str(uuid4()),
@@ -2667,14 +2672,17 @@ def test_verify_property_removal_narrows_person_properties_on_flag_evaluations(
     cluster.any_host(_truncate_flag_evaluations).result()
 
 
-def _flag_evaluation_rows(team_id: int, client: Client) -> list[tuple[str, dict, str, str]]:
+def _flag_evaluation_rows(team_id: int, client: Client) -> list[tuple[str, dict, str, str, int]]:
     rows = client.execute(
-        "SELECT toString(uuid), properties, flag_key, session_id FROM flag_evaluations "
+        "SELECT toString(uuid), properties, flag_key, session_id, toUnixTimestamp(_timestamp) FROM flag_evaluations "
         "WHERE team_id = %(team_id)s AND _row_exists = 1",
         {"team_id": team_id},
     )
     return sorted(
-        ((uuid, json.loads(properties), flag_key, session_id) for uuid, properties, flag_key, session_id in rows),
+        (
+            (uuid, json.loads(properties), flag_key, session_id, kafka_time)
+            for uuid, properties, flag_key, session_id, kafka_time in rows
+        ),
         key=lambda row: row[0],
     )
 
@@ -2693,10 +2701,11 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
 ) -> None:
     now = timezone.now()
     ingested = now - timedelta(hours=1)
+    kafka_time = ingested.replace(microsecond=0)
     stored = {"$feature_flag": "beta", "$session_id": "s1", "keep": "yes"}
     replayed_uuid, single_uuid = str(uuid4()), str(uuid4())
     rows = [
-        (PROP_TEAM_ID, "someone", json.dumps(stored), uuid, ingested, ingested)
+        (PROP_TEAM_ID, "someone", json.dumps(stored), uuid, ingested, ingested, kafka_time)
         for uuid in (replayed_uuid, replayed_uuid, single_uuid)
     ]
     cluster.any_host(_truncate_flag_evaluations).result()
@@ -2719,8 +2728,9 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
     assert result.success
 
     cleaned = {key: value for key, value in stored.items() if key not in properties}
+    # _timestamp keeps the Kafka message time, which flag_evaluations_backfill reads as the consumer position.
     expected = [
-        (uuid, cleaned, cleaned.get("$feature_flag", ""), cleaned.get("$session_id", ""))
+        (uuid, cleaned, cleaned.get("$feature_flag", ""), cleaned.get("$session_id", ""), int(kafka_time.timestamp()))
         for uuid in sorted((replayed_uuid, replayed_uuid, single_uuid))
     ]
     assert cluster.any_host(partial(_flag_evaluation_rows, PROP_TEAM_ID)).result() == expected
