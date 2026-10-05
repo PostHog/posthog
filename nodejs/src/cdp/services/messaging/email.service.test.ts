@@ -272,6 +272,8 @@ describe('EmailService', () => {
                     dailyTeamCap = '100',
                     dailyRecipientCap = '100',
                     tenantName = 'sandbox-tenant',
+                    configurationSetName = 'sandbox-email',
+                    fromAddress = 'fixed-sandbox@example.com',
                     senderState = new SandboxSenderStateService(hub.postgres, hub.pubSub),
                 }: {
                     tierLimiter?: RateLimiterService | null
@@ -281,6 +283,8 @@ describe('EmailService', () => {
                     dailyTeamCap?: string
                     dailyRecipientCap?: string
                     tenantName?: string
+                    configurationSetName?: string
+                    fromAddress?: string
                     senderState?: SandboxSenderStateService
                 } = {}
             ): EmailService => {
@@ -310,8 +314,8 @@ describe('EmailService', () => {
                         {
                             enabled,
                             tenantName,
-                            configurationSetName: 'sandbox-email',
-                            fromAddress: 'fixed-sandbox@example.com',
+                            configurationSetName,
+                            fromAddress,
                             dailyTeamCap,
                             dailyRecipientCap,
                         },
@@ -1012,43 +1016,56 @@ describe('EmailService', () => {
             })
 
             it.each([
-                [false, {}],
-                [true, {}],
-                [false, { verified: false }],
-                [false, { name: '' }],
-            ] as const)('skips with the global switch off (isTest=%s, identity=%j)', async (isTest, senderConfig) => {
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'UPDATE posthog_integration SET config = config || $1::jsonb WHERE team_id = $2 AND id = $3',
-                    [JSON.stringify(senderConfig), team.id, getIntegrationId(4)],
-                    'test:update-sandbox-sender'
-                )
-                service = createSandboxService(false)
-                const result = await service.executeSendEmail(invocation, isTest)
+                ['the global switch is off', false, false, {}, {}],
+                ['the global switch is off', true, false, {}, {}],
+                ['the global switch is off', false, false, {}, { verified: false }],
+                ['the global switch is off', false, false, {}, { name: '' }],
+                ['the sandbox tenant name is empty', false, true, { tenantName: '' }, {}],
+                ['the sandbox configuration set is empty', true, true, { configurationSetName: ' ' }, {}],
+                ['the sandbox From address is empty', false, true, { fromAddress: '' }, {}],
+            ] as const)(
+                'skips sandbox sends only when %s (isTest=%s, enabled=%s, route=%j, identity=%j)',
+                async (_name, isTest, enabled, route, senderConfig) => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_integration SET config = config || $1::jsonb WHERE team_id = $2 AND id = $3',
+                        [JSON.stringify(senderConfig), team.id, getIntegrationId(4)],
+                        'test:update-sandbox-sender'
+                    )
+                    service = createSandboxService(enabled, route)
+                    const result = await service.executeSendEmail(invocation, isTest)
 
-                expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
-                expect(result.error).toBeUndefined()
-                expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
-                expect(sendEmailSpy).not.toHaveBeenCalled()
-                expect(result.logs).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            level: 'info',
-                            message:
-                                'Skipping send: the sandbox sender is unavailable right now. Verify your own domain to keep sending.',
-                        }),
-                    ])
-                )
-                expect(capture).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: team.id }),
-                    'workflows sandbox email blocked',
-                    {
-                        reason: 'switch_off',
-                        is_test: isTest,
-                        blocked_recipient_count: 0,
-                    }
-                )
-            })
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result.logs).toEqual(
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                level: 'info',
+                                message:
+                                    'Skipping send: the sandbox sender is unavailable right now. Verify your own domain to keep sending.',
+                            }),
+                        ])
+                    )
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        {
+                            reason: 'switch_off',
+                            is_test: isTest,
+                            blocked_recipient_count: 0,
+                        }
+                    )
+
+                    invocation.state.vmState = { stack: [] } as any
+                    invocation.queueParameters = createSandboxParams({ from: { integrationId: 1 } })
+                    const ownSender = await service.executeSendEmail(invocation, isTest)
+                    expect(ownSender.error).toBeUndefined()
+                    expect(ownSender.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                }
+            )
 
             it.each([
                 [

@@ -604,7 +604,7 @@ export class EmailService {
                 )
             }
 
-            if (isSandbox && !this.sandboxSender?.config.enabled) {
+            if (isSandbox && !this.sandboxSender?.canSend) {
                 addLog(
                     'info',
                     'Skipping send: the sandbox sender is unavailable right now. Verify your own domain to keep sending.'

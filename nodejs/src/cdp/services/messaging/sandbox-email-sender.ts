@@ -22,6 +22,20 @@ export interface SandboxEmailSenderConfig {
     dailyRecipientCap: string
 }
 
+const ROUTE_SETTING_NAMES = {
+    tenantName: 'SES_SANDBOX_TENANT_NAME',
+    configurationSetName: 'SES_SANDBOX_CONFIGURATION_SET',
+    fromAddress: 'SES_SANDBOX_FROM_ADDRESS',
+} as const
+
+type RouteSetting = keyof typeof ROUTE_SETTING_NAMES
+
+function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
+    return (Object.keys(ROUTE_SETTING_NAMES) as RouteSetting[])
+        .filter((setting) => !config[setting].trim())
+        .map((setting) => ROUTE_SETTING_NAMES[setting])
+}
+
 export type SandboxDailyCapClaim =
     | { type: 'granted' }
     | { type: 'project_cap_reached' }
@@ -141,12 +155,22 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 }
 
 export class SandboxEmailSender {
+    public readonly canSend: boolean
+
     constructor(
         public readonly config: SandboxEmailSenderConfig,
         private teamManager: TeamManager,
         private dailyCapLimiter: RateLimiterService | null,
         private senderState: SandboxSenderStateService
-    ) {}
+    ) {
+        const emptySettings = emptyRouteSettings(config)
+        if (config.enabled && emptySettings.length) {
+            logger.error('The sandbox sender is switched on with empty route settings, so it skips every send', {
+                emptySettings,
+            })
+        }
+        this.canSend = config.enabled && !emptySettings.length
+    }
 
     public async pauseGate(): Promise<'open' | 'paused' | 'check_failed'> {
         try {
