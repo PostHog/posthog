@@ -20,7 +20,7 @@ class Element(models.Model):
     group = models.ForeignKey("ElementGroup", on_delete=models.CASCADE, null=True, blank=True)
 
 
-parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE)
+parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>(?:[^\"\\]|\\.)*)\")", re.MULTILINE)
 
 # Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
 split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
@@ -111,12 +111,19 @@ def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str]
     return matches
 
 
+def _int_or_none(value: str) -> int | None:
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 _PROMOTED_ATTRIBUTES: dict[str, tuple[str, Callable[[str], object]]] = {
     "text": ("text", str),
     "href": ("href", str),
     "attr_id": ("attr_id", str),
-    "nth-child": ("nth_child", int),
-    "nth-of-type": ("nth_of_type", int),
+    "nth-child": ("nth_child", _int_or_none),
+    "nth-of-type": ("nth_of_type", _int_or_none),
 }
 
 
