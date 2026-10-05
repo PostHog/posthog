@@ -339,6 +339,7 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
 
 - **Right-size, don't over-isolate.** One heavy consumer (change detection on a hot matrix) deserves its own app; a long tail of light workflows can share `GITHUB_TOKEN`.
   Convention: `GH_APP_<PURPOSE>_APP_ID` (an org **variable** — app IDs are not sensitive, and org secret slots are capped at 100) + `GH_APP_<PURPOSE>_PRIVATE_KEY` (an org secret).
+- **A secret holds a credential and nothing else.** Configuration a workflow reads (an ID, a date, a limit, a switch) is a variable, because org secret slots are capped at 100. Do not move a variable to a secret to keep its value out of the run log. If the value must stay out of a public log, raise that with the person who owns the workflow.
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
 
