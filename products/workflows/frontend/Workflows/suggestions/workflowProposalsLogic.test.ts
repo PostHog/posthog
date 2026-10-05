@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
-jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
+jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn(), openForm: jest.fn() } }))
 
 const confirmTheDialog = (): void => {
     const call = (LemonDialog.open as jest.Mock).mock.calls.at(-1)
@@ -280,9 +280,24 @@ describe('workflowProposalsLogic', () => {
         expect(logic.values.rejectedProposals.map((p) => p.id)).toEqual(['rejected-earlier'])
 
         await expectLogic(logic, () => {
-            logic.actions.confirmRejectProposal(PROPOSAL_ID)
+            logic.actions.confirmRejectProposal(PROPOSAL_ID, '')
         }).toDispatchActions(['removeResolvedProposal', 'loadRejected', 'loadRejectedSuccess'])
 
         expect(logic.values.rejectedProposals.map((p) => p.id)).toEqual([PROPOSAL_ID, 'rejected-earlier'])
+    })
+
+    it('reopens the reject dialog with the reason when the request fails', async () => {
+        useMocks({
+            post: { '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': () => [500, {}] },
+        })
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
+        ;(LemonDialog.openForm as jest.Mock).mockClear()
+
+        logic.actions.confirmRejectProposal(PROPOSAL_ID, 'It is the sign-off email.')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((LemonDialog.openForm as jest.Mock).mock.calls.at(-1)[0].initialValues).toEqual({
+            reason: 'It is the sign-off email.',
+        })
     })
 })
