@@ -4078,21 +4078,21 @@ Note: The Redoc page at hightouch.com/docs/api-reference loads its spec from htt
 
 ## Honeybadger — gaps
 
-Today (9): `affected_users`, `deploys`, `environments`, `faults`, `notices`, `occurrences`, `outages`, `projects`, `sites`
+Today (13): `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `occurrences`, `outages`, `projects`, `sites`, `uptime_checks`
 
 Diffed against: <https://docs.honeybadger.io/api/>
 
 - [x] `projects/{id}/occurrences` — error occurrence counts over time - Honeybadger's headline volume metric, and we already sync faults (high)
 - [ ] `projects/{id}/faults/{id}/occurrences` — per-fault occurrence counts over time; skipped, one request per fault for a rolling window, and per-fault history is derivable from `notices` (low)
-- [ ] `projects/{id}/sites/{id}/uptime_checks` — the actual uptime measurements behind the sites table we already sync (high)
+- [x] `projects/{id}/sites/{id}/uptime_checks` — the actual uptime measurements behind the sites table we already sync (high). Added as `uptime_checks` (fan-out over `sites`, incremental on `created_at`; off by default).
 - [x] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
 - [x] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)
 - [x] `projects/{id}/environments` — lookup table resolving the environment names carried on faults and deploys (high)
 - [ ] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium)
 - [ ] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium)
-- [ ] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium)
-- [ ] `projects/{id}/alarms/{id}/history` — alarm state transition history - classic state-change fact table (medium)
-- [ ] `projects/{id}/faults/{id}/comments` — triage discussion attached to faults we already sync (medium)
+- [x] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium). Added as `check_ins` (full refresh).
+- [x] `projects/{id}/alarms/{id}/history` — alarm state transition history - classic state-change fact table (medium). Added as `alarm_history` (fan-out over alarms, full refresh; off by default).
+- [x] `projects/{id}/faults/{id}/comments` — triage discussion attached to faults we already sync (medium). Added as `comments` (fan-out over `faults`, full refresh; off by default).
 - [ ] `teams/{id}/team_members` — membership table resolving assignee/owner references (low)
 - [ ] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low)
 
