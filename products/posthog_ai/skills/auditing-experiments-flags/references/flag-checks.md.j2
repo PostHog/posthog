@@ -3,6 +3,9 @@
 
 Run these checks against each flag fetched via `feature-flag-get-definition` or `feature-flag-get-all`.
 
+A `feature-flag-get-all` row carries `id`, `key`, `name`, `updated_at`, `status`, `tags`, `last_called_at`, `active` and `created_at`.
+It does not carry `filters` or `experiment_set`, so fetch the definition for any check that reads those.
+
 ---
 
 ## 1. Staleness: fully rolled out
