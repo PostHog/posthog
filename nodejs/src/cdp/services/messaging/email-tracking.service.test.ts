@@ -17,6 +17,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-to
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import * as posthog from '~/common/utils/posthog'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -719,6 +720,94 @@ describe('EmailTrackingService', () => {
                     deleted: false,
                 },
             ])
+        })
+    })
+
+    describe('SES webhook records sandbox deliveries', () => {
+        const sandboxConfigurationSet = 'posthog-messaging-sandbox'
+        let app: express.Application
+        let server: Server
+        let verifySignatureSpy: jest.SpyInstance
+        let capture: jest.SpyInstance
+
+        beforeEach(() => {
+            hub.SES_SANDBOX_CONFIGURATION_SET = sandboxConfigurationSet
+            const api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
+            app = setupExpressApp()
+            app.use('/', api.router())
+            server = app.listen(0, () => {})
+
+            verifySignatureSpy = jest
+                .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
+                .mockResolvedValue(true)
+            capture = jest.spyOn(posthog, 'captureTeamEvent').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            server.close()
+            verifySignatureSpy.mockRestore()
+            capture.mockRestore()
+        })
+
+        const postDelivery = async (configurationSet: string, isTest: boolean): Promise<supertest.Response> => {
+            const trackingCode = signer.generate(
+                { functionId: 'function-id', id: 'invocation-id', teamId: team.id },
+                isTest
+            )
+            const sesRecord = {
+                eventType: 'Delivery',
+                mail: {
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                    source: 'sandbox@example.com',
+                    messageId: 'ses-message-id',
+                    destination: ['member@example.com'],
+                    headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                    tags: { 'ses:configuration-set': [configurationSet] },
+                },
+                delivery: {
+                    timestamp: '2024-01-01T00:00:01.000Z',
+                    recipients: ['member@example.com'],
+                },
+            }
+            const envelope = {
+                Type: 'Notification',
+                MessageId: 'sns-message-id',
+                TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                Message: JSON.stringify(sesRecord),
+                Timestamp: '2024-01-01T00:00:01.000Z',
+                SignatureVersion: '1',
+                Signature: 'stubbed',
+                SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            }
+            return await supertest(app)
+                .post('/public/m/ses_webhook')
+                .set('Content-Type', 'text/plain')
+                .send(JSON.stringify(envelope))
+        }
+
+        it.each([false, true])(
+            'captures one delivered event for a delivery on the sandbox set (test send: %s)',
+            async (isTest) => {
+                const res = await postDelivery(sandboxConfigurationSet, isTest)
+
+                expect(res.status).toBe(200)
+                expect(capture).toHaveBeenCalledTimes(1)
+                expect(capture).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: team.id, organization_id: team.organization_id }),
+                    'workflows sandbox email delivered',
+                    { is_test: isTest }
+                )
+            }
+        )
+
+        it('captures no delivered event for a delivery on another configuration set', async () => {
+            const res = await postDelivery('posthog-messaging-tracked', false)
+
+            expect(res.status).toBe(200)
+            expect(capture).not.toHaveBeenCalled()
         })
     })
 

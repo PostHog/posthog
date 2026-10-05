@@ -1,12 +1,14 @@
 from datetime import timedelta
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
@@ -20,6 +22,7 @@ from products.workflows.backend.services.email_sending_tier import (
     apply_tier_decision,
     decide_tier,
     highest_qualifying_tier,
+    recompute_email_sending_tier_for_team,
     recompute_email_sending_tiers,
 )
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
@@ -444,6 +447,48 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._run({self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)})
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == tier
+
+
+@override_settings(**TIER_SETTINGS)
+class TestSandboxSendsInTierHistory(ClickhouseTestMixin, BaseTest):
+    def _record_sends(self, *, days_ago: int, sent: int, sandbox_sent: int) -> None:
+        for metric_name, count in (("email_sent", sent), ("email_sandbox_sent", sandbox_sent)):
+            if count:
+                create_app_metric2(
+                    team_id=self.team.pk,
+                    app_source="hog_flow",
+                    metric_kind="email",
+                    metric_name=metric_name,
+                    count=count,
+                    timestamp=timezone.now() - timedelta(days=days_ago),
+                )
+
+    @parameterized.expand(
+        [
+            ("no sends decay", 1, 0, 0, 0, "inactive"),
+            ("only sandbox sends decay like no sends", 1, 600, 600, 0, "inactive"),
+            ("sandbox sends do not lift own sends over the use bar", 0, 600, 300, 0, "tier_not_used_enough"),
+            ("own sends over the use bar still promote", 0, 900, 300, 1, "clean_and_used"),
+        ]
+    )
+    def test_only_own_sends_count_toward_tier_history(
+        self, _name: str, current_tier: int, sent: int, sandbox_sent: int, expected_tier: int, expected_reason: str
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_tier": current_tier,
+                "email_sending_tier_updated_at": timezone.now() - timedelta(days=40),
+            },
+        )
+        for days_ago in (1, 2):
+            self._record_sends(days_ago=days_ago, sent=sent, sandbox_sent=sandbox_sent)
+
+        decision = recompute_email_sending_tier_for_team(self.team.id)
+
+        assert decision is not None
+        assert (decision.new_tier, decision.reason) == (expected_tier, expected_reason)
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
 
 
 @override_settings(**TIER_SETTINGS)
