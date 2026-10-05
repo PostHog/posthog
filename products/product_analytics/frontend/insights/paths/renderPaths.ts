@@ -1,11 +1,18 @@
 import * as d3 from 'd3'
 import { RefObject } from 'react'
 
+import {
+    sankeyJustify,
+    sankeyLayout,
+    sankeyLinkHorizontal,
+    type SankeyLink,
+    type SankeyLayout,
+} from '@posthog/quill-charts'
+
 import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils/url'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
-import sankey, { sankeyJustify, sankeyLinkHorizontal, type SankeyLink, type SankeyLayout } from '~/vendor/d3/sankey'
 
 // eslint-disable-next-line import/no-cycle
 import { FALLBACK_CANVAS_WIDTH } from './Paths'
@@ -31,7 +38,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
 }
 
 const createSankeyGenerator = (width: number, height: number): SankeyLayout<PathNodeData, {}> => {
-    return sankey<PathNodeData, {}>()
+    return sankeyLayout<PathNodeData, {}>()
         .nodeId((d) => d.name)
         .nodeAlign(sankeyJustify)
         .nodeSort(null)

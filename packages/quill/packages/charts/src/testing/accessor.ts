@@ -91,6 +91,10 @@ export interface HogChart<Meta = unknown> {
     slopeSeriesLabels(): string[]
     /** Slope-chart legend rows — label plus the per-series change. Empty when the legend is hidden. */
     slopeLegendItems(): SlopeLegendItemSummary[]
+    /** Node labels rendered by a Sankey chart, in layout order. */
+    sankeyNodeLabels(): string[]
+    /** Column headers rendered by a Sankey chart, left to right. */
+    sankeyColumnLabels(): string[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -242,6 +246,14 @@ export function getHogChart<Meta = unknown>(
                 }
             })
         },
+        sankeyNodeLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-node-label"]')).map(
+                (el) => el.textContent ?? ''
+            ),
+        sankeyColumnLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
+                (el) => el.textContent ?? ''
+            ),
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {
