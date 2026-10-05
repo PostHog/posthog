@@ -9,7 +9,13 @@ from psycopg import errors as pg_errors
 from posthog.models.integration import Integration, PostgreSQLIntegration
 from posthog.models.integration.postgres import MISSING_CERT_PATH
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    pinned_host_kwargs,
+)
+
 CONNECT_TIMEOUT_SECONDS = 5
+STATEMENT_TIMEOUT_MILLISECONDS = 5_000
 DEFAULT_DATABASE = "postgres"
 DEFAULT_SCHEMA = "public"
 
@@ -70,16 +76,23 @@ def check_postgres_destination(integration: Integration, config: dict[str, str] 
     tls = postgres.tls()
 
     try:
+        host_kwargs = pinned_host_kwargs(
+            authority.host,
+            port=authority.port,
+            connect_timeout=CONNECT_TIMEOUT_SECONDS,
+            team_id=integration.team_id,
+        )
         with _ssl_root_cert_path(tls.ssl_root_cert) as ssl_root_cert:
             with psycopg.connect(
                 user=credentials.user,
                 password=credentials.password,
                 dbname=database,
-                host=authority.host,
                 port=authority.port,
                 sslmode=tls.ssl_mode,
                 sslrootcert=ssl_root_cert,
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                options=f"-c statement_timeout={STATEMENT_TIMEOUT_MILLISECONDS}",
+                **host_kwargs,
             ) as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT 1")
@@ -100,5 +113,5 @@ def check_postgres_destination(integration: Integration, config: dict[str, str] 
         raise DestinationConnectionCheckError(CheckFailure.UNKNOWN_DATABASE) from error
     except pg_errors.InsufficientPrivilege as error:
         raise DestinationConnectionCheckError(CheckFailure.MISSING_PRIVILEGE) from error
-    except psycopg.Error as error:
+    except (psycopg.Error, HostNotAllowedError) as error:
         raise DestinationConnectionCheckError(CheckFailure.UNREACHABLE) from error

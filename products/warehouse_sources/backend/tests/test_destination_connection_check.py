@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
     DestinationConnectionCheckError,
     check_postgres_destination,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 
 MODULE = "products.warehouse_sources.backend.presentation.destination_connection_check"
 
@@ -44,11 +45,20 @@ class TestCheckPostgresDestination:
     def test_a_usable_destination_passes(self) -> None:
         connection = _connection(fetches=[(True,), (True,)])
 
-        with patch(f"{MODULE}.psycopg.connect", return_value=connection) as connect:
+        with (
+            patch(
+                f"{MODULE}.pinned_host_kwargs",
+                return_value={"host": "db.example.com", "hostaddr": "203.0.113.10"},
+            ) as pinned_host,
+            patch(f"{MODULE}.psycopg.connect", return_value=connection) as connect,
+        ):
             check_postgres_destination(_integration(), {"database": "analytics", "schema": "posthog"})
 
+        pinned_host.assert_called_once_with("db.example.com", port=5432, connect_timeout=5, team_id=None)
         assert connect.call_args.kwargs["dbname"] == "analytics"
+        assert connect.call_args.kwargs["hostaddr"] == "203.0.113.10"
         assert connect.call_args.kwargs["connect_timeout"] == 5
+        assert connect.call_args.kwargs["options"] == "-c statement_timeout=5000"
         statements = [call.args[0] for call in connection.cursor_mock.execute.call_args_list]
         assert "has_schema_privilege" in statements[-1]
 
@@ -71,7 +81,11 @@ class TestCheckPostgresDestination:
         ]
     )
     def test_the_create_privilege_check(
-        self, _name: str, fetches: list[tuple[Any, ...]], expected_function: str, expected_failure: CheckFailure | None
+        self,
+        _name: str,
+        fetches: list[tuple[Any, ...] | None],
+        expected_function: str,
+        expected_failure: CheckFailure | None,
     ) -> None:
         connection = _connection(fetches=fetches)
 
@@ -115,6 +129,13 @@ class TestCheckPostgresDestination:
         assert str(raised.value) == FAILURE_MESSAGES[expected_failure]
         for secret in ("hunter2", "writer", "db.example.com"):
             assert secret not in str(raised.value)
+
+    def test_an_unsafe_resolved_host_is_classified_as_unreachable(self) -> None:
+        with patch(f"{MODULE}.pinned_host_kwargs", side_effect=HostNotAllowedError("blocked")):
+            with pytest.raises(DestinationConnectionCheckError) as raised:
+                check_postgres_destination(_integration(), None)
+
+        assert raised.value.failure == CheckFailure.UNREACHABLE
 
     def test_a_failure_while_running_queries_is_classified(self) -> None:
         connection = _connection(fetches=[], execute_error=pg_errors.InsufficientPrivilege("permission denied"))

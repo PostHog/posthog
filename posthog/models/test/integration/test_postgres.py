@@ -165,9 +165,9 @@ class TestPostgreSQLIntegrationModel(BaseTest):
             patch("posthog.models.integration.postgres.has_ipv6_route", return_value=has_route),
         ):
             if expected_error is None:
-                integration = self.integration_cls.integration_from_config(**kwargs)  # type: ignore
+                integration = self.integration_cls.integration_from_config(**kwargs)
                 assert integration.config["host"] == host
             else:
                 with self.assertRaises(IntegrationError) as raised:
-                    self.integration_cls.integration_from_config(**kwargs)  # type: ignore
+                    self.integration_cls.integration_from_config(**kwargs)
                 assert str(raised.exception) == expected_error
