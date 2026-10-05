@@ -107,7 +107,7 @@ def survicate_source(
         "endpoint": {"path": path, "params": params},
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental else "replace",
     }
-    resources = [resource]
+    resources: list[str | EndpointResource] = [resource]
     if inputs.schema_name != "surveys":
         params["survey_id"] = {"type": "resolve", "resource": "surveys", "field": "id"}
         resource["include_from_parent"] = ["id"]
