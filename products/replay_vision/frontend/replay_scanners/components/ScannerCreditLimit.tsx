@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonCard, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { creditsToUsd } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -23,24 +22,29 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
         <LemonField name="credit_limit">
             {() => (
                 <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                        <div className="space-y-1">
-                            <LemonLabel>Credit limit</LemonLabel>
-                            <div className="text-xs text-muted">
-                                Cap what this scanner spends in a billing period, on top of your organization's limit.
+                    {/* The copy is the switch's own label, so clicking it toggles. The negative margin
+                        cancels the inset `fullWidth` adds, to keep the card's edges aligned. */}
+                    <LemonSwitch
+                        className="-mx-2"
+                        fullWidth
+                        label={
+                            <div className="space-y-1">
+                                <div className="font-semibold">Credit limit</div>
+                                <div className="text-xs font-normal text-muted">
+                                    Cap what this scanner spends in a billing period, on top of your organization's
+                                    limit.
+                                </div>
                             </div>
-                        </div>
-                        <LemonSwitch
-                            checked={isOn}
-                            onChange={(checked) =>
-                                setScannerValues({
-                                    credit_limit_enabled: checked,
-                                    credit_limit: checked ? seedValue : null,
-                                })
-                            }
-                            data-attr="vision-scanner-credit-limit-toggle"
-                        />
-                    </div>
+                        }
+                        checked={isOn}
+                        onChange={(checked) =>
+                            setScannerValues({
+                                credit_limit_enabled: checked,
+                                credit_limit: checked ? seedValue : null,
+                            })
+                        }
+                        data-attr="vision-scanner-credit-limit-toggle"
+                    />
                     {isOn && (
                         <>
                             <div className="flex items-center gap-4">

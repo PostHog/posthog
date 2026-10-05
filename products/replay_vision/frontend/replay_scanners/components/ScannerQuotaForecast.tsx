@@ -1,8 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
 import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
@@ -189,7 +192,15 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                                 label={`Projected ${periodEndPct}% of the monthly spend limit by ${
                                     resetsOn ?? 'period end'
                                 }`}
-                                limitLabel={`Spend limit · ${formatCreditCount(cap)}`}
+                                limitLabel={
+                                    // Underlined rather than accented, so the caption keeps its weight.
+                                    <Link
+                                        className="text-secondary underline"
+                                        to={urls.organizationBilling([ProductKey.REPLAY_VISION])}
+                                    >
+                                        Spend limit · {formatCreditCount(cap)}
+                                    </Link>
+                                }
                             />
                         </div>
                     </Tooltip>
