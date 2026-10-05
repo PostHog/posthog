@@ -107,16 +107,17 @@ User: "what flags got deleted in the last week?"
    The values below are illustrative, not real project data:
 
    ```text
-   Found 2 feature flags deleted in the last 7 days (rolling, ending 2026-05-22 19:04 UTC):
+   Found 2 feature flags deleted in the last 7 days (rolling, ending 2026-08-14 09:30 UTC):
 
    | Flag ID | Key                     | Deleted at (UTC)     | Deleted by  |
    |---------|-------------------------|----------------------|-------------|
-   | 1001    | example-banner          | 2026-05-22 17:23     | Jane D.     |
-   | 1002    | example-checkout-test   | 2026-05-15 13:45     | John S.     |
+   | 1001    | example-banner          | 2026-08-13 15:12     | Jane D.     |
+   | 1002    | example-checkout-test   | 2026-08-09 21:48     | John S.     |
 
-   Methodology: walked the activity log for the 25 most-recently-created soft-deleted
-   flags. The project has 100 soft-deleted flags total; the remaining 75 were created
-   before mid-March 2026 and were not checked. Want me to walk the rest?
+   Methodology: walked the activity log for the 25 most-recently-created soft-deleted flags.
+   The step 2 query hit its 100-row cap, so the project may have more soft-deleted flags than that.
+   The other 75 returned candidates were created before late June 2026 and were not checked.
+   Want me to walk the rest?
    ```
 
 ## Related tools
