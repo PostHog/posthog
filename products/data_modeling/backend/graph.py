@@ -8,6 +8,7 @@ from collections import defaultdict
 from uuid import UUID
 
 from products.data_modeling.backend.logic.graph_traversal import reachable
+from products.data_modeling.backend.logic.node_visibility import NodeVisibility
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import NodeType
 
@@ -25,7 +26,7 @@ class Graph:
         dag_id: UUID | str | None = None,
         exclude_table_sources: bool = True,
         exclude_table_targets: bool = True,
-        hidden_types: frozenset[str] = frozenset(),
+        visibility: NodeVisibility | None = None,
     ):
         """Load edges and build adjacency maps.
 
@@ -34,9 +35,10 @@ class Graph:
             dag_id: if set, filter to a single DAG; otherwise load all DAGs
             exclude_table_sources: skip edges whose source is a TABLE node (for upstream counts)
             exclude_table_targets: skip edges whose target is a TABLE node (for downstream counts)
-            hidden_types: node types the reader may not see, dropped from both sides so a count
-                never reports a node the same reader's node list omits
+            visibility: what the reader may not see, dropped from both sides so a count never
+                reports a node the same reader's node list omits
         """
+        visibility = visibility or NodeVisibility.none()
         qs = Edge.objects.filter(team_id=team_id)
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
@@ -52,7 +54,7 @@ class Graph:
         self._downstream_adj: dict[str, set[str]] = defaultdict(set)  # source -> targets
 
         for source_id, target_id, source_type, target_type in edge_rows:
-            if source_type in hidden_types or target_type in hidden_types:
+            if visibility.hides(source_type, source_id) or visibility.hides(target_type, target_id):
                 continue
             s = str(source_id)
             t = str(target_id)
