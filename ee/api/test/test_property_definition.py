@@ -169,6 +169,36 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert sorted([r["name"] for r in exclude_virtual_properties(response.json()["results"])]) == expected_names
 
+    def test_delete_property_definition_records_the_metadata_it_removes(self):
+        # The row is a hard Postgres delete, so the activity entry is the only record of what the
+        # definition held. Guards the before-state capture in PropertyDefinitionViewSet.destroy.
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7)
+        )
+        property_definition = EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            name="enterprise property",
+            description="What this property means.",
+            property_type="String",
+            verified=True,
+        )
+        tag = Tag.objects.create(name="official", team_id=self.team.id)
+        property_definition.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.delete(f"/api/projects/@current/property_definitions/{property_definition.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        activity_log = ActivityLog.objects.get(
+            scope="PropertyDefinition", activity="deleted", item_id=str(property_definition.id)
+        )
+        assert activity_log.detail is not None
+        changes = {change["field"]: change["before"] for change in activity_log.detail["changes"]}
+        assert changes["name"] == "enterprise property"
+        assert changes["description"] == "What this property means."
+        assert changes["tags"] == ["official"]
+        assert changes["property_type"] == "String"
+        assert changes["verified"] is True
+
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7)
