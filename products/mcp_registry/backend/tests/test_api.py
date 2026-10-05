@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -471,6 +473,18 @@ class TestMCPRegistryAPI(APIBaseTest):
 
     def test_discover_requires_an_intent(self) -> None:
         assert self.client.get(self._url("discover/")).status_code == 400
+
+    @parameterized.expand([("discover/", {"intent": "product analytics"}), ("", {"search": "product analytics"})])
+    def test_a_capped_read_is_refused_instead_of_holding_the_call_open(
+        self, suffix: str, params: dict[str, str]
+    ) -> None:
+        self._seed_index()
+
+        with patch("products.mcp_registry.backend.facade.api._INDEX_READ_STATEMENT_TIMEOUT_MS", 1):
+            response = self.client.get(self._url(suffix), params)
+
+        assert response.status_code == 503
+        assert response.json()["code"] == "registry_read_too_slow"
 
     def test_discover_surfaces_tools_that_matched_the_intent(self) -> None:
         self._seed_index()

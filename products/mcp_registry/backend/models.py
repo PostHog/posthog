@@ -1,5 +1,7 @@
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Upper
 
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
@@ -140,6 +142,13 @@ class MCPRegistryTool(UUIDModel):
         db_table = "mcp_registry_tool"
         constraints = [
             models.UniqueConstraint(fields=["server", "name"], name="unique_tool_per_server"),
+        ]
+        indexes = [
+            # Search matches tool names with `icontains`, which Django compiles to
+            # `UPPER(name) LIKE '%TOKEN%'`. Without a trigram index on that exact
+            # expression, one search scans this whole table once per query token, and it
+            # is the fastest-growing table in the index (up to 100 tools per server).
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="mcp_registry_tool_name_trgm"),
         ]
 
     def __str__(self) -> str:

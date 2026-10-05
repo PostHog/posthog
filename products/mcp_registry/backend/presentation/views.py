@@ -1,10 +1,10 @@
 from typing import Any
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import viewsets
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -15,6 +15,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_registry.backend.facade import api as registry_api
 from products.mcp_registry.backend.facade.api import MCP_REGISTRY_FEATURE_FLAG
+from products.mcp_registry.backend.facade.contracts import RegistryReadTimedOut
 from products.mcp_registry.backend.presentation.serializers import (
     MCPDiscoverResponseSerializer,
     MCPMeasuredProjectSerializer,
@@ -25,6 +26,17 @@ from products.mcp_registry.backend.presentation.serializers import (
     MCPRegistryServerDetailSerializer,
     MCPRegistryServerListSerializer,
     MCPRegistryToolSerializer,
+)
+
+
+class RegistryReadTooSlow(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "registry_read_too_slow"
+    default_detail = "Searching the registry took too long. Try again with a shorter, more specific query."
+
+
+_READ_CAPPED_RESPONSE = OpenApiResponse(
+    description="The read hit its time cap. Retry with a shorter, more specific query."
 )
 
 _COMPARE_DEFAULT_LIMIT = 20
@@ -56,6 +68,13 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = MCP_REGISTRY_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPRegistryPagination
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # Every ranked read runs under a cap, so the caller gets a fast, actionable
+        # refusal instead of a request held open for minutes.
+        if isinstance(exc, RegistryReadTimedOut):
+            exc = RegistryReadTooSlow()
+        return super().handle_exception(exc)
 
     def _caller_is_staff(self) -> bool:
         # The staff tier reports across every project, so it must not ride a grantable
@@ -95,7 +114,7 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="Only servers with real MCP Analytics signal.",
             ),
         ],
-        responses={200: MCPRegistryServerListSerializer(many=True)},
+        responses={200: MCPRegistryServerListSerializer(many=True), 503: _READ_CAPPED_RESPONSE},
         description="List registry servers ordered by static rank under the chosen ranking version.",
     )
     def list(self, request: Request, **kwargs) -> Response:
@@ -159,7 +178,10 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             OpenApiParameter("version", OpenApiTypes.STR, description="Ranking version to rank candidates by."),
             OpenApiParameter("limit", OpenApiTypes.INT, description="Candidates to return (default 5, max 20)."),
         ],
-        responses={200: MCPDiscoverResponseSerializer},
+        responses={
+            200: MCPDiscoverResponseSerializer,
+            503: _READ_CAPPED_RESPONSE,
+        },
         description="Given a task, return the MCP servers most likely to do it, each with its rank rationale, "
         "real usage signal where we measure it, and ready-to-run connection instructions. One call is "
         "everything an agent needs to go from a task to a connected server.",
@@ -215,7 +237,7 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             OpenApiParameter("search", OpenApiTypes.STR, description="Optional text filter applied to every arm."),
             OpenApiParameter("limit", OpenApiTypes.INT, description="Rows per arm (default 20, max 100)."),
         ],
-        responses={200: OpenApiTypes.OBJECT},
+        responses={200: OpenApiTypes.OBJECT, 503: _READ_CAPPED_RESPONSE},
         description="Rank the same index under several ranking versions side by side. With exactly two "
         "versions the response includes per-server rank deltas, the review surface for promoting a "
         "new ranking version.",
