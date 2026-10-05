@@ -694,9 +694,25 @@ def test_endpoint_on_a_disallowed_address_is_a_terminal_user_error() -> None:
     assert "Base URL must be a public https:// URL" in result["reasoning"]
 
 
-def test_endpoint_host_that_does_not_resolve_stays_retryable() -> None:
+@pytest.mark.parametrize("attempt", [1, 2])
+def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
+
     with pytest.raises(TransientJudgeError):
-        _call_openai_compatible_judge(set())
+        env.run(_call_openai_compatible_judge, set())
+
+
+def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=3)
+
+    result = env.run(_call_openai_compatible_judge, set())
+
+    assert result["skip_reason"] == "host_unresolved"
+    assert "Could not resolve the base URL host" in result["reasoning"]
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
 
 
 @pytest.mark.parametrize(
