@@ -17,6 +17,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
 from posthog.taxonomic_search_intent.classify import classify_search_intent, search_intent_enabled
@@ -208,16 +209,24 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=self.team_id, project_id=self.team.project_id, query=request.validated_data["query"]
         )
         try:
-            matches = match_core_events(search)
+            answer = match_core_events(search)
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("taxonomic_event_match_unavailable", team_id=self.team_id, reason=type(error).__name__)
             raise SearchIntentUnavailable() from error
+        # The picker counts only the answers it shows, so only this event says which step left an answer empty.
+        report_user_action(
+            user,
+            "taxonomic filter event match answered",
+            {"outcome": answer.outcome.value},
+            team=self.team,
+            request=request,
+        )
         return Response(
             EventMatchResponseSerializer(
                 {
                     "matches": [
                         {"name": match.name, "display_name": match.label, "probability": match.probability}
-                        for match in matches
+                        for match in answer.matches
                     ]
                 }
             ).data

@@ -26,7 +26,7 @@ from posthog.models import EventDefinition
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from .classify import CACHE_TTL_SECONDS, MAX_QUERY_CHARS, MIN_QUERY_CHARS, SEARCH_INTENT_TIMEOUT_SECONDS, redact_values
-from .contracts import EventMatch, EventMatchRequest
+from .contracts import EventMatch, EventMatchAnswer, EventMatchOutcome, EventMatchRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -197,17 +197,22 @@ def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
     )
 
 
-def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> list[EventMatch]:
+def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> EventMatchAnswer:
     """The core events the search most likely means, strongest first, limited to events the project has ingested.
 
     Raises the System One errors; the caller decides whether a failed answer matters.
     """
     query = " ".join(request.query.split())
     if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS:
-        return []
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.WRONG_LENGTH)
+    if redact_values(query) is None:
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.ONLY_VALUES)
     likely = likely_core_events(request.team_id, query, use_cache=use_cache)
     if not likely:
-        return []
+        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.NOTHING_LIKELY)
     # A suggestion for an event the project never sent would lead to an empty insight.
     ingested = _ingested(request.project_id, [match.name for match in likely])
-    return [match for match in likely if match.name in ingested]
+    matches = [match for match in likely if match.name in ingested]
+    return EventMatchAnswer(
+        matches=matches, outcome=EventMatchOutcome.MATCHED if matches else EventMatchOutcome.NOT_INGESTED
+    )
