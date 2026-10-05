@@ -907,6 +907,7 @@ class CloningVisitor(Visitor[Any]):
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
             sample=self.visit(node.sample),
+            generated_lazy_join=node.generated_lazy_join,
         )
 
     def visit_values_query(self, node: ast.ValuesQuery):
