@@ -3,88 +3,97 @@ import { Fragment } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
+import { baseObjectType, libraryObjectName } from 'scenes/library/libraryUtils'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
-import { TodayWorkItem, workItemTitle, workItemUrl } from '~/layout/today/todayWorkItems'
+import { fileSystemTypes } from '~/products'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-function RecentLink({ item }: { item: TodayWorkItem }): JSX.Element {
-    return (
-        <Link
-            to={workItemUrl(item)}
-            subtle
-            className="TodayReportLink"
-            data-attr={item.kind === 'chat' ? 'today-home-recent-chat' : 'today-home-recent-session'}
-        >
-            {workItemTitle(item)}
+import { todayLogic } from './todayLogic'
+
+/** The type's name for use mid-sentence: "feature flag", but "SQL insight" keeps its acronym. */
+function typeNameInProse(entry: FileSystemEntry): string | null {
+    const name = (fileSystemTypes as Record<string, { name: string }>)[baseObjectType(entry.type)]?.name
+    if (!name) {
+        return null
+    }
+    return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
+}
+
+/** "the Growth overview dashboard", or only the linked name when the type is unknown. */
+function RecentObject({ entry }: { entry: FileSystemEntry }): JSX.Element {
+    const typeName = typeNameInProse(entry)
+    const link = (
+        <Link to={entry.href} subtle className="TodayReportLink" data-attr="today-home-recent-object">
+            {libraryObjectName(entry)}
         </Link>
+    )
+    return typeName ? (
+        <>
+            <span>the </span>
+            {link}
+            <span>{` ${typeName}`}</span>
+        </>
+    ) : (
+        link
     )
 }
 
-/** Joins links into prose: "A", "A and B", "A, B and C". */
-function RecentList({ items }: { items: TodayWorkItem[] }): JSX.Element {
+/** Joins objects into prose: "A", "A and B", "A, B and C". */
+function RecentObjectList({ entries }: { entries: FileSystemEntry[] }): JSX.Element {
     return (
         <>
-            {items.map((item, index) => (
-                <Fragment key={`${item.kind}-${item.id}`}>
-                    {index > 0 && <span>{index === items.length - 1 ? ' and ' : ', '}</span>}
-                    <RecentLink item={item} />
+            {entries.map((entry, index) => (
+                <Fragment key={entry.id}>
+                    {index > 0 && <span>{index === entries.length - 1 ? ' and ' : ', '}</span>}
+                    <RecentObject entry={entry} />
                 </Fragment>
             ))}
         </>
     )
 }
 
-/** The sessions and chats the user worked on last, written as sentences under the daily brief. */
+/** The dashboards, insights and other objects the user viewed last, written as sentences under the daily brief. */
 export function TodayRecents(): JSX.Element {
-    const { homeRecentItems, recentLoading, recentTasksUnavailable } = useValues(todaySpacesLogic)
-    const { loadRecentTasks } = useActions(todaySpacesLogic)
+    const { recentObjects, recentsHasLoaded } = useValues(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
-    const [latest, ...earlier] = homeRecentItems
+    const [latest, ...earlier] = recentObjects
 
-    const spacesButton = (
-        <button type="button" data-attr="today-home-recent-spaces" onClick={() => pickPane('spaces')}>
-            Spaces
+    const libraryButton = (
+        <button type="button" data-attr="today-home-recent-library" onClick={() => pickPane('library')}>
+            Library
         </button>
     )
 
     return (
         <section className="TodayHome__recents" aria-label="Recent">
             <div className="TodayHome__recentsLabel Today__label">Recent</div>
-            {recentLoading && !latest ? (
-                <p>Finding what you worked on last…</p>
-            ) : recentTasksUnavailable && !latest ? (
-                <p>
-                    <span>Your recent sessions didn’t load. </span>
-                    <button type="button" data-attr="today-home-recent-retry" onClick={() => loadRecentTasks()}>
-                        Try again
-                    </button>
-                    <span>.</span>
-                </p>
+            {!recentsHasLoaded ? (
+                <p>Finding what you looked at last…</p>
             ) : !latest ? (
                 <p>
-                    <span>Sessions and chats you open show up here. Start one from </span>
-                    {spacesButton}
+                    <span>Dashboards, insights and other things you open show up here. Find them in the </span>
+                    {libraryButton}
                     <span>.</span>
                 </p>
             ) : (
                 <>
                     <p>
-                        <span>You were last in </span>
-                        <RecentLink item={latest} />
-                        {latest.timestamp && <span>{`, ${dayjs(latest.timestamp).fromNow()}`}</span>}
+                        <span>You last opened </span>
+                        <RecentObject entry={latest} />
+                        {latest.last_viewed_at && <span>{`, ${dayjs(latest.last_viewed_at).fromNow()}`}</span>}
                         <span>.</span>
                     </p>
                     <p>
                         {earlier.length > 0 && (
                             <>
-                                <span>Before that, you worked on </span>
-                                <RecentList items={earlier} />
+                                <span>Before that, you opened </span>
+                                <RecentObjectList entries={earlier} />
                                 <span>. </span>
                             </>
                         )}
-                        <span>Everything else is in </span>
-                        {spacesButton}
+                        <span>Everything else is in the </span>
+                        {libraryButton}
                         <span>.</span>
                     </p>
                 </>

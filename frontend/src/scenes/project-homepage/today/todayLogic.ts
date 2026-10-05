@@ -6,10 +6,13 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { baseObjectType } from 'scenes/library/libraryUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { recentItemsModel } from '~/models/recentItemsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamType, UserType } from '~/types'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
@@ -19,6 +22,7 @@ import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySamp
 import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 
 export const TOP_REPORT_COUNT = 5
+export const RECENT_OBJECT_COUNT = 4
 const CLOCK_MS = 30_000
 
 /** Where a report was opened from, sent with the `today report opened` event. */
@@ -28,6 +32,11 @@ export interface TodayReports {
     results: SignalReport[]
     /** Every report that matches the filter, including the ones past the top five. */
     count: number
+}
+
+/** Recently viewed objects for the home, without tasks, which are agent sessions rather than things people look at. */
+export function recentObjectsForHome(recents: FileSystemEntry[], limit: number): FileSystemEntry[] {
+    return recents.filter((entry) => !!entry.href && baseObjectType(entry.type) !== 'task').slice(0, limit)
 }
 
 const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
@@ -78,12 +87,15 @@ export function reportSummaryForHour(hour: number, count: number): string {
 export interface todayLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    recents: FileSystemEntry[] // recentItemsModel
+    recentsHasLoaded: boolean // recentItemsModel
     briefing: TodayBriefingSegment[][]
     greeting: string
     hour: number
     hoveredReportId: string | null
     moreReportCount: number
     now: number
+    recentObjects: FileSystemEntry[]
     reportId: string | null
     reportSummary: string
     reports: SignalReport[]
@@ -166,6 +178,7 @@ export interface todayLogicMeta {
         hour: (now: number) => number
         greeting: (hour: number, user: UserType | null) => string
         reportSummary: (hour: number, reports: SignalReport[]) => string
+        recentObjects: (recents: FileSystemEntry[]) => FileSystemEntry[]
     }
 }
 
@@ -174,7 +187,7 @@ export type todayLogicType = MakeLogicType<todayLogicValues, todayLogicActions, 
 export const todayLogic = kea<todayLogicType>([
     path(['scenes', 'project-homepage', 'today', 'todayLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], teamLogic, ['currentTeam']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeam'], recentItemsModel, ['recents', 'recentsHasLoaded']],
         actions: [router, ['locationChanged']],
     })),
     actions({
@@ -252,6 +265,10 @@ export const todayLogic = kea<todayLogicType>([
         reportSummary: [
             (s) => [s.hour, s.reports],
             (hour: number, reports: SignalReport[]): string => reportSummaryForHour(hour, reports.length),
+        ],
+        recentObjects: [
+            (s) => [s.recents],
+            (recents: FileSystemEntry[]): FileSystemEntry[] => recentObjectsForHome(recents, RECENT_OBJECT_COUNT),
         ],
     }),
     listeners(({ actions, values }) => ({

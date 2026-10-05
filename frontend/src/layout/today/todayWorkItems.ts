@@ -1,5 +1,4 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { urls } from 'scenes/urls'
 
 import { ConversationDetail } from '~/types'
 
@@ -42,14 +41,6 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
     }
-}
-
-export function workItemTitle(item: TodayWorkItem): string {
-    return item.title || (item.kind === 'chat' ? 'Untitled chat' : 'Untitled session')
-}
-
-export function workItemUrl(item: TodayWorkItem): string {
-    return item.kind === 'chat' ? urls.ai(item.id) : urls.aiTask(item.id)
 }
 
 export function buildRecentItems(

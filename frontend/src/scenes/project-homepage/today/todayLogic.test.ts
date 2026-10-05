@@ -7,7 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
+import { TOP_REPORT_COUNT, recentObjectsForHome, reportIdFromPath, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
 import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
 
@@ -94,6 +94,18 @@ describe('todayLogic', () => {
             { text: 'pricing page drops off', reportId: 'b' },
             { text: 'LLM costs doubled', reportId: 'c' },
         ])
+    })
+
+    it('keeps agent sessions and unlinked entries out of the recent objects', () => {
+        const recents = [
+            { id: 'task', path: 'Tasks/Fix the flaky test', type: 'task', href: '/tasks/1' },
+            { id: 'dashboard', path: 'Dashboards/Growth', type: 'dashboard', href: '/dashboard/1' },
+            { id: 'unlinked', path: 'Insights/Draft', type: 'insight' },
+            { id: 'insight', path: 'Insights/Funnel', type: 'insight/funnels', href: '/insights/a' },
+            { id: 'flag', path: 'Flags/checkout', type: 'feature_flag', href: '/feature_flags/1' },
+        ]
+
+        expect(recentObjectsForHome(recents, 2).map((entry) => entry.id)).toEqual(['dashboard', 'insight'])
     })
 
     test.each([
