@@ -1818,7 +1818,6 @@ class TestSalesReports:
 
     @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_sales_report_vendor_number_400_fails_fast(self) -> None:
-        # A SALES request cannot be independently cross-checked, so fail fast rather than exhausting retries.
         api = _FakeReportApi({}, sales_status_code=400)
 
         with pytest.raises(AppStoreConnectReportError, match="does not recognize the vendor number"):
