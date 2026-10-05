@@ -1314,6 +1314,16 @@
         "params": [],
         "scope": "project"
     },
+    "platformAlert": {
+        "template": "/platform-alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "platformAlerts": {
+        "template": "/platform-alerts",
+        "params": [],
+        "scope": "project"
+    },
     "precomputeDebug": {
         "template": "/debug/precompute",
         "params": [],
