@@ -37,6 +37,7 @@ export function GalleryTemplateCard({
                         <img
                             src={template.image_url}
                             alt=""
+                            loading="lazy"
                             className="w-full aspect-video max-h-48 object-cover rounded"
                         />
                     )}

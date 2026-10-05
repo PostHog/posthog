@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -190,5 +191,31 @@ describe('firstRunGalleryLogic', () => {
             ready,
         })
         expect(router.values.searchParams).toMatchObject({ templateId })
+    })
+
+    it.each([
+        { failing: 'the templates request', endpoint: '/api/projects/:team_id/hog_flow_templates/' },
+        { failing: 'the event definitions request', endpoint: '/api/projects/:team_id/event_definitions/' },
+    ])('offers a retry when $failing fails, and recovers on it', async ({ endpoint }) => {
+        silenceKeaLoadersErrors()
+        let failing = true
+        const healthyResponse = endpoint.includes('templates')
+            ? { count: TEMPLATES.length, results: TEMPLATES }
+            : { count: 0, results: [] }
+        useMocks({ get: { [endpoint]: () => (failing ? [500, { detail: 'Server error' }] : [200, healthyResponse]) } })
+
+        try {
+            await openGallery({ seenEvents: [], ingestedEvent: true })
+            expect(logic.values).toMatchObject({ galleryLoadFailed: true, galleryTemplates: null })
+
+            failing = false
+            logic.actions.loadEmailTemplates()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.galleryLoadFailed).toBe(false)
+            expect(logic.values.galleryTemplates).toHaveLength(5)
+        } finally {
+            resumeKeaLoadersErrors()
+        }
     })
 })
