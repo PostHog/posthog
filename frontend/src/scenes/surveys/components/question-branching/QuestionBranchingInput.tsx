@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { truncate } from 'lib/utils/strings'
@@ -52,6 +52,11 @@ export function QuestionBranchingInput({
     const branchingDropdownValue = getBranchingDropdownValue(questionIndex, question)
     const hasResponseBasedBranching = canQuestionHaveResponseBasedBranching(question)
     const isLastQuestion = questionIndex >= survey.questions.length - 1
+    const endOptionLabel = survey.appearance?.displayThankYouMessage ? 'Confirmation message' : 'End'
+    const linkQuestionLeadsToMoreQuestions =
+        question.type === SurveyQuestionType.Link &&
+        !isLastQuestion &&
+        branchingDropdownValue !== SurveyQuestionBranchingType.End
 
     // Build dropdown options based on available branching types
     const dropdownOptions = [
@@ -67,7 +72,7 @@ export function QuestionBranchingInput({
 
         // "End" option (shows different label based on thank you message setting)
         {
-            label: survey.appearance?.displayThankYouMessage ? 'Confirmation message' : 'End',
+            label: endOptionLabel,
             value: SurveyQuestionBranchingType.End,
         },
 
@@ -132,6 +137,12 @@ export function QuestionBranchingInput({
                     }
                 />
             </LemonField>
+            {linkQuestionLeadsToMoreQuestions && (
+                <LemonBanner type="warning">
+                    The link button takes people out of the survey, so most people never reach the questions after this
+                    one. Set this to {endOptionLabel} if the link is the last step.
+                </LemonBanner>
+            )}
             {/* Show response-based branching UI when that option is selected */}
             {branchingDropdownValue === SurveyQuestionBranchingType.ResponseBased && hasResponseBasedBranching && (
                 <QuestionResponseBasedBranchingInput question={question} questionIndex={questionIndex} />

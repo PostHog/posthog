@@ -69,7 +69,6 @@ import {
     SidePanelTab,
     Survey,
     SurveyEventName,
-    SurveyQuestionType,
 } from '~/types'
 
 import { SurveyResponseColumnsMenu } from 'products/surveys/frontend/components/SurveyResponseColumnsMenu'
@@ -682,7 +681,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
 
                     <div className="flex flex-col gap-2">
                         {survey.questions.map((question, i) => {
-                            if (!question.id || question.type === SurveyQuestionType.Link) {
+                            if (!question.id) {
                                 return null
                             }
                             return (
