@@ -167,6 +167,27 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["content"]["templating"] == "liquid"
 
+    @parameterized.expand(
+        [
+            ("blank_subject", {"subject": "", "text": "", "html": "<p>Hi</p>", "design": MINIMAL_DESIGN}),
+            ("plaintext_null_design", {"subject": "Hi", "text": "Hello", "html": "", "design": None}),
+        ]
+    )
+    def test_create_accepts_email_templater_draft_payload(self, _name, email):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "Saved from a workflow step",
+                "description": "",
+                "content": {
+                    "templating": "liquid",
+                    "email": {**email, "from": {"integrationId": 1}, "to": "{{ person.properties.email }}"},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     def test_create_rejects_hog_templating(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_templates/",

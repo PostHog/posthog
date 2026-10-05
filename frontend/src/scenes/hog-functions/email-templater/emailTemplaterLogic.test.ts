@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -11,6 +13,7 @@ import {
     EmailTemplaterLogicProps,
     buildPersonPropertyMergeValue,
     emailTemplaterLogic,
+    saveTemplateErrorMessage,
 } from './emailTemplaterLogic'
 
 const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
@@ -642,5 +645,22 @@ describe('buildPersonPropertyMergeValue', () => {
         ["it's", "{{person.properties['it\\'s']}}"],
     ])('builds %s as %s', (name, expected) => {
         expect(buildPersonPropertyMergeValue(name)).toBe(expected)
+    })
+})
+
+describe('saveTemplateErrorMessage', () => {
+    it.each([
+        [
+            new ApiError(undefined, 400, undefined, {
+                type: 'validation_error',
+                attr: 'content__templating',
+                detail: '"hog" is not a valid choice.',
+            }),
+            'Failed to save template. Templating: "hog" is not a valid choice.',
+        ],
+        [new ApiError(undefined, 400, undefined, { detail: 'Bad request' }), 'Failed to save template. Bad request'],
+        [new Error('boom'), 'Failed to save template'],
+    ])('reads %s', (error, expected) => {
+        expect(saveTemplateErrorMessage(error)).toBe(expected)
     })
 })
