@@ -1691,11 +1691,12 @@ def _get_analytics_report(
     has_snapshot_instances = any(
         walk_instance.is_snapshot for walk_instances in instances_by_date.values() for walk_instance in walk_instances
     )
-    probed_segments: dict[str, list[dict[str, Any]]] = {}
     if should_use_incremental_field and snapshot_ceiling is not None:
         # Probe every instance at or below the snapshot for downloadable files before emitting
         # anything: a not-ready instance below the snapshot would stop the walk mid-emission,
-        # ratchet the watermark, and strand the history until a manual resync.
+        # ratchet the watermark, and strand the history until a manual resync. The segment list
+        # itself is discarded: its presigned URLs are only valid for a few minutes, and probing
+        # every date up front before any downloads start can take longer than that.
         for processing_date in sorted(candidate for candidate in instances_by_date if candidate <= snapshot_ceiling):
             for walk_instance in instances_by_date[processing_date]:
                 segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
@@ -1707,7 +1708,6 @@ def _get_analytics_report(
                         f"processing_date={processing_date.isoformat()}"
                     )
                     return
-                probed_segments[walk_instance.instance_id] = segments
 
     instances_fetched = 0
     for processing_date in sorted(instances_by_date):
@@ -1731,12 +1731,10 @@ def _get_analytics_report(
                 )
                 return
 
-            cached_segments = probed_segments.get(walk_instance.instance_id)
-            segments = (
-                cached_segments
-                if cached_segments is not None
-                else _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
-            )
+            # Always re-list right before downloading, even for an instance the probe above
+            # already found non-empty: its segment URLs are presigned and short-lived, and the
+            # probe for a large backlog can finish well before this instance's turn to download.
+            segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
             if not segments:
                 # The instance is listed but its files aren't ready. Stop the whole walk at
                 # this date so no newer date is emitted past the gap: the watermark then

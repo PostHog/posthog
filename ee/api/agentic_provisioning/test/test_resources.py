@@ -5,6 +5,7 @@ from parameterized import parameterized
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.ratelimits import RATE_LIMITED_MESSAGE
@@ -651,11 +652,12 @@ class TestProvisioningResources(ProvisioningTestBase):
 
 
 class TestProvisioningResourceRemove(ProvisioningTestBase):
-    def test_remove_strips_team_from_sibling_tokens(self):
+    @parameterized.expand([("same_user", False), ("other_org_member", True)])
+    def test_remove_strips_team_from_sibling_tokens(self, _name: str, sibling_is_other_member: bool) -> None:
         # Removing a resource has to revoke the team from every live token
-        # the partner installation holds for that user. Otherwise a sibling
-        # bearer that still has the team in scope can short-circuit past the
-        # auto-add guard and keep operating on the removed team.
+        # the partner holds, for any user. Otherwise a sibling bearer that still
+        # has the team in scope can short-circuit past the auto-add guard and keep
+        # operating on the removed team.
         from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -666,10 +668,16 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             defaults={"stripe_project_id": "proj_remove_me", "application": access_token.application},
         )
 
-        # Sibling token for the same user+application also has the team in scope.
+        sibling_user = (
+            User.objects.create_and_join(
+                organization=self.organization, email="teammate@example.com", password="testpass", first_name="Mate"
+            )
+            if sibling_is_other_member
+            else access_token.user
+        )
         sibling_at = OAuthAccessToken.objects.create(
             application=access_token.application,
-            user=access_token.user,
+            user=sibling_user,
             token="sibling_access_token_value",
             expires=access_token.expires,
             scope=access_token.scope,
@@ -677,7 +685,7 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         )
         sibling_rt = OAuthRefreshToken.objects.create(
             application=access_token.application,
-            user=access_token.user,
+            user=sibling_user,
             token="sibling_refresh_token_value",
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],

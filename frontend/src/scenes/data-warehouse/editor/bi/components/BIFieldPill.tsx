@@ -30,6 +30,7 @@ export function BIFieldPill({
     const { config, activeExpressionEditorId, activeExpressionEditorTarget, sortOptions } = useValues(biEditorLogic)
     const {
         addFieldToShelf,
+        editCalculatedMeasure,
         moveFieldToShelf,
         removeFieldFromShelf,
         setActiveExpressionEditorId,
@@ -47,6 +48,7 @@ export function BIFieldPill({
     }
 
     const isMeasure = shelf === 'values'
+    const isCalculatedMeasure = value?.aggregation === 'custom' && !!value.label
     const occurrence = isMeasure
         ? config.values.slice(0, index).filter((previous) => previous.field.id === field.id).length
         : 0
@@ -60,7 +62,7 @@ export function BIFieldPill({
     const incomplete = value?.aggregation === 'custom' ? !value.customExpression?.trim() : !field.expression.trim()
 
     const items: LemonMenuItems = [
-        isMeasure && value
+        isMeasure && value && !isCalculatedMeasure
             ? {
                   title: 'Measure',
                   items: AGGREGATION_OPTIONS.map((option) => ({
@@ -91,9 +93,9 @@ export function BIFieldPill({
             : null,
         {
             items: [
-                { label: 'Edit field expression', onClick: () => setEditing('field') },
+                !isCalculatedMeasure ? { label: 'Edit field expression', onClick: () => setEditing('field') } : null,
                 value?.aggregation === 'custom'
-                    ? { label: 'Edit SQL aggregation', onClick: () => setEditing('aggregation') }
+                    ? { label: 'Edit calculated measure', onClick: () => editCalculatedMeasure(index) }
                     : null,
                 sortKey
                     ? {
@@ -114,7 +116,11 @@ export function BIFieldPill({
         {
             items: [
                 isMeasure
-                    ? { label: 'Convert to dimension', onClick: () => moveFieldToShelf('values', index, 'rows') }
+                    ? {
+                          label: 'Convert to dimension',
+                          disabledReason: isCalculatedMeasure ? 'Calculated measures aggregate each group' : undefined,
+                          onClick: () => moveFieldToShelf('values', index, 'rows'),
+                      }
                     : { label: 'Convert to measure', onClick: () => moveFieldToShelf(shelf, index, 'values') },
                 !isMeasure
                     ? {
@@ -122,7 +128,11 @@ export function BIFieldPill({
                           onClick: () => moveFieldToShelf(shelf, index, otherDimensionShelf),
                       }
                     : null,
-                { label: 'Add to filters', onClick: () => addFieldToShelf(field, 'filters') },
+                {
+                    label: 'Add to filters',
+                    disabledReason: isCalculatedMeasure ? 'Filters apply before calculated measures' : undefined,
+                    onClick: () => addFieldToShelf(field, 'filters'),
+                },
             ],
         },
         {

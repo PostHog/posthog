@@ -7,6 +7,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { OAUTH_SCOPES_SUPPORTED } from 'lib/oauthScopes.generated'
 import {
     API_SCOPE_GROUPS,
     API_SCOPES,
@@ -143,19 +144,14 @@ const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, Require
     return levels
 }
 
-// Mirrors PRIVILEGED_SCOPES + OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py: objects
-// /authorize can never grant, so the wildcard expansion must skip them or the server
-// would reject the whole submit with invalid_scope.
-const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set(['llm_gateway', 'metrics', 'wizard_session'])
-
 // `*` grants read+write to everything; its read-only form is every grantable object's read
-// scope. The server-computed list is authoritative — the local API_SCOPES list both lags
-// behind new backend scopes (under-granting) and contains ungrantable ones (over-granting,
-// which the server rejects). The local fallback only covers a missing app context.
+// scope. The server-computed list is authoritative, because it applies the app's ceiling.
+// The fallback only covers a missing app context, and takes the read scopes OAuth advertises
+// so it never names a scope the server would reject with invalid_scope.
 const wildcardReadScopes = (oauthApplication: OAuthApplicationPublicMetadata | null): string[] =>
     oauthApplication?.wildcard_read_scopes?.length
         ? oauthApplication.wildcard_read_scopes
-        : API_SCOPES.filter(({ key }) => !OAUTH_UNGRANTABLE_OBJECTS.has(key)).map(({ key }) => `${key}:read`)
+        : OAUTH_SCOPES_SUPPORTED.filter((scope) => scope.endsWith(':read'))
 
 const isNativeProtocol = (url: string): boolean => {
     try {

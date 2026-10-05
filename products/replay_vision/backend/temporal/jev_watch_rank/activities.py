@@ -48,6 +48,7 @@ from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     MAX_SCANNERS_PER_SWEEP,
     MAX_TEAMS_PER_SWEEP,
     PINNED_TEAM_IDS,
+    SWEEP_ACTIVITY_HEARTBEAT_TIMEOUT,
     SWEEP_TIME_BUDGET,
     WATCH_RANK_WINDOW,
     WINDOW_SCAN_CAP,
@@ -56,6 +57,11 @@ from products.replay_vision.backend.temporal.jev_watch_rank.types import (
     JevWatchRankSweepInputs,
     JevWatchRankSweepResult,
 )
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
+
+# The background heartbeat keeps a stalled query's attempt alive for the whole sweep, so each query gets its own
+# heartbeat window instead.
+_QUERY_BUDGET = SWEEP_ACTIVITY_HEARTBEAT_TIMEOUT
 
 logger = structlog.get_logger(__name__)
 
@@ -68,40 +74,45 @@ def _teams_with_scanners() -> list[int]:
     an unordered slice could drop an enrolled team on some runs and not others. Pinned teams go
     first, so they never fall past the cap at all.
     """
-    team_ids = ReplayScanner.all_origins.values_list("team_id", flat=True).distinct().order_by("team_id")
-    return [
-        *PINNED_TEAM_IDS,
-        *[team_id for team_id in team_ids[: MAX_TEAMS_PER_SWEEP + 1] if team_id not in PINNED_TEAM_IDS],
-    ]
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
+        team_ids = list(
+            ReplayScanner.all_origins.values_list("team_id", flat=True)
+            .distinct()
+            .order_by("team_id")[: MAX_TEAMS_PER_SWEEP + 1]
+        )
+    return [*PINNED_TEAM_IDS, *[team_id for team_id in team_ids if team_id not in PINNED_TEAM_IDS]]
 
 
 def _team_scanner_ids(team_id: int, window_start: datetime) -> list[UUID]:
-    return list(
-        ReplayObservation.objects.filter(
-            team_id=team_id, status=ObservationStatus.SUCCEEDED, created_at__gte=window_start
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
+        return list(
+            ReplayObservation.objects.filter(
+                team_id=team_id, status=ObservationStatus.SUCCEEDED, created_at__gte=window_start
+            )
+            .values_list("scanner_id", flat=True)
+            .distinct()
         )
-        .values_list("scanner_id", flat=True)
-        .distinct()
-    )
 
 
 def _scanner_window_ids(team_id: int, scanner_id: UUID, window_start: datetime) -> list[UUID]:
     """Newest first, ids only: cheap enough to list the whole capped window every sweep, so the
     sweep can tell which rows still lack a judgment and which cached entries left the window."""
-    return list(
-        ReplayObservation.objects.filter(
-            team_id=team_id,
-            scanner_id=scanner_id,
-            status=ObservationStatus.SUCCEEDED,
-            created_at__gte=window_start,
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
+        return list(
+            ReplayObservation.objects.filter(
+                team_id=team_id,
+                scanner_id=scanner_id,
+                status=ObservationStatus.SUCCEEDED,
+                created_at__gte=window_start,
+            )
+            .order_by("-created_at")
+            .values_list("id", flat=True)[:WINDOW_SCAN_CAP]
         )
-        .order_by("-created_at")
-        .values_list("id", flat=True)[:WINDOW_SCAN_CAP]
-    )
 
 
 def _rows_by_id(team_id: int, ids: list[UUID]) -> list[dict[str, Any]]:
-    rows = ReplayObservation.objects.filter(team_id=team_id, id__in=ids).values("id", "scanner_result")
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
+        rows = list(ReplayObservation.objects.filter(team_id=team_id, id__in=ids).values("id", "scanner_result"))
     by_id = {row["id"]: dict(row) for row in rows}
     # `id__in` loses the caller's newest-first order.
     return [by_id[row_id] for row_id in ids if row_id in by_id]
