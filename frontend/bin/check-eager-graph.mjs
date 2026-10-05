@@ -448,7 +448,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         files: eagerBytesByFile.size,
         budgetBytes,
         overBudget,
-        forbidden,
+        forbidden: forbidden.map(forbiddenPattern),
         forbiddenHits,
         largest: largest.map(([f, b]) => ({ file: f, bytes: b })),
     })
