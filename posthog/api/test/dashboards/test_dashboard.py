@@ -685,6 +685,32 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
 
+    @parameterized.expand([("create",), ("update",)])
+    def test_reject_legacy_collaborator_restriction_on_write(self, operation: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        if operation == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {
+                    "name": "legacy dashboard",
+                    "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+                },
+            )
+            self.assertFalse(Dashboard.objects.filter(name="legacy dashboard").exists())
+        else:
+            dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+                {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT},
+            )
+            dashboard.refresh_from_db()
+            self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "restriction_level")
+
     def test_update_dashboard(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
