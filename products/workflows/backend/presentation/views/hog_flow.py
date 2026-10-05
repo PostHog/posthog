@@ -5214,6 +5214,7 @@ class HogFlowViewSet(
                 {
                     "workflow_id": str(instance.id),
                     "workflow_name": instance.name,
+                    "origin_product": instance.origin_product,
                     "team_id": str(self.team_id),
                     "organization_id": str(self.organization.id),
                     **(extra_properties or {}),
