@@ -2,7 +2,11 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
-from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from posthog.api.advanced_activity_logs.constants import SMALL_ORG_THRESHOLD
+from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, cache_fields, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
@@ -110,3 +114,61 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+
+class FieldDiscoveryCacheTest(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.discovery = AdvancedActivityLogFieldDiscovery(self.organization.id)
+        get_client().delete(_get_cache_key(str(self.organization.id)))
+
+    def _create_activity_log(self, scope: str) -> None:
+        ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            scope=scope,
+            activity="updated",
+            item_id="test-item",
+            detail={"name": "test"},
+        )
+
+    def _run_field_discovery(self) -> dict[str, Any]:
+        base_queryset = ActivityLog.objects.filter(organization_id=self.organization.id)
+        return self.discovery.get_available_filters(base_queryset)
+
+    def test_large_org_cache_is_served_without_touching_the_activity_log(self):
+        cached = {"static_filters": {"users": [], "scopes": [{"value": "Dashboard"}]}, "detail_fields": {}}
+        cache_fields(str(self.organization.id), cached, SMALL_ORG_THRESHOLD + 1)
+        self._create_activity_log("Insight")
+
+        with CaptureQueriesContext(connection) as queries:
+            results = self._run_field_discovery()
+
+        self.assertEqual(results, cached)
+        self.assertEqual([q for q in queries.captured_queries if "posthog_activitylog" in q["sql"]], [])
+
+    def test_org_record_count_stops_at_the_threshold(self):
+        self._create_activity_log("Dashboard")
+
+        with CaptureQueriesContext(connection) as queries:
+            self._run_field_discovery()
+
+        org_count_queries = [
+            q["sql"]
+            for q in queries.captured_queries
+            if "COUNT(*)" in q["sql"] and "posthog_activitylog" in q["sql"] and "detail" not in q["sql"]
+        ]
+        self.assertTrue(org_count_queries)
+        for sql in org_count_queries:
+            self.assertIn(f"LIMIT {SMALL_ORG_THRESHOLD + 1}", sql)
+
+    def test_small_org_filters_stay_fresh(self):
+        self._create_activity_log("Dashboard")
+        self._run_field_discovery()
+
+        self._create_activity_log("Insight")
+        results = self._run_field_discovery()
+
+        scopes = [scope["value"] for scope in results["static_filters"]["scopes"]]
+        self.assertIn("Insight", scopes)

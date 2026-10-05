@@ -12,7 +12,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.utils import UUIDT
 
 from .constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
-from .fields_cache import cache_fields, get_cached_fields
+from .fields_cache import cache_fields, get_cached_fields, has_large_org_cache
 
 
 class ScopeFields(TypedDict):
@@ -27,10 +27,16 @@ class AdvancedActivityLogFieldDiscovery:
         self.organization_id = organization_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
-        record_count = self._get_org_record_count()
+        organization_id = str(self.organization_id)
+        cached = get_cached_fields(organization_id)
+        if cached and has_large_org_cache(organization_id):
+            return cached
+
+        # The count only picks the branch below, so stop it at the threshold instead of
+        # counting the whole audit history of the organization.
+        record_count = self._get_org_record_count(cap=SMALL_ORG_THRESHOLD + 1)
 
         if record_count > SMALL_ORG_THRESHOLD:
-            cached = get_cached_fields(str(self.organization_id))
             if cached:
                 return cached
             return {
@@ -46,7 +52,7 @@ class AdvancedActivityLogFieldDiscovery:
             "detail_fields": detail_fields,
         }
 
-        cache_fields(str(self.organization_id), result, record_count)
+        cache_fields(organization_id, result, record_count)
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
@@ -101,8 +107,11 @@ class AdvancedActivityLogFieldDiscovery:
 
         return result
 
-    def _get_org_record_count(self) -> int:
-        return ActivityLog.objects.filter(organization_id=self.organization_id).count()
+    def _get_org_record_count(self, cap: int | None = None) -> int:
+        queryset = ActivityLog.objects.filter(organization_id=self.organization_id)
+        if cap is not None:
+            queryset = queryset[:cap]
+        return queryset.count()
 
     def get_activity_logs_queryset(self, hours_back: int | None = None) -> QuerySet:
         """Get the base queryset for activity logs, optionally filtered by time."""
