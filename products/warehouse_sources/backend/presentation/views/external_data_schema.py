@@ -177,7 +177,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     # sync_type_config writes (and the status/initial_sync_complete save below skips the JSON
     # column, leaving no second window for the merged config to be overwritten).
     updates: dict[str, Any] = {"reset_pipeline": True, "cdc_mode": "snapshot"}
-    removes = ["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY]
+    removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
     if resnapshot_stays_in_buffer(instance):
         updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
     instance.sync_type_config = update_sync_type_config_keys(
@@ -223,6 +223,16 @@ SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR = (
 SCHEDULED_FULL_REFRESH_TOO_SHORT_ERROR = (
     "A full refresh runs on a scheduled sync, so the interval must be at least {days} days. "
     "Choose a longer interval, or sync more often."
+)
+
+FULL_REFRESH_TIME_OF_DAY_HELP_TEXT = (
+    "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. "
+    "The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that "
+    "syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last "
+    "refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts "
+    "the clock, so the first refresh after a save can come up to a day before a full interval has passed. "
+    "Null counts the interval from when it was saved or from the last full resync. Cleared when "
+    "full_refresh_interval_days is null."
 )
 
 
@@ -429,11 +439,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the "
             "table and re-imports every row, so rows deleted at the source are removed. It runs on the first "
             "scheduled sync once the interval has passed, counted from when it was saved or from the last full "
-            "resync, and can start up to an hour early. Queries keep returning the current rows until a full "
+            "resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), "
+            "and can start up to an hour early. Queries keep returning the current rows until a full "
             "refresh finishes, and workflows and destinations that run on new rows of the table run again for "
             "every row. Available "
             "for incremental, append, and xmin syncs only, and never shorter than the sync frequency."
         ),
+    )
+    full_refresh_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
     )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
@@ -543,6 +557,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "sync_frequency",
             "sync_time_of_day",
             "full_refresh_interval_days",
+            "full_refresh_time_of_day",
             "next_full_refresh_at",
             "description",
             "primary_key_columns",
@@ -1111,7 +1126,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 payload["cdc_mode"] = "snapshot"
                 for stale_key in (
                     "cdc_last_log_position",
-                    "cdc_deferred_runs",
                     CDC_RESET_PENDING_KEY,
                     CDC_SNAPSHOT_LANE_KEY,
                 ):
@@ -1186,10 +1200,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
-        # The schedule settings resend the interval on every save, so only a changed value restarts the clock.
+        # The schedule settings resend the interval and time on every save, so only a changed value restarts the clock.
         full_refresh_interval_days = validated_data.get(
             "full_refresh_interval_days", instance.full_refresh_interval_days
         )
+        full_refresh_time_of_day = validated_data.get("full_refresh_time_of_day", instance.full_refresh_time_of_day)
         if full_refresh_interval_days is not None and resulting_sync_type not in SCHEDULED_FULL_REFRESH_SYNC_TYPES:
             requested_days = validated_data.get("full_refresh_interval_days")
             if requested_days is not None and requested_days != instance.full_refresh_interval_days:
@@ -1208,10 +1223,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
                 }
             )
-        if full_refresh_interval_days != instance.full_refresh_interval_days:
+        # A time kept without an interval would apply silently to the next interval a caller sets.
+        if full_refresh_interval_days is None:
+            full_refresh_time_of_day = None
+            if "full_refresh_time_of_day" in validated_data:
+                validated_data["full_refresh_time_of_day"] = None
+        if (
+            full_refresh_interval_days != instance.full_refresh_interval_days
+            or full_refresh_time_of_day != instance.full_refresh_time_of_day
+        ):
             instance.full_refresh_interval_days = full_refresh_interval_days
+            instance.full_refresh_time_of_day = full_refresh_time_of_day
             instance.restart_full_refresh_clock()
             validated_data["full_refresh_interval_days"] = full_refresh_interval_days
+            validated_data["full_refresh_time_of_day"] = full_refresh_time_of_day
             validated_data["next_full_refresh_at"] = instance.next_full_refresh_at
 
         # A row can still carry a null interval from before that rejection. Turning the sync on, or
@@ -2029,7 +2054,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if cdc_resync:
             # Reset CDC state so the next run does a full re-snapshot
             updates["cdc_mode"] = "snapshot"
-            removes = ["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY]
+            removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
             # Without the marker, the next capture run would empty the buffer, deleting changes a
             # capture run already in progress wrote after the snapshot started reading.
             if resnapshot_stays_in_buffer(instance):

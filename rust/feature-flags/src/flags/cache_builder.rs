@@ -13,11 +13,11 @@ use common_types::TeamId;
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::flags::feature_flag_list::{UndecodableDocument, UndecodableFlags};
+use crate::flags::flag_filters::FlagRequirements;
 use crate::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
     HypercacheFlagsWrapper,
 };
-use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 
 /// Maximum BFS depth when resolving transitive cohort-on-cohort dependencies.
@@ -149,8 +149,7 @@ fn omit_unsupported_flags(
 fn retain_evaluable_and_referenced_flags(flags: &mut Vec<FeatureFlag>) {
     let referenced_ids: HashSet<FeatureFlagId> = flags
         .iter()
-        .flat_map(active_flag_properties)
-        .filter_map(|p| p.get_feature_flag_id())
+        .flat_map(|flag| active_flag_requirements(flag).flag_ids)
         .collect();
     flags.retain(|flag| is_evaluable(flag) || referenced_ids.contains(&flag.id));
 }
@@ -166,24 +165,19 @@ fn blank_inactive_filters(flags: &mut [FeatureFlag]) {
     }
 }
 
-/// Yields all property filters from an active, non-deleted flag's filter groups.
-fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
-    let groups = if is_evaluable(flag) {
-        flag.filters.groups.as_slice()
+fn active_flag_requirements(flag: &FeatureFlag) -> FlagRequirements {
+    if is_evaluable(flag) {
+        flag.filters.requirements()
     } else {
-        &[]
-    };
-    groups.iter().flat_map(|g| g.properties.iter().flatten())
+        FlagRequirements::default()
+    }
 }
 
 /// Extract direct flag dependency IDs from a single flag's filters.
-///
-/// Scans `filters.groups[*].properties` for `type == "flag"` properties and
-/// parses their `key` as an integer flag ID. Inactive/deleted flags return
-/// empty deps to match Python's `_extract_direct_dependency_ids()`.
 fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlagId> {
-    active_flag_properties(flag)
-        .filter_map(|p| p.get_feature_flag_id())
+    active_flag_requirements(flag)
+        .flag_ids
+        .into_iter()
         .collect()
 }
 
@@ -191,9 +185,24 @@ fn extract_direct_flag_dependency_ids(flag: &FeatureFlag) -> HashSet<FeatureFlag
 pub fn extract_cohort_ids_from_flag_filters(flags: &[FeatureFlag]) -> HashSet<CohortId> {
     flags
         .iter()
-        .flat_map(active_flag_properties)
-        .filter_map(|p| p.get_cohort_id())
+        .flat_map(|flag| active_flag_requirements(flag).cohort_ids)
         .collect()
+}
+
+/// Computes evaluation metadata for flags read straight from Postgres. On a graph error, it
+/// places every flag in one stage so that the flags still evaluate.
+///
+/// `compute_flag_dependencies` returns no error for flag input, because `remove_all_cycles`
+/// removes every cycle before the stage computation runs. The fallback guards against a later
+/// change to the graph code.
+pub(crate) fn compute_flag_dependencies_or_single_stage(
+    team_id: TeamId,
+    flags: &[FeatureFlag],
+) -> EvaluationMetadata {
+    compute_flag_dependencies(flags).unwrap_or_else(|e| {
+        tracing::warn!(team_id, "Falling back to single-stage flag metadata: {e}");
+        EvaluationMetadata::single_stage(flags)
+    })
 }
 
 /// Compute flag dependency metadata via the shared `DependencyGraph` framework.
@@ -327,7 +336,9 @@ async fn load_cohorts_with_deps(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flags::config_v2::Subject;
     use crate::flags::flag_models::{FeatureFlagRow, FlagFilters, FlagPropertyGroup};
+    use crate::flags::test_helpers::v2_filters_referencing;
     use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
     use crate::utils::test_utils::TestContext;
     use test_case::test_case;
@@ -423,6 +434,27 @@ mod tests {
         flag.deleted = deleted;
         let deps = extract_direct_flag_dependency_ids(&flag);
         assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_v2_references_reach_cohort_and_dependency_extraction() {
+        let mut v2 = make_flag(1, "v2_flag", true, vec![]);
+        v2.filters = v2_filters_referencing(&[Subject::Cohort(42), Subject::Flag(2)], None);
+        let mut flags = vec![
+            v2.clone(),
+            make_flag(2, "referenced", false, vec![]),
+            make_flag(3, "unreferenced", false, vec![]),
+        ];
+
+        assert_eq!(extract_direct_flag_dependency_ids(&v2), HashSet::from([2]));
+        assert_eq!(
+            extract_cohort_ids_from_flag_filters(&flags),
+            HashSet::from([42])
+        );
+        retain_evaluable_and_referenced_flags(&mut flags);
+        assert_eq!(flags.iter().map(|f| f.id).collect::<Vec<_>>(), vec![1, 2]);
+        let metadata = compute_flag_dependencies(&flags).unwrap();
+        assert_eq!(metadata.dependency_stages, vec![vec![2], vec![1]]);
     }
 
     // -------------------------------------------------------------------------

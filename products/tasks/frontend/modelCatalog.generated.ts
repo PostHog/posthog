@@ -455,8 +455,8 @@ export const MODELS: readonly CatalogModel[] = [
 
 /** The model a run uses when it pins none. */
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
-    claude: 'claude-sonnet-5',
-    codex: 'gpt-5',
+    claude: 'claude-sonnet-5-5',
+    codex: 'gpt-6.1-sol',
 }
 
 export interface CapabilityNotch {
@@ -472,11 +472,11 @@ type CapabilityLadders = ByRuntimeAdapter<readonly CapabilityNotch[]>
 export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
     claude: [
         {
-            model: 'claude-sonnet-5',
+            model: 'claude-sonnet-5-5',
             effort: 'medium',
         },
         {
-            model: 'claude-sonnet-5',
+            model: 'claude-sonnet-5-5',
             effort: 'high',
         },
         {

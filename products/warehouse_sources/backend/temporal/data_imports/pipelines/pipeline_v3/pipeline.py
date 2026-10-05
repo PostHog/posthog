@@ -471,7 +471,6 @@ class PipelineV3(Generic[ResumableData]):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
-                    partition_count_fallback=self._resource.partition_count,
                 )
 
             async def stage_remaining_rows() -> None:
@@ -556,7 +555,6 @@ class PipelineV3(Generic[ResumableData]):
                 safe_point_scope.close()
 
             await stage_remaining_rows()
-
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
@@ -564,10 +562,16 @@ class PipelineV3(Generic[ResumableData]):
             # See the PipelineResult docstring for the full ownership contract.
             consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
-            return {
-                "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
-                "consumer_manages_job_status": consumer_will_hear_about_this_run,
-            }
+            result = PipelineResult(
+                should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run(),
+                consumer_manages_job_status=consumer_will_hear_about_this_run,
+            )
+            if self._resource.on_complete is not None:
+                try:
+                    await asyncio.to_thread(self._resource.on_complete)
+                except Exception:
+                    await self._logger.aexception("Failed to clean up completed source state")
+            return result
         except Exception:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")

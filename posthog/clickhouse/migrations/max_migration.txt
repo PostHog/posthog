@@ -1,1 +1,1 @@
-0341_drop_trace_spans_old_projections
+0347_drop_metrics2_ingest

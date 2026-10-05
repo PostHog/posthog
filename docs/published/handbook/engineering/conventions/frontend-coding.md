@@ -48,6 +48,8 @@ Hence the explicit separation between the data and view layers.
 - Scenes
   - Our app is built of _scenes_, managed through a scene router in `sceneLogic`.
   - A scene is the smallest unit in the router and for code splitting. Usually we split scenes by resource type (dashboard, insight) and function (edit, index).
+  - Show available rows while other pages or sources load. Share concurrent requests for the same project and search across a scene and its sidebar.
+  - Load optional panes, hover cards, and alternative home screens with `lazyWithRetry` and `Suspense`. Keep their data loaders in the component that needs them. A closed dialog or preview provider must not start requests for another pane.
   - Each scene (e.g. Dashboards) exports an object of type `SceneExport`, containing the scene's root `logic` and its React `component`.
   - The scene's logic is automatically mounted and receives the scene's URL params as props (via `paramsToProps`).
   - Use `urlToAction` and `actionToUrl` on the scene's logic to sync state with the URL. Try to only use them on the scene's logic, not in any deeper logics.
@@ -71,5 +73,6 @@ Hence the explicit separation between the data and view layers.
   - Write [logic tests](https://keajs.org/docs/intro/testing) for all logic files.
   - [react testing library](https://testing-library.com/docs/react-testing-library/intro/) tests are particularly useful for components with complex interactions or to guide future humans or agents when they're changing components without full context of the uses and edge cases
   - Add all new presentational elements and scenes to [our storybook](https://storybook.dev.posthog.dev/). Run `pnpm storybook` locally.
+  - In web Storybook play functions, import `within` and `waitFor` from `@testing-library/dom`. The preview configures their async timeout; `storybook/test` uses a separate default.
 
 > Sync note: This file is also copied to posthog/posthog/.claude/commands/conventions.md for Claude Code. When updating this file, please also update the copy there.

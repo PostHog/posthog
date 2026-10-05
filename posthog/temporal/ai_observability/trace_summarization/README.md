@@ -207,6 +207,7 @@ Text representations (up to 2 MB) are stored in Redis between the two activities
 - `TextReprExpiredError` is non-retryable (Redis key missing means fetch must re-run, but this is handled by workflow-level retry)
 - Embedding failures tracked separately, don't fail summary generation
 - Activity retries use exponential backoff via centralized retry policies
+- A failed LLM call is captured as an exception only on the last attempt of `summarize_and_save_activity`. An earlier attempt logs `OpenAI API call failed, retry pending` at warning level, because the retry can still save the summary.
 
 ## Testing
 

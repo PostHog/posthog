@@ -50,6 +50,7 @@ from products.replay_vision.backend.api.observation_progress import stream_obser
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -118,7 +119,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="Scanner type (monitor, classifier, scorer, summarizer) at run time.",
+        help_text="Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.",
     )
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
@@ -135,30 +136,15 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_config = serializers.JSONField(
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
     )
-    verify_positives = serializers.CharField(
-        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees).",
-    )
-
-
-class VerificationRecordSerializer(serializers.Serializer):
-    """Mirrors `temporal.types.VerificationRecord` for OpenAPI generation."""
-
-    mode = serializers.CharField(
-        help_text="Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict.",
-    )
-    draws = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran.",
-    )
-    resolved_verdict = serializers.CharField(
-        help_text="The verdict verification settled on: the first pass when the second draw agrees, else the dissent.",
-    )
-    served_verdict = serializers.CharField(
-        help_text="The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`.",
-    )
-    skipped_reason = serializers.CharField(
+    variant_sampling_rates = serializers.DictField(
+        child=serializers.FloatField(),
+        required=False,
         allow_null=True,
-        help_text="Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.",
+        help_text=(
+            "Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at "
+            "by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read "
+            "against the rates that produced them."
+        ),
     )
 
 
@@ -172,9 +158,18 @@ class ScannerResultSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
     )
-    verification = VerificationRecordSerializer(
+    experiment_variant = serializers.CharField(
+        required=False,
         allow_null=True,
-        help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
+        help_text=(
+            "Experiment scanners only: the variant the exposure data attributes this session's person to. "
+            "Null on the other types and on rows scanned before variant attribution shipped."
+        ),
+    )
+    session_duration_s = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Experiment scanners only: the scanned session's duration in seconds.",
     )
 
 
@@ -203,7 +198,14 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=ReplayObservationMedia.Kind.choices,
         read_only=True,
-        help_text="`thumbnail` for the single frame that illustrates the observation, `clip` for a short video.",
+        help_text=(
+            "`thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one "
+            "summary chapter, `clip` for a short video."
+        ),
+    )
+    position = serializers.IntegerField(
+        read_only=True,
+        help_text="Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`.",
     )
     asset_id = serializers.IntegerField(
         read_only=True,
@@ -222,6 +224,17 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.",
+    )
+
+
+class ObservationThumbnailQuerySerializer(serializers.Serializer):
+    chapter = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the "
+            "observation's thumbnail."
+        ),
     )
 
 
@@ -349,6 +362,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             {
                 "id": media.id,
                 "kind": media.kind,
+                "position": media.position,
                 "asset_id": media.asset_id,
                 "description": media.description,
                 "video_start_ms": media.video_start_ms,
@@ -696,6 +710,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
         ),
     )
+    variant = django_filters.CharFilter(
+        method="_filter_variant",
+        help_text=(
+            "Experiment scanners only: filter to observations attributed to any of the given variant keys "
+            f"(comma-separated). `{UNATTRIBUTED_VARIANT}` matches observations with no attributed variant."
+        ),
+    )
     session_id = MultiChoiceFilter(
         field_name="session_id",
         help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
@@ -819,6 +840,19 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_variant(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        keys = set(split_csv(value))
+        if not keys:
+            return queryset
+        named = keys - {UNATTRIBUTED_VARIANT}
+        q = Q(_variant__in=named) if named else Q(pk__in=[])
+        if UNATTRIBUTED_VARIANT in keys:
+            q |= Q(_variant__isnull=True)
+        # `->>` reads a missing key and a JSON null alike as SQL NULL, so both count as unattributed.
+        return queryset.alias(_variant=KeyTextTransform("experiment_variant", "scanner_result")).filter(q)
 
 
 # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
@@ -1156,11 +1190,12 @@ class ReplayObservationViewSet(
 
     @extend_schema(
         request=None,
+        parameters=[ObservationThumbnailQuerySerializer],
         responses={
             302: OpenApiResponse(description="Redirect to the image."),
             404: OpenApiResponse(
                 response=ReplayVisionErrorSerializer,
-                description="The observation has no thumbnail, or its render has not landed yet.",
+                description="The observation has no such frame, or its render has not landed yet.",
             ),
         },
     )
@@ -1172,13 +1207,22 @@ class ReplayObservationViewSet(
     )
     def thumbnail(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it."""
+        query = ObservationThumbnailQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        chapter = query.validated_data.get("chapter")
+        kind, position = (
+            (ReplayObservationMedia.Kind.THUMBNAIL, 0)
+            if chapter is None
+            else (ReplayObservationMedia.Kind.CHAPTER, chapter)
+        )
         observation = self.get_object()
         # `get_object` already prefetched the observation's media with their assets, so this reads no rows.
         media = next(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL
+                if entry.kind == kind
+                and entry.position == position
                 and entry.asset.content_location
                 # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
                 # and an expired frame would serve until the sweep deletes it.
@@ -1187,7 +1231,7 @@ class ReplayObservationViewSet(
             None,
         )
         if media is None:
-            raise NotFound("This observation has no thumbnail.")
+            raise NotFound("This observation has no thumbnail." if chapter is None else "This chapter has no frame.")
         # Object-level access to the recording itself, which the export content endpoint used to apply to
         # these bytes before they moved here. A missing row falls back to the resource-level check
         # `_scanner_for_url` already ran.
@@ -1339,7 +1383,7 @@ class ReplayObservationViewSet(
             )
         verdict_changed = previous is None or previous["is_correct"] != label.is_correct
         feedback_changed = previous is None or previous["feedback"] != label.feedback
-        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
+        # The core rating signal: thumbs up/down on whether the scanner got the session right.
         # The feedback box autosaves while the user types and resends the whole label each time, so a save
         # that changes nothing reaches here often. Reporting those counts one rated session many times over.
         if verdict_changed or feedback_changed:

@@ -5,7 +5,8 @@ use crate::{
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
         types::{
-            ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
+            ConfigResponse, FlagsQueryParams, FlagsResponse, FlagsResponseV3, LegacyFlagsResponse,
+            ServiceResponse,
         },
     },
     config::BotFilterMode,
@@ -166,6 +167,7 @@ fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
     is_from_legacy_decide: bool,
+    v3_enabled: bool,
 ) -> Json<ServiceResponse> {
     let request_id = extract_request_id(headers);
 
@@ -190,8 +192,9 @@ fn get_minimal_flags_response(
     response.config = config;
 
     let (service_response, _) =
-        get_versioned_response(is_from_legacy_decide, version_num, response)
-            .expect("get_versioned_response is total for any (bool, Option<i32>, FlagsResponse)");
+        get_versioned_response(is_from_legacy_decide, version_num, v3_enabled, response).expect(
+            "get_versioned_response is total for any (bool, Option<i32>, bool, FlagsResponse)",
+        );
     Json(service_response)
 }
 
@@ -204,13 +207,15 @@ fn get_minimal_flags_response(
 /// - v>=4 -> FlagsV2 response format
 ///
 /// When the request is not from decide:
-/// - v>=2 -> FlagsV2 response format
+/// - v>=3 -> FlagsV3 response format when `v3_enabled`, otherwise FlagsV2
+/// - v=2 -> FlagsV2 response format
 /// - v=1 or missing -> FlagsV1 response format
 ///
 /// Returns a tuple of (response, format_name) for logging purposes
 fn get_versioned_response(
     is_from_legacy_decide: bool,
     version: Option<i32>,
+    v3_enabled: bool,
     response: FlagsResponse,
 ) -> Result<(ServiceResponse, &'static str), FlagError> {
     if is_from_legacy_decide {
@@ -242,15 +247,25 @@ fn get_versioned_response(
                 ))
             }
         }
+    } else if serves_flags_v3(is_from_legacy_decide, version, v3_enabled) {
+        Ok((
+            ServiceResponse::V3(FlagsResponseV3::from_response(response)),
+            "FlagsV3",
+        ))
+    } else if version.is_some_and(|v| v >= 2) {
+        Ok((ServiceResponse::V2(response), "FlagsV2"))
     } else {
-        match version {
-            Some(v) if v >= 2 => Ok((ServiceResponse::V2(response), "FlagsV2")),
-            _ => Ok((
-                ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
-                "FlagsV1",
-            )),
-        }
+        Ok((
+            ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
+            "FlagsV1",
+        ))
     }
+}
+
+/// True when [`get_versioned_response`] returns the v3 record. The body log
+/// uses it too, so the logged record matches the record the client receives.
+fn serves_flags_v3(is_from_legacy_decide: bool, version: Option<i32>, v3_enabled: bool) -> bool {
+    v3_enabled && !is_from_legacy_decide && version.is_some_and(|v| v >= 3)
 }
 
 /// Feature flag evaluation endpoint.
@@ -292,6 +307,7 @@ where
                 &headers,
                 query_params.version.as_deref(),
                 false,
+                state.config.flags_v3_response_enabled,
             )
             .into_response());
         }
@@ -431,6 +447,7 @@ where
             &headers,
             query_params.version.as_deref(),
             is_from_legacy_decide,
+            state.config.flags_v3_response_enabled,
         )
         .into_response());
     }
@@ -453,6 +470,7 @@ where
         .version
         .as_deref()
         .map(|v| v.parse::<i32>().unwrap_or(1));
+    let v3_enabled = state.config.flags_v3_response_enabled;
 
     // Install a body-logging side channel only when at least one team is
     // opted in. The OnceLock is filled inside the request decode flow with
@@ -551,14 +569,20 @@ where
             let decoded_body = decoded_body_slot
                 .as_ref()
                 .and_then(|slot| slot.get().cloned());
-            state
-                .body_logger
-                .log_response(request_id, log.team_id, decoded_body, &response);
+            state.body_logger.log_response(
+                request_id,
+                log.team_id,
+                decoded_body,
+                &response,
+                serves_flags_v3(is_from_legacy_decide, query_version, v3_enabled),
+            );
 
             // Determine the response format based on whether request is from decide and version
-            match get_versioned_response(is_from_legacy_decide, query_version, response) {
-                Ok((versioned_response, _response_format)) => {
+            match get_versioned_response(is_from_legacy_decide, query_version, v3_enabled, response)
+            {
+                Ok((versioned_response, response_format)) => {
                     log.http_status = 200;
+                    log.response_format = Some(response_format);
                     log.emit();
 
                     let mut response = Json(versioned_response).into_response();

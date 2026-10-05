@@ -13,6 +13,7 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -35,6 +36,7 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import (
@@ -72,6 +74,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
     from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
         TaskProcessingContext,
@@ -602,9 +605,7 @@ def get_user_mcp_server_configs(
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
-    the user installed. The PostHog MCP needs this to resolve single-exec mode
-    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
-    upstreams ignore the header.
+    the user installed. Non-PostHog upstreams ignore the header.
 
     Returns an empty list on errors (non-fatal).
     """
@@ -1334,7 +1335,7 @@ def build_sandbox_environment_variables(
     env_vars.update(run_gateway_env_vars(ctx, task))
     env_vars.update(mcp_exec_skills_env_vars(ctx))
 
-    if otel_telemetry_enabled:
+    if otel_telemetry_enabled and task.is_scout_experiment is not True:
         env_vars.update(get_sandbox_otel_env_vars())
 
     return env_vars
@@ -1358,7 +1359,7 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
-def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, str]:
     """The gateway routing/mint env for one run, derived from its server-side context.
 
     Every sandbox provisioning path calls this rather than spelling out the kwargs, so
@@ -1366,6 +1367,30 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    if task.is_scout_experiment is True:
+        ensure_scout_trial_capture_ready()
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+            raise GatewayNotConfiguredError("Scout trials require the AI gateway instead of subscription credentials")
+        if ctx.task_runtime == "pi":
+            raise GatewayNotConfiguredError("Scout trials require a runtime that supports the AI gateway")
+        gateway_url = settings.SANDBOX_AI_GATEWAY_URL
+        if not gateway_url:
+            raise GatewayNotConfiguredError("Scout trials require SANDBOX_AI_GATEWAY_URL")
+        token = mint_private_gateway_token(team_id=ctx.team_id, user=ctx.distinct_id)
+        try:
+            record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
+        except Exception:
+            revoke_private_gateway_token(token)
+            raise
+        return {
+            "LLM_GATEWAY_URL": "",
+            "AI_GATEWAY_URL": gateway_url,
+            "AI_GATEWAY_PRODUCTS": "signals_scout",
+            "AI_GATEWAY_TOKEN": token,
+            "AI_GATEWAY_TOKEN_CAP_USD": token_cap_usd(ctx.team_id, "signals_scout"),
+            "AI_GATEWAY_PRODUCT": "signals_scout",
+            "AI_GATEWAY_AI_STAGE": (ctx.state or {}).get("ai_stage") or "scout",
+        }
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
@@ -1485,6 +1510,7 @@ def ai_gateway_env_vars(
                 runtime=runtime,
                 internal=internal,
                 prior_slack_run=prior_slack_run,
+                distinct_id=distinct_id,
             )
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
@@ -1659,3 +1685,14 @@ def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> No
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
     return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
+
+
+def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:
+    """The recorded sender of the message a reply answers, else the run's actor, else the thread's actors."""
+    state = task_run.state or {}
+    return (
+        (get_message_actor(str(task_run.id), message_id) if message_id else None)
+        or state.get("slack_actor_slack_user_id")
+        or (mapping.latest_actor_slack_user_id if mapping else None)
+        or (mapping.mentioning_slack_user_id if mapping else None)
+    )

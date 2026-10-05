@@ -176,7 +176,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
     // Composed at build time so the disabled fleet default pays no per-event step
     // overhead. No retry envelope: a retry would queue the produce again. Unlike
     // emit-event below, this produce is best effort: its ack settles inside the
-    // step and a failure drops the shadow row.
+    // step and a failure drops the row.
     if (flagEvaluationsService) {
         pipeline = pipeline.pipe(createForkFlagEvaluationsStep(outputs, flagEvaluationsService))
     }
