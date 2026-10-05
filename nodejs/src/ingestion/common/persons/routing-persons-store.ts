@@ -692,6 +692,12 @@ export class RoutingPersonsStore implements PersonsStore {
         const live = this.deferredShadowMerges.filter((entry) => entry.expiresAt > now)
         const due = live.filter((entry) => entry.notBefore <= now).slice(0, SHADOW_MERGE_REDRIVES_PER_FLUSH)
         this.deferredShadowMerges = live.filter((entry) => !due.includes(entry))
+        if (due.length === 0) {
+            return
+        }
+        // One abort listener for the whole loop; the catch keeps it handled if no race is waiting when it fires.
+        const legAbandoned = this.abandonment(abandoned)
+        void legAbandoned.catch(() => {})
         for (const [index, entry] of due.entries()) {
             if (abandoned.aborted) {
                 this.requeueAbandonedShadowMerges(due.slice(index))
@@ -703,7 +709,7 @@ export class RoutingPersonsStore implements PersonsStore {
             const attempt = this.retriedShadowMerge(entry.request, entry.batchId, abandoned, false)
             void attempt.catch(() => {})
             try {
-                const result = await Promise.race([attempt, this.abandonment(abandoned)])
+                const result = await Promise.race([attempt, legAbandoned])
                 settled = result.results.every((source) => source.settled !== false)
             } catch (error) {
                 if (abandoned.aborted) {
