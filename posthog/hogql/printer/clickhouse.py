@@ -143,6 +143,49 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 )
 
 
+# Functions whose last argument names the ClickHouse type of the result.
+FUNCTIONS_WITH_RETURN_TYPE_ARGUMENT = frozenset(
+    {"JSONExtract", "JSONExtractKeysAndValues", "accurateCast", "accurateCastOrNull"}
+)
+
+_JSON_TYPE_NAME_RE = re.compile(r"\bJSON\b", re.IGNORECASE)
+
+
+def json_types_as_string(type_name: str) -> str:
+    """Replace each JSON type in a ClickHouse type name with String, for example `Array(JSON)` to `Array(String)`.
+
+    clickhouse-driver cannot read a JSON column. HogQL models JSON values as JSON text, and a JSONExtract or cast to
+    String returns the raw JSON text of an object or array value.
+    """
+    result: list[str] = []
+    position = 0
+    for match in _JSON_TYPE_NAME_RE.finditer(type_name):
+        if match.start() < position:
+            continue
+        end = match.end()
+        if end < len(type_name) and type_name[end] == "(":
+            depth = 0
+            for index in range(end, len(type_name)):
+                if type_name[index] == "(":
+                    depth += 1
+                elif type_name[index] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = index + 1
+                        break
+            else:
+                return type_name
+        # A word that a type name follows is a tuple element name, not a type.
+        following = type_name[end:].lstrip()
+        if following and following[0] not in "),":
+            continue
+        result.append(type_name[position : match.start()])
+        result.append("String")
+        position = end
+    result.append(type_name[position:])
+    return "".join(result)
+
+
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
@@ -213,6 +256,14 @@ class ClickHousePrinter(BasePrinter):
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
         elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
+        elif (
+            node.name in FUNCTIONS_WITH_RETURN_TYPE_ARGUMENT
+            and len(node_args) > 1
+            and isinstance(node_args[-1], ast.Constant)
+            and isinstance(node_args[-1].value, str)
+            and (return_type := json_types_as_string(node_args[-1].value)) != node_args[-1].value
+        ):
+            args = [self.visit(arg) for arg in node_args[:-1]] + [self.visit(ast.Constant(value=return_type))]
         else:
             args = [self.visit(arg) for arg in node_args]
 
