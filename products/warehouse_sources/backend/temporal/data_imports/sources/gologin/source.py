@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gologin import (
     GoLoginSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.gologin import (
     GoLoginResumeConfig,
     gologin_source,
@@ -47,10 +50,6 @@ class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
         return {"401 Client Error": AUTH_ERROR, "403 Client Error": PERMISSION_ERROR}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-
         return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
