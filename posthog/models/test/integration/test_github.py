@@ -1201,6 +1201,20 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 403
 
+    @parameterized.expand(
+        [
+            ("traversal_in_repository", "PostHog/posthog/../../orgs/PostHog/members", "alice"),
+            ("path_in_login", "PostHog/posthog", "alice/../../members"),
+        ]
+    )
+    def test_is_assignable_refuses_unsafe_paths_without_calling_github(self, _name: str, repository: str, login: str):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_get") as mock_get:
+            result = github.is_assignable(repository, login)
+        assert result["success"] is False
+        mock_get.assert_not_called()
+
     def test_list_assignees_searches_every_page_and_caches_the_list(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)

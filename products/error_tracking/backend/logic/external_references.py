@@ -58,7 +58,12 @@ def _validate_github_assignee(integration: Integration, repository: str, login: 
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", login):
         raise ErrorTrackingExternalReferenceValidationError("GitHub assignee must be a GitHub login.")
     result = GitHubIntegration(integration).is_assignable(repository.strip(), login)
-    if result.get("success") and not result.get("assignable"):
+    if not result.get("success"):
+        raise ErrorTrackingExternalReferenceValidationError(
+            f"Could not check whether {login} can be assigned issues in {repository.strip()}. "
+            "Try again, or create the issue without an assignee."
+        )
+    if not result.get("assignable"):
         raise ErrorTrackingExternalReferenceValidationError(
             f"GitHub user {login} cannot be assigned issues in {repository.strip()}."
         )
@@ -101,7 +106,7 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
         assignee
         and assignee.strip()
         and integration.kind == Integration.IntegrationKind.GITLAB
-        and not re.fullmatch(r"[0-9]+", assignee.strip())
+        and not re.fullmatch(r"[0-9]{1,20}", assignee.strip())
     ):
         raise ErrorTrackingExternalReferenceValidationError("GitLab assignee must be a numeric user ID.")
 

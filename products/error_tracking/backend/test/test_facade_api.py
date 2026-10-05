@@ -347,6 +347,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("username_instead_of_id", "alice"),
             ("non_string", 42),
             ("non_ascii_digit", "\u00b2"),
+            ("too_long", "9" * 5000),
         ]
     )
     @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")
@@ -374,7 +375,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ("not_assignable", "octocat", {"success": True, "assignable": False}, False),
             ("assignable", "octocat", {"success": True, "assignable": True}, True),
             ("managed_user_login", "mona_octo", {"success": True, "assignable": True}, True),
-            ("check_failed", "octocat", {"success": False, "error": "network"}, True),
+            ("check_failed", "octocat", {"success": False, "error": "network"}, False),
         ]
     )
     @patch("products.error_tracking.backend.logic.external_references.GitHubIntegration.create_issue")
