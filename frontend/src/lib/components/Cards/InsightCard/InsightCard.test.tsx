@@ -4,12 +4,13 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { mockAllIsIntersecting } from 'react-intersection-observer/test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import EXAMPLE_TRENDS from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, DashboardPlacement, InsightModel } from '~/types'
+import { ChartDisplayType, DashboardPlacement, InsightLogicProps, InsightModel } from '~/types'
 
 import { InsightCard, shouldRenderInsightCardViz } from './InsightCard'
 
@@ -54,38 +55,49 @@ describe('InsightCard', () => {
             expect(screen.getByText("This query couldn't run right now")).toBeVisible()
         })
 
-        it('holds the card refresh controls until its capacity cooldown ends', () => {
-            const refresh = jest.fn()
-            const { container } = render(
-                <InsightCard
-                    insight={insight}
-                    placement="SavedInsightGrid"
-                    doNotLoad
-                    apiErrored
-                    apiError={new ApiError('', 503, new Headers({ 'Retry-After': '45' }))}
-                    refresh={refresh}
-                />
-            )
-            act(() => mockAllIsIntersecting(true))
-            const headerRefresh = container.querySelector('[data-attr="insight-card-refresh"]')!
-            expect(headerRefresh).toHaveAttribute('aria-disabled', 'true')
-            fireEvent.click(headerRefresh)
-            expect(refresh).not.toHaveBeenCalled()
+        it.each(['tile', 'embedded query'] as const)(
+            'holds the card refresh controls until a capacity cooldown from the %s ends',
+            (source) => {
+                const refresh = jest.fn()
+                const capacityError = new ApiError('', 503, new Headers({ 'Retry-After': '45' }))
+                const { container } = render(
+                    <InsightCard
+                        insight={insight}
+                        placement="SavedInsightGrid"
+                        doNotLoad
+                        apiErrored={source === 'tile'}
+                        apiError={source === 'tile' ? capacityError : undefined}
+                        refresh={refresh}
+                    />
+                )
+                act(() => mockAllIsIntersecting(true))
+                if (source === 'embedded query') {
+                    act(() =>
+                        insightDataLogic
+                            .findMounted({ dashboardItemId: insight.short_id } as InsightLogicProps)!
+                            .actions.loadDataFailure('', capacityError)
+                    )
+                }
+                const headerRefresh = container.querySelector('[data-attr="insight-card-refresh"]')!
+                expect(headerRefresh).toHaveAttribute('aria-disabled', 'true')
+                fireEvent.click(headerRefresh)
+                expect(refresh).not.toHaveBeenCalled()
 
-            fireEvent.click(screen.getByLabelText('more'))
-            const menuRefresh = screen.getByTestId('dashboard-tile-refresh-data')
-            expect(menuRefresh).toHaveAttribute('aria-disabled', 'true')
-            fireEvent.click(menuRefresh)
-            expect(refresh).not.toHaveBeenCalled()
+                fireEvent.click(screen.getByLabelText('more'))
+                const menuRefresh = screen.getByTestId('dashboard-tile-refresh-data')
+                expect(menuRefresh).toHaveAttribute('aria-disabled', 'true')
+                fireEvent.click(menuRefresh)
+                expect(refresh).not.toHaveBeenCalled()
 
-            act(() => jest.advanceTimersByTime(45_000))
-            expect(headerRefresh).toHaveAttribute('aria-disabled', 'false')
-            fireEvent.click(screen.getByLabelText('more'))
-            expect(screen.getByTestId('dashboard-tile-refresh-data')).toHaveAttribute('aria-disabled', 'false')
-            expect(refresh).not.toHaveBeenCalled()
-            fireEvent.click(screen.getByTestId('dashboard-tile-refresh-data'))
-            expect(refresh).toHaveBeenCalledTimes(1)
-        })
+                act(() => jest.advanceTimersByTime(45_000))
+                expect(headerRefresh).toHaveAttribute('aria-disabled', 'false')
+                fireEvent.click(screen.getByLabelText('more'))
+                expect(screen.getByTestId('dashboard-tile-refresh-data')).toHaveAttribute('aria-disabled', 'false')
+                expect(refresh).not.toHaveBeenCalled()
+                fireEvent.click(screen.getByTestId('dashboard-tile-refresh-data'))
+                expect(refresh).toHaveBeenCalledTimes(1)
+            }
+        )
     })
 
     it.each([
