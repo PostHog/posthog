@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import * as sessionRecordingGetHooks from '@/tools/replay/sessionRecordingGetHooks'
+import hooks_sessionRecordingGet from '@/tools/replay/sessionRecordingGetHooks'
 import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -70,7 +70,7 @@ const sessionRecordingGet = (): ToolBase<
         name: 'session-recording-get',
         schema: SessionRecordingGetSchema(),
         handler: withToolHooks(
-            sessionRecordingGetHooks,
+            hooks_sessionRecordingGet,
             async (context: Context, params: z.infer<ReturnType<typeof SessionRecordingGetSchema>>) => {
                 const projectId = await context.stateManager.getProjectId()
                 const result = await context.api.request<Schemas.SessionRecording>({

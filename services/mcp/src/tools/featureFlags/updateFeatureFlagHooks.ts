@@ -4,6 +4,7 @@
  * generated handler. Re-sync is needed only if the `filters` param shape changes.
  */
 import type { Schemas } from '@/api/generated'
+import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
 import { preserveGroupTargetingFilters, type FlagFilters } from './preserveGroupTargeting'
@@ -14,7 +15,7 @@ type UpdateParams = {
     [key: string]: unknown
 }
 
-export async function beforeRequest<T extends UpdateParams>(context: Context, params: T): Promise<T> {
+async function beforeRequest<T extends UpdateParams>(context: Context, params: T): Promise<T> {
     if (params.filters === undefined) {
         return params
     }
@@ -31,3 +32,5 @@ export async function beforeRequest<T extends UpdateParams>(context: Context, pa
 
     return { ...params, filters: mergedFilters }
 }
+
+export default { beforeRequest } satisfies ToolHooks<UpdateParams>

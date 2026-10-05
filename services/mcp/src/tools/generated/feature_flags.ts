@@ -6,7 +6,7 @@ import * as orvalSchemas from '@/generated/feature_flags/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-import * as updateFeatureFlagHooks from '@/tools/featureFlags/updateFeatureFlagHooks'
+import hooks_updateFeatureFlag from '@/tools/featureFlags/updateFeatureFlagHooks'
 import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -1010,7 +1010,7 @@ const updateFeatureFlag = (): ToolBase<
     name: 'update-feature-flag',
     schema: UpdateFeatureFlagSchema(),
     handler: withToolHooks(
-        updateFeatureFlagHooks,
+        hooks_updateFeatureFlag,
         async (context: Context, params: z.infer<ReturnType<typeof UpdateFeatureFlagSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}

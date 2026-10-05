@@ -2621,9 +2621,9 @@ describe('hooks', () => {
     it('imports the hooks module and wraps the handler', () => {
         const { code } = generate({ hooks: 'tool-hooks' })
 
-        expect(code).toContain("import * as thingListHooks from '@/tools/tool-hooks'")
+        expect(code).toContain("import hooks_thingList from '@/tools/tool-hooks'")
         expect(code).toContain("import { withToolHooks } from '@/tools/tool-hooks'")
-        expect(code).toMatch(/handler: withToolHooks\(\s*thingListHooks,\s*async \(context: Context/)
+        expect(code).toMatch(/handler: withToolHooks\(\s*hooks_thingList,\s*async \(context: Context/)
     })
 
     it('leaves tools without hooks unwrapped', () => {

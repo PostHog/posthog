@@ -4,6 +4,9 @@ import type { Context } from '@/tools/types'
  * Optional custom logic around a generated tool's request, declared per tool with
  * `hooks:` in tools.yaml. Methods are declared with method syntax so a hook module can
  * type `params` more narrowly than the generated schema.
+ *
+ * A hook module default-exports its hooks with `satisfies ToolHooks<...>`, so a misspelled
+ * hook name is a compile error instead of a hook that never runs.
  */
 export interface ToolHooks<TParams = never> {
     /** Runs before the request. Return the params the request should use. */

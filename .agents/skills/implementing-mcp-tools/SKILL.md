@@ -185,7 +185,7 @@ A `scopes` list that misses a scope the API requires prints a warning, and a Git
 `annotations` default to the HTTP method for GET (read-only), DELETE (destructive) and PATCH (idempotent, non-destructive).
 POST and PUT vary too much, so declare `annotations` for them.
 
-When a tool needs custom logic around the request, set `hooks: <path under src/tools/>` and export `beforeRequest`, `afterResponse` or `onError` from that module (see `ToolHooks` in `src/tools/tool-hooks.ts`).
+When a tool needs custom logic around the request, set `hooks: <path under src/tools/>` and default-export an object with `beforeRequest`, `afterResponse` or `onError` from that module, written `export default { onError } satisfies ToolHooks<Params>` so a typo fails typecheck (see `ToolHooks` in `src/tools/tool-hooks.ts`).
 Use it to read state before a write or to turn a known error into a result, rather than shadowing the generated tool with a hand-written one.
 
 Unknown keys are rejected at build time (Zod `.strict()`).

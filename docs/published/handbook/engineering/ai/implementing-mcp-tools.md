@@ -373,7 +373,7 @@ Product teams own their definitions and control which operations are exposed as 
      hooks: featureFlags/updateFeatureFlagHooks
    ```
 
-   The module exports any of these functions:
+   The module default-exports an object with any of these functions, written `export default { beforeRequest } satisfies ToolHooks<Params>` so a misspelled name fails typecheck:
 
    - `beforeRequest(context, params)` returns the params the request should use.
    - `afterResponse(context, params, result)` returns the result to send to the client.

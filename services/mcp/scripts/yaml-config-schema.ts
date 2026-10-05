@@ -155,8 +155,8 @@ export const ToolConfigSchema = z
         ui_app: z.string().optional(),
         /**
          * Module with custom request logic, relative to `src/tools/` and without extension
-         * (e.g. `featureFlags/updateFeatureFlagHooks`). It may export `beforeRequest`,
-         * `afterResponse` and `onError`; see `ToolHooks` in `src/tools/tool-hooks.ts`.
+         * (e.g. `featureFlags/updateFeatureFlagHooks`). Its default export is an object with
+         * `beforeRequest`, `afterResponse` and `onError`; see `ToolHooks` in `src/tools/tool-hooks.ts`.
          */
         hooks: z
             .string()

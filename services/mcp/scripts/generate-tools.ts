@@ -1075,8 +1075,9 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
 // ------------------------------------------------------------------
 // Code generation for a single tool
 
+// The underscore keeps the alias apart from factory names, which are camelCase without underscores.
 function hooksVarName(toolName: string): string {
-    return `${toCamelCase(toolName)}Hooks`
+    return `hooks_${toCamelCase(toolName)}`
 }
 
 /** Emits the handler expression, wrapped with the tool's `hooks:` module when it has one. */
@@ -2085,7 +2086,7 @@ function generateCategoryFile(
         hookedTools.length > 0
             ? `import { withToolHooks } from '@/tools/tool-hooks'\n` +
               hookedTools
-                  .map(([name, toolConfig]) => `import * as ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
+                  .map(([name, toolConfig]) => `import ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
                   .join('')
             : ''
 

@@ -1,8 +1,9 @@
 import { PostHogApiError } from '@/lib/errors'
+import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
 // Turns the API's "Recording not found" 404 into a result the agent can read, instead of a tool error.
-export function onError(_context: Context, params: { id: string }, error: unknown): unknown {
+function onError(_context: Context, params: { id: string }, error: unknown): unknown {
     if (
         error instanceof PostHogApiError &&
         error.status === 404 &&
@@ -27,3 +28,5 @@ function isRecordingNotFound(body: string): boolean {
         return false
     }
 }
+
+export default { onError } satisfies ToolHooks<{ id: string }>
