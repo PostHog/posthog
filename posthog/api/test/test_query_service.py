@@ -1177,6 +1177,15 @@ class TestQueryService(APIBaseTest):
         assert denied.name not in catalog["tableAliases"]
         assert "other_postgres_orders" not in catalog["tableAliases"]
 
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_language_service_catalog_keeps_hidden_tables(self, _properties: MagicMock) -> None:
+        schema_catalog = _build_database_schema_query(
+            self.team, DatabaseSchemaQuery(), user=self.user, include_hidden_tables=True
+        )
+        catalog = build_catalog(self.team, self.user, schema_catalog.response, database=schema_catalog.database)
+
+        assert "cohort_membership" in catalog["tables"]
+
     @patch("posthog.api.services.query.get_query_runner_or_none")
     def test_data_visualization_node_surfaces_hogql_resolution_error_without_value_error_context(
         self, mock_get_query_runner_or_none: MagicMock
