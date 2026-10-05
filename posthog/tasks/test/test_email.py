@@ -585,11 +585,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
             event="verification code sent",
             distinct_id=user.distinct_id,
+            properties={"email_domain": "posthog.com", "action": "signup"},
             groups={"organization": str(user.current_organization_id)},
         )
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_email_verification_code_reports_the_staged_domain(
+        self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        send_email_verification_code(user.id, "123456", "New.User@Example.COM")
+
+        mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
+            event="verification code sent",
+            distinct_id=user.distinct_id,
+            properties={"email_domain": "example.com", "action": "email_change"},
+            groups={"organization": str(user.current_organization_id)},
+        )
 
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

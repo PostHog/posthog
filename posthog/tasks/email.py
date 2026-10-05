@@ -675,10 +675,17 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
     )
     message.add_user_recipient(user, email_override=target_email)
     message.send(send_async=False)
+    recipient = target_email or user.email
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(user.distinct_id),
             event="verification code sent",
+            # The domain, never the address. A provider that defers or refuses our mail stalls
+            # every signup behind it, and the domain is the only property that makes that visible.
+            properties={
+                "email_domain": recipient.rpartition("@")[2].lower() or None,
+                "action": "email_change" if target_email is not None else "signup",
+            },
             groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
         )
 

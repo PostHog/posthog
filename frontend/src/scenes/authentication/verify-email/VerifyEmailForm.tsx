@@ -17,6 +17,7 @@ import { VerificationCodeInput } from 'scenes/authentication/shared/Verification
 import { urls } from 'scenes/urls'
 
 import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
+import { verifyEmailTelemetryLogic } from './verifyEmailTelemetryLogic'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
 const HedgehogJackDawson = pngHoggie(jackDawsonPng)
@@ -30,9 +31,9 @@ const NOTES: Record<string, string[]> = {
 }
 
 const CHECKLIST = [
-    'Wait 5 minutes, some email providers take a beat',
-    'Check spam and any firewalls you run',
-    'Channel your inner hedgehog and peek again',
+    'Wait a few minutes. Some providers hold new mail before they deliver it.',
+    'Check your spam folder, and any mail filters or firewalls you run.',
+    'If this is a work address, ask your IT team whether they block mail from posthog.com.',
 ]
 
 const DEEP_LINK_NOTICE: Record<VerifyEmailReason, string> = {
@@ -44,6 +45,7 @@ const DEEP_LINK_NOTICE: Record<VerifyEmailReason, string> = {
 function NotSeeingIt(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
     const { requestVerificationCode } = useActions(verifyEmailLogic)
+    const { reportHelpOpened } = useActions(verifyEmailTelemetryLogic)
     const { uuid, newlyRequestedVerificationCodeLoading } = useValues(verifyEmailLogic)
     const [open, setOpen] = useState(false)
     const [checked, setChecked] = useState<boolean[]>([])
@@ -58,7 +60,12 @@ function NotSeeingIt(): JSX.Element {
             <button
                 type="button"
                 className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
-                onClick={() => setOpen((v) => !v)}
+                onClick={() => {
+                    if (!open) {
+                        reportHelpOpened()
+                    }
+                    setOpen((v) => !v)
+                }}
             >
                 Not seeing it?
             </button>
@@ -111,6 +118,17 @@ function NotSeeingIt(): JSX.Element {
                             Contact support
                         </LemonButton>
                     </div>
+                    <p className="m-0 mt-3">
+                        Still nothing after a resend? Some mail providers hold or refuse our code for hours. We can't
+                        move an account to a new address before it is verified, so{' '}
+                        <Link
+                            to={urls.signup()}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                        >
+                            sign up with a different address
+                        </Link>
+                        , or contact support and tell us the address you used.
+                    </p>
                 </div>
             )}
         </>
@@ -305,7 +323,7 @@ export function VerifyEmailForm(): JSX.Element {
             <AuthSceneCard
                 footer={
                     <p className="mt-5 mb-0 text-sm text-secondary text-center">
-                        Wrong address?{' '}
+                        Wrong address, or the code never arrives?{' '}
                         <Link
                             to={urls.signup()}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
