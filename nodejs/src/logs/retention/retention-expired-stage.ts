@@ -18,8 +18,10 @@ export const logsRetentionExpiredRowsDroppedCounter = new Counter({
 })
 
 /**
- * A message without the header comes from a capture-logs that clamps every timestamp to within 24
- * hours of ingest, and the shortest retention is 14 days, so none of its rows can be expired.
+ * A message without the header comes from a capture-logs build older than the header, and that build
+ * still accepts `backfill_days`, so its rows can be old. Skipping the check for it is safe only while
+ * ClickHouse counts expiry from the ingest time. Every capture-logs instance must send the header
+ * before ClickHouse counts expiry from the row timestamp.
  */
 export function canHoldExpiredRow(
     minTimestampMicros: number | undefined,
