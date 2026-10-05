@@ -193,13 +193,18 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             } as CountedPaginatedResponse<CohortType>,
             {
                 loadCohorts: async () => {
-                    const response = await api.cohorts.listPaginated({
+                    // The table reads none of the fields `?basic=true` drops, and the full
+                    // payload detoasts the JSON columns and runs two extra queries per page.
+                    // nosemgrep: prefer-codegen-api-namespaced-cohorts -- the generated client models
+                    // neither the trimmed response nor the type/created_by_id filters this call sends.
+                    const response = await api.cohorts.listBasic({
                         ...values.paramsFromFilters,
                     })
                     personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
                     return {
                         count: response.count,
-                        results: response.results.map((cohort) => processCohort(cohort)),
+                        // `groups` is dropped from the basic payload but required on CohortType.
+                        results: response.results.map((cohort) => processCohort({ ...cohort, groups: [] })),
                     }
                 },
             },

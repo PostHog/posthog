@@ -25,7 +25,7 @@ export function buildTaxonomicFilterApiMock(overrides: Record<string, unknown> =
         default: {
             get: jest.fn().mockImplementation(emptyPaginated),
             actions: { list: jest.fn().mockImplementation(emptyPaginated) },
-            cohorts: { listPaginated: jest.fn().mockImplementation(emptyPaginated) },
+            cohorts: { listBasic: jest.fn().mockImplementation(emptyPaginated) },
             dashboards: { list: jest.fn().mockImplementation(emptyPaginated) },
             queryTabState: { list: jest.fn().mockImplementation(emptyPaginated) },
             dataWarehouseTables: { list: jest.fn().mockImplementation(emptyPaginated) },
