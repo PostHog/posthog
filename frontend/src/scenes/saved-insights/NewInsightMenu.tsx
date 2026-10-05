@@ -281,13 +281,13 @@ function useQuestionSections(): QuestionSection[] {
 
 function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2.5">
+        <div className="@container/new-insight-section flex flex-col gap-2.5">
             {/* single-line title + description keep header heights equal, so card rows align across columns */}
             <div className="flex flex-col gap-0.5">
                 <span className="truncate text-sm font-semibold text-default">{section.title}</span>
                 <span className="truncate text-xs text-secondary">{section.description}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 @min-[26rem]/new-insight-section:grid-cols-3">
                 {section.cards.map((spec) => (
                     <NewInsightCard
                         key={spec.key}
