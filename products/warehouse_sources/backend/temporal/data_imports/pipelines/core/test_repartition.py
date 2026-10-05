@@ -139,6 +139,10 @@ def _patch_copied(files: frozenset[str] | None = frozenset({"part-0.parquet"})):
     return patch.object(repartition_module, "_copied_source_files", new=AsyncMock(return_value=files))
 
 
+def _patch_blocker(reason: str | None = None):
+    return patch.object(repartition_module, "resume_blocker", return_value=reason)
+
+
 class TestSelectRepartitionTarget:
     @parameterized.expand(
         [
@@ -2081,6 +2085,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             _patch_copied(),
+            _patch_blocker(),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
             patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
@@ -2138,6 +2143,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             _patch_copied(),
+            _patch_blocker(),
             _patch_finalize(),
             # First read validates the checkpoint temp (1 row); second validates the completed rewrite.
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
@@ -2191,6 +2197,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             _patch_copied(),
+            _patch_blocker(),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
             patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
@@ -2205,10 +2212,10 @@ class TestRewriteCheckpointResume:
 
         assert saved.call_args.kwargs["checkpoint"]["rows_written"] == 3
 
-    def test_discards_the_checkpoint_when_the_live_version_moved_on(self, tmp_path):
-        # Version moved on (a merge committed between attempts) → the recorded prefix no longer lines up
-        # with the current scan. The checkpoint must be discarded and a fresh rebuild started into our
-        # own claim-scoped temp, never resumed — resuming would swap misaligned data over live.
+    def test_discards_the_checkpoint_when_a_copied_file_is_no_longer_live(self, tmp_path):
+        # A merge between attempts rewrote a file temp already copied, so temp holds stale rows. The
+        # checkpoint must be discarded and a fresh rebuild started into our own claim-scoped temp,
+        # never resumed — resuming would swap stale data over live.
         live = _write_month_partitioned(
             str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
         )
@@ -2230,6 +2237,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             _patch_copied(),
+            _patch_blocker("copied_file_no_longer_live"),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 2])),
             patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
@@ -2247,14 +2255,15 @@ class TestRewriteCheckpointResume:
         assert rewrite.await_args_list[0].kwargs["copied_files"] == frozenset()
 
     @pytest.mark.parametrize(
-        "version_offset,expected_restart",
+        "version_offset,blocker,expected_restart",
         [
-            pytest.param(0, True, id="resumed_checkpoint_is_a_restart"),
-            pytest.param(999, False, id="rejected_checkpoint_is_not_a_restart"),
+            pytest.param(0, None, True, id="resumed_checkpoint_is_a_restart"),
+            pytest.param(999, None, True, id="checkpoint_resumed_after_live_moved_is_a_restart"),
+            pytest.param(999, "copied_file_no_longer_live", False, id="rejected_checkpoint_is_not_a_restart"),
         ],
     )
     def test_only_a_usable_checkpoint_makes_an_over_budget_attempt_a_restart(
-        self, version_offset, expected_restart, tmp_path
+        self, version_offset, blocker, expected_restart, tmp_path
     ):
         # `had_prior_checkpoint` decides whether the activity charges this attempt against the cap.
         # A checkpoint the resume path rejected was left by an attempt killed at an arbitrary point
@@ -2282,6 +2291,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             _patch_copied(),
+            _patch_blocker(blocker),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
             patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True),
@@ -2300,6 +2310,118 @@ class TestRewriteCheckpointResume:
 
         assert raised.value.had_prior_checkpoint is expected_restart
         assert raised.value.checkpoint_saved is True
+
+    @staticmethod
+    def _append_month(live_uri: str) -> None:
+        table = pa.table(
+            {
+                "id": pa.array([100], pa.int64()),
+                "created_at": pa.array([datetime.datetime(2025, 3, 3)], pa.timestamp("us")),
+            }
+        )
+        result = append_partition_key_to_table(table, None, None, ["created_at"], "datetime", "month", logger)
+        assert result is not None
+        deltalake.write_deltalake(live_uri, result.table, partition_by=PARTITION_KEY, mode="append")
+
+    @staticmethod
+    def _rewrite_a_copied_file(live_uri: str) -> None:
+        deltalake.DeltaTable(live_uri).delete("id = 0")
+
+    @staticmethod
+    def _add_a_column(live_uri: str) -> None:
+        table = pa.table(
+            {
+                "id": pa.array([101], pa.int64()),
+                "created_at": pa.array([datetime.datetime(2025, 4, 4)], pa.timestamp("us")),
+                "added_later": pa.array(["v"], pa.string()),
+            }
+        )
+        result = append_partition_key_to_table(table, None, None, ["created_at"], "datetime", "month", logger)
+        assert result is not None
+        deltalake.write_deltalake(
+            live_uri, result.table, partition_by=PARTITION_KEY, mode="append", schema_mode="merge"
+        )
+
+    @pytest.mark.parametrize(
+        "move_live,expect_resume",
+        [
+            pytest.param(None, True, id="live_unchanged"),
+            pytest.param("_append_month", True, id="live_gained_a_file"),
+            pytest.param("_rewrite_a_copied_file", False, id="live_rewrote_a_copied_file"),
+            pytest.param("_add_a_column", False, id="live_gained_a_column"),
+        ],
+    )
+    def test_a_resume_survives_a_live_version_move_that_keeps_the_copied_files(
+        self, move_live, expect_resume, tmp_path
+    ):
+        # Full-refresh and frequently merged tables move their live version between almost every two
+        # attempts. Discarding a checkpoint for that alone threw away every long rewrite's progress.
+        live_uri = str(tmp_path / "live")
+        rows = [(i, datetime.datetime(2024, 1 + i, 5)) for i in range(6)]
+        live = _write_month_partitioned(live_uri, rows)
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        prior_temp = str(tmp_path / "live__repartitioned_old")
+        clock = Mock(side_effect=itertools.chain([0.0] * 7, itertools.repeat(100.0)))
+        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+            with pytest.raises(RepartitionBudgetExceededError):
+                asyncio.run(
+                    _rewrite_into_temp(
+                        old_delta=live,
+                        temp_uri=prior_temp,
+                        storage_options={},
+                        target=target,
+                        budget=_budget(max_source_files_per_commit=1),
+                        logger=logger,
+                        deadline=50.0,
+                    )
+                )
+        copied = copied_source_files(prior_temp, {})
+        assert copied
+        prior_rows = deltalake.DeltaTable(prior_temp).to_pyarrow_table().num_rows
+
+        if move_live is not None:
+            getattr(self, move_live)(live_uri)
+        moved = deltalake.DeltaTable(live_uri)
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": prior_temp,
+                "rows_written": prior_rows,
+                "target": target.to_dict(),
+                "live_version": live.version(),
+            },
+        )
+        table_ref = _make_table_ref(
+            get_table_uri=AsyncMock(return_value=live_uri), get_delta_table=AsyncMock(return_value=moved)
+        )
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True),
+            _patch_finalize(),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+        ):
+            result = asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token="tok",
+                    budget=_budget(),
+                )
+            )
+
+        assert result["outcome"] == "completed"
+        swapped = swap.await_args.kwargs["temp_uri"]
+        assert (swapped == prior_temp) is expect_resume
+        rebuilt = deltalake.DeltaTable(swapped).to_pyarrow_table()
+        live_now = moved.to_pyarrow_table()
+        assert rebuilt.num_rows == live_now.num_rows
+        assert sorted(rebuilt.column("id").to_pylist()) == sorted(live_now.column("id").to_pylist())
 
     def test_refuses_to_restart_a_table_one_budget_already_failed_to_cover(self, tmp_path):
         # The discarded checkpoint above is only harmless while a restart can finish. Once a full
@@ -2328,6 +2450,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             _patch_copied(),
+            _patch_blocker("copied_file_no_longer_live"),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
             patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock()) as rewrite,

@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     check_source_supported,
     copied_source_files,
     plan_source_files,
+    resume_blocker,
     storage_filesystem,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
@@ -1339,18 +1340,35 @@ async def repartition_table_in_place(
         rewrite_target = target
         if resuming_rewrite:
             # A prior attempt stopped with temp holding every row of some source files, which its
-            # commits record. Resuming skips those files and copies the rest, which is only correct
-            # while live is byte-identical to when the checkpoint was written: the sync's merge runs
-            # after a swallowed repartition failure, so on any run where that merge committed, live
-            # may have rewritten a copied file. The Delta version is the fence — equal means no
-            # commit has touched live since, so the copied files are all still live.
-            # A checkpoint whose temp is unreadable, larger than live, or built against a different
-            # live version is unusable: discard it and rebuild fresh from the still-intact live table.
+            # commits record. Resuming skips those files and copies the rest. The sync's merge runs
+            # after a swallowed repartition failure, so live may have moved on since the checkpoint.
+            # That only matters when the move removed a copied file or added a column (see
+            # `resume_blocker`); appended files are simply copied with the rest. A temp that is
+            # unreadable, larger than live, or out of step with its record is unusable: discard it
+            # and rebuild fresh from the still-intact live table.
             live_version = await asyncio.to_thread(old_delta.version)
             checkpoint_version = (rewrite_checkpoint or {}).get("live_version")
             temp_rows = await _valid_delta_row_count(temp_uri, storage_options)
             recorded = await _copied_source_files(temp_uri, storage_options) if temp_rows is not None else None
-            if recorded is None and temp_rows is not None and checkpoint_version == live_version:
+            blocker: str | None
+            if temp_rows is None:
+                blocker = "temp_unreadable"
+            elif temp_rows > old_row_count:
+                blocker = "temp_larger_than_live"
+            elif recorded is None:
+                blocker = None
+            else:
+                live_sources = await asyncio.to_thread(plan_source_files, old_delta)
+                blocker = await asyncio.to_thread(
+                    resume_blocker,
+                    live_sources=live_sources,
+                    live_schema=arrow_schema_of(old_delta.schema()),
+                    temp_uri=temp_uri,
+                    storage_options=storage_options,
+                    copied=recorded,
+                    temp_rows=temp_rows,
+                )
+            if blocker is None and recorded is None:
                 # A temp an older rewrite wrote records rows, not source files, so it cannot be
                 # resumed. That says nothing about the budget, so rebuild without the give-up check.
                 await logger.awarning(
@@ -1361,7 +1379,7 @@ async def repartition_table_in_place(
                 await asyncio.to_thread(schema.clear_repartition_rewrite)
                 resuming_rewrite = False
                 temp_uri = _temp_uri_for(live_uri, claim_token)
-            elif temp_rows is None or temp_rows > old_row_count or checkpoint_version != live_version:
+            elif blocker is not None:
                 if _restart_would_run_out_of_budget(rewrite_checkpoint or {}, old_row_count):
                     raise RepartitionTooLargeForBudgetError(
                         f"a full activity budget covered {(rewrite_checkpoint or {}).get('rows_written')} of "
@@ -1369,16 +1387,17 @@ async def repartition_table_in_place(
                         f"cannot finish either (schema_id={schema.id})"
                     )
                 await logger.awarning(
-                    f"repartition: rewrite checkpoint is unusable (temp_rows={temp_rows} live={old_row_count} "
-                    f"checkpoint_version={checkpoint_version} live_version={live_version}), discarding and "
-                    f"rebuilding fresh schema_id={schema.id}",
+                    f"repartition: rewrite checkpoint is unusable reason={blocker} (temp_rows={temp_rows} "
+                    f"live={old_row_count} checkpoint_version={checkpoint_version} live_version={live_version}), "
+                    f"discarding and rebuilding fresh schema_id={schema.id}",
                     schema_id=str(schema.id),
+                    reason=blocker,
                 )
                 await asyncio.to_thread(schema.clear_repartition_rewrite)
                 resuming_rewrite = False
                 temp_uri = _temp_uri_for(live_uri, claim_token)
             else:
-                skip_rows = temp_rows
+                skip_rows = temp_rows or 0
                 copied = recorded or frozenset()
                 checkpoint_target = (rewrite_checkpoint or {}).get("target")
                 if checkpoint_target:

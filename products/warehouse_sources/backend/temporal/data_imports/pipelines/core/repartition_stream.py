@@ -177,6 +177,33 @@ def copied_source_files(temp_uri: str, storage_options: dict[str, str]) -> froze
     return frozenset(copied)
 
 
+def resume_blocker(
+    *,
+    live_sources: Sequence[SourceFile],
+    live_schema: pa.Schema,
+    temp_uri: str,
+    storage_options: dict[str, str],
+    copied: frozenset[str],
+    temp_rows: int,
+) -> str | None:
+    """Why temp cannot be resumed against the live table as it is now, or None when it can.
+
+    Delta data files never change, so a copied file that is still live still holds exactly the rows
+    temp took from it. A sync that committed since the checkpoint only blocks the resume when it
+    removed a copied file (a merge rewrote it) or added a column temp does not have.
+    """
+    by_path = {source.path: source for source in live_sources}
+    if any(path not in by_path for path in copied):
+        return "copied_file_no_longer_live"
+    temp = deltalake.DeltaTable(temp_uri, storage_options=storage_options)
+    if not set(live_schema.names) - {PARTITION_KEY} <= set(arrow_schema_of(temp.schema()).names):
+        return "live_schema_changed"
+    counts = [by_path[path].num_records for path in copied]
+    if all(count is not None for count in counts) and sum(count or 0 for count in counts) != temp_rows:
+        return "temp_rows_do_not_match_copied_files"
+    return None
+
+
 def arrow_schema_of(delta_schema: deltalake.Schema) -> pa.Schema:
     # `to_arrow` returns an arro3 schema; pyarrow imports it through the Arrow C interface, which
     # the stubs do not model.
@@ -555,6 +582,10 @@ class PartitionedFileWriter:
 
     def write(self, table: pa.Table) -> None:
         """Route `table` (which holds `PARTITION_KEY`) to its partitions' files."""
+        unknown = set(table.column_names) - set(self._schema.names)
+        if unknown:
+            # Selecting the known columns would silently drop these values from the rebuilt table.
+            raise ValueError(f"rows carry columns the temp table does not have: {sorted(unknown)}")
         table = table.select(self._schema.names).cast(self._schema)
         for value, rows in split_by_partition(table):
             data = rows.drop([PARTITION_KEY]).cast(self._file_schema)
