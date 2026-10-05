@@ -400,6 +400,9 @@ def _iter_parent_rows(
             if row.get("deleted") is not None or item_id is None or item_id in seen:
                 continue
             seen.add(item_id)
+            # Graph's preauthenticated download URL grants temporary access to the document contents.
+            # This metadata source must not persist it in the warehouse.
+            row.pop("@microsoft.graph.downloadUrl", None)
             rows.append(_normalize(row, endpoint, **{SITE_ID_COLUMN: site_id, DRIVE_ID_COLUMN: parent_id}))
         if rows:
             yield rows

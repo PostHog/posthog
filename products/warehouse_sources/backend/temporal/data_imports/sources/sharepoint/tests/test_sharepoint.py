@@ -204,7 +204,11 @@ class TestSharePointRows:
             _g(f"/sites/{SITE_A}/drives"): {"value": [{"id": "b!drive-a"}]},
             _g(f"/sites/{SITE_B}/drives"): {"value": []},
             _g("/drives/b!drive-a/root/delta"): {
-                "value": [{"id": "root", "root": {}}, {"id": "f1", "file": {}}, {"id": "gone", "deleted": {}}],
+                "value": [
+                    {"id": "root", "root": {}},
+                    {"id": "f1", "file": {}, "@microsoft.graph.downloadUrl": "https://temporary.example.com/file"},
+                    {"id": "gone", "deleted": {}},
+                ],
                 "@odata.nextLink": _g("/drives/b!drive-a/root/delta?token=2"),
             },
             _g("/drives/b!drive-a/root/delta?token=2"): {"value": [{"id": "f1", "file": {}}, {"id": "f2", "file": {}}]},
@@ -218,6 +222,7 @@ class TestSharePointRows:
             ("b!drive-a", "f2"),
         ]
         assert all(row["site_id"] == SITE_A for row in rows)
+        assert all("@microsoft.graph.downloadUrl" not in row for row in rows)
 
     def test_expired_token_is_reminted_once(self) -> None:
         session = _session({}, post_responses=[_token_response(), _token_response()])
