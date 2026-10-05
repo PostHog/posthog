@@ -5,6 +5,7 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
 
+from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
@@ -22,10 +23,86 @@ from posthog.schema import (
     UsageHistoryItem,
 )
 
+from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_provisioning import OrganizationProvisioning
+
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.read_billing_tool.prompts import BILLING_CONTEXT_UNAVAILABLE_PROMPT
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.utils.types import AssistantState
+
+
+def _billing_context_with_amounts() -> MaxBillingContext:
+    return MaxBillingContext(
+        subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+        billing_plan="startup",
+        has_active_subscription=True,
+        is_deactivated=False,
+        startup_program_label="YC W21",
+        billing_period=MaxBillingContextBillingPeriod(
+            current_period_start="2023-01-01",
+            current_period_end="2023-01-31",
+            interval=MaxBillingContextBillingPeriodInterval.MONTH,
+        ),
+        total_current_amount_usd="500.00",
+        projected_total_amount_usd="1000.00",
+        projected_total_amount_usd_after_discount="900.00",
+        projected_total_amount_usd_with_limit="800.00",
+        projected_total_amount_usd_with_limit_after_discount="700.00",
+        products=[
+            MaxProductInfo(
+                name="Product Analytics",
+                type="analytics",
+                description="Track and analyze product metrics",
+                current_usage=50000,
+                usage_limit=100000,
+                percentage_usage=0.5,
+                has_exceeded_limit=False,
+                is_used=True,
+                custom_limit_usd=500.0,
+                next_period_custom_limit_usd=600.0,
+                projected_amount_usd="400.0",
+                projected_amount_usd_with_limit="350.0",
+                docs_url="https://posthog.com/docs/product-analytics",
+                addons=[
+                    MaxAddonInfo(
+                        name="Group analytics",
+                        type="addon",
+                        description="Analyze by groups",
+                        current_usage=1000.0,
+                        usage_limit=5000,
+                        has_exceeded_limit=False,
+                        is_used=True,
+                        percentage_usage=0.2,
+                        projected_amount_usd="50.0",
+                        docs_url="https://posthog.com/docs/group-analytics",
+                    ),
+                    MaxAddonInfo(
+                        name="Data pipelines",
+                        type="addon",
+                        description="Export data to destinations",
+                        current_usage=2000.0,
+                        has_exceeded_limit=False,
+                        is_used=True,
+                        projected_amount_usd="100.0",
+                    ),
+                ],
+            ),
+            MaxProductInfo(
+                name="Session Replay",
+                type="replay",
+                description="Record and replay user sessions",
+                current_usage=1000,
+                usage_limit=5000,
+                percentage_usage=0.2,
+                has_exceeded_limit=False,
+                is_used=True,
+                addons=[],
+            ),
+        ],
+        trial=None,
+        settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=3),
+    )
 
 
 class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -41,10 +118,56 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             context_manager=AssistantContextManager(self.team, self.user, {}),
         )
 
+    def _provision_by_paying_partner(self) -> None:
+        application = OAuthApplication.objects.create(
+            name="Example Partner",
+            client_id="example-partner",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        application.update_provisioning(pays_for_customers=True)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=application,
+        )
+
     async def test_run_with_no_billing_context(self):
         with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):
             result = await self.tool.execute()
             self.assertEqual(result, BILLING_CONTEXT_UNAVAILABLE_PROMPT)
+
+    async def test_run_with_no_billing_context_sends_a_partner_paid_organization_to_its_partner(self):
+        await sync_to_async(self._provision_by_paying_partner)()
+
+        with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):
+            result = await self.tool.execute()
+
+        self.assertIn("contact Example Partner", result)
+        self.assertNotIn("documentation", result)
+
+    async def test_format_billing_context_leaves_out_what_a_paying_partner_pays(self):
+        await sync_to_async(self._provision_by_paying_partner)()
+        billing_context = _billing_context_with_amounts().model_copy(
+            update={
+                "spend_history": [
+                    SpendHistoryItem(id=1, label="Events", dates=["2023-01-01"], data=[10.5], breakdown_type=None)
+                ]
+            }
+        )
+
+        with patch.object(self.tool, "_get_top_events_by_usage", return_value=[]):
+            formatted_string = await self.tool._format_billing_context(billing_context)
+
+        self.assertNotIn("period cost", formatted_string)
+        self.assertNotIn("Spend History", formatted_string)
+        self.assertNotIn("<upselling>", formatted_string)
+        self.assertIn("Example Partner pays for this organization", formatted_string)
+        self.assertIn("Current usage: 50000 of 100000 limit", formatted_string)
+        self.assertIn("Custom spending limit: $500.0", formatted_string)
 
     async def test_run_with_billing_context(self):
         billing_context = MaxBillingContext(
@@ -163,76 +286,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_format_billing_context_with_addons(self):
         """Test that addons are properly nested within products in the formatted output"""
-        billing_context = MaxBillingContext(
-            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
-            billing_plan="startup",
-            has_active_subscription=True,
-            is_deactivated=False,
-            startup_program_label="YC W21",
-            billing_period=MaxBillingContextBillingPeriod(
-                current_period_start="2023-01-01",
-                current_period_end="2023-01-31",
-                interval=MaxBillingContextBillingPeriodInterval.MONTH,
-            ),
-            total_current_amount_usd="500.00",
-            projected_total_amount_usd="1000.00",
-            projected_total_amount_usd_after_discount="900.00",
-            projected_total_amount_usd_with_limit="800.00",
-            projected_total_amount_usd_with_limit_after_discount="700.00",
-            products=[
-                MaxProductInfo(
-                    name="Product Analytics",
-                    type="analytics",
-                    description="Track and analyze product metrics",
-                    current_usage=50000,
-                    usage_limit=100000,
-                    percentage_usage=0.5,
-                    has_exceeded_limit=False,
-                    is_used=True,
-                    custom_limit_usd=500.0,
-                    next_period_custom_limit_usd=600.0,
-                    projected_amount_usd="400.0",
-                    projected_amount_usd_with_limit="350.0",
-                    docs_url="https://posthog.com/docs/product-analytics",
-                    addons=[
-                        MaxAddonInfo(
-                            name="Group analytics",
-                            type="addon",
-                            description="Analyze by groups",
-                            current_usage=1000.0,
-                            usage_limit=5000,
-                            has_exceeded_limit=False,
-                            is_used=True,
-                            percentage_usage=0.2,
-                            projected_amount_usd="50.0",
-                            docs_url="https://posthog.com/docs/group-analytics",
-                        ),
-                        MaxAddonInfo(
-                            name="Data pipelines",
-                            type="addon",
-                            description="Export data to destinations",
-                            current_usage=2000.0,
-                            has_exceeded_limit=False,
-                            is_used=True,
-                            projected_amount_usd="100.0",
-                        ),
-                    ],
-                ),
-                MaxProductInfo(
-                    name="Session Replay",
-                    type="replay",
-                    description="Record and replay user sessions",
-                    current_usage=1000,
-                    usage_limit=5000,
-                    percentage_usage=0.2,
-                    has_exceeded_limit=False,
-                    is_used=True,
-                    addons=[],
-                ),
-            ],
-            trial=None,
-            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=3),
-        )
+        billing_context = _billing_context_with_amounts()
 
         with patch.object(
             self.tool,

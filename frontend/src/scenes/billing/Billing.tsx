@@ -59,6 +59,7 @@ export function Billing(): JSX.Element {
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
         billingManagedByPartnerNotice,
+        isBillingManagedByPartner,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -238,7 +239,7 @@ export function Billing(): JSX.Element {
 
             <LemonDivider className="mt-6 mb-8" />
 
-            {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
+            {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && !isBillingManagedByPartner && (
                 <div className="flex mt-6 gap-6 max-w-300 flex-col-reverse">
                     <LemonBanner type="warning">
                         <strong>Note:</strong> Our forecasting engine is experiencing an issue. The projected amounts
@@ -269,7 +270,7 @@ export function Billing(): JSX.Element {
                 ))}
 
             <div>
-                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
+                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct && !isBillingManagedByPartner ? (
                     <>
                         <LemonDivider />
                         <UnsubscribeCard product={platformAndSupportProduct} />

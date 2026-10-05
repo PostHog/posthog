@@ -62,6 +62,7 @@ export const getTierDescription = (
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, isUnlicensedDebug, isBillingManagedByPartner } = useValues(billingLogic)
+    const showsAmounts = !isBillingManagedByPartner
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -184,7 +185,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </LemonButton>
                                 </>
                             ) : (
-                                product.subscribed && (
+                                product.subscribed &&
+                                !isBillingManagedByPartner && (
                                     <More
                                         overlay={
                                             <>
@@ -232,7 +234,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
 
                     {/* Combined monetary gauge for product variants - only show for subscribed users */}
-                    {isProductWithVariants && product.subscribed && (
+                    {isProductWithVariants && product.subscribed && showsAmounts && (
                         <div className="mt-6 mb-4 ml-2">
                             <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
                                 <div>
@@ -296,7 +298,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                                     return (
                                         <div key={variant.key}>
-                                            <div className="grid grid-cols-[auto_1fr_130px_100px] gap-4 items-center">
+                                            <div
+                                                className={clsx(
+                                                    'grid gap-4 items-center',
+                                                    showsAmounts
+                                                        ? 'grid-cols-[auto_1fr_130px_100px]'
+                                                        : 'grid-cols-[auto_1fr]'
+                                                )}
+                                            >
                                                 <LemonButton
                                                     icon={
                                                         variantExpandedStates?.[variant.key] ? (
@@ -309,22 +318,28 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     onClick={() => toggleVariantExpanded(variant.key)}
                                                 />
                                                 <h4 className="mb-0 font-bold">{variant.displayName}</h4>
-                                                <div className="flex flex-col items-end">
-                                                    <span className="font-bold text-lg leading-5">
-                                                        {humanFriendlyCurrency(
-                                                            parseFloat(currentAmount) * discountMultiplier
-                                                        )}
-                                                    </span>
-                                                    <span className="text-xs text-secondary">Month-to-date</span>
-                                                </div>
-                                                <div className="flex flex-col items-end">
-                                                    <span className="text-secondary text-lg leading-5">
-                                                        {humanFriendlyCurrency(
-                                                            parseFloat(projectedAmount) * discountMultiplier
-                                                        )}
-                                                    </span>
-                                                    <span className="text-xs text-secondary">Projected</span>
-                                                </div>
+                                                {showsAmounts && (
+                                                    <>
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="font-bold text-lg leading-5">
+                                                                {humanFriendlyCurrency(
+                                                                    parseFloat(currentAmount) * discountMultiplier
+                                                                )}
+                                                            </span>
+                                                            <span className="text-xs text-secondary">
+                                                                Month-to-date
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-secondary text-lg leading-5">
+                                                                {humanFriendlyCurrency(
+                                                                    parseFloat(projectedAmount) * discountMultiplier
+                                                                )}
+                                                            </span>
+                                                            <span className="text-xs text-secondary">Projected</span>
+                                                        </div>
+                                                    </>
+                                                )}
                                             </div>
                                             {variantExpandedStates?.[variant.key] && (
                                                 <div className="mt-4">
@@ -338,7 +353,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             product={variant.product}
                                                         />
                                                     </div>
-                                                    <BillingProductPricingTable product={variant.product} />
+                                                    {showsAmounts && (
+                                                        <BillingProductPricingTable product={variant.product} />
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -419,7 +436,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         ) : product.tiered ? (
                                             <>
                                                 <div className="flex w-full items-center gap-x-8">
-                                                    {product.subscribed && (
+                                                    {product.subscribed && showsAmounts && (
                                                         <LemonButton
                                                             icon={
                                                                 showTierBreakdown ? (
@@ -435,7 +452,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         <BillingGauge items={billingGaugeItems} product={product} />
                                                     </div>
                                                 </div>
-                                                {product.subscribed ? (
+                                                {product.subscribed && showsAmounts ? (
                                                     <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
                                                         <Tooltip
                                                             title={`The current ${
@@ -507,7 +524,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </div>
                                                 ) : null}
                                             </>
-                                        ) : product.current_amount_usd && product.type !== 'platform_and_support' ? (
+                                        ) : product.current_amount_usd &&
+                                          product.type !== 'platform_and_support' &&
+                                          showsAmounts ? (
                                             <div className="mt-8 mb-4 flex justify-end w-full">
                                                 <Tooltip
                                                     title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
@@ -530,18 +549,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
 
                     {product.type === 'posthog_code_usage' &&
-                        featureFlags[FEATURE_FLAGS.POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING] && (
-                            <DesktopUsageBreakdown summary={billing?.usage_summary} />
-                        )}
+                        featureFlags[FEATURE_FLAGS.POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING] &&
+                        showsAmounts && <DesktopUsageBreakdown summary={billing?.usage_summary} />}
 
-                    {product.price_description ? (
+                    {product.price_description && showsAmounts ? (
                         <LemonBanner type="info">
                             <span>{product.price_description}</span>
                         </LemonBanner>
                     ) : null}
 
                     {/* Table with tiers */}
-                    {showTierBreakdown && <BillingProductPricingTable product={product} />}
+                    {showTierBreakdown && showsAmounts && <BillingProductPricingTable product={product} />}
 
                     {/* Add-ons (hide for product variants) */}
                     {product.addons?.length > 0 && !isProductWithVariants && (
@@ -591,12 +609,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />
             </div>
-            <ProductPricingModal
-                modalOpen={isPricingModalOpen}
-                onClose={toggleIsPricingModalOpen}
-                product={product}
-                planKey={product.subscribed ? currentPlanKey : upgradeToPlanKey}
-            />
+            {showsAmounts && (
+                <ProductPricingModal
+                    modalOpen={isPricingModalOpen}
+                    onClose={toggleIsPricingModalOpen}
+                    product={product}
+                    planKey={product.subscribed ? currentPlanKey : upgradeToPlanKey}
+                />
+            )}
         </div>
     )
 }

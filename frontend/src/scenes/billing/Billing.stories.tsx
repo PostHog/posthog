@@ -13,6 +13,42 @@ import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
+const BILLING_LIMIT_FIELDS = new Set(['custom_limits_usd', 'next_period_custom_limits_usd'])
+const BILLING_MONEY_FIELDS = new Set([
+    'amount_off_expires_at',
+    'discount_percent',
+    'external_billing_provider_invoices_url',
+    'price_description',
+    'projected_amount',
+    'stripe_portal_url',
+    'tiers',
+])
+
+// What the billing API answers while a partner pays: every amount and price is null, limits and usage stay.
+const withoutMoney = <T,>(value: T): T => {
+    if (Array.isArray(value)) {
+        return value.map(withoutMoney) as T
+    }
+    if (value === null || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) {
+        return value
+    }
+    return Object.fromEntries(
+        Object.entries(value).map(([field, fieldValue]) => [
+            field,
+            BILLING_MONEY_FIELDS.has(field) || (field.split('_').includes('usd') && !BILLING_LIMIT_FIELDS.has(field))
+                ? null
+                : withoutMoney(fieldValue),
+        ])
+    ) as T
+}
+
+const partnerPaidBilling = (billing: BillingType): BillingType =>
+    withoutMoney({
+        ...billing,
+        customer_id: '',
+        billing_managed_by_partner: { partner_name: 'Example Partner' },
+    })
+
 // Mirrors prod payloads where the billing API omits icon_key — exercises the productType fallback
 // in getProductIcon so each product still renders its own icon.
 const billingJsonWithoutIconKeys: BillingType = {
@@ -72,11 +108,19 @@ export const BillingManagedByPartner: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/billing/': {
-                    ...billingUnsubscribedJson,
-                    customer_id: '',
-                    billing_managed_by_partner: { partner_name: 'Example Partner' },
-                },
+                '/api/billing/': partnerPaidBilling(billingUnsubscribedJson),
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingManagedByPartnerOnPaidPlan: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': partnerPaidBilling({ ...billingJson, custom_limits_usd: { product_analytics: 500 } }),
             },
         })
 

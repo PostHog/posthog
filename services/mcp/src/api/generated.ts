@@ -17294,7 +17294,7 @@ export namespace Schemas {
       account_owner?: unknown;
       customer_trust_scores?: unknown;
       never_drop_data?: boolean;
-      /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
+      /** Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, payment, and billing limit changes are refused, reads of spend, invoices, and credits are refused, and amounts and prices in billing responses are null. Usage and limits stay readable. Null when no partner pays. */
       billing_managed_by_partner: BillingManagedByPartner | null;
     }
 
@@ -17528,7 +17528,7 @@ export namespace Schemas {
       billing_portal_url: string;
       invoices_url?: string;
       license: License;
-      /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
+      /** Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, payment, and billing limit changes are refused, reads of spend, invoices, and credits are refused, and amounts and prices in billing responses are null. Usage and limits stay readable. Null when no partner pays. */
       billing_managed_by_partner: BillingManagedByPartner | null;
     }
 

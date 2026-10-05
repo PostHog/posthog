@@ -107,7 +107,7 @@ const PlanCard = ({
     purchaseDisabledReason?: string
     onPurchaseClick?: () => void
 }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
+    const { billing, isBillingManagedByPartner } = useValues(billingLogic)
     const pricedPlan = addon.plans?.find((p) => p.flat_rate)
     const plan = COMPARISON_PLANS[addon.type as BillingPlan]
     const coreFeatures = plan?.coreFeatures ?? []
@@ -160,7 +160,7 @@ const PlanCard = ({
                 button bottom-aligned so prices line up across cards regardless of trial state (the
                 "Start trial" label/button stack is taller than a lone "Cancel trial" button). */}
             <div className="mt-auto flex flex-col gap-3">
-                {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
+                {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && !isBillingManagedByPartner && (
                     <PlanPrice
                         addon={addon}
                         unit_amount_usd={pricedPlan.unit_amount_usd}
@@ -183,6 +183,7 @@ const PlanCard = ({
 }
 
 const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
+    const { isBillingManagedByPartner } = useValues(billingLogic)
     const { surveyID } = useValues(billingProductLogic({ product: addon }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product: addon }))
     const pricedPlan = addon.plans?.find((p) => p.flat_rate)
@@ -201,26 +202,28 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-center">
-                    {pricedPlan?.flat_rate && (
+                    {pricedPlan?.flat_rate && !isBillingManagedByPartner && (
                         <PlanPrice
                             addon={addon}
                             unit_amount_usd={pricedPlan.unit_amount_usd}
                             unit_label={pricedPlan.unit}
                         />
                     )}
-                    <More
-                        overlay={
-                            <LemonButton
-                                fullWidth
-                                onClick={() => {
-                                    setSurveyResponse('$survey_response_1', addon.type)
-                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                                }}
-                            >
-                                Remove package
-                            </LemonButton>
-                        }
-                    />
+                    {!isBillingManagedByPartner && (
+                        <More
+                            overlay={
+                                <LemonButton
+                                    fullWidth
+                                    onClick={() => {
+                                        setSurveyResponse('$survey_response_1', addon.type)
+                                        reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                    }}
+                                >
+                                    Remove package
+                                </LemonButton>
+                            }
+                        />
+                    )}
                 </div>
             </div>
             {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}

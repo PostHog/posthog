@@ -60,8 +60,14 @@ export const BillingProductAddonActions = ({
     purchaseDisabledReason,
     onPurchaseClick,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, currentPlatformAddon, switchPlanLoading, billingManagedByPartnerDisabledReason } =
-        useValues(billingLogic)
+    const {
+        billing,
+        billingError,
+        currentPlatformAddon,
+        switchPlanLoading,
+        billingManagedByPartnerDisabledReason,
+        isBillingManagedByPartner,
+    } = useValues(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const {
         currentAndUpgradePlans,
@@ -94,7 +100,7 @@ export const BillingProductAddonActions = ({
                 : 'prorated, credits applied'
             : 'prorated'
     const renderSubscribedActions = (): JSX.Element | null => {
-        if (addon.contact_support) {
+        if (addon.contact_support || isBillingManagedByPartner) {
             return null
         }
         return (
@@ -122,7 +128,7 @@ export const BillingProductAddonActions = ({
 
     const renderTrialActions = (): JSX.Element | null => {
         // Hide Cancel button only for Enterprise 'standard' trials (typically sales-managed)
-        if (addon.type === 'enterprise' && billing?.trial?.type !== 'autosubscribe') {
+        if ((addon.type === 'enterprise' && billing?.trial?.type !== 'autosubscribe') || isBillingManagedByPartner) {
             return null
         }
         return (
@@ -147,7 +153,7 @@ export const BillingProductAddonActions = ({
 
         return (
             <>
-                {hasFlatRate ? (
+                {isBillingManagedByPartner ? null : hasFlatRate ? (
                     showLabel ? (
                         <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                             {isTrialEligible ? (
@@ -211,7 +217,8 @@ export const BillingProductAddonActions = ({
             billing?.trial ||
             addon.subscribed ||
             addon.included_with_main_product ||
-            hidePricingNote
+            hidePricingNote ||
+            isBillingManagedByPartner
         ) {
             return null
         }
@@ -243,7 +250,7 @@ export const BillingProductAddonActions = ({
     }
 
     const renderDowngradeActions = (): JSX.Element | null => {
-        if (!upgradePlan || !currentPlatformAddon) {
+        if (!upgradePlan || !currentPlatformAddon || isBillingManagedByPartner) {
             return null
         }
 
@@ -252,10 +259,7 @@ export const BillingProductAddonActions = ({
                 overlay={
                     <LemonButton
                         fullWidth
-                        disabledReason={
-                            billingManagedByPartnerDisabledReason ||
-                            (switchPlanLoading ? 'Switching plans...' : undefined)
-                        }
+                        disabledReason={switchPlanLoading ? 'Switching plans...' : undefined}
                         onClick={() => {
                             reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'downgrade')
                             showConfirmDowngradeModal()
@@ -274,7 +278,7 @@ export const BillingProductAddonActions = ({
         }
 
         const hasFlatRate = !!upgradePlan.flat_rate
-        const showLabel = hasFlatRate && !(hidePricingNote && !isProrated)
+        const showLabel = hasFlatRate && !(hidePricingNote && !isProrated) && !isBillingManagedByPartner
 
         return (
             <>

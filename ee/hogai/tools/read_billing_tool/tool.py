@@ -7,15 +7,18 @@ from posthog.schema import MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team, User
+from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.sync import database_sync_to_async
 
+from ee.billing.billing_manager import partner_display_name
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxSubtool
 from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.types import AssistantState
 
-from .prompts import BILLING_CONTEXT_PROMPT, BILLING_CONTEXT_UNAVAILABLE_PROMPT
+from .prompts import BILLING_CONTEXT_PROMPT, BILLING_CONTEXT_UNAVAILABLE_PROMPT, PARTNER_MANAGED_BILLING_PROMPT
 
 
 class ReadBillingTool(MaxSubtool):
@@ -34,13 +37,28 @@ class ReadBillingTool(MaxSubtool):
     async def execute(self) -> str:
         billing_context = self._context_manager.get_billing_context()
         if not billing_context:
-            return BILLING_CONTEXT_UNAVAILABLE_PROMPT
+            return await self._billing_context_unavailable_prompt()
         formatted_billing_context = await self._format_billing_context(billing_context)
         return formatted_billing_context
 
     @database_sync_to_async(thread_sensitive=False)
+    def _billing_context_unavailable_prompt(self) -> str:
+        # The generic prompt sends the agent to the pricing docs, and a partner-paid organization must not be quoted prices.
+        partner_prompt = self._partner_managed_billing_prompt(get_billing_lock_partner(self._team.organization))
+        return partner_prompt or BILLING_CONTEXT_UNAVAILABLE_PROMPT
+
+    @staticmethod
+    def _partner_managed_billing_prompt(partner: OAuthApplication | None) -> str | None:
+        if partner is None:
+            return None
+        return PARTNER_MANAGED_BILLING_PROMPT.format(partner_name=partner_display_name(partner))
+
+    @database_sync_to_async(thread_sensitive=False)
     def _format_billing_context(self, billing_context: MaxBillingContext) -> str:
         """Format billing context into a readable prompt section."""
+        # The browser builds this context, so it cannot be trusted to leave a partner-paid organization's amounts out.
+        partner = get_billing_lock_partner(self._team.organization)
+        shows_money = partner is None
         # Convert billing context to a format suitable for the mustache template
         template_data: dict[str, Any] = {
             "subscription_level": (
@@ -52,6 +70,7 @@ class ReadBillingTool(MaxSubtool):
             "organization_teams_count": len(self._get_teams_map().keys()),
             "current_team_name": self._team.name,
             "current_team_id": self._team.id,
+            "partner_managed_billing": self._partner_managed_billing_prompt(partner),
         }
 
         # Add startup program info
@@ -71,22 +90,23 @@ class ReadBillingTool(MaxSubtool):
             }
 
         # Add cost information
-        if billing_context.total_current_amount_usd:
-            template_data["total_current_amount_usd"] = billing_context.total_current_amount_usd
-        if billing_context.projected_total_amount_usd:
-            template_data["total_projected_amount_usd"] = billing_context.projected_total_amount_usd
-        if billing_context.projected_total_amount_usd_after_discount:
-            template_data["total_projected_amount_usd_after_discount"] = (
-                billing_context.projected_total_amount_usd_after_discount
-            )
-        if billing_context.projected_total_amount_usd_with_limit:
-            template_data["total_projected_amount_usd_with_limit"] = (
-                billing_context.projected_total_amount_usd_with_limit
-            )
-        if billing_context.projected_total_amount_usd_with_limit_after_discount:
-            template_data["total_projected_amount_usd_with_limit_after_discount"] = (
-                billing_context.projected_total_amount_usd_with_limit_after_discount
-            )
+        if shows_money:
+            if billing_context.total_current_amount_usd:
+                template_data["total_current_amount_usd"] = billing_context.total_current_amount_usd
+            if billing_context.projected_total_amount_usd:
+                template_data["total_projected_amount_usd"] = billing_context.projected_total_amount_usd
+            if billing_context.projected_total_amount_usd_after_discount:
+                template_data["total_projected_amount_usd_after_discount"] = (
+                    billing_context.projected_total_amount_usd_after_discount
+                )
+            if billing_context.projected_total_amount_usd_with_limit:
+                template_data["total_projected_amount_usd_with_limit"] = (
+                    billing_context.projected_total_amount_usd_with_limit
+                )
+            if billing_context.projected_total_amount_usd_with_limit_after_discount:
+                template_data["total_projected_amount_usd_with_limit_after_discount"] = (
+                    billing_context.projected_total_amount_usd_with_limit_after_discount
+                )
 
         # Add products information
         if billing_context.products:
@@ -103,8 +123,8 @@ class ReadBillingTool(MaxSubtool):
                     "custom_limit_usd": product.custom_limit_usd,
                     "next_period_custom_limit_usd": product.next_period_custom_limit_usd,
                     "docs_url": product.docs_url,
-                    "projected_amount_usd": product.projected_amount_usd,
-                    "projected_amount_usd_with_limit": product.projected_amount_usd_with_limit,
+                    "projected_amount_usd": product.projected_amount_usd if shows_money else None,
+                    "projected_amount_usd_with_limit": product.projected_amount_usd_with_limit if shows_money else None,
                     "addons": [],
                 }
                 # Add a flag to check if this product has addons
@@ -119,7 +139,7 @@ class ReadBillingTool(MaxSubtool):
                         "current_usage": int(addon.current_usage) if addon.current_usage else None,
                         "usage_limit": int(addon.usage_limit) if addon.usage_limit else None,
                         "docs_url": addon.docs_url,
-                        "projected_amount_usd": addon.projected_amount_usd,
+                        "projected_amount_usd": addon.projected_amount_usd if shows_money else None,
                     }
                     product_data["addons"].append(addon_data)
                 template_data["products"].append(product_data)
@@ -137,7 +157,7 @@ class ReadBillingTool(MaxSubtool):
             usage_table = self._format_history_table(billing_context.usage_history)
             template_data["usage_history_table"] = usage_table
 
-        if billing_context.spend_history:
+        if shows_money and billing_context.spend_history:
             # Format spend history as a table with breakdown by date
             spend_table = self._format_history_table(billing_context.spend_history)
             template_data["spend_history_table"] = spend_table

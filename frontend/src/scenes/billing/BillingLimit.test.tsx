@@ -29,8 +29,15 @@ describe('BillingLimit', () => {
     let patchedBody: any = null
     let billingState: BillingType
 
-    const seedBilling = async (customLimits: BillingType['custom_limits_usd']): Promise<void> => {
-        billingState = { ...billingJson, custom_limits_usd: customLimits }
+    const seedBilling = async (
+        customLimits: BillingType['custom_limits_usd'],
+        billingManagedByPartner: BillingType['billing_managed_by_partner'] = null
+    ): Promise<void> => {
+        billingState = {
+            ...billingJson,
+            custom_limits_usd: customLimits,
+            billing_managed_by_partner: billingManagedByPartner,
+        }
         useMocks({
             get: { '/api/billing': () => [200, billingState] },
             patch: {
@@ -105,5 +112,20 @@ describe('BillingLimit', () => {
             'You do not have a billing limit set for PostHog Desktop (usage-based).'
         )
         expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } })
+    })
+
+    it('shows a partner-paid limit without a way to change it', async () => {
+        await seedBilling({ product_analytics: 500 }, { partner_name: 'Example Partner' })
+        render(
+            <Provider>
+                <BillingLimit product={makeProduct()} />
+            </Provider>
+        )
+
+        expect(await screen.findByTestId('billing-limit-set-product_analytics')).toHaveTextContent(
+            'You have a $500 billing limit set for PostHog Desktop (usage-based).'
+        )
+        expect(screen.getByText('Billing limits for this organization are managed by Example Partner.')).toBeVisible()
+        expect(screen.queryByText('Edit limit')).not.toBeInTheDocument()
     })
 })

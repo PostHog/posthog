@@ -39,8 +39,10 @@ from ee.api.billing import (
     _EXPORT_STREAMS,
     BILLING_ACCESS_DENIED_MESSAGE,
     BILLING_PROJECT_ACCESS_DENIED_MESSAGE,
+    BillingAmountsNotManagedByPartner,
     BillingDateRangeTooLong,
     BillingExportThrottle,
+    BillingLimitsNotManagedByPartner,
     BillingNotManagedByPartner,
     BillingQueryRejected,
     BillingQueryTooLarge,
@@ -1206,11 +1208,15 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         self.organization_membership.save()
 
     def _provision(
-        self, pays_for_customers: bool | None, partner_name: str = "Example Partner"
+        self,
+        pays_for_customers: bool | None,
+        partner_name: str = "Example Partner",
+        organization: Organization | None = None,
     ) -> OAuthApplication | None:
+        organization = organization or self.organization
         if pays_for_customers is None:
             OrganizationProvisioning.objects.create(
-                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
+                organization=organization, partner=OrganizationProvisioning.Partner.VERCEL
             )
             return None
         application = OAuthApplication.objects.create(
@@ -1225,7 +1231,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         )
         application.update_provisioning(pays_for_customers=pays_for_customers)
         OrganizationProvisioning.objects.create(
-            organization=self.organization,
+            organization=organization,
             partner=OrganizationProvisioning.Partner.PROVISIONING_API,
             application=application,
         )
@@ -1285,6 +1291,168 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
+            ("spend", "/api/billing/spend/?start_date=2025-01-01", "get_spend_data"),
+            ("spend_export", "/api/billing/spend/export/?start_date=2025-01-01", "get_spend_csv"),
+            ("get_invoices", "/api/billing/get_invoices?status=open", "get_invoices"),
+            ("credits_overview", "/api/billing/credits/overview", "credits_overview"),
+            ("coupons_overview", "/api/billing/coupons/overview", "coupons_overview"),
+        ]
+    )
+    def test_money_read_is_refused_while_the_partner_pays(self, _name: str, url: str, manager_method: str) -> None:
+        self._provision(pays_for_customers=True)
+
+        with patch.object(BillingManager, manager_method) as mock_manager_method:
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == (
+            "Billing for this organization is managed by Example Partner. "
+            "Contact Example Partner for spend, invoices, and pricing."
+        )
+        mock_manager_method.assert_not_called()
+
+    PLAN_REFUSAL = (
+        "Billing for this organization is managed by Example Partner. "
+        "Contact Example Partner to change your plan or payment details."
+    )
+    LIMITS_REFUSAL = (
+        "Billing limits for this organization are managed by Example Partner. Contact Example Partner to change them."
+    )
+
+    @parameterized.expand(
+        [
+            (
+                "deactivate",
+                "post",
+                "/api/billing/deactivate",
+                {"products": "product_analytics"},
+                "deactivate_products",
+                PLAN_REFUSAL,
+            ),
+            ("cancel_trial", "post", "/api/billing/trials/cancel", {}, "cancel_trial", PLAN_REFUSAL),
+            (
+                "claim_coupon",
+                "post",
+                "/api/billing/coupons/claim",
+                {"code": "EXAMPLE-CODE"},
+                "claim_coupon",
+                PLAN_REFUSAL,
+            ),
+            (
+                "authorize_status",
+                "post",
+                "/api/billing/activate/authorize/status",
+                {"payment_intent_id": "pi_example"},
+                "authorize_status",
+                PLAN_REFUSAL,
+            ),
+            (
+                "apply_startup_program",
+                "post",
+                "/api/billing/startups/apply",
+                "USE_ORG_ID",
+                "apply_startup_program",
+                PLAN_REFUSAL,
+            ),
+            (
+                "set_limit",
+                "patch",
+                "/api/billing//",
+                {"custom_limits_usd": {"product_analytics": 100}},
+                "update_billing",
+                LIMITS_REFUSAL,
+            ),
+            (
+                "remove_next_period_limit",
+                "patch",
+                "/api/billing//",
+                {"reset_limit_next_period": "product_analytics"},
+                "update_billing",
+                LIMITS_REFUSAL,
+            ),
+        ]
+    )
+    def test_change_to_what_the_partner_pays_is_refused_while_the_partner_pays(
+        self, _name: str, method: str, url: str, data: dict[str, Any] | str, manager_method: str, refusal: str
+    ) -> None:
+        self._provision(pays_for_customers=True)
+        if data == "USE_ORG_ID":
+            data = {"organization_id": str(self.organization.id)}
+
+        with patch.object(BillingManager, manager_method) as mock_manager_method:
+            response = getattr(self.client, method)(url, data, content_type="application/json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == refusal
+        mock_manager_method.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("names_a_partner_paid_organization", True, (status.HTTP_403_FORBIDDEN, PLAN_REFUSAL)),
+            ("names_a_self_paying_organization_from_a_partner_paid_one", False, (status.HTTP_200_OK, None)),
+        ]
+    )
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program", return_value={"success": True})
+    def test_startup_application_answers_to_the_partner_of_the_organization_it_names(
+        self,
+        _name: str,
+        partner_pays_for_named_organization: bool,
+        expected: tuple[int, str | None],
+        _mock_apply_startup_program: MagicMock,
+    ) -> None:
+        named_organization = Organization.objects.create(name="Example Named Org")
+        OrganizationMembership.objects.create(
+            organization=named_organization, user=self.user, level=OrganizationMembership.Level.OWNER
+        )
+        self._provision(
+            pays_for_customers=True,
+            organization=named_organization if partner_pays_for_named_organization else self.organization,
+        )
+
+        response = self.client.post("/api/billing/startups/apply", {"organization_id": str(named_organization.id)})
+
+        assert (response.status_code, response.json().get("detail")) == expected
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_patch_that_changes_no_limit_stays_open_while_the_partner_pays(
+        self, mock_get_billing: MagicMock, mock_update_billing: MagicMock
+    ) -> None:
+        mock_get_billing.return_value = {"available_product_features": [], "products": []}
+        self._provision(pays_for_customers=True)
+
+        response = self.client.patch("/api/billing//", {}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["billing_managed_by_partner"] == {"partner_name": "Example Partner"}
+        mock_update_billing.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("usage", "/api/billing/usage/?start_date=2025-01-01", "get_usage_data", {"results": []}),
+            (
+                "usage_export",
+                "/api/billing/usage/export/?start_date=2025-01-01",
+                "get_usage_csv",
+                MagicMock(headers={"Content-Type": "text/csv"}, **{"iter_content.return_value": iter([b"Product\n"])}),
+            ),
+        ]
+    )
+    def test_usage_stays_readable_while_the_partner_pays(
+        self, _name: str, url: str, manager_method: str, manager_result: object
+    ) -> None:
+        self._provision(pays_for_customers=True)
+
+        with patch.object(BillingManager, manager_method, return_value=manager_result) as mock_manager_method:
+            response = self.client.get(url)
+            # Read to the end, so an export gives its download slot back.
+            b"".join(response)
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_manager_method.assert_called_once()
+
+    @parameterized.expand(
+        [
             ("paying_partner", True, None, {"partner_name": "Example Partner"}),
             ("paying_partner_org_with_own_stripe_customer", True, "cus_example", None),
             ("non_paying_partner", False, None, None),
@@ -1292,7 +1460,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         ]
     )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
-    def test_billing_overview_names_the_paying_partner(
+    def test_billing_overview_names_the_paying_partner_and_leaves_out_the_amounts_it_pays(
         self,
         _name: str,
         pays_for_customers: bool | None,
@@ -1300,7 +1468,30 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         expected: dict[str, str] | None,
         mock_get_billing: MagicMock,
     ) -> None:
-        mock_get_billing.return_value = {"available_product_features": [], "products": []}
+        tier = {"up_to": 1000000, "unit_amount_usd": "0.00045", "current_amount_usd": "9.00", "current_usage": 20000}
+        mock_get_billing.return_value = {
+            "available_product_features": [],
+            "billing_plan": "paid",
+            "current_total_amount_usd": "212.40",
+            "projected_total_amount_usd_with_limit": "480.00",
+            "discount_percent": 20,
+            "discount_amount_usd": "100.00",
+            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
+            "custom_limits_usd": {"product_analytics": 500},
+            "products": [
+                {
+                    "type": "product_analytics",
+                    "current_usage": 20000,
+                    "usage_limit": 1000000,
+                    "unit_amount_usd": "0.00045",
+                    "current_amount_usd": "9.00",
+                    "projected_amount_usd_with_limit": "20.00",
+                    "tiers": [tier],
+                    "plans": [{"name": "Paid", "unit_amount_usd": "0.00045", "tiers": [tier]}],
+                    "addons": [{"type": "group_analytics", "current_usage": 300, "projected_amount_usd": "3.00"}],
+                }
+            ],
+        }
         self._provision(pays_for_customers)
         self.organization.customer_id = customer_id
         self.organization.save(update_fields=["customer_id"])
@@ -1308,7 +1499,32 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         response = self.client.get("/api/billing")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["billing_managed_by_partner"] == expected
+        body = response.json()
+        product = body["products"][0]
+        assert body["billing_managed_by_partner"] == expected
+        amounts = [
+            body["current_total_amount_usd"],
+            body["projected_total_amount_usd_with_limit"],
+            body["discount_percent"],
+            body["discount_amount_usd"],
+            body["stripe_portal_url"],
+            product["unit_amount_usd"],
+            product["current_amount_usd"],
+            product["projected_amount_usd_with_limit"],
+            product["tiers"],
+            product["plans"][0]["unit_amount_usd"],
+            product["plans"][0]["tiers"],
+            product["addons"][0]["projected_amount_usd"],
+        ]
+        assert [amount is None for amount in amounts] == [expected is not None] * len(amounts)
+        assert (
+            body["billing_plan"],
+            body["custom_limits_usd"],
+            product["current_usage"],
+            product["usage_limit"],
+            product["plans"][0]["name"],
+            product["addons"][0]["current_usage"],
+        ) == ("paid", {"product_analytics": 500}, 20000, 1000000, "Paid", 300)
 
 
 class TestPartnerBillingLockCoverage(SimpleTestCase):
@@ -1324,17 +1540,20 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         "usage_export",
         "spend_export",
     }
-    UNLOCKED_WRITE_ACTIONS = {
-        "deactivate",
-        "cancel_trial",
-        "patch",
-        "license",
-        "authorize_status",
-        "apply_startup_program",
-        "claim_coupon",
-    }
+    UNLOCKED_WRITE_ACTIONS = {"license"}
+    # A patch that changes no limit changes nothing the partner pays for, so only a limit change is refused.
+    LIMIT_LOCKED_WRITE_ACTIONS = {"patch"}
+    # The startup application acts on the organization its body names, not the current one, so its handler checks
+    # that organization once it has confirmed the person's billing access to it.
+    LOCKED_IN_HANDLER_WRITE_ACTIONS = {"apply_startup_program"}
+    # The partner pays the invoices these amounts add up to, so the organization's own reads of them are refused.
+    MONEY_READ_ACTIONS = {"spend", "spend_export", "get_invoices", "credits_overview", "coupons_overview"}
+    # These answer with the overview, which sets its amounts to null while a partner pays.
+    OVERVIEW_ACTIONS = {"list", "patch"}
+    MONEY_FREE_ACTIONS = {"period", "usage", "usage_team_options", "usage_export", "license"}
 
-    def test_every_billing_action_is_partner_locked_or_explicitly_exempt(self) -> None:
+    @staticmethod
+    def _declared_permissions() -> dict[str, Sequence[object]]:
         declared_permissions: dict[str, Sequence[object]] = {
             action.__name__: getattr(action, "kwargs", {}).get("permission_classes", [])
             for action in BillingViewset.get_extra_actions()
@@ -1342,10 +1561,34 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         for standard_action in ("list", "create", "retrieve", "update", "partial_update", "destroy"):
             if hasattr(BillingViewset, standard_action):
                 declared_permissions[standard_action] = BillingViewset.permission_classes
+        return declared_permissions
 
+    def test_every_billing_action_is_partner_locked_or_explicitly_exempt(self) -> None:
+        declared_permissions = self._declared_permissions()
         unlocked = {name for name, classes in declared_permissions.items() if BillingNotManagedByPartner not in classes}
+        limit_locked = {
+            name for name, classes in declared_permissions.items() if BillingLimitsNotManagedByPartner in classes
+        }
 
-        assert unlocked == self.READ_ONLY_ACTIONS | self.UNLOCKED_WRITE_ACTIONS
+        assert limit_locked == self.LIMIT_LOCKED_WRITE_ACTIONS
+        assert unlocked == (
+            self.READ_ONLY_ACTIONS
+            | self.UNLOCKED_WRITE_ACTIONS
+            | self.LIMIT_LOCKED_WRITE_ACTIONS
+            | self.LOCKED_IN_HANDLER_WRITE_ACTIONS
+        )
+
+    def test_every_billing_action_a_partner_paid_organization_reaches_is_classified_by_money(self) -> None:
+        declared_permissions = self._declared_permissions()
+        money_reads = {
+            name for name, classes in declared_permissions.items() if BillingAmountsNotManagedByPartner in classes
+        }
+        reachable = {
+            name for name, classes in declared_permissions.items() if BillingNotManagedByPartner not in classes
+        } - self.LOCKED_IN_HANDLER_WRITE_ACTIONS
+
+        assert money_reads == self.MONEY_READ_ACTIONS
+        assert reachable == self.MONEY_READ_ACTIONS | self.OVERVIEW_ACTIONS | self.MONEY_FREE_ACTIONS
 
 
 class TestBillingUsageRequestSerializer(SimpleTestCase):

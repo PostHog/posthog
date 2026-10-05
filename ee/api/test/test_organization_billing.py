@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import jwt
@@ -18,6 +19,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
 
+from ee.api.organization_billing import OrganizationBillingViewSet
 from ee.api.test.base import APILicensedTest
 from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, entitlements_for
 
@@ -111,6 +113,23 @@ class OrganizationBillingTestMixin(APILicensedTest):
     def _url(self, path: str) -> str:
         return f"/api/organizations/{self.organization.id}/billing/{path}"
 
+    def _provision_by_paying_partner(self) -> None:
+        application = OAuthApplication.objects.create(
+            name="Example Partner",
+            client_id="example-partner",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        application.update_provisioning(pays_for_customers=True)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=application,
+        )
+
     def _oauth_token(self, scope: str) -> str:
         app = OAuthApplication.objects.create(
             name="MCP client",
@@ -185,37 +204,31 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("partner_billed", None, {"partner_name": "Example Partner"}),
-            ("partner_billed_org_with_own_stripe_customer", "cus_example", None),
+            ("partner_billed", None, {"partner_name": "Example Partner"}, (None, None)),
+            ("partner_billed_org_with_own_stripe_customer", "cus_example", None, (20, "100.00")),
         ]
     )
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_subscription_names_the_partner_that_locks_billing(
-        self, _name: str, customer_id: str | None, expected: dict[str, str] | None, mock_get: MagicMock
+    def test_subscription_names_the_partner_that_locks_billing_and_leaves_out_its_discounts(
+        self,
+        _name: str,
+        customer_id: str | None,
+        expected: dict[str, str] | None,
+        expected_discount: tuple[int | None, str | None],
+        mock_get: MagicMock,
     ) -> None:
-        mock_get.return_value = _response(SUBSCRIPTION)
-        application = OAuthApplication.objects.create(
-            name="Example Partner",
-            client_id="example-partner",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://partner.example.com/callback",
-            algorithm="RS256",
-            is_provisioning_partner=True,
-        )
-        application.update_provisioning(pays_for_customers=True)
-        OrganizationProvisioning.objects.create(
-            organization=self.organization,
-            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-            application=application,
-        )
+        mock_get.return_value = _response({**SUBSCRIPTION, "discount_amount_usd": "100.00"})
+        self._provision_by_paying_partner()
         self.organization.customer_id = customer_id
         self.organization.save(update_fields=["customer_id"])
 
         response = self.client.get(self._url("subscription/"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(response.json()["billing_managed_by_partner"], expected)
+        body = response.json()
+        self.assertEqual(body["billing_managed_by_partner"], expected)
+        self.assertEqual((body["discount_percent"], body["discount_amount_usd"]), expected_discount)
+        self.assertEqual(body["billing_plan"], "boost")
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_the_call_to_billing_carries_a_minted_token_with_the_grants(self, mock_get):
@@ -852,3 +865,114 @@ class TestOrganizationBillingInvoicesAndLimits(OrganizationBillingTestMixin, API
             response = self.client.get(self._url(path))
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)
         mock_get.assert_not_called()
+
+
+PRICE_TIER: dict[str, Any] = {"flat_amount_usd": "0", "unit_amount_usd": "0.00005", "up_to": None}
+PRICED_PRODUCTS: dict[str, Any] = {
+    "status": "ok",
+    "customer_id": 42,
+    "products": [
+        {
+            "kind": "product",
+            "key": "product_analytics",
+            "name": "Product analytics",
+            "usage_limit": 5000000,
+            "price_description": "$0.00005 per event",
+            "unit_amount_usd": "0.00005",
+            "tiers": [PRICE_TIER],
+            "plans": [{"name": "Pay as you go", "unit_amount_usd": "0.00005", "tiers": [PRICE_TIER]}],
+            "addons": [{"kind": "addon", "key": "group_analytics", "default_unit_amount_usd": "0.0001"}],
+        }
+    ],
+}
+
+
+# Every read of the organization billing API, by what it answers while a partner pays. The refused
+# ones carry the path the refusal test calls.
+REFUSED_WHILE_A_PARTNER_PAYS: dict[str, str] = {
+    "spend": "spend/",
+    "forecast": "forecast/",
+    "spend_timeseries": "spend/timeseries/?start_date=2026-09-01&end_date=2026-09-14",
+    "spend_export": "spend/export/?start_date=2026-09-01&end_date=2026-09-14",
+    "invoices": "invoices/",
+    "invoice_content": "invoices/in_1/content/",
+}
+NULLED_AMOUNTS_WHILE_A_PARTNER_PAYS = {"subscription", "products", "product", "limits"}
+WITHOUT_AMOUNTS = {"features", "summary", "usage", "usage_status", "usage_timeseries", "usage_export", "projects"}
+
+
+class TestOrganizationBillingMoneyCoverage(SimpleTestCase):
+    def test_every_read_is_classified_by_what_it_answers_while_a_partner_pays(self) -> None:
+        actions = {action.__name__ for action in OrganizationBillingViewSet.get_extra_actions()}
+
+        self.assertEqual(
+            actions,
+            set(REFUSED_WHILE_A_PARTNER_PAYS) | NULLED_AMOUNTS_WHILE_A_PARTNER_PAYS | WITHOUT_AMOUNTS,
+        )
+
+
+class TestOrganizationBillingForPartnerPaidOrganizations(OrganizationBillingTestMixin, APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self._provision_by_paying_partner()
+
+    @parameterized.expand(sorted(REFUSED_WHILE_A_PARTNER_PAYS.items()))
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_money_read_is_refused_before_billing_is_called(self, _name: str, path: str, mock_get: MagicMock) -> None:
+        response = self.client.get(self._url(path))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(
+            response.json()["detail"],
+            "Billing for this organization is managed by Example Partner. "
+            "Contact Example Partner for spend, invoices, and pricing.",
+        )
+        mock_get.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("usage_timeseries", "usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14", _response(SERIES)),
+            (
+                "usage_export",
+                "usage/export/?start_date=2026-09-01&end_date=2026-09-14",
+                MagicMock(
+                    status_code=200,
+                    headers={"Content-Type": "text/csv"},
+                    **{"iter_content.return_value": iter([b"Product\n"])},
+                ),
+            ),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_usage_stays_readable(self, _name: str, path: str, billing_answer: MagicMock, mock_get: MagicMock) -> None:
+        mock_get.return_value = billing_answer
+
+        response = self.client.get(self._url(path))
+        # Read to the end, so an export gives its download slot back.
+        b"".join(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_products_and_limits_leave_out_prices_and_spend(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _response(PRICED_PRODUCTS)
+        product = self.client.get(self._url("products/?include_plans=true")).json()["results"][0]
+        mock_get.return_value = _response(LIMITS)
+        limit = self.client.get(self._url("limits/")).json()["results"][0]
+
+        self.assertEqual(
+            (
+                product["price_description"],
+                product["unit_amount_usd"],
+                product["tiers"],
+                product["plans"][0]["unit_amount_usd"],
+                product["plans"][0]["tiers"],
+                product["addons"][0]["default_unit_amount_usd"],
+                limit["spend_usd"],
+            ),
+            (None, None, None, None, None, None, None),
+        )
+        self.assertEqual(
+            (product["name"], product["usage_limit"], product["plans"][0]["name"], limit["limit_usd"]),
+            ("Product analytics", 5000000, "Pay as you go", 500),
+        )

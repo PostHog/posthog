@@ -33,7 +33,7 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing } = useValues(billingLogic)
+    const { billing, isBillingManagedByPartner } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, isDataPipelinesDeprecated } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
@@ -152,16 +152,18 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             </div>
 
             {/* Pricing modal */}
-            <ProductPricingModal
-                modalOpen={isPricingModalOpen}
-                onClose={toggleIsPricingModalOpen}
-                product={addon}
-                planKey={
-                    addon.subscribed
-                        ? currentAndUpgradePlans?.currentPlan?.plan_key
-                        : currentAndUpgradePlans?.upgradePlan?.plan_key
-                }
-            />
+            {!isBillingManagedByPartner && (
+                <ProductPricingModal
+                    modalOpen={isPricingModalOpen}
+                    onClose={toggleIsPricingModalOpen}
+                    product={addon}
+                    planKey={
+                        addon.subscribed
+                            ? currentAndUpgradePlans?.currentPlan?.plan_key
+                            : currentAndUpgradePlans?.upgradePlan?.plan_key
+                    }
+                />
+            )}
         </div>
     )
 }

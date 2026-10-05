@@ -299,7 +299,7 @@ describe('maxBillingContextLogic', () => {
 
     describe('billingToMaxContext', () => {
         it('returns null when billing is null', () => {
-            const result = billingToMaxContext(null, {}, mockTeam, [], null, null)
+            const result = billingToMaxContext(null, {}, mockTeam, [], false, null, null)
             expect(result).toBeNull()
         })
 
@@ -309,6 +309,7 @@ describe('maxBillingContextLogic', () => {
                 {},
                 mockTeam,
                 mockDestinations,
+                false,
                 mockBillingUsageResponse,
                 mockBillingSpendResponse
             )
@@ -344,8 +345,35 @@ describe('maxBillingContextLogic', () => {
             })
         })
 
+        it('leaves out spend and amounts when a partner pays, and keeps usage and limits', () => {
+            const result = billingToMaxContext(
+                mockBilling,
+                {},
+                mockTeam,
+                mockDestinations,
+                true,
+                mockBillingUsageResponse,
+                mockBillingSpendResponse
+            )
+
+            const amounts = [
+                result?.total_current_amount_usd,
+                result?.projected_total_amount_usd,
+                result?.projected_total_amount_usd_after_discount,
+                result?.projected_total_amount_usd_with_limit,
+                result?.projected_total_amount_usd_with_limit_after_discount,
+                result?.spend_history,
+                result?.products[0].projected_amount_usd,
+                result?.products[0].projected_amount_usd_with_limit,
+                result?.products[0].addons[0].projected_amount_usd,
+            ]
+            expect(amounts).toEqual(amounts.map(() => undefined))
+            expect(result?.usage_history).toEqual(mockBillingUsageResponse.results)
+            expect(result?.products[0]).toMatchObject({ current_usage: 1000000, custom_limit_usd: 50 })
+        })
+
         it('processes products correctly', () => {
-            const result = billingToMaxContext(mockBilling, {}, mockTeam, [], null, null)
+            const result = billingToMaxContext(mockBilling, {}, mockTeam, [], false, null, null)
 
             expect(result?.products).toHaveLength(3)
             expect(result?.products[0]).toMatchObject({
@@ -393,7 +421,7 @@ describe('maxBillingContextLogic', () => {
         })
 
         it('processes platform products with correct plan', () => {
-            const result = billingToMaxContext(mockBilling, {}, mockTeam, [], null, null)
+            const result = billingToMaxContext(mockBilling, {}, mockTeam, [], false, null, null)
 
             const platformProduct = result?.products.find((p) => p.type === 'platform_and_support')
             expect(platformProduct).toMatchObject({
@@ -405,7 +433,7 @@ describe('maxBillingContextLogic', () => {
 
         it('handles missing trial data', () => {
             const billingWithoutTrial = { ...mockBilling, trial: undefined }
-            const result = billingToMaxContext(billingWithoutTrial, {}, mockTeam, [], null, null)
+            const result = billingToMaxContext(billingWithoutTrial, {}, mockTeam, [], false, null, null)
 
             expect(result?.trial).toBeUndefined()
         })
@@ -416,7 +444,7 @@ describe('maxBillingContextLogic', () => {
                 has_active_subscription: false,
                 subscription_level: 'free' as const,
             }
-            const result = billingToMaxContext(freeBilling, {}, mockTeam, [], null, null)
+            const result = billingToMaxContext(freeBilling, {}, mockTeam, [], false, null, null)
 
             expect(result?.has_active_subscription).toBe(false)
             expect(result?.subscription_level).toBe('free')
@@ -424,7 +452,7 @@ describe('maxBillingContextLogic', () => {
 
         it('handles team with autocapture disabled', () => {
             const teamWithoutAutocapture = { ...mockTeam, autocapture_opt_out: true }
-            const result = billingToMaxContext(mockBilling, {}, teamWithoutAutocapture, [], null, null)
+            const result = billingToMaxContext(mockBilling, {}, teamWithoutAutocapture, [], false, null, null)
 
             expect(result?.settings.autocapture_on).toBe(false)
         })
@@ -434,7 +462,7 @@ describe('maxBillingContextLogic', () => {
 
             // Test case 1: All addons visible
             isAddonVisibleSpy.mockReturnValue(true)
-            const resultAllVisible = billingToMaxContext(mockBilling, {}, mockTeam, [], null, null)
+            const resultAllVisible = billingToMaxContext(mockBilling, {}, mockTeam, [], false, null, null)
             expect(resultAllVisible?.products[0].addons).toHaveLength(1)
             expect(resultAllVisible?.products[0].addons[0].type).toBe('addon_1')
 
@@ -445,6 +473,7 @@ describe('maxBillingContextLogic', () => {
                 { billing_hide_addon_addon_1: true },
                 mockTeam,
                 [],
+                false,
                 null,
                 null
             )
@@ -453,7 +482,7 @@ describe('maxBillingContextLogic', () => {
             // Test case 3: Verify isAddonVisible is called with correct parameters
             isAddonVisibleSpy.mockReturnValue(true)
             const featureFlags = { some_feature: true }
-            billingToMaxContext(mockBilling, featureFlags, mockTeam, [], null, null)
+            billingToMaxContext(mockBilling, featureFlags, mockTeam, [], false, null, null)
 
             expect(isAddonVisibleSpy).toHaveBeenCalledWith(
                 mockBilling.products[0], // The product containing the addon

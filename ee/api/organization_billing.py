@@ -31,6 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization, OrganizationIntegration, Team, User
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFlagPermission
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
@@ -44,8 +45,9 @@ from ee.api.billing import (
     BillingTimeSeriesPointSerializer,
     BillingUsageRequestSerializer,
     billing_managed_by_partner,
+    without_money,
 )
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, raise_if_billing_amounts_managed_by_partner
 from ee.billing.exports import (
     _gzip_stream,
     _release_export_stream_slot,
@@ -642,6 +644,10 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return str(request.query_params.get("include_plans", "")).lower() in {"1", "true", "yes", "on"}
 
     @staticmethod
+    def _without_partner_paid_money(organization: Organization, payload: Any) -> Any:
+        return without_money(payload) if get_billing_lock_partner(organization) else payload
+
+    @staticmethod
     def _covers(grants: EffectiveBillingGrants, level: BillingEntitlement) -> bool:
         return level.value in grants.entitlements
 
@@ -726,6 +732,8 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
+        if kind == "spend":
+            raise_if_billing_amounts_managed_by_partner(organization)
         # Spend serves a project-only breakdown and usage does not, so each read checks its own.
         serializer_class = (
             OrganizationUsageTimeseriesRequestSerializer if kind == "usage" else OrganizationTimeseriesRequestSerializer
@@ -768,6 +776,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         grants = self._grants(request, organization)
         data = self._manager().get_organization_subscription(organization, grants)
         license = get_cached_instance_license()
+        managed_by_partner = billing_managed_by_partner(organization)
         trial = data.get("trial")
         body: dict[str, Any] = {
             "customer_id": data.get("provider_customer_id"),
@@ -796,8 +805,10 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             "startup_program_label_previous": data.get("startup_program_label_previous"),
             "billing_portal_url": f"{settings.SITE_URL}/api/billing/portal",
             "license": {"plan": license.plan if license else None},
-            "billing_managed_by_partner": billing_managed_by_partner(organization),
+            "billing_managed_by_partner": managed_by_partner,
         }
+        if managed_by_partner:
+            return Response(without_money(body), status=status.HTTP_200_OK)
         vercel_integration = OrganizationIntegration.objects.filter(
             organization=organization, kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
         ).first()
@@ -847,7 +858,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         data = self._manager().get_organization_products(
             organization, grants, include_plans=self._include_plans(request)
         )
-        return Response({"results": data.get("products", [])})
+        return Response({"results": self._without_partner_paid_money(organization, data.get("products", []))})
 
     @extend_schema(
         operation_id="billing_products_retrieve",
@@ -868,7 +879,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         data = self._manager().get_organization_products(
             organization, grants, include_plans=self._include_plans(request), product_key=product_key
         )
-        return Response(data.get("product"))
+        return Response(self._without_partner_paid_money(organization, data.get("product")))
 
     @extend_schema(
         operation_id="billing_spend_summary_retrieve",
@@ -881,6 +892,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        raise_if_billing_amounts_managed_by_partner(organization)
         data = self._manager().get_organization_spend(organization, grants)
         return Response({**data, "billing_period": _billing_period(data.get("billing_period"))})
 
@@ -895,6 +907,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        raise_if_billing_amounts_managed_by_partner(organization)
         data = self._manager().get_organization_forecast(organization, grants)
         return Response(
             {
@@ -932,6 +945,8 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
+        if kind == "spend":
+            raise_if_billing_amounts_managed_by_partner(organization)
         serializer_class = (
             OrganizationUsageExportRequestSerializer if kind == "usage" else OrganizationExportRequestSerializer
         )
@@ -1030,6 +1045,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        raise_if_billing_amounts_managed_by_partner(organization)
         params = BillingInvoiceListParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         data = self._manager().get_organization_invoices(organization, grants, **params.validated_data)
@@ -1067,6 +1083,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
+        raise_if_billing_amounts_managed_by_partner(organization)
         url = self._manager().get_organization_invoice_pdf_url(organization, grants, invoice_id)
         upstream = fetch_invoice_document(url)
         if upstream.status_code != 200:
@@ -1120,7 +1137,8 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        return Response({"results": self._manager().get_organization_limits(organization, grants).get("results", [])})
+        limits = self._manager().get_organization_limits(organization, grants).get("results", [])
+        return Response({"results": self._without_partner_paid_money(organization, limits)})
 
     @extend_schema(
         operation_id="billing_usage_summary_retrieve",

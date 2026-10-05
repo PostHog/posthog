@@ -28,6 +28,7 @@ export interface CouponFormValues {
 export interface couponLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
+    isBillingManagedByPartner: boolean // billingLogic
     currentOrganization: OrganizationType | null // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
     user: UserType | null // userLogic
@@ -147,7 +148,7 @@ export const couponLogic = kea<couponLogicType>([
             organizationLogic,
             ['currentOrganization', 'isAdminOrOwner'],
             billingLogic,
-            ['billing', 'billingLoading'],
+            ['billing', 'billingLoading', 'isBillingManagedByPartner'],
         ],
         actions: [billingLogic, ['loadBillingSuccess'], organizationLogic, ['loadCurrentOrganizationSuccess']],
     })),
@@ -160,7 +161,10 @@ export const couponLogic = kea<couponLogicType>([
             null as CouponsOverview | null,
             {
                 loadCouponsOverview: async () => {
-                    if (values.isAdminOrOwner === false && values.currentOrganization) {
+                    if (
+                        (values.isAdminOrOwner === false && values.currentOrganization) ||
+                        values.isBillingManagedByPartner
+                    ) {
                         return null
                     }
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.

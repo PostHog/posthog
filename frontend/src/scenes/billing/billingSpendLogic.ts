@@ -90,6 +90,8 @@ export interface billingSpendLogicValues {
     billingPeriodUTC: BillingPeriod // billingLogic
     canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
+    hasLoadedBilling: boolean // billingLogic
+    isBillingManagedByPartner: boolean // billingLogic
     billingReads: BillingReads // billingReadsLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
@@ -375,7 +377,14 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
+            [
+                'billing',
+                'billingPeriodUTC',
+                'canViewUsageAndSpend',
+                'currentOrganization',
+                'hasLoadedBilling',
+                'isBillingManagedByPartner',
+            ],
             preflightLogic,
             ['isHobby'],
             billingReadsLogic,
@@ -427,14 +436,23 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 loadBillingSpend: async (_: void, breakpoint: BreakPointFunction) => {
                     // Three things load on arrival: afterMount, urlToAction once it has read the
                     // filters out of the URL, and the subscriptions that fire when billing settles
-                    // whether this is a hobby plan and whether the person may see spend. The
-                    // breakpoint keeps only the last call, so one request goes out and it carries
-                    // the filters that ended up in effect.
+                    // whether this is a hobby plan, whether the person may see spend, and whether a
+                    // partner pays. The breakpoint keeps only the last call, so one request goes out
+                    // and it carries the filters that ended up in effect.
                     //
                     // Before the try below, deliberately: a breakpoint reports itself by throwing,
                     // and catching that as a failure would show the person an error toast.
                     await breakpoint(1)
-                    if (!values.canViewUsageAndSpend || values.isHobby) {
+                    // Read before the check below: reading it starts billing's load when nothing else
+                    // has, and billing must answer first because a partner-paid organization's spend
+                    // is refused.
+                    const isBillingManagedByPartner = values.isBillingManagedByPartner
+                    if (
+                        !values.canViewUsageAndSpend ||
+                        values.isHobby ||
+                        !values.hasLoadedBilling ||
+                        isBillingManagedByPartner
+                    ) {
                         return null
                     }
                     const { usage_types, breakdowns, interval, top_projects } = values.filters
@@ -902,6 +920,11 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
         isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
             if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadBillingSpend()
+            }
+        },
+        hasLoadedBilling: (hasLoadedBilling: boolean, previousHasLoadedBilling: boolean | undefined) => {
+            if (hasLoadedBilling && previousHasLoadedBilling === false) {
                 actions.loadBillingSpend()
             }
         },

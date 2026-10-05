@@ -99,12 +99,34 @@ class BillingServiceOpenInvoicesError(Exception):
         super().__init__(message)
 
 
+def partner_display_name(partner: OAuthApplication) -> str:
+    return partner.name.strip() or "your partner"
+
+
 class BillingManagedByPartnerError(PermissionDenied):
     def __init__(self, partner: OAuthApplication) -> None:
-        partner_name = partner.name.strip() or "your partner"
+        partner_name = partner_display_name(partner)
         super().__init__(
             f"Billing for this organization is managed by {partner_name}. "
             f"Contact {partner_name} to change your plan or payment details."
+        )
+
+
+class BillingAmountsManagedByPartnerError(PermissionDenied):
+    def __init__(self, partner: OAuthApplication) -> None:
+        partner_name = partner_display_name(partner)
+        super().__init__(
+            f"Billing for this organization is managed by {partner_name}. "
+            f"Contact {partner_name} for spend, invoices, and pricing."
+        )
+
+
+class BillingLimitsManagedByPartnerError(PermissionDenied):
+    def __init__(self, partner: OAuthApplication) -> None:
+        partner_name = partner_display_name(partner)
+        super().__init__(
+            f"Billing limits for this organization are managed by {partner_name}. "
+            f"Contact {partner_name} to change them."
         )
 
 
@@ -112,6 +134,18 @@ def raise_if_billing_managed_by_partner(organization: Organization) -> None:
     partner = get_billing_lock_partner(organization)
     if partner is not None:
         raise BillingManagedByPartnerError(partner)
+
+
+def raise_if_billing_amounts_managed_by_partner(organization: Organization) -> None:
+    partner = get_billing_lock_partner(organization)
+    if partner is not None:
+        raise BillingAmountsManagedByPartnerError(partner)
+
+
+def raise_if_billing_limits_managed_by_partner(organization: Organization) -> None:
+    partner = get_billing_lock_partner(organization)
+    if partner is not None:
+        raise BillingLimitsManagedByPartnerError(partner)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:

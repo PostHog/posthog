@@ -312,6 +312,26 @@ describe('billing spend load triggers', () => {
         expect(new Set(startDates)).toEqual(new Set(['2026-01-01']))
     })
 
+    it.each([
+        { name: 'reads spend once billing answers', partner: null, expectedRequests: 1 },
+        {
+            name: 'never reads spend while a partner pays',
+            partner: { partner_name: 'Example Partner' },
+            expectedRequests: 0,
+        },
+    ])('waits for billing when it mounts first, then $name', async ({ partner, expectedRequests }) => {
+        useMocks({
+            get: { '/api/billing': () => [200, { ...billingJson, billing_managed_by_partner: partner }] },
+        })
+
+        logic = billingSpendLogic({})
+        logic.mount()
+        await expectLogic(billingLogic).toDispatchActions(['loadBillingSuccess']).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests).toEqual(expectedRequests)
+    })
+
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {
         // "This year" carries only a start. The picker recognises its own preset only while the
         // end stays empty; with yesterday filled in it would read back as "No date range override".

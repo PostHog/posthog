@@ -36,7 +36,13 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
+from ee.billing.billing_manager import (
+    BillingManager,
+    http_session,
+    raise_if_billing_amounts_managed_by_partner,
+    raise_if_billing_limits_managed_by_partner,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
@@ -276,9 +282,62 @@ class BillingNotManagedByPartner(permissions.BasePermission):
         return True
 
 
+class BillingAmountsNotManagedByPartner(permissions.BasePermission):
+    def has_permission(self, request: Request, view: Any) -> bool:
+        organization = view._get_org()
+        if organization is not None:
+            raise_if_billing_amounts_managed_by_partner(organization)
+        return True
+
+
+def changes_billing_limits(data: Any) -> bool:
+    return bool(data.get("custom_limits_usd") or data.get("reset_limit_next_period"))
+
+
+class BillingLimitsNotManagedByPartner(permissions.BasePermission):
+    def has_permission(self, request: Request, view: Any) -> bool:
+        organization = view._get_org()
+        if organization is not None and changes_billing_limits(request.data):
+            raise_if_billing_limits_managed_by_partner(organization)
+        return True
+
+
 def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
     partner = get_billing_lock_partner(organization) if organization else None
     return {"partner_name": partner.name} if partner else None
+
+
+# A field with "usd" in its name is money unless it is a limit, wherever "usd" falls in the name:
+# projected_amount_usd_with_limit is as much an amount as current_amount_usd. The partner sets the
+# limits, and the organization's own members may read them.
+BILLING_LIMIT_FIELDS = frozenset(
+    {"custom_limits_usd", "next_period_custom_limits_usd", "limit_usd", "next_period_limit_usd"}
+)
+BILLING_MONEY_FIELDS = frozenset(
+    {
+        "amount_off_expires_at",
+        "discount_percent",
+        "external_billing_provider_invoices_url",
+        "price_description",
+        "projected_amount",
+        "stripe_portal_url",
+        "tiers",
+    }
+)
+
+
+def _is_money_field(field: str) -> bool:
+    return field in BILLING_MONEY_FIELDS or ("usd" in field.split("_") and field not in BILLING_LIMIT_FIELDS)
+
+
+def without_money(payload: Any) -> Any:
+    """Money fields become null rather than absent, so a client that reads one still finds the shape
+    the contract promises."""
+    if isinstance(payload, dict):
+        return {field: None if _is_money_field(field) else without_money(value) for field, value in payload.items()}
+    if isinstance(payload, list):
+        return [without_money(item) for item in payload]
+    return payload
 
 
 class BillingSerializer(serializers.Serializer):
@@ -293,8 +352,9 @@ class BillingManagedByPartnerSerializer(serializers.Serializer):
 
 
 BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
-    "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of "
-    "its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise."
+    "Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, "
+    "payment, and billing limit changes are refused, reads of spend, invoices, and credits are refused, and "
+    "amounts and prices in billing responses are null. Usage and limits stay readable. Null when no partner pays."
 )
 
 
@@ -591,7 +651,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if account_url:
                 response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
 
-        response["billing_managed_by_partner"] = billing_managed_by_partner(org)
+        managed_by_partner = billing_managed_by_partner(org)
+        response["billing_managed_by_partner"] = managed_by_partner
+        if managed_by_partner:
+            response = without_money(response)
 
         return Response(response)
 
@@ -622,7 +685,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["PATCH"],
         detail=False,
         url_path="/",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingLimitsNotManagedByPartner],
     )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
@@ -635,7 +698,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             custom_limits_usd = request.data.get("custom_limits_usd")
             reset_limit_next_period = request.data.get("reset_limit_next_period")
 
-            if custom_limits_usd or reset_limit_next_period:
+            if changes_billing_limits(request.data):
                 body = {}
                 if custom_limits_usd:
                     body["custom_limits_usd"] = custom_limits_usd
@@ -695,7 +758,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["POST"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -757,7 +820,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager._get_stripe_portal_url(organization)
         return redirect(res)
 
-    @action(methods=["GET"], detail=False)
+    @action(
+        methods=["GET"],
+        detail=False,
+        permission_classes=[permissions.IsAuthenticated, BillingAmountsNotManagedByPartner],
+    )
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -796,7 +863,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(methods=["GET"], detail=False, url_path="credits/overview")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="credits/overview",
+        permission_classes=[permissions.IsAuthenticated, BillingAmountsNotManagedByPartner],
+    )
     def credits_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -847,7 +919,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="trials/cancel",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def cancel_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -874,7 +946,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.authorize(organization)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="activate/authorize/status",
+        permission_classes=[permissions.IsAuthenticated, BillingNotManagedByPartner],
+    )
     def authorize_status(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -946,6 +1023,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not user_has_billing_access(user, organization):
             raise PermissionDenied("You need Billing access to apply for the startup program")
 
+        # The body names the organization, so this check comes after the access check. A request that names
+        # another organization's id then cannot reveal which partner pays for that organization.
+        raise_if_billing_managed_by_partner(organization)
+
         billing_manager = self.get_billing_manager()
 
         # Add user info to the request
@@ -980,7 +1061,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="coupons/claim",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -1010,7 +1091,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-    @action(methods=["GET"], detail=False, url_path="coupons/overview")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="coupons/overview",
+        permission_classes=[permissions.IsAuthenticated, BillingAmountsNotManagedByPartner],
+    )
     def coupons_overview(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -1063,7 +1149,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="spend",
-        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        permission_classes=[
+            permissions.IsAuthenticated,
+            HasBillingUsageSpendReadAccess,
+            BillingAmountsNotManagedByPartner,
+        ],
         responses={200: BillingTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -1087,7 +1177,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="spend/export",
-        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        permission_classes=[
+            permissions.IsAuthenticated,
+            HasBillingUsageSpendReadAccess,
+            BillingAmountsNotManagedByPartner,
+        ],
         throttle_classes=[BillingExportThrottle],
     )
     def spend_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
