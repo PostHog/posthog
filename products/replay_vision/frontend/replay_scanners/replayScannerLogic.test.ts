@@ -1689,6 +1689,34 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
             expect(logic.values.experimentContext).toBeNull()
         })
+
+        it('an experiment scanner loads its experiment from the config and estimates its scope', async () => {
+            const estimateSpy = jest.fn(() => [200, {}])
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [
+                        200,
+                        { id: 7, name: 'Checkout redesign', start_date: '2026-09-20T00:00:00Z' },
+                    ],
+                },
+                post: { '/api/projects/:team/vision/scanners/estimate/': estimateSpy },
+            })
+            logic.actions.setScannerType('experiment')
+
+            await expectLogic(logic, () => logic.actions.loadScannerEstimate()).toFinishAllListeners()
+            expect(estimateSpy).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => logic.actions.setScannerExperiment(7)).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+
+            logic.actions.setScannerValue(['scanner_config', 'variants'], ['test'])
+            await expectLogic(logic, () => logic.actions.loadScannerEstimate()).toFinishAllListeners()
+            const body = await (estimateSpy.mock.calls.at(-1) as any)[0].request.json()
+            expect(body).toMatchObject({
+                experiment: { experiment_id: 7, variants: ['test'] },
+                experiment_targeting: null,
+            })
+        })
     })
 
     describe('team refresh on tab visibility', () => {

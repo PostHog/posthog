@@ -3937,6 +3937,43 @@ class TestCoalesceGroup:
             [("run-1", 7)],
         ]
 
+    @pytest.mark.parametrize(
+        "destination_ids",
+        [["warehouse-1"], ["warehouse-1", "warehouse-2"]],
+        ids=["warehouse_only", "two_warehouse_rows"],
+    )
+    def test_batches_bound_only_for_the_warehouse_still_share_a_write(self, destination_ids: list[str]):
+        # Every run now snapshots the PostHog warehouse, which delta writes rather than a
+        # destination writer delivers. Reading a non-empty snapshot as "has destinations" would
+        # stop the whole fleet coalescing.
+        batches = [
+            _make_batch(
+                id=f"00000000-0000-0000-0000-{i:012d}",
+                run_uuid="run-1",
+                batch_index=i,
+                sync_type="incremental",
+                destination_ids=destination_ids,
+                metadata={"external_destination_ids": []},
+            )
+            for i in range(3)
+        ]
+        assert self._sets(batches) == [[0, 1, 2]]
+
+    def test_batches_for_different_destinations_never_share_a_write(self):
+        # The external set is a key, not a flag: one write cannot deliver to two different places.
+        batches = [
+            _make_batch(
+                id=f"00000000-0000-0000-0000-{i:012d}",
+                run_uuid="run-1",
+                batch_index=i,
+                sync_type="incremental",
+                destination_ids=["warehouse-1", dest],
+                metadata={"external_destination_ids": [dest]},
+            )
+            for i, dest in enumerate(["dest-a", "dest-a", "dest-b"])
+        ]
+        assert self._sets(batches) == [[0], [1], [2]]
+
     def test_a_final_only_marker_row_stays_alone(self):
         # An older producer repeats the last batch's index as a final-only row; it is not a new batch.
         batches = _run_batches(2)
@@ -3954,10 +3991,12 @@ class TestCoalesceGroup:
         [
             {"sync_type": "cdc"},
             {"metadata": {"cdc_write_mode": "scd2_append"}},
+            {"destination_ids": ["dest-1"], "metadata": {"external_destination_ids": ["dest-1"]}},
+            # Queued before the producer recorded the subset, so every id counts as external.
             {"destination_ids": ["dest-1"]},
             {"latest_attempt": 1},
         ],
-        ids=["cdc", "scd2_companion", "external_destinations", "redelivery"],
+        ids=["cdc", "scd2_companion", "external_destinations", "unknown_subset", "redelivery"],
     )
     def test_batches_the_sink_loads_one_at_a_time(self, overrides: dict[str, Any]):
         batches = [
