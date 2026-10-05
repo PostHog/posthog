@@ -780,6 +780,7 @@ the row lists both.
 | testrail                         | HTTP                        | requests                                                        | ✅                          |
 | thinkific                        | HTTP                        | requests                                                        | ✅                          |
 | thinkific_courses                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ticketmaster                     | HTTP                        | requests                                                        | ✅                          |
 | tickettailor                     | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tinyemail                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1449,7 +1450,6 @@ doesn't conflict with concurrent PRs.
 - thousandeyes
 - threads
 - thrive_learning
-- ticketmaster
 - ticktick
 - tiktok_shop
 - tile38
