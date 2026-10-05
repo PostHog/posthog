@@ -4,6 +4,7 @@ This guide covers hand-written tools only.
 Most tools are generated from `products/<product>/mcp/tools.yaml`.
 For those, follow the [implementing MCP tools skill](../../../../.agents/skills/implementing-mcp-tools/SKILL.md) and the [handbook guide](../../../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md).
 
+To change a generated tool's request or error handling, use `hooks:` in its tools.yaml instead of a hand-written tool with the same name.
 Write a tool by hand only when codegen cannot express it.
 Examples are tools that call several endpoints or reshape the response.
 Existing hand-written tools live in the folders next to this file, for example `featureFlags/`.
