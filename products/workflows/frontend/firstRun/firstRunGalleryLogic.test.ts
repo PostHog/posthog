@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -179,7 +181,7 @@ describe('firstRunGalleryLogic', () => {
         { pick: 'the recommended starter', templateId: WELCOME, recommended: true, ready: true },
         { pick: 'another ready template', templateId: 'onboarding', recommended: false, ready: true },
         { pick: 'a template that is not ready', templateId: 'trial', recommended: false, ready: false },
-    ])('reports picking $pick and opens it', async ({ templateId, recommended, ready }) => {
+    ])('reports picking $pick and opens Make it yours for it', async ({ templateId, recommended, ready }) => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         await openGallery({ seenEvents: ['signed_up', '$pageview'], ingestedEvent: true })
 
@@ -190,7 +192,8 @@ describe('firstRunGalleryLogic', () => {
             recommended,
             ready,
         })
-        expect(router.values.searchParams).toMatchObject({ templateId })
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflows())
+        expect(router.values.searchParams).toEqual({ template: templateId })
     })
 
     it.each([
