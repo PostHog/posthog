@@ -4,8 +4,10 @@ Coordinator workflow for batch trace summarization.
 This workflow discovers teams dynamically via the team discovery activity
 and spawns child workflows to process traces for each team.
 
-Uses continue_as_new between teams, when Temporal suggests it, to keep the
-workflow history bounded (Temporal has a 50K event limit per execution).
+Uses continue_as_new between teams to keep the workflow history bounded
+(Temporal has a 50K event limit per execution). The sliding window continues
+at its own history limits, above the Temporal suggestion, because each
+continuation first waits for the running children to finish.
 
 Per-team child workflows handle the case where a team has no traces
 gracefully (returning empty results).
@@ -29,6 +31,8 @@ from temporalio.workflow import ChildWorkflowHandle
 from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     CHILD_WORKFLOW_ID_PREFIX,
+    CONTINUE_AS_NEW_HISTORY_LENGTH,
+    CONTINUE_AS_NEW_HISTORY_SIZE_BYTES,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_CONCURRENT_TEAMS,
@@ -37,6 +41,7 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_MODEL,
     DEFAULT_WINDOW_MINUTES,
     DEFAULT_WINDOW_OFFSET_MINUTES,
+    FEWER_CONTINUATIONS_PATCH_ID,
     GENERATION_CHILD_WORKFLOW_ID_PREFIX,
     SLIDING_WINDOW_PATCH_ID,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
@@ -100,6 +105,10 @@ class BatchTraceSummarizationCoordinatorInputs:
     window_minutes: int = DEFAULT_WINDOW_MINUTES
     model: str = DEFAULT_MODEL
     max_concurrent_teams: int = DEFAULT_MAX_CONCURRENT_TEAMS
+    # The limits are inputs so that Temporal records them when a run starts.
+    # A replay then uses the recorded limits, and a later change to the defaults does not break a running execution.
+    continue_as_new_history_length: int = CONTINUE_AS_NEW_HISTORY_LENGTH
+    continue_as_new_history_size_bytes: int = CONTINUE_AS_NEW_HISTORY_SIZE_BYTES
     # Fields used by continue_as_new to carry state across continuations.
     # When remaining_team_ids is set, team discovery is skipped.
     remaining_team_ids: list[int] | None = None
@@ -290,8 +299,19 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         def is_drained() -> bool:
             return in_flight == 0
 
+        fewer_continuations = temporalio.workflow.patched(FEWER_CONTINUATIONS_PATCH_ID)
+
+        def should_continue_as_new() -> bool:
+            info = temporalio.workflow.info()
+            if not fewer_continuations:
+                return info.is_continue_as_new_suggested()
+            return (
+                info.get_current_history_length() >= inputs.continue_as_new_history_length
+                or info.get_current_history_size() >= inputs.continue_as_new_history_size_bytes
+            )
+
         for index, team_id in enumerate(team_ids):
-            if index > 0 and temporalio.workflow.info().is_continue_as_new_suggested():
+            if index > 0 and should_continue_as_new():
                 # Children close with this run, so let the running ones finish first.
                 await temporalio.workflow.wait_condition(is_drained)
                 logger.info(

@@ -7251,6 +7251,13 @@ export namespace Schemas {
       Yes: 'yes',
     } as const;
 
+    export interface HogQLMetadataColumn {
+      /** Output column name, in the same order as the SELECT list. */
+      name: string;
+      /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+      type: string;
+    }
+
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
@@ -7259,6 +7266,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -27732,8 +27741,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly observed_value: number | null;
-      /** The HogQL that ran. Re-run it to see the offending rows. */
+      /** HogQL selecting the failing rows. Re-run it to see them. For a run that audited a staged refresh it inlines the view's definition, so it reads the source tables rather than the published table. Empty when there is nothing to replay: retention cleared it, or a staged run could not build its replay query. */
       readonly compiled_query: string;
+      /** True when the run audited a refresh that was staged but not yet published, under the materialization gate. */
+      readonly audited_staged_refresh: boolean;
       /** Compilation or execution failure, when status is 'errored'. */
       readonly error: string;
       /** @nullable */
@@ -37100,6 +37111,24 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailSenderEligibility {
+      /** The project email sender integration ID. */
+      integration_id: number;
+      /** Email provider, such as ses, maildev, or sandbox when available. */
+      provider: string;
+      /** Whether the email sender has completed verification. */
+      is_verified: boolean;
+    }
+
+    export interface EmailReach {
+      /** Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast. */
+      verified_member_count: number;
+      /** People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast. */
+      project_email_count: number;
+      /** Project email sender identity and verification state, without configuration or credentials. */
+      email_senders: EmailSenderEligibility[];
+    }
+
     /**
      * How much workflow email this project may send, and how much of that it has used.
      */
@@ -38200,6 +38229,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin: unknown;
+    }
+
+    export interface ErrorDetail {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
     }
 
     export interface ErrorResponse {
@@ -44767,6 +44803,7 @@ export namespace Schemas {
        * * `application/x-ndjson` - application/x-ndjson */
       readonly export_format: ExportedAssetExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -44826,6 +44863,7 @@ export namespace Schemas {
        * * `application/json` - application/json */
       export_format: ExportedAssetCreateExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -54603,9 +54641,11 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
+      /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
+      minInterval?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsQueryResponse | null;
@@ -56210,6 +56250,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
+      includeOutputTypes?: boolean | null;
       /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
       indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
@@ -57295,6 +57337,11 @@ export namespace Schemas {
     export interface InterestingNote {
       text: string;
       line_refs: string;
+    }
+
+    export interface InternalFeedbackResponse {
+      /** True when the feedback reached Slack. */
+      success: boolean;
     }
 
     /**
@@ -86541,6 +86588,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -100883,7 +100932,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -100895,7 +100944,7 @@ export namespace Schemas {
          * @maxItems 50
          */
       team_ids: number[];
-      /** Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering an organization from 2 leaves a gap in the events table for the time it spent on 2. */
+      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
@@ -100965,7 +101014,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -101513,6 +101562,8 @@ export namespace Schemas {
       data?: unknown;
       /** Force regenerate summary, bypassing cache */
       force_refresh?: boolean;
+      /** Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title. */
+      compact_context?: boolean;
       /**
          * LLM model to use (defaults based on provider)
          * @nullable
@@ -111098,6 +111149,26 @@ export namespace Schemas {
       Json: 'json',
       Ndjson: 'ndjson',
     } as const;
+
+    export type InternalFeedbackCreateBody = {
+      /**
+         * What the person wants to tell the developers.
+         * @maxLength 4000
+         */
+      comment: string;
+      /**
+         * URL of the page the feedback is about.
+         * @maxLength 2000
+         */
+      page_url: string;
+      /**
+         * CSS selector of the element the person selected. Empty for feedback about the whole page.
+         * @maxLength 1000
+         */
+      element_identifier?: string;
+      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+      screenshot?: Blob;
+    };
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**

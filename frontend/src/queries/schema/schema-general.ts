@@ -936,6 +936,13 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+export interface HogQLMetadataColumn {
+    /** Output column name, in the same order as the SELECT list. */
+    name: string
+    /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+    type: string
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
@@ -948,6 +955,8 @@ export interface HogQLMetadataResponse {
     query_status?: never
     table_names?: string[]
     ch_table_names?: string[]
+    /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+    output_columns?: HogQLMetadataColumn[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -1051,6 +1060,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     debug?: boolean
     /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
     indexUsage?: boolean
+    /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
+    includeOutputTypes?: boolean
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -4993,8 +5004,10 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     clauses: MetricsQueryClause[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
     interval?: string
+    /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
+    minInterval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
@@ -5526,6 +5539,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     intents?: ProductKey[]
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
+    /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {

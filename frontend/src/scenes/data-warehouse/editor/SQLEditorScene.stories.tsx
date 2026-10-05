@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
@@ -6,9 +8,11 @@ import { useEffect, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { MockResolverInfo } from '~/mocks/utils'
 import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
@@ -160,6 +164,9 @@ const meta: Meta = {
                     }
                     if (kind === 'HogQLMetadata') {
                         return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                    }
+                    if (body?.query?.query === 'SELECT category, revenue FROM example_sales') {
+                        return [200, CHART_EXPERIMENT_RESULTS]
                     }
                     return [200, SQL_RESULTS]
                 },
@@ -317,7 +324,11 @@ export const EditedInsight: Story = {
             'aria-disabled',
             'true'
         )
-        await userEvent.keyboard('{Escape}')
+        await expect(canvas.queryByRole('button', { name: /^close$/ })).not.toBeInTheDocument()
+        await userEvent.click(menu.getByText('Reset view'))
+        await waitFor(() => expect(canvas.queryByRole('button', { name: 'Update insight' })).not.toBeInTheDocument())
+        await expect(canvas.getByRole('button', { name: 'Save as insight' })).toBeVisible()
+        await expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toEqual('SELECT 2')
     },
 }
 
@@ -732,5 +743,232 @@ export const BIDataSourcePicker: Story = {
         await userEvent.click(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')!)
         const page = within(canvasElement.ownerDocument.body)
         await waitFor(() => expect(page.getByRole('searchbox', { name: 'Search tables' })).toBeVisible())
+    },
+}
+
+const CHART_EXPERIMENT_RESULTS = {
+    columns: ['category', 'revenue'],
+    types: [
+        ['category', 'String'],
+        ['revenue', 'Float64'],
+    ],
+    results: [
+        ['Books', 120],
+        ['Games', 240],
+        ['Music', 180],
+    ],
+    hasMore: false,
+}
+
+const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDelay = 0): Record<string, unknown> => ({
+    featureFlags: ['ml-inference-decisions', 'jev-chart-autodetection'],
+    pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
+    msw: {
+        mocks: {
+            get: {
+                '/api/organizations/@current/': {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: approved,
+                },
+                '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+            },
+            post: {
+                '/api/environments/:team_id/query/HogQLMetadata': async ({ request }: MockResolverInfo) => {
+                    const body = (await request.json()) as { query: { includeOutputTypes?: boolean } }
+                    return [
+                        200,
+                        {
+                            isValid: true,
+                            errors: [],
+                            warnings: [],
+                            notices: [],
+                            output_columns: body.query.includeOutputTypes
+                                ? [
+                                      { name: 'category', type: 'String' },
+                                      { name: 'revenue', type: 'Float64' },
+                                  ]
+                                : undefined,
+                        },
+                    ]
+                },
+                '/api/environments/:team_id/query/HogQLQuery': async () => {
+                    await delay(queryDelay)
+                    return [200, CHART_EXPERIMENT_RESULTS]
+                },
+                '/api/projects/:team_id/ml_inference/decisions/decide/': async () => {
+                    await delay(decisionDelay)
+                    return [
+                        200,
+                        {
+                            model: 'test',
+                            input_tokens: 1,
+                            latency_ms: 1,
+                            answers: Object.fromEntries(
+                                Object.entries({
+                                    chart: 'ActionsBar',
+                                    layout: 'both',
+                                    x: 'c0',
+                                    value: 'c1',
+                                    dimension: 'none',
+                                }).map(([id, choice]) => [
+                                    id,
+                                    {
+                                        type: 'choice',
+                                        choice,
+                                        confidence: 1,
+                                        probability: null,
+                                        probabilities: {},
+                                        score: null,
+                                    },
+                                ])
+                            ),
+                        },
+                    ]
+                },
+            },
+        },
+    },
+})
+
+const withAIConsent = (approved: boolean): Decorator =>
+    function AIConsentStory(Story): JSX.Element {
+        useEffect(() => {
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: approved,
+            })
+        }, [])
+        return <Story />
+    }
+
+export const JevChartAndTable: Story = {
+    // These interactive scenarios need Run; automatic snapshots only capture the same idle editor.
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevWithoutConsent: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(false),
+    decorators: [withAIConsent(false)],
+}
+
+export const JevChoosingChart: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true, 3000),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevChartTimeout: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true, 6000),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevEarlySelection: Story = {
+    tags: ['test-skip'],
+    parameters: chartExperimentParameters(true, 100, 3000),
+    decorators: [withAIConsent(true)],
+}
+const BI_CONNECTIONS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [],
+    columns: [],
+    filters: [],
+}
+
+export const BIConnections: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+            q: buildBIQuery(BI_CONNECTIONS_CONFIG)?.query ?? '',
+            mode: 'bi',
+            bi: JSON.stringify(BI_CONNECTIONS_CONFIG),
+        })}`,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-connection-fields"] [data-attr="bi-editor-connection-fields"]',
+            viewport: { width: 1280, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: {
+                                    event: BI_EVENTS_FIELDS.event,
+                                    revenue: BI_EVENTS_FIELDS.revenue,
+                                    person: {
+                                        name: 'person',
+                                        type: 'lazy_table',
+                                        table: 'persons',
+                                        schema_valid: true,
+                                        hogql_value: 'person',
+                                    },
+                                },
+                            },
+                            persons: {
+                                id: 'persons',
+                                name: 'persons',
+                                type: 'posthog',
+                                fields: {
+                                    email: { name: 'email', type: 'string', schema_valid: true, hogql_value: 'email' },
+                                    lifetime_value: {
+                                        name: 'lifetime_value',
+                                        type: 'float',
+                                        schema_valid: true,
+                                        hogql_value: 'lifetime_value',
+                                    },
+                                    company: {
+                                        name: 'company',
+                                        type: 'lazy_table',
+                                        table: 'companies',
+                                        schema_valid: true,
+                                        hogql_value: 'company',
+                                    },
+                                },
+                            },
+                            companies: {
+                                id: 'companies',
+                                name: 'companies',
+                                type: 'data_warehouse',
+                                fields: {
+                                    name: { name: 'name', type: 'string', schema_valid: true, hogql_value: 'name' },
+                                    annual_revenue: {
+                                        name: 'annual_revenue',
+                                        type: 'decimal',
+                                        schema_valid: true,
+                                        hogql_value: 'annual_revenue',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
+            timeout: 15000,
+        })
+        await userEvent.click(canvas.getByRole('button', { name: 'SQL' }))
+        await userEvent.click(canvas.getByRole('button', { name: 'BI' }))
+        const autoUpdate = canvasElement.querySelector('[data-attr="bi-editor-auto-update"]')!
+        if (autoUpdate.getAttribute('aria-checked') === 'true') {
+            await userEvent.click(autoUpdate)
+        }
+        await userEvent.click(await canvas.findByRole('button', { name: 'person' }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'person.company' }))
+        await waitFor(() => expect(canvas.getByText('annual_revenue')).toBeVisible())
     },
 }

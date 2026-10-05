@@ -157,6 +157,10 @@ class SandboxInferenceError(Exception):
     """Raised when materialization or the sandbox run fails. The caller fails the run."""
 
 
+class ModelLoadError(SandboxInferenceError):
+    """Raised when a scoring run cannot load the champion's persisted model. A retry fails the same way."""
+
+
 @frozen
 class MaterializedData:
     """Labeled training matrix for a train run: train + holdout folds. Predict runs return a plain row list."""
@@ -281,9 +285,7 @@ def score_via_sandbox(
 
     model_bytes = read_model(prefix)
     if not model_bytes:
-        raise SandboxInferenceError(
-            f"Champion model.pkl is missing at {prefix}; the completion-time fit has not produced it"
-        )
+        raise ModelLoadError(f"Champion model.pkl is missing at {prefix}; the completion-time fit has not produced it")
 
     score_data = _materialize_score_data(
         team=team,
@@ -857,12 +859,16 @@ def _run_predict_in_sandbox(
         _write_file(sandbox, f"{_WORKDIR}/{_MODEL_PKL}", model_bytes)
         _write_file(sandbox, f"{_WORKDIR}/data/score_features.parquet", features_parquet(score_rows, feature_cols))
 
-        _run_script(
-            sandbox,
-            script="predict.py",
-            args=f"data/score_features.parquet {_MODEL_PKL} {_SCORES_PARQUET}",
-            timeout_seconds=_PREDICT_TIMEOUT_S,
-        )
+        try:
+            _run_script(
+                sandbox,
+                script="predict.py",
+                args=f"data/score_features.parquet {_MODEL_PKL} {_SCORES_PARQUET}",
+                timeout_seconds=_PREDICT_TIMEOUT_S,
+            )
+        except SandboxInferenceError as exc:
+            # predict.py loads model.pkl first, and the fit already ran it once against the same files.
+            raise ModelLoadError(str(exc)) from exc
         scores = _read_scores(sandbox, expected_rows=len(score_rows))
 
     return _join_scores(score_rows=score_rows, scores=scores)

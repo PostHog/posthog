@@ -31,6 +31,7 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 import { SandboxEmailSender } from './sandbox-email-sender'
@@ -431,7 +432,7 @@ export class EmailService {
         private integrationManager: IntegrationManagerService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
-        siteUrl: string,
+        private siteUrl: string,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
@@ -706,12 +707,38 @@ export class EmailService {
                 return result
             }
 
+            // Tagged before click tracking wraps the links, so the tags land on the destination URL.
+            const metadata = invocation.hogFunction.metadata
+            if (metadata?.utm_tags_enabled === true && deliveryParams.html) {
+                deliveryParams = {
+                          ...deliveryParams,
+                          html: addUtmTagsToEmail(
+                              deliveryParams.html,
+                              resolveUtmTags(
+                                  {
+                                      utm_source: 'posthog',
+                                      utm_medium: 'email',
+                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
+                                      utm_content: metadata.hog_flow_action_name ?? '',
+                                  },
+                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
+                                      addLog(
+                                          'warn',
+                                          `Used the default ${key} because its value has an error: ${message}`
+                                      )
+                                  )
+                              ),
+                              this.siteUrl
+                          ),
+                      }
+            }
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithMaildev(result, deliveryParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, trackingEnabled, integration, isTest)
+                    await this.sendEmailWithSES(result, deliveryParams, from, trackingEnabled, integration, isTest)
                     break
                 case 'sandbox': {
                     deliveryParams = await this.sandboxSender!.withIdentificationFooter(
