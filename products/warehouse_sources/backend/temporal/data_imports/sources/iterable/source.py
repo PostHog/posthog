@@ -29,8 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.i
     validate_credentials as validate_iterable_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.settings import (
+    APPEND_ONLY_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -72,7 +74,13 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            append_only=APPEND_ONLY_ENDPOINTS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,
@@ -102,7 +110,9 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Iterable endpoint is full refresh
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property
@@ -141,5 +151,5 @@ Make sure the data center below matches the one that issued your key (US or EU).
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

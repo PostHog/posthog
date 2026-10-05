@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+import json
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
@@ -9,18 +10,38 @@ import pyarrow as pa
 
 ManagementMode = Literal["posthog", "self_managed"]
 
-# How a source's change events reach the loader. `legacy`: capture transforms and dispatches them
-# itself. `buffered`: capture only writes the S3 buffer, and the normal scheduled sync consumes it.
-IngestMode = Literal["legacy", "buffered"]
+
+class CDCJobInputsUnreadableError(Exception):
+    """`job_inputs` did not resolve to a mapping, so no CDC setting can be read from the source.
+
+    Non-retryable: the stored value replays identically on every read.
+
+    Raised instead of reading the settings as absent, because every setting would then fall back to
+    its default, the slot name included.
+    """
 
 
-def parse_ingest_mode(job_inputs: Mapping[str, Any] | None) -> IngestMode:
-    """Anything unrecognized reads as legacy: an unknown value must not route a source onto a
-    path it was never flipped to. `job_inputs` decrypts from EncryptedJSONField, so it is not
-    always a mapping — a non-mapping value is unrecognized too, not an error."""
-    if not isinstance(job_inputs, Mapping):
-        return "legacy"
-    return "buffered" if job_inputs.get("cdc_ingest_mode") == "buffered" else "legacy"
+def decode_job_inputs(job_inputs: Mapping[str, Any] | str | None) -> Mapping[str, Any]:
+    """`job_inputs` as a mapping, whichever shape it decrypted to.
+
+    EncryptedJSONField encrypts each leaf of a mapping separately, but it encrypts a value that was
+    assigned as a string whole. A source written that way therefore reads back as one JSON string
+    rather than a mapping, so decode it.
+    """
+    if not job_inputs:
+        return {}
+    if isinstance(job_inputs, Mapping):
+        return job_inputs
+    if not isinstance(job_inputs, str):
+        raise CDCJobInputsUnreadableError(f"job_inputs is a {type(job_inputs).__name__}, expected a mapping")
+    try:
+        decoded = json.loads(job_inputs)
+    except ValueError as e:
+        # Never name the value in the message: job_inputs holds the source's connection credentials.
+        raise CDCJobInputsUnreadableError("job_inputs is a string that does not decode as JSON") from e
+    if not isinstance(decoded, Mapping):
+        raise CDCJobInputsUnreadableError(f"job_inputs decoded to a {type(decoded).__name__}, expected a mapping")
+    return decoded
 
 
 @dataclass(frozen=True)
@@ -39,7 +60,6 @@ class CDCConfig:
     lag_warning_threshold_mb: int
     lag_critical_threshold_mb: int
     auto_drop_slot: bool
-    ingest_mode: IngestMode
 
 
 class CDCPosition(Protocol):
@@ -76,6 +96,10 @@ class ChangeEvent:
     # still hold their previous value — downstream must fill them from the last known
     # row state instead of writing NULL.
     omitted_columns: frozenset[str] = frozenset()
+    # Old values of the key columns an UPDATE changed, set only when the change stream sent the old
+    # value of every key column the reader was given (Postgres: the old key tuple, or the whole old
+    # row under REPLICA IDENTITY FULL). Capture uses them to remove the old key.
+    previous_values: Mapping[str, object] | None = None
 
 
 class CDCStreamReader(Protocol):
@@ -95,6 +119,10 @@ class CDCStreamReader(Protocol):
     def current_position(self) -> str | None: ...
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]: ...
+
+    def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]: ...
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None: ...
 
     def get_decoder_key_columns(self, table_name: str) -> list[str]: ...
 

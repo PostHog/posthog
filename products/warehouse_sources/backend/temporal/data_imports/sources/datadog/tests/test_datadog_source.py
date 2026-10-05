@@ -12,7 +12,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     DatadogSourceConfig,
 )
 
-INCREMENTAL_ENDPOINTS = {"logs", "audit_logs", "events"}
+# Endpoint -> the cursor field it advertises. Only endpoints with a genuine server-side time
+# filter belong here; everything else must come back full-refresh only.
+INCREMENTAL_ENDPOINTS = {
+    "logs": "timestamp",
+    "audit_logs": "timestamp",
+    "events": "timestamp",
+    "usage_hourly": "timestamp",
+    "usage_summary": "date",
+    "usage_historical_cost": "date",
+}
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -52,19 +61,19 @@ class TestDatadogSource:
     def test_get_schemas_incremental_flags(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
 
-        for name in INCREMENTAL_ENDPOINTS:
+        for name, cursor_field in INCREMENTAL_ENDPOINTS.items():
             assert schemas[name].supports_incremental is True
             assert schemas[name].supports_append is True
             assert schemas[name].incremental_fields == [
                 {
-                    "label": "timestamp",
+                    "label": cursor_field,
                     "type": "datetime",
-                    "field": "timestamp",
+                    "field": cursor_field,
                     "field_type": "datetime",
                 }
             ]
 
-        for name in set(ENDPOINTS) - INCREMENTAL_ENDPOINTS:
+        for name in set(ENDPOINTS) - set(INCREMENTAL_ENDPOINTS):
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
             assert schemas[name].incremental_fields == []

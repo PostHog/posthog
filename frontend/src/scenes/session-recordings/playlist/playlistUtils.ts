@@ -111,6 +111,7 @@ export async function duplicatePlaylist(
 ): Promise<SessionRecordingPlaylistType | null> {
     const { id, short_id, ...partialPlaylist } = playlist
     partialPlaylist.name = partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
+    partialPlaylist.creation_method = 'duplicate'
 
     const newPlaylist = await createPlaylist(partialPlaylist, redirect)
     if (!newPlaylist) {

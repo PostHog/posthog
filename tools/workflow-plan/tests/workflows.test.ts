@@ -147,6 +147,7 @@ const frontendOnlyFilters: Stubs = {
             tasks_temporal: false,
             openapi_types: false,
             product_yamls: false,
+            sdk_manifests: false,
         }),
     },
 }
@@ -160,6 +161,7 @@ const EXPECTATIONS: Expectation[] = [
                 'turbo-discover',
                 'django',
                 'repo-checks',
+                'sdk-major-guard',
                 'check-migrations',
                 'check-openapi-types',
                 'django_tests',
@@ -208,6 +210,7 @@ const EXPECTATIONS: Expectation[] = [
                 'detect-snapshot-mode',
                 'turbo-discover',
                 'repo-checks',
+                'sdk-major-guard',
                 'validate-product-yamls',
                 'check-migrations',
                 'check-openapi-types',
@@ -228,17 +231,70 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     backend(
+        { name: 'routing record unreadable', steps: { changes: { route: { outcome: 'failure' } } } },
+        {
+            runs: ['django_tests'],
+            results: { changes: 'failure' },
+            skipped: [
+                'hand-off-to-depot',
+                'django',
+                'turbo-tests',
+                'check-migrations',
+                'handle-snapshots',
+                'report-test-timings',
+                'calculate-running-time',
+                'backend-coverage-report',
+            ],
+        }
+    ),
+    backend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
             skipped: ['backend-coverage-report', 'dynamic-ci-filter'],
         }
     ),
+    // A product change that reaches no legacy code skips the Django suite, but the events_json
+    // rows still run the changed products' listed paths, because product jobs read the legacy
+    // events table only.
+    backend(
+        {
+            name: 'product-only PR whose products have events_json paths',
+            steps: {
+                changes: { filter: pathsFilter({ backend: true, legacy: false }) },
+                'turbo-discover': {
+                    discover: {
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":"products/web_analytics/backend/hogql_queries"}',
+                        },
+                    },
+                },
+            },
+        },
+        { runs: ['turbo-tests', 'django', 'django_tests'] }
+    ),
+    backend(
+        {
+            name: 'product-only PR without events_json paths',
+            steps: {
+                changes: { filter: pathsFilter({ backend: true, legacy: false }) },
+                'turbo-discover': {
+                    discover: {
+                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                    },
+                },
+            },
+        },
+        { runs: ['turbo-tests', 'django_tests'], skipped: ['django'] }
+    ),
     backend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations', 'dynamic-ci-filter'],
+            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'dynamic-ci-filter'],
         }
     ),
     backend(
@@ -265,13 +321,14 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'sdk-major-guard',
             ],
         }
     ),
     backend(
         { name: 'master push', github: push() },
         {
-            runs: ['changes', 'repo-checks', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
+            runs: ['changes', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
             skipped: [
                 'dynamic-ci-filter',
                 'detect-snapshot-mode',
@@ -288,7 +345,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'hourly schedule', github: schedule() },
         {
             runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
-            skipped: ['repo-checks', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
+            skipped: ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
         }
     ),
     backend(
@@ -413,19 +470,40 @@ interface StepExpectation {
     runs: boolean
 }
 
-const STEP_EXPECTATIONS: StepExpectation[] = PINNED_WORKFLOWS.flatMap((file) => [
-    { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'hourly schedule', github: schedule() }, runs: false },
-    { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    {
-        file,
-        job: 'changes',
-        step: 'app-token',
-        scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
-        runs: false,
+const E2E_DISPATCH: Scenario = {
+    name: 'manual dispatch',
+    github: workflowDispatch('feat/example'),
+    steps: {
+        changes: {
+            decide: { outputs: { shouldRun: 'true' } },
+            'schema-key': { outputs: { migrations_key: 'posthog-schema-mig-test' } },
+        },
     },
-])
+}
+
+const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...PINNED_WORKFLOWS.flatMap((file) => [
+        { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
+        {
+            file,
+            job: 'changes',
+            step: 'filter',
+            scenario: { name: 'hourly schedule', github: schedule() },
+            runs: false,
+        },
+        { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        {
+            file,
+            job: 'changes',
+            step: 'app-token',
+            scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
+            runs: false,
+        },
+    ]),
+    { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
+    { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+]
 
 const namedJobs = (file: string): Set<string> =>
     new Set(
@@ -437,9 +515,50 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it.each([
+        ['new bump', workflowDispatch(), 'bump', 'success', 'pass', true, false],
+        ['missing image', workflowDispatch(), 'bump', 'failure', 'pass', false, false],
+        ['failed gateway', workflowDispatch(), 'bump', 'success', 'broken', false, false],
+        ['nightly with open PR', schedule(), 'current', 'success', 'pass', false, true],
+    ] as const)('sandbox agent release: %s', (name, github, action, imageOutcome, result, enqueue, nightly) => {
+        const plan = planWorkflow(workflow('update-sandbox-agent-version.yml'), {
+            name,
+            github,
+            steps: {
+                'update-sandbox-agent-version': {
+                    state: { outputs: { action } },
+                    smoke: { outputs: { conclusion: 'success' } },
+                    image: { outcome: imageOutcome },
+                    'gateway-smoke': { outputs: { result } },
+                    'Stop when the gateway smoke did not pass': { outcome: 'failure' },
+                    'nightly-smoke': { outputs: { result: 'pass' } },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['update-sandbox-agent-version'].steps
+        expect(steps.find((step) => step.id === 'commit')?.runs).toBe(action === 'bump')
+        expect(steps.find((step) => step.id === 'enqueue')?.runs).toBe(enqueue)
+        expect(steps.find((step) => step.id === 'nightly-smoke')?.runs).toBe(nightly)
+    })
+
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
         const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
+    })
+
+    it('Backend CI runs once every hour and keeps the events_json leg on one of its crons', () => {
+        const backend = workflow('ci-backend.yml')
+        const crons = (backend.on as { schedule: { cron: string }[] }).schedule.map((entry) => entry.cron)
+        const cronHours = (field: string): number[] =>
+            field.startsWith('*/')
+                ? [...Array(24).keys()].filter((hour) => hour % Number(field.slice(2)) === 0)
+                : field.split(',').map(Number)
+
+        expect(crons).toContain(backend.env?.EVENTS_JSON_SCHEDULE)
+        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1])).sort((a, b) => a - b)).toEqual([
+            ...Array(24).keys(),
+        ])
     })
 
     it.each([

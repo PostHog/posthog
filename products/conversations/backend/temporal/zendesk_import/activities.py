@@ -563,7 +563,7 @@ def _apply_ticket_timestamps(built: list[_BuiltTicket]) -> None:
 def _link_ticket_tags(built: list[_BuiltTicket], tags_by_name: dict[str, Tag]) -> None:
     # bulk_create skips TaggedItem.save()/full_clean() on purpose — the same no-signals rule as
     # the ticket/comment writes here.
-    tagged_items = [TaggedItem(tag=tags_by_name[name], ticket=b.ticket) for b in built for name in b.tag_names]
+    tagged_items = [TaggedItem.for_content_object(tags_by_name[name], b.ticket) for b in built for name in b.tag_names]
     if tagged_items:
         TaggedItem.objects.bulk_create(tagged_items, ignore_conflicts=True)
 

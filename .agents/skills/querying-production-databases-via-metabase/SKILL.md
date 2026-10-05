@@ -70,6 +70,11 @@ hogli metabase:login --region eu
 blocks Keychain access from agent shells, so the user has to authenticate
 interactively.
 
+On macOS, the terminal app needs Full Disk Access to read browser cookies —
+without it, `metabase:login` fails with an error naming which browsers it
+couldn't read. Several browsers installed and logged into the wrong one?
+Pass `--browser <name>` to target one directly.
+
 ### Agents: use `metabase:query`
 
 `hogli metabase:query` reads the cached cookie internally and only emits

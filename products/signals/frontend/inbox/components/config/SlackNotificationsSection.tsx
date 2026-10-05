@@ -15,7 +15,8 @@ import { IntegrationType } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
-import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority, SignalUserAutonomyConfig } from '../../types'
+import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
+import type { SignalUserAutonomyConfigDraft } from '../../types'
 import { ConfigCardHeader } from './ConfigCardHeader'
 
 const NOTIFY_ALL_VALUE = '__all__'
@@ -128,7 +129,7 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
 
 /** Where a saved config sends this user's reviewer pings, and whether that counts as enabled. */
 function readSlackTarget(
-    config: SignalUserAutonomyConfig | null,
+    config: SignalUserAutonomyConfigDraft | null,
     integrations: IntegrationType[]
 ): {
     selectedIntegrationId: number | null

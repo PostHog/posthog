@@ -98,6 +98,10 @@ export const EndpointsRetrieveParams = () => zod.object({
         ),
 })
 
+export const EndpointsRetrieveQueryParams = () => zod.object({
+    version: zod.number().optional().describe('Endpoint version to act on. Defaults to the current version.'),
+})
+
 /**
  * Update an existing endpoint.
  */
@@ -224,7 +228,7 @@ export const EndpointsMaterializationPreviewCreateParams = () => zod.object({
 })
 
 export const EndpointsMaterializationPreviewCreateBody = () => zod.object({
-    version: zod.number().optional(),
+    version: zod.number().optional().describe('Endpoint version to preview. Defaults to the current version.'),
     bucket_overrides: zod
         .record(zod.string(), zod.string())
         .nullish()
@@ -241,6 +245,10 @@ export const EndpointsMaterializationStatusRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const EndpointsMaterializationStatusRetrieveQueryParams = () => zod.object({
+    version: zod.number().optional().describe('Endpoint version to act on. Defaults to the current version.'),
 })
 
 /**
@@ -277,10 +285,7 @@ export const EndpointsOpenapiSpecRetrieveParams = () => zod.object({
 })
 
 export const EndpointsOpenapiSpecRetrieveQueryParams = () => zod.object({
-    version: zod
-        .number()
-        .optional()
-        .describe('Specific endpoint version to generate the spec for. Defaults to latest.'),
+    version: zod.number().optional().describe('Endpoint version to act on. Defaults to the current version.'),
 })
 
 /**

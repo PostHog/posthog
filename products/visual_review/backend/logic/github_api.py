@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from posthog.models.integration import GitHubIntegration
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
 
@@ -64,6 +65,78 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     except Exception:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
+
+
+def default_branch_name(repo: Repo) -> str | None:
+    """The repo's default branch, or None when GitHub cannot say.
+
+    Unlike `_get_default_branch`, there is no fallback name: a caller that decides on the answer
+    must not treat a branch called master as the default during a GitHub outage. A rate limit
+    still raises, so a task can retry.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        return github.get_default_branch(repo.repo_full_name)
+    except GitHubRateLimitError:
+        raise
+    except Exception:
+        logger.warning("visual_review.default_branch_fetch_failed", repo_id=str(repo.id))
+        return None
+
+
+def default_branch_head_sha(repo: Repo) -> str | None:
+    """The commit the repo's default branch points at, or None when GitHub cannot say.
+
+    Raises `GitHubIntegrationNotFoundError` and `GitHubRateLimitError`, because a retry does not help
+    the first and has to wait for the second.
+    """
+    github = get_github_integration_for_repo(repo)
+    try:
+        # Not `_get_default_branch`: its fallback name can point at a branch that is not the default,
+        # and a commit from that branch would scope the lift wrongly.
+        branch = github.get_default_branch(repo.repo_full_name)
+        # One path segment, so a branch name with a slash does not split the ref.
+        response = github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
+    except GitHubRateLimitError:
+        raise
+    except Exception:
+        logger.warning("visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id))
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id), status=response.status_code
+        )
+        return None
+    return response.json().get("sha")
+
+
+def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str) -> bool | None:
+    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell."""
+    try:
+        github = get_github_integration_for_repo(repo)
+        merge_base = _get_merge_base_sha(github, repo.repo_full_name, ancestor_sha, head_sha)
+    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+        logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
+        return None
+    if merge_base is None:
+        return None
+    return merge_base == ancestor_sha
+
+
+def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
+    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell.
+
+    Two commits never change their ancestry, so a known answer is cached and later calls for the
+    same pair make no request. An unknown answer is not cached, so the next call asks again.
+    """
+    if ancestor_sha == head_sha:
+        return True
+    ancestry = content_cache.load_by_hash(
+        "commit_ancestry",
+        f"{repo.id}:{ancestor_sha}..{head_sha}",
+        lambda: _is_ancestor(repo, ancestor_sha, head_sha),
+    )
+    return ancestry is True
 
 
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
@@ -211,6 +284,43 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
         "head_ref": pr_data["head"]["ref"],
         "head_sha": pr_data["head"]["sha"],
     }
+
+
+@frozen
+class PullRequestState:
+    """What GitHub says about a pull request, as far as a merge check needs it."""
+
+    state: str  # "open" or "closed"
+    merged: bool
+    merge_commit_sha: str | None
+    base_ref: str
+
+
+def pull_request_state(repo: Repo, pr_number: int) -> PullRequestState | None:
+    """The pull request's merge state, or None when GitHub cannot say."""
+    try:
+        github = get_github_integration_for_repo(repo)
+        response = github.api_request("GET", f"/repos/{repo.repo_full_name}/pulls/{pr_number}")
+    except GitHubRateLimitError:
+        raise
+    except Exception:
+        logger.warning("visual_review.pull_request_state_fetch_failed", repo_id=str(repo.id), pr_number=pr_number)
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.pull_request_state_fetch_failed",
+            repo_id=str(repo.id),
+            pr_number=pr_number,
+            status=response.status_code,
+        )
+        return None
+    data = response.json()
+    return PullRequestState(
+        state=data.get("state") or "",
+        merged=bool(data.get("merged")),
+        merge_commit_sha=data.get("merge_commit_sha"),
+        base_ref=(data.get("base") or {}).get("ref") or "",
+    )
 
 
 # A larger baseline file is parsed without caching, so one repository cannot fill the shared cache

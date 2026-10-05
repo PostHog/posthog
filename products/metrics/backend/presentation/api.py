@@ -527,7 +527,7 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.",
+        help_text="Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.",
     )
     dateTo = serializers.DateTimeField(
         required=False,
@@ -560,7 +560,7 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.",
+        help_text="Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.",
     )
     dateTo = serializers.DateTimeField(
         required=False,
@@ -581,15 +581,13 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
-    series_count = serializers.IntegerField(
-        help_text="Number of distinct recent series with this attribute, based on series metadata."
-    )
+    value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by distinct value count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 
