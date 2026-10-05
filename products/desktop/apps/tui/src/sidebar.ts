@@ -207,7 +207,7 @@ export function sidebarRows({
     rows.push({
       kind: "workspace",
       workspaceId: workspace.id,
-      label: `Workspace ${index + 1}`,
+      label: workspace.name ?? `Workspace ${index + 1}`,
       expanded,
       size: workspacePanes.length,
     });

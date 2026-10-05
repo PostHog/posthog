@@ -80,6 +80,11 @@ export class PiChats {
     });
   }
 
+  // Renames the chat's task; the server keeps the title, so every client sees it.
+  rename(taskId: string, title: string): Promise<Task> {
+    return this.api.updateTask(taskId, { title });
+  }
+
   async reply(
     task: Task,
     prompt: string,

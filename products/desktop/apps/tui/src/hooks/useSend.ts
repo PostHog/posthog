@@ -5,7 +5,15 @@ import { REGIONS } from "../auth";
 import type { PiChats } from "../chats";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
-import { assignTask, findPane, type LayoutState, newChat } from "../layout";
+import {
+  assignTask,
+  findPane,
+  type LayoutState,
+  newChat,
+  renameTask,
+  renameWorkspace,
+  workspaceOf,
+} from "../layout";
 import type { LocalSession } from "../local";
 import { parseSlash } from "../models";
 import type { ChatPlace } from "../prefs";
@@ -139,6 +147,44 @@ export function useSend({
     }
     if (slash?.command === "search") {
       openSearch();
+      return;
+    }
+    // With no name, the command comes back with the current one to edit.
+    if (slash?.command === "rename") {
+      const taskId = pane?.taskId ?? null;
+      const title = slash.args.trim();
+      const shown = current?.title || pane?.title || "";
+      if (!taskId)
+        flashNotice("A new chat gets its name from its first message");
+      else if (!title) composerFor(paneId).setText(`/rename ${shown}`);
+      else if (!chats) flashNotice("Sign in to rename a chat: type /login");
+      else
+        chats.rename(taskId, title).then(
+          (task) => {
+            setFresh((tasks) => new Map(tasks).set(task.id, task));
+            setLayout((state) => renameTask(state, taskId, taskId, title));
+            flashNotice(`Renamed to ${title}`);
+          },
+          (error: unknown) =>
+            flashNotice(`Couldn't rename this chat: ${messageOf(error)}`),
+        );
+      return;
+    }
+    if (slash?.command === "rename-workspace") {
+      const workspace = workspaceOf(layout, paneId);
+      const name = slash.args.trim();
+      if (!workspace || workspace.root.kind === "pane")
+        flashNotice(
+          "This chat isn't in a workspace. Split it with Ctrl+S first",
+        );
+      else if (!name)
+        composerFor(paneId).setText(
+          `/rename-workspace ${workspace.name ?? ""}`.trimEnd(),
+        );
+      else {
+        setLayout((state) => renameWorkspace(state, workspace.id, name));
+        flashNotice(`Renamed the workspace to ${name}`);
+      }
       return;
     }
     if (slash?.command === "clear") {
