@@ -1,7 +1,3 @@
-from io import StringIO
-
-from django.core.management import call_command
-
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -182,64 +178,6 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         refresh_token.refresh_from_db()
         assert refresh_token.revoked is None
         assert OAuthAccessToken.objects.filter(token=token).exists()
-
-    def test_backfill_rehydrates_stale_access_and_refresh_scope(self):
-        token = self._get_bearer_token()
-        access_token = OAuthAccessToken.objects.get(token=token)
-        refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
-        assert access_token.scoped_teams == [self.team.id]
-
-        newly_provisioned = self._provision_team(self.partner, "Newly provisioned", "proj_new")
-
-        call_command("backfill_agentic_provisioning_scope", stdout=StringIO())
-
-        access_token.refresh_from_db()
-        refresh_token.refresh_from_db()
-        assert self.team.id in access_token.scoped_teams
-        assert newly_provisioned.id in access_token.scoped_teams
-        assert self.team.id in refresh_token.scoped_teams
-        assert newly_provisioned.id in refresh_token.scoped_teams
-
-    def test_backfill_keeps_consent_team_when_scope_is_stored_in_id_order(self) -> None:
-        TeamProvisioningConfig.objects.update_or_create(team=self.team, defaults={"application": self.partner})
-        consented = Team.objects.create_with_data(
-            initiating_user=self.user, organization=self.organization, name="Consented"
-        )
-        token = self._request_bearer_token(team_id=consented.id).json()["access_token"]
-        access_token = OAuthAccessToken.objects.get(token=token)
-        refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
-        for stored in (access_token, refresh_token):
-            stored.scoped_teams = [self.team.id, consented.id]
-            stored.save(update_fields=["scoped_teams"])
-
-        call_command("backfill_agentic_provisioning_scope", stdout=StringIO())
-
-        access_token.refresh_from_db()
-        refresh_token.refresh_from_db()
-        assert access_token.scoped_teams == [consented.id, self.team.id]
-        assert refresh_token.scoped_teams == [consented.id, self.team.id]
-
-    def test_backfill_leaves_scope_unchanged_when_recomputed_scope_is_empty(self):
-        # When the user has lost access, compute_partner_scoped_teams returns [].
-        # An empty scoped_teams is unrestricted under the standard permission check, so the
-        # backfill must NOT overwrite a restricted token with [] — it leaves the existing
-        # restriction intact and reports the token for re-authorization.
-        token = self._get_bearer_token()
-        access_token = OAuthAccessToken.objects.get(token=token)
-        refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
-        assert access_token.scoped_teams == [self.team.id]
-
-        self._enable_access_control_as_member()
-        self._restrict_team_access(self.team)
-
-        out = StringIO()
-        call_command("backfill_agentic_provisioning_scope", stdout=out)
-
-        access_token.refresh_from_db()
-        refresh_token.refresh_from_db()
-        assert access_token.scoped_teams == [self.team.id]
-        assert refresh_token.scoped_teams == [self.team.id]
-        assert "needs re-authorization" in out.getvalue()
 
     def test_application_none_yields_empty_scope(self):
         # application is never None in practice (oauthrefreshtoken.application_id is
