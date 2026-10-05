@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
@@ -17,7 +18,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.redis import get_client
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, resolve_scopes
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
@@ -698,6 +699,78 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments/{root.id}/thread")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("own_trial", "scout-trial:", "own", False, True),
+            ("sibling_trial", "scout-trial:", "other", False, False),
+            ("unbound_trial", "scout-trial:", "unbound", False, False),
+            ("sibling_judge", "scout-trial-judge:", "other", False, False),
+            ("ordinary_task", "", "other", False, True),
+            ("judge_token", "scout-trial-judge:", "own", True, False),
+        ]
+    )
+    def test_generic_task_comment_reads_respect_trial_task_binding(
+        self, _name: str, origin_prefix: str, binding: str, judge_token: bool, visible: bool
+    ) -> None:
+        task = self._task_artifact_target(public=False)
+        if origin_prefix:
+            task.origin_product = task.OriginProduct.SIGNALS_SCOUT
+            task.origin_key = f"{origin_prefix}{uuid4()}"
+            task.save(update_fields=["origin_product", "origin_key"])
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(task.id)},
+            content="Saved artifact comment",
+        )
+        reply = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope=root.scope,
+            item_id=root.item_id,
+            item_context=root.item_context,
+            source_comment=root,
+            content="Saved artifact reply",
+        )
+        url = f"/api/projects/{self.team.id}/comments"
+        query = {"scope": root.scope, "item_id": root.item_id, "task_id": str(task.id)}
+        assert self.client.get(f"{url}/{root.id}").status_code == status.HTTP_200_OK
+        other_task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Other trial variant",
+            origin_product=task.OriginProduct.SIGNALS_SCOUT,
+            origin_key=f"scout-trial:{uuid4()}",
+        )
+        bound_task_id = task.id if binding == "own" else other_task.id if binding == "other" else None
+        client = self._sandbox_task_comment_client(
+            task_id=bound_task_id,
+            scopes=" ".join(resolve_scopes("signals_scout_judge" if judge_token else "signals_scout_experiment")),
+        )
+
+        listed = client.get(url, query)
+        counted = client.get(f"{url}/count", query)
+        retrieved = client.get(f"{url}/{root.id}")
+        thread = client.get(f"{url}/{root.id}/thread")
+
+        if judge_token:
+            assert [response.status_code for response in (listed, counted, retrieved, thread)] == [
+                status.HTTP_403_FORBIDDEN
+            ] * 4
+            return
+        assert listed.status_code == status.HTTP_200_OK
+        assert counted.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in listed.json()["results"]} == ({str(root.id), str(reply.id)} if visible else set())
+        assert counted.json()["count"] == (2 if visible else 0)
+        expected_status = status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND
+        assert retrieved.status_code == expected_status
+        assert thread.status_code == expected_status
+        if visible:
+            assert retrieved.json()["content"] == root.content
+            assert [row["id"] for row in thread.json()["results"]] == [str(reply.id)]
 
     def test_canvas_comments_use_the_relational_canvas_owner(self) -> None:
         task = self._task_artifact_target()

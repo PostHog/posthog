@@ -114,7 +114,9 @@ def list_canvases(
     include_all_if_admin: bool,
     offset: int,
     limit: int,
+    ordering: str | None = None,
 ) -> list[CanvasRecord]:
+    """`ordering` is a field to sort by, newest first by default. The caller validates it."""
     rows = _listing(
         viewer,
         channel_id=channel_id,
@@ -123,6 +125,8 @@ def list_canvases(
         user_access_control=user_access_control,
         include_all_if_admin=include_all_if_admin,
     ).select_related(*_RECORD_RELATIONS)
+    if ordering is not None:
+        rows = rows.order_by(ordering, "-id")
     return [canvas_record(canvas) for canvas in rows[offset : offset + limit]]
 
 

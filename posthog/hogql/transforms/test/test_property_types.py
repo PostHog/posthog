@@ -55,7 +55,7 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE
+from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE, TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
@@ -84,9 +84,7 @@ def _normalize_snapshot_sql(sql: str) -> str:
     return "\n".join(line.rstrip() for line in sql.splitlines())
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-@pytest.mark.usefixtures("clickhouse_database")
-class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
+class _NewEventsSchemaArraySubcolumnsHelpers:
     def _context(self, use_new_events_schema: bool | None = None) -> HogQLContext:
         team = Team(id=1, project_id=1)
         context = HogQLContext(
@@ -130,6 +128,9 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert plan is not None
         return plan
 
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
     def test_property_comparison_planner_does_not_depend_on_json_storage_type(self, property_name: str) -> None:
         plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = 'TypeError'")
@@ -141,98 +142,6 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert plan.access.source.is_nullable is True
         assert plan.access.source.physical_type == dynamic_plan.access.source.physical_type
         assert plan.access.source.has_bloom_filter_index is False
-
-    @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
-    def test_string_paths_read_empty_as_null(self, _name: str, json_type: str) -> None:
-        context = self._context()
-        with patch("posthog.hogql.printer.utils.build_property_swapper"):
-            printed, _ = prepare_and_print_ast(
-                parse_select(
-                    "SELECT properties.$browser, properties.$browser IS NULL, "
-                    "properties.$browser IS NOT NULL FROM events"
-                ),
-                context,
-                "clickhouse",
-            )
-        rows = sync_execute(
-            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) "
-            + printed,
-            {
-                **context.values,
-                "json_type": json_type,
-                "documents": [
-                    "{}",
-                    '{"$browser":""}',
-                    '{"$browser":"null"}',
-                    '{"$browser":"Chrome"}',
-                    '{"$browser":"[]"}',
-                    '{"$browser":"{}"}',
-                ],
-            },
-        )
-        assert rows == [(None, 1, 0), (None, 1, 0), ("null", 0, 1), ("Chrome", 0, 1), ("[]", 0, 1), ("{}", 0, 1)]
-
-    @parameterized.expand(
-        [
-            (
-                name,
-                json_type,
-                "toFloat(properties.$screen_height), toFloat(properties.custom), toFloat(properties.nested.score)",
-                3,
-                True,
-            )
-            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
-        ]
-        + [
-            (
-                f"{name}_indexed",
-                json_type,
-                "toFloat(properties.numbers[1]), toFloat(properties.objects[1].score)",
-                2,
-                False,
-            )
-            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
-        ]
-    )
-    def test_numeric_casts_preserve_mixed_native_types(
-        self, _name: str, json_type: str, select: str, width: int, reads_subcolumn_directly: bool
-    ) -> None:
-        context = self._context()
-        with patch("posthog.hogql.printer.utils.build_property_swapper"):
-            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {select} FROM events"), context, "clickhouse")
-        if reads_subcolumn_directly:
-            for unwanted in ("dynamicElement", "JSONExtract", "replaceRegexpAll", "toJSONString"):
-                assert unwanted not in printed, printed
-        values = [42, 2**63, 2.5, "3.75", "invalid", None, ""]
-        rows = sync_execute(
-            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) "
-            + printed,
-            {
-                **context.values,
-                "json_type": json_type,
-                "documents": [
-                    json.dumps(
-                        {
-                            "$screen_height": value,
-                            "custom": value,
-                            "nested": {"score": value},
-                            "numbers": [value],
-                            "objects": [{"score": value}],
-                        }
-                    )
-                    for value in values
-                ],
-            },
-        )
-        assert rows == [
-            (42.0,) * width,
-            (float(2**63),) * width,
-            (2.5,) * width,
-            (3.75,) * width,
-            (None,) * width,
-            (None,) * width,
-            (None,) * width,
-        ]
 
     def test_negative_multi_icontains_array_property_stays_optimized(self) -> None:
         where = property_to_expr(
@@ -349,6 +258,15 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 ("JSONMergePatch(", "mapFilter((key, value) -> not(has("),
                 ("'\"$active_feature_flags\":'",),
             ),
+            (
+                "whole_document_adds_temporary_keys",
+                "SELECT properties, toString(properties) FROM events",
+                True,
+                None,
+                None,
+                ("toJSONString(events.temporary_properties)",),
+                (),
+            ),
         ]
     )
     def test_feature_flag_property_compatibility_uses_the_schema_backed_map(
@@ -433,35 +351,6 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert f"toJSONString(events.properties.{escaped_property_name})" in printed, printed
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
-    @parameterized.expand(
-        [
-            ("typed_array", "$exception_types"),
-            ("dynamic_array", "custom_array"),
-        ]
-    )
-    def test_raw_property_helper_reads_only_one_json_subcolumn(self, _name: str, property_name: str) -> None:
-        expression, _ = get_property_string_expr(
-            "events",
-            property_name,
-            "%(property_key)s",
-            "events.properties",
-            use_new_events_schema=True,
-        )
-        escaped_property_name = f"`{property_name}`" if property_name.startswith("$") else property_name
-
-        assert f"events.properties.{escaped_property_name}" in expression
-        assert "toJSONString(events.properties)" not in expression
-
-        rows = sync_execute(
-            f"SELECT {expression} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) AS events",
-            {
-                "property_key": property_name,
-                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
-                "documents": [json.dumps({property_name: value}) for value in [["a", '"b"'], [], None]],
-            },
-        )
-        assert rows == [('["a","\\"b\\""]',), ("",), ("",)]
-
     def test_jsonextract_string_arrays_read_array_subcolumn(self) -> None:
         printed = self._print_select(
             "select JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)') from events"
@@ -512,6 +401,131 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert "JSONDropKeys" not in unrestricted, unrestricted
         assert "events.properties" in unrestricted or "events.person_properties" in unrestricted, unrestricted
 
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@pytest.mark.usefixtures("clickhouse_database")
+class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
+    def test_string_paths_read_empty_as_null(self, _name: str, json_type: str) -> None:
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select(
+                    "SELECT properties.$browser, properties.$browser IS NULL, "
+                    "properties.$browser IS NOT NULL FROM events"
+                ),
+                context,
+                "clickhouse",
+            )
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) "
+            + printed,
+            {
+                **context.values,
+                "json_type": json_type,
+                "documents": [
+                    "{}",
+                    '{"$browser":""}',
+                    '{"$browser":"null"}',
+                    '{"$browser":"Chrome"}',
+                    '{"$browser":"[]"}',
+                    '{"$browser":"{}"}',
+                ],
+            },
+        )
+        assert rows == [(None, 1, 0), (None, 1, 0), ("null", 0, 1), ("Chrome", 0, 1), ("[]", 0, 1), ("{}", 0, 1)]
+
+    @parameterized.expand(
+        [
+            (
+                name,
+                json_type,
+                "toFloat(properties.$screen_height), toFloat(properties.custom), toFloat(properties.nested.score)",
+                3,
+                True,
+            )
+            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
+        ]
+        + [
+            (
+                f"{name}_indexed",
+                json_type,
+                "toFloat(properties.numbers[1]), toFloat(properties.objects[1].score)",
+                2,
+                False,
+            )
+            for name, json_type in (("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON"))
+        ]
+    )
+    def test_numeric_casts_preserve_mixed_native_types(
+        self, _name: str, json_type: str, select: str, width: int, reads_subcolumn_directly: bool
+    ) -> None:
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {select} FROM events"), context, "clickhouse")
+        if reads_subcolumn_directly:
+            for unwanted in ("dynamicElement", "JSONExtract", "replaceRegexpAll", "toJSONString"):
+                assert unwanted not in printed, printed
+        values = [42, 2**63, 2.5, "3.75", "invalid", None, ""]
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) "
+            + printed,
+            {
+                **context.values,
+                "json_type": json_type,
+                "documents": [
+                    json.dumps(
+                        {
+                            "$screen_height": value,
+                            "custom": value,
+                            "nested": {"score": value},
+                            "numbers": [value],
+                            "objects": [{"score": value}],
+                        }
+                    )
+                    for value in values
+                ],
+            },
+        )
+        assert rows == [
+            (42.0,) * width,
+            (float(2**63),) * width,
+            (2.5,) * width,
+            (3.75,) * width,
+            (None,) * width,
+            (None,) * width,
+            (None,) * width,
+        ]
+
+    @parameterized.expand(
+        [
+            ("typed_array", "$exception_types"),
+            ("dynamic_array", "custom_array"),
+        ]
+    )
+    def test_raw_property_helper_reads_only_one_json_subcolumn(self, _name: str, property_name: str) -> None:
+        expression, _ = get_property_string_expr(
+            "events",
+            property_name,
+            "%(property_key)s",
+            "events.properties",
+            use_new_events_schema=True,
+        )
+        escaped_property_name = f"`{property_name}`" if property_name.startswith("$") else property_name
+
+        assert f"events.properties.{escaped_property_name}" in expression
+        assert "toJSONString(events.properties)" not in expression
+
+        rows = sync_execute(
+            f"SELECT {expression} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) AS events",
+            {
+                "property_key": property_name,
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "documents": [json.dumps({property_name: value}) for value in [["a", '"b"'], [], None]],
+            },
+        )
+        assert rows == [('["a","\\"b\\""]',), ("",), ("",)]
+
     @parameterized.expand(
         [
             ("event", "properties", PropertyDefinition.Type.EVENT),
@@ -538,7 +552,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
             """WITH events_json AS (
                 SELECT 1 AS team_id, 'synthetic' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
-                    CAST(%(document)s, %(person_type)s) AS person_properties
+                    CAST(%(document)s, %(person_type)s) AS person_properties,
+                    CAST('{}', %(temporary_type)s) AS temporary_properties
             ) """
             + printed,
             {
@@ -546,6 +561,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 "document": '{"$groups":{"organization":"hidden","project":"visible"}}',
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
         assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
@@ -1859,6 +1875,52 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     [("email", '"user@example.com"'), ("plan", '{"tier":"pro"}')],
                 )
             ], use_new_events_schema
+
+        document_query = (
+            "SELECT properties, toString(properties), arraySort(JSONExtractKeys(properties)), "
+            "(SELECT properties.$set.email FROM (SELECT * FROM events WHERE uuid = {uuid})) "
+            f"FROM events WHERE uuid = '{event_uuid}'"
+        ).replace("{uuid}", f"'{event_uuid}'")
+        restricted_plan = {RestrictedProperty(name="$set.plan", property_type=PropertyDefinition.Type.EVENT)}
+        documents: dict[tuple[bool, bool], tuple[Any, ...]] = {}
+        for use_new_events_schema in (False, True):
+            for with_restriction in (False, True):
+                context = HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    use_new_events_schema=use_new_events_schema,
+                    restricted_properties=restricted_plan if with_restriction else set(),
+                )
+                response = execute_hogql_query(document_query, team=self.team, context=context)
+                assert response.results is not None
+                document, stringified, keys, from_subquery = response.results[0]
+                documents[(use_new_events_schema, with_restriction)] = (
+                    json.loads(document),
+                    json.loads(stringified),
+                    keys,
+                    from_subquery,
+                )
+        assert documents[(True, False)] == documents[(False, False)]
+        assert documents[(True, True)] == documents[(False, True)]
+        assert documents[(True, False)] == (
+            {
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+            {
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+            ["$browser", "$sdk_debug_replay_flushed_size", "$set", "$set_once", "$unset"],
+            "user@example.com",
+        )
+        assert documents[(True, True)][0]["$set"] == {"email": "user@example.com"}
 
         # One call per registered JSON function, so a newly registered function fails here until native reads the
         # moved key. isValidJSON and JSONArrayLength take no key path.

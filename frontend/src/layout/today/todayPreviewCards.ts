@@ -63,6 +63,8 @@ export interface TodayChatPreview {
 export interface TodayReportCard {
     /** Stable per report and list. It keys the card's live metric queries and its analytics. */
     key: string
+    /** The report the card's resolve and dismiss buttons act on, or null when the card has no report. */
+    reportId: string | null
     title: string
     /** Why the briefing picked the report. Null for the team's reports, which no briefing picked. */
     reason: string | null

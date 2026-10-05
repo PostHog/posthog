@@ -234,9 +234,3 @@ tools:
     insights-thresholds-retrieve:
         operation: insights_thresholds_retrieve
         enabled: false
-    platform-alerts-list:
-        operation: platform_alerts_list
-        enabled: false
-    platform-alerts-retrieve:
-        operation: platform_alerts_retrieve
-        enabled: false

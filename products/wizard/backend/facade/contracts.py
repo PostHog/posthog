@@ -222,6 +222,7 @@ class ListWizardRunsInput:
     offset: int
     limit: int
     statuses: tuple[WizardRunStatus, ...] = ()
+    created_after: datetime | None = None
 
 
 @frozen
