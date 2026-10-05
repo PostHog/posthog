@@ -177,7 +177,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     # sync_type_config writes (and the status/initial_sync_complete save below skips the JSON
     # column, leaving no second window for the merged config to be overwritten).
     updates: dict[str, Any] = {"reset_pipeline": True, "cdc_mode": "snapshot"}
-    removes = ["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY]
+    removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
     if resnapshot_stays_in_buffer(instance):
         updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
     instance.sync_type_config = update_sync_type_config_keys(
@@ -1126,7 +1126,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 payload["cdc_mode"] = "snapshot"
                 for stale_key in (
                     "cdc_last_log_position",
-                    "cdc_deferred_runs",
                     CDC_RESET_PENDING_KEY,
                     CDC_SNAPSHOT_LANE_KEY,
                 ):
@@ -2055,7 +2054,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if cdc_resync:
             # Reset CDC state so the next run does a full re-snapshot
             updates["cdc_mode"] = "snapshot"
-            removes = ["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY]
+            removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
             # Without the marker, the next capture run would empty the buffer, deleting changes a
             # capture run already in progress wrote after the snapshot started reading.
             if resnapshot_stays_in_buffer(instance):
