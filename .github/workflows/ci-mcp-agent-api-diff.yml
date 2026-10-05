@@ -19,7 +19,7 @@ on:
             - '.github/workflows/ci-mcp-agent-api-diff.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -48,21 +48,12 @@ jobs:
                   fetch-depth: 2
                   persist-credentials: false
 
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
             - name: Install pnpm dependencies
-              # Match services/mcp/Dockerfile exactly
+              # Match services/mcp/Dockerfile exactly. No App token here: this job runs PR code and
+              # the action's token only feeds setup-node's rate-limited manifest lookups.
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... install --frozen-lockfile
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # Guarded for branches that predate the scripts, and for a checkout without a base parent.
             # Exit 3 from the script means the comparison could not run. The post job is then
@@ -110,6 +101,7 @@ jobs:
                   sparse-checkout: |
                       services/mcp/scripts/post-agent-api-diff-section.mjs
                       frontend/bin/ci-report
+                  sparse-checkout-cone-mode: false
                   persist-credentials: false
 
             - name: Download agent API diff
