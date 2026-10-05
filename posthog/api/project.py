@@ -701,7 +701,7 @@ class ProjectBackwardCompatSerializer(
 
     class Meta:
         model = Project
-        fields = (
+        fields: tuple[str, ...] = (
             "id",
             "organization",
             "name",
