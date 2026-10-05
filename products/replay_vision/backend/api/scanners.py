@@ -1415,6 +1415,18 @@ class InlineScanResponseSerializer(BulkObserveResponseSerializer):
     )
 
 
+class EstimateExperimentScopeSerializer(serializers.Serializer):
+    experiment_id = serializers.IntegerField(min_value=1, help_text="The experiment an experiment scanner watches.")
+    variants = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        allow_null=True,
+        default=None,
+        min_length=1,
+        help_text="The variant keys it watches. Null or omitted means every variant.",
+    )
+
+
 class EstimateRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config."""
 
@@ -1468,6 +1480,21 @@ class EstimateRequestSerializer(serializers.Serializer):
             "way a saved scanner derives it. The estimate then runs as the requesting user."
         ),
     )
+    experiment = EstimateExperimentScopeSerializer(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged "
+            "into the query as its exposure filter so the estimate counts only exposed sessions. Not "
+            "combined with `experiment_targeting`."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("experiment") and attrs.get("experiment_targeting"):
+            raise serializers.ValidationError({"experiment": "Pass `experiment` or `experiment_targeting`, not both."})
+        return attrs
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -2920,11 +2947,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # A denied experiment must read the same as a nonexistent one, mirroring
         # validate_experiment_targeting: the query runner's own access check answers with a 403,
         # which would confirm to a scanner-editor that a hidden experiment id exists.
-        targeting = body.validated_data.get("experiment_targeting")
+        scope_field = "experiment" if body.validated_data.get("experiment") else "experiment_targeting"
+        targeting = body.validated_data.get(scope_field)
         if targeting is not None and not is_experiment_accessible(
             self.user_access_control, self.team_id, targeting["experiment_id"]
         ):
-            raise serializers.ValidationError({"experiment_targeting": "Experiment not found in this project."})
+            raise serializers.ValidationError({scope_field: "Experiment not found in this project."})
 
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
