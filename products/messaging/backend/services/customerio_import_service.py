@@ -9,7 +9,11 @@ from django.db import transaction
 from posthog.models import Team
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
-from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
 
 from .customerio_client import CustomerIOClient
 
@@ -61,11 +65,6 @@ class CustomerIOImportService:
             assert self.client is not None  # We validated credentials above
             topics = self.client.get_subscription_topics()
 
-            if not topics:
-                self.progress["errors"].append("No subscription topics found in Customer.io")
-                self.progress["status"] = "completed"
-                return self.progress
-
             self.progress["topics_found"] = len(topics)
             self._import_categories(topics)
 
@@ -101,11 +100,6 @@ class CustomerIOImportService:
             # Load topic mapping from existing categories
             self._load_topic_mapping()
 
-            if not self.topic_mapping:
-                csv_progress["status"] = "failed"
-                csv_progress["details"] = "No categories found. Please run API import first."
-                return csv_progress
-
             # Read CSV content
             if hasattr(csv_file, "read"):
                 content = csv_file.read()
@@ -116,6 +110,11 @@ class CustomerIOImportService:
 
             # Parse CSV
             csv_reader = csv.DictReader(io.StringIO(content))
+
+            if not self.topic_mapping and "unsubscribed" not in (csv_reader.fieldnames or []):
+                csv_progress["status"] = "failed"
+                csv_progress["details"] = "No categories found. Please run API import first."
+                return csv_progress
 
             # Process in batches
             batch_size = 1000
@@ -180,6 +179,13 @@ class CustomerIOImportService:
             # Use Customer.io ID if email is missing
             identifier = f"Customer.io ID: {cio_id}" if cio_id else "unknown"
             return {"status": "error", "email": identifier, "error": "Missing email"}
+
+        if row.get("unsubscribed", "").strip().lower() == "true":
+            return {
+                "status": "success",
+                "email": email,
+                "opted_out_categories": [ALL_MESSAGE_PREFERENCE_CATEGORY_ID],
+            }
 
         if not preferences_json:
             return {"status": "success", "email": email, "opted_out_categories": []}
@@ -319,13 +325,13 @@ class CustomerIOImportService:
 
     def _process_globally_unsubscribed_users(self) -> None:
         """Process users who are globally unsubscribed (opted out of ALL categories)"""
-        if not self.topic_mapping or not self.client:
+        if not self.client:
             return
 
         start = None
         batch_num = 0
         total_processed = 0
-        all_category_ids = list(set(self.topic_mapping.values()))
+        all_category_ids = [ALL_MESSAGE_PREFERENCE_CATEGORY_ID, *set(self.topic_mapping.values())]
 
         while True:
             batch_num += 1
