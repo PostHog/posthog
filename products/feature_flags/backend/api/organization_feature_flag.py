@@ -31,7 +31,7 @@ from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
 )
-from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
+from products.approvals.backend.exceptions import ApprovalDetectionFailed, ApprovalRequired, PolicyConflict
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.transactions import gated_atomic
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -1679,10 +1679,11 @@ class OrganizationFeatureFlagView(
                         created_by=user,
                         change_request=change_request,
                     )
-            except (PolicyConflict, ApprovalRequired):
+            except (PolicyConflict, ApprovalRequired, ApprovalDetectionFailed):
                 # The copied change can't be gated with a fresh single CR on the target — it either
-                # matches multiple policies (PolicyConflict) or would bind an already-approved
-                # duplicate (ApprovalRequired). Skip it (fail closed) rather than copy it ungated or
+                # matches multiple policies (PolicyConflict), would bind an already-approved
+                # duplicate (ApprovalRequired), or could not be classified at all
+                # (ApprovalDetectionFailed). Skip it (fail closed) rather than copy it ungated or
                 # riding on an unrelated approval — mirroring the permission skip above, we don't
                 # fail the whole copy over one schedule.
                 logger.warning(

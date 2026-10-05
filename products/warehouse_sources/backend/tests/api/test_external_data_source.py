@@ -439,7 +439,7 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_a_source_created_without_destinations_is_unchanged(self, _mock_validate):
+    def test_a_source_created_without_destinations_is_linked_to_the_warehouse(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -453,11 +453,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert (
-            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
-            .filter(source_id=response.json()["id"])
-            .exists()
-        )
+        link = ExternalDataSourceDestination.objects.for_team(self.team.pk).get(source_id=response.json()["id"])
+        assert link.enabled is True
+        assert link.destination.type == ExternalDataDestination.Type.POSTHOG_WAREHOUSE
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
