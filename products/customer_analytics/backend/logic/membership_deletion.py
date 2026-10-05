@@ -303,7 +303,7 @@ class MembershipReconciliation:
             candidates = self._event_keys(table, json_schema, predicate)
             count = self.cluster.any_host_by_role(
                 Query(
-                    f"SELECT count() FROM {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} WHERE ({KEYS}) GLOBAL IN (SELECT {KEYS} FROM ({candidates}))",
+                    f"SELECT count() FROM {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} WHERE ({KEYS}) GLOBAL IN (SELECT DISTINCT {KEYS} FROM ({candidates}))",
                     parameters,
                     settings=QUERY_SETTINGS,
                 ),
@@ -332,7 +332,7 @@ class MembershipReconciliation:
             self.cluster.any_host_by_role(
                 Query(
                     f"INSERT INTO {_name(self.read_table)} ({KEYS}) SELECT DISTINCT {KEYS} FROM {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} "
-                    f"WHERE ({KEYS}) GLOBAL IN (SELECT {KEYS} FROM ({candidates}))",
+                    f"WHERE ({KEYS}) GLOBAL IN (SELECT DISTINCT {KEYS} FROM ({candidates}))",
                     parameters,
                     settings=QUERY_SETTINGS,
                 ),
@@ -344,12 +344,14 @@ class MembershipReconciliation:
 
     def _survivors(self, sources: Sequence[tuple[str, bool]]) -> str:
         candidates = " UNION ALL ".join(
-            self._event_keys(table, json_schema, f"team_id GLOBAL IN (SELECT team_id FROM {_name(self.read_table)})")
+            self._event_keys(
+                table, json_schema, f"team_id GLOBAL IN (SELECT DISTINCT team_id FROM {_name(self.read_table)})"
+            )
             for table, json_schema in sources
         )
         return (
             f"SELECT {KEYS}, min(timestamp) AS first_seen, max(timestamp) AS last_seen FROM ({candidates}) "
-            f"WHERE ({KEYS}) GLOBAL IN (SELECT {KEYS} FROM {_name(self.read_table)}) GROUP BY {KEYS}"
+            f"WHERE ({KEYS}) GLOBAL IN (SELECT DISTINCT {KEYS} FROM {_name(self.read_table)}) GROUP BY {KEYS}"
         )
 
     def reconcile(self, sources: Sequence[tuple[str, bool]]) -> None:
