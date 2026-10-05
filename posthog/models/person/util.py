@@ -939,16 +939,6 @@ def _flush_person_producers(timeout: float) -> None:
         producer.flush(max(0.0, deadline - time.monotonic()))
 
 
-def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int) -> None:
-    create_person_distinct_id(
-        team_id=team_id,
-        distinct_id=distinct_id,
-        person_id=str(uuid),
-        version=version + 100,
-        is_deleted=True,
-    )
-
-
 # -- Version floors --
 
 _T = TypeVar("_T")

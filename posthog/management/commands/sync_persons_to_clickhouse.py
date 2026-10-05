@@ -17,7 +17,13 @@ import structlog
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.group.util import raw_create_group_ch
-from posthog.models.person.util import _delete_ch_distinct_id, create_person, create_person_distinct_id
+from posthog.models.person.util import (
+    PersonVersionFloor,
+    VersionFloorOutcome,
+    create_person,
+    create_person_distinct_id,
+    ensure_person_version_floors,
+)
 from posthog.persons_db import persons_db_connection
 
 logger = structlog.get_logger(__name__)
@@ -131,31 +137,31 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
         logger.info("Processing person deletions")
         postgres_uuids = {person["uuid"] for person in persons}
         tombstone_versions = _postgres_person_tombstone_versions(team_id)
+        floors: list[PersonVersionFloor] = []
         for uuid, version in ch_persons_to_version.items():
             if uuid in postgres_uuids:
                 continue
+            ch_version = int(version or 0)
             tombstone_version = tombstone_versions.get(uuid)
-            if tombstone_version is None:
-                # No Postgres row carries a version for this key, so the guess has to clear
-                # whatever ClickHouse holds, as in fix_orphaned_ch_persons.
-                tombstone_version = int(version or 0) + 100
-            elif tombstone_version <= int(version or 0):
-                # Publishing below the live row would be ignored, and publishing above the Postgres
-                # version would hide the next revival; the weekly deletion sweep clears this case.
-                logger.warning(
-                    f"Skipping person uuid={uuid}: ClickHouse is at version {version}, "
-                    f"the Postgres tombstone only at {tombstone_version}"
-                )
+            if tombstone_version is not None and tombstone_version > ch_version:
+                logger.info(f"Deleting person with uuid={uuid} at version {tombstone_version}")
+                if live_run:
+                    _publish_person_tombstone(team_id, uuid, tombstone_version)
                 continue
-            logger.info(f"Deleting person with uuid={uuid} at version {tombstone_version}")
-            if live_run:
-                create_person(
-                    uuid=str(uuid),
-                    team_id=team_id,
-                    properties={},
-                    version=tombstone_version,
-                    is_deleted=True,
-                )
+            # No Postgres row outranks ClickHouse, so Postgres takes a tombstone above it first; publishing
+            # above Postgres alone would hide the next revival.
+            logger.info(f"Deleting person with uuid={uuid} at version {ch_version + 1} or above")
+            floors.append(PersonVersionFloor(uuid=UUID(str(uuid)), min_version=ch_version + 1))
+        if live_run and floors:
+            for result in ensure_person_version_floors(team_id, floors):
+                if result.outcome == VersionFloorOutcome.LIVE:
+                    logger.warning(f"Skipping person uuid={result.uuid}: the Postgres primary holds it live")
+                    continue
+                _publish_person_tombstone(team_id, result.uuid, result.version)
+
+
+def _publish_person_tombstone(team_id: int, uuid: UUID, version: int) -> None:
+    create_person(uuid=str(uuid), team_id=team_id, properties={}, version=version, is_deleted=True)
 
 
 def _postgres_person_tombstone_versions(team_id: int) -> dict[UUID, int]:
@@ -240,9 +246,9 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
                 continue
             tombstone = tombstones.get(distinct_id)
             if tombstone is None:
-                logger.info(f"Deleting distinct ID {distinct_id} with no Postgres row")
-                if live_run:
-                    _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version)
+                # Without a Postgres row there is no version to publish at; the sweep removes the mapping once
+                # it deletes the owner.
+                logger.warning(f"Skipping distinct ID {distinct_id}: Postgres has no row for it")
                 continue
             person_uuid, tombstone_version = tombstone
             if tombstone_version <= int(version or 0):

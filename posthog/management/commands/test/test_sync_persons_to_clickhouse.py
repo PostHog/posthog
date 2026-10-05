@@ -25,6 +25,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_TABLE_SQL,
 )
 from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_distinct_id, insert_seed_group, insert_seed_person
 
@@ -96,21 +97,38 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             properties={"abc": 123},
         )
 
-        run_person_sync(self.team.pk, live_run=True, deletes=True)
+        with fake_personhog_client() as personhog:
+            run_person_sync(self.team.pk, live_run=True, deletes=True)
+            stored = personhog.stored_person(self.team.pk, uuid)
 
+        # Postgres takes the tombstone first, so a later revival lands above the ClickHouse row.
+        assert stored is not None and (stored.is_deleted, stored.version) == (True, 6)
         ch_persons = sync_execute(
             """
             SELECT id, team_id, properties, is_identified, version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_persons, [(UUID(uuid), self.team.pk, "{}", False, 105, True)])
+        self.assertEqual(ch_persons, [(UUID(uuid), self.team.pk, "{}", False, 6, True)])
+
+    def test_a_person_live_on_the_postgres_primary_is_not_tombstoned(self):
+        uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123})
+
+        # The sync's replica read misses the person; the primary, which the floor call reads, holds it live.
+        with fake_personhog_client() as personhog:
+            personhog.add_person(team_id=self.team.pk, person_id=1, uuid=uuid, version=5)
+            run_person_sync(self.team.pk, live_run=True, deletes=True)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
+        self.assertEqual(ch_persons, [(5, False)])
 
     @parameterized.expand(
         [
             # (name, ClickHouse live version, expected row after the sync)
             ("stored_version_wins", 5, ('{"abc": 123}', 9, True)),
-            ("clickhouse_ahead_is_left_for_the_sweep", 9, ('{"abc": 123}', 9, False)),
+            ("clickhouse_ahead_is_raised_above", 9, ('{"abc": 123}', 10, True)),
         ]
     )
     def test_persons_tombstoned_in_postgres_publish_the_stored_version(self, _name, ch_version, expected):
@@ -124,7 +142,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
                 )
         create_person(uuid=str(person_uuid), team_id=self.team.pk, version=ch_version, properties={"abc": 123})
 
-        run_person_sync(self.team.pk, live_run=True, deletes=True)
+        with fake_personhog_client():
+            run_person_sync(self.team.pk, live_run=True, deletes=True)
 
         ch_persons = sync_execute(
             """
@@ -173,7 +192,7 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(ch_person_distinct_ids, [(person_uuid, self.team.pk, "test-id", 0, False)])
 
-    def test_distinct_ids_deleted(self):
+    def test_distinct_ids_without_a_postgres_row_are_left_alone(self):
         uuid = uuid4()
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -190,10 +209,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(
-            ch_person_distinct_ids,
-            [(UUID(int=0), self.team.pk, "test-id-7", 107, True)],
-        )
+        # A tombstone naming the all-zero person would be copied into events by the overrides squash.
+        self.assertEqual(ch_person_distinct_ids, [(uuid, self.team.pk, "test-id-7", 7, False)])
 
     @parameterized.expand(
         [
@@ -589,7 +606,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             "group": True,
             "deletes": True,
         }
-        run(options)
+        with fake_personhog_client():
+            run(options)
 
         ch_persons = sync_execute(
             """
@@ -758,8 +776,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
                         7,
                         False,
                     ),
-                    (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 107, True),
-                    (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 108, True),
+                    (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 8, True),
+                    (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 9, True),
                 ],
             )
             self.assertEqual(
@@ -801,8 +819,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
                         15,
                         False,
                     ),
-                    (UUID(int=0), self.team.pk, "distinct_id-17", 117, True),
-                    (UUID(int=0), self.team.pk, "distinct_id-18", 118, True),
+                    (deleted_distinct_id_1_uuid, self.team.pk, "distinct_id-17", 17, False),
+                    (deleted_distinct_id_2_uuid, self.team.pk, "distinct_id-18", 18, False),
                 ],
             )
             self.assertEqual(ch_groups, [(2, "group-key", '{"a": 1234}')])
