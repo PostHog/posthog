@@ -35,6 +35,8 @@
 // $, re-runs) and the WoW delta absorbs the hole. The PR-snapshot rows (merge
 // count, cycle-time median) are robust to gaps.
 
+import { pathToFileURL } from 'node:url'
+
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
 const API_KEY = process.env.POSTHOG_API_KEY || ''
@@ -66,7 +68,11 @@ const WEEK_MS = 7 * DAY_MS
 async function depotBilledMinutes(startAt, endAt) {
     const res = await fetch('https://api.depot.dev/depot.core.v1.UsageService/GetUsage', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DEPOT_TOKEN}` },
+        headers: {
+            'Content-Type': 'application/json',
+            'Connect-Protocol-Version': '1',
+            Authorization: `Bearer ${DEPOT_TOKEN}`,
+        },
         body: JSON.stringify({ startAt: startAt.toISOString(), endAt: endAt.toISOString() }),
         signal: AbortSignal.timeout(60_000),
     })
@@ -74,12 +80,18 @@ async function depotBilledMinutes(startAt, endAt) {
         // The response body stays out of the message, because the message goes to the public Actions log.
         throw new Error(`Depot GetUsage -> ${res.status}`)
     }
-    // A JSON parse error quotes part of the body in its message, so it is replaced for the same reason.
-    const usage = await res.json().catch(() => null)
+    const usage = await res.json()
     if (!Array.isArray(usage?.githubActionsJobs)) {
         throw new Error('Depot GetUsage returned no githubActionsJobs list')
     }
-    return usage.githubActionsJobs.reduce((sum, repo) => sum + (repo.total?.minutesBilled ?? 0), 0)
+    return usage.githubActionsJobs.reduce((sum, repo) => {
+        // Protobuf JSON omits scalar fields at their zero default.
+        const minutes = repo?.total?.minutesBilled ?? 0
+        if (!repo?.total || !Number.isFinite(minutes) || minutes < 0 || !Number.isFinite(sum + minutes)) {
+            throw new Error('Depot GetUsage returned invalid billed minutes')
+        }
+        return sum + minutes
+    }, 0)
 }
 
 // Contract usage through the end of the reported week, or null when it cannot be read. The digest
@@ -87,8 +99,18 @@ async function depotBilledMinutes(startAt, endAt) {
 async function depotContractUsage(weekStart, weekEnd) {
     const contractStart = new Date(`${DEPOT_CONTRACT_START}T00:00:00Z`)
     const contractEnd = new Date(`${DEPOT_CONTRACT_END}T00:00:00Z`)
-    if (!DEPOT_TOKEN || !(DEPOT_CONTRACT_MINUTES > 0) || isNaN(contractStart) || isNaN(contractEnd)) {
-        console.warn('Depot token or contract terms not set. Skipping the contract rows.')
+    if (
+        !DEPOT_TOKEN ||
+        !Number.isFinite(DEPOT_CONTRACT_MINUTES) ||
+        DEPOT_CONTRACT_MINUTES <= 0 ||
+        !Number.isFinite(contractStart.getTime()) ||
+        !Number.isFinite(contractEnd.getTime()) ||
+        isoDay(contractStart) !== DEPOT_CONTRACT_START ||
+        isoDay(contractEnd) !== DEPOT_CONTRACT_END ||
+        contractStart >= weekEnd ||
+        contractEnd <= weekEnd
+    ) {
+        console.warn('Depot token or active contract terms missing or invalid. Skipping the contract rows.')
         return null
     }
     try {
@@ -98,8 +120,9 @@ async function depotContractUsage(weekStart, weekEnd) {
             depotBilledMinutes(new Date(weekStart.getTime() - WEEK_MS), weekStart),
         ])
         return { used, lastWeek, priorWeek, contractEnd }
-    } catch (err) {
-        console.warn(`${err.message}. Skipping the contract rows.`)
+    } catch {
+        // Fetch and parse errors can include response data in the public Actions log.
+        console.warn('Depot usage unavailable. Skipping the contract rows.')
         return null
     }
 }
@@ -108,7 +131,6 @@ function isoDay(date) {
     return date.toISOString().slice(0, 10)
 }
 
-// One sentence on how far the contract minutes last at the reported week's rate.
 function contractSummary(contract, weekEnd) {
     const used = `Depot contract: ${fmtMinutes(contract.used)} of ${fmtMinutes(DEPOT_CONTRACT_MINUTES)} GitHub Actions minutes used through ${isoDay(new Date(weekEnd.getTime() - DAY_MS))}. Depot CI minutes are not counted here.`
     const remaining = DEPOT_CONTRACT_MINUTES - contract.used
@@ -118,12 +140,15 @@ function contractSummary(contract, weekEnd) {
     if (!(contract.lastWeek > 0)) {
         return used
     }
-    const runOut = new Date(weekEnd.getTime() + (remaining / (contract.lastWeek / 7)) * DAY_MS)
-    const daysShort = Math.round((contract.contractEnd.getTime() - runOut.getTime()) / DAY_MS)
+    const remainingDays = remaining / (contract.lastWeek / 7)
+    const daysLeft = (contract.contractEnd.getTime() - weekEnd.getTime()) / DAY_MS
     const contractEnd = isoDay(contract.contractEnd)
-    return daysShort > 0
-        ? `${used} At last week's rate they run out around ${isoDay(runOut)}, ${daysShort} days before the contract ends on ${contractEnd}.`
-        : `${used} At last week's rate they last until the contract ends on ${contractEnd}.`
+    const daysShort = Math.round(daysLeft - remainingDays)
+    if (daysShort <= 0) {
+        return `${used} At last week's rate they last until the contract ends on ${contractEnd}.`
+    }
+    const runOut = new Date(weekEnd.getTime() + remainingDays * DAY_MS)
+    return `${used} At last week's rate they run out around ${isoDay(runOut)}, ${daysShort} days before the contract ends on ${contractEnd}.`
 }
 
 async function api(action, params = {}) {
@@ -275,8 +300,7 @@ function tableRows(overview) {
     return rows
 }
 
-// The table row and the sentence for the Depot contract. A dry run prints the blocks to the Actions
-// log, which is public, so it gets placeholders instead of any figure from Depot's API.
+// Actions logs are public, so dry runs use placeholders for Depot's billing data.
 function depotDigest(contract, weekEnd) {
     const metric = 'Depot runner min, all repos'
     if (DRY_RUN) {
@@ -335,7 +359,7 @@ async function postToSlack(blocks) {
     }
 }
 
-async function main() {
+export async function main() {
     if (!PROJECT_ID || !API_KEY) {
         // No-op (don't fail the scheduled run) until the project + read key are wired.
         console.warn('POSTHOG_PROJECT_ID / POSTHOG_API_KEY not set — skipping digest. Wire them to enable.')
@@ -380,7 +404,9 @@ async function main() {
     console.info(`Posted weekly CI digest to ${SLACK_CHANNEL}.`)
 }
 
-main().catch((err) => {
-    console.error(err)
-    process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((err) => {
+        console.error(err)
+        process.exit(1)
+    })
+}
