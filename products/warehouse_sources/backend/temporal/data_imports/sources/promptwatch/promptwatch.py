@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptwatch import (
@@ -140,6 +141,18 @@ def promptwatch_source(
     with make_session(
         config.api_key, enforce_row_limit=not (endpoint == "responses" and inputs.should_use_incremental_field)
     ) as session:
+        resource: EndpointResource = {
+            "name": endpoint,
+            "endpoint": {
+                "path": endpoint,
+                "params": params,
+                "data_selector": "$" if endpoint == "monitors" else endpoint,
+                "data_selector_required": True,
+                "paginator": PageNumberPaginator(base_page=1, total_path="totalPages", maximum_page=MAX_PAGES)
+                if paginated
+                else "single_page",
+            },
+        }
         rest_config: RESTAPIConfig = {
             "client": {
                 "base_url": f"{BASE_URL}/{api_version}",
@@ -149,20 +162,7 @@ def promptwatch_source(
                 "allow_redirects": False,
                 "request_timeout": 30,
             },
-            "resources": [
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": endpoint,
-                        "params": params,
-                        "data_selector": "$" if endpoint == "monitors" else endpoint,
-                        "data_selector_required": True,
-                        "paginator": PageNumberPaginator(base_page=1, total_path="totalPages", maximum_page=MAX_PAGES)
-                        if paginated
-                        else "single_page",
-                    },
-                }
-            ],
+            "resources": [resource],
         }
         yield from rest_api_resource(
             rest_config,

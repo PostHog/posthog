@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
 
 import pytest
@@ -89,7 +90,9 @@ def test_response_requests(
             ],
         )
         response = PromptWatchSource().source_for_pipeline(config, manager, inputs)
-        assert list(response.items()) == [[{"id": "first"}], [{"id": "last"}]]
+        items = response.items()
+        assert isinstance(items, Iterable)
+        assert list(items) == [[{"id": "first"}], [{"id": "last"}]]
         assert response.sort_mode == "asc"
         assert len(mock.request_history) == 2
         for index, request in enumerate(mock.request_history, start=1):
@@ -246,7 +249,7 @@ def test_error_classification(
     retry: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(RESTClient._send_request.retry, "wait", lambda _: 0)
+    monkeypatch.setattr(RESTClient._send_request.retry, "wait", lambda _: 0)  # type: ignore[attr-defined]
     with requests_mock.Mocker() as mock:
         mock.get(
             f"{BASE_URL}/v2/responses",
@@ -284,7 +287,7 @@ def test_malformed_response_retries(
     status: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(RESTClient._send_request.retry, "wait", lambda _: 0)
+    monkeypatch.setattr(RESTClient._send_request.retry, "wait", lambda _: 0)  # type: ignore[attr-defined]
     with requests_mock.Mocker() as mock:
         mock.get(
             f"{BASE_URL}/v2/responses",
