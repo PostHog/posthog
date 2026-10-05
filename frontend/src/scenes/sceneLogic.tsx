@@ -176,6 +176,12 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/legal',
 ]
 
+// The server refused the project this address names and served the user's own one.
+function isRefusedProjectPath(pathname: string): boolean {
+    const refusedProject = getAppContext()?.project_access_denied
+    return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
+}
+
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {
     const path = removeProjectIdIfPresent(pathname)
     return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
@@ -563,12 +569,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 // The server refused the project this address names and served the user's own one,
                 // so the page cannot load. Once the address bar names a project we do serve, the
                 // scene loads as usual.
-                if (
-                    appContext?.project_access_denied &&
-                    sceneId &&
-                    sceneConfigurations[sceneId]?.projectBased &&
-                    getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
-                ) {
+                if (sceneId && sceneConfigurations[sceneId]?.projectBased && isRefusedProjectPath(location.pathname)) {
                     return Scene.ErrorProjectAccessDenied
                 }
 
@@ -962,7 +963,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !isOnboardingNotRequiredForPath(location.pathname)
+                        !isOnboardingNotRequiredForPath(location.pathname) &&
+                        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
+                        !isRefusedProjectPath(router.values.location.pathname)
                     ) {
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??
