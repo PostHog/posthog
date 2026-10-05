@@ -34,7 +34,7 @@ class TestSplitPerson(BaseTest):
             team=self.team,
             properties=properties or {},
             version=version,
-            **({"uuid": uuid} if uuid else {}),
+            uuid=uuid,
         )
         for distinct_id in distinct_ids:
             add_distinct_id(person=person, distinct_id=distinct_id)

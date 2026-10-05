@@ -1084,10 +1084,7 @@ impl PersonLookup for PostgresStorage {
             .map(|pdi| (pdi.distinct_id.as_str(), pdi.version))
             .collect();
         let dids: Vec<String> = distinct_ids_to_split.to_vec();
-        // A distinct id that seeded the source person's UUID regenerates that
-        // same person, so the reassignment below would move the id onto the
-        // person it already sits on and the split would silently do nothing.
-        // Salt the derivation for that id so it lands on a person of its own.
+        // Salt the one distinct id whose plain derivation regenerates the source person.
         let new_uuids: Vec<Uuid> = dids
             .iter()
             .map(|did| {
