@@ -4,7 +4,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { apiErrorDetail } from './checksApi'
-import { UNPUBLISHED_REFRESH_EXPLANATION } from './checksConstants'
+import { UNPUBLISHED_REFRESH_EXPLANATION, UNPUBLISHED_REFRESH_QUERY_UNAVAILABLE } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
 import { latestRunWithQuery } from './suiteRuns'
 
@@ -40,6 +40,10 @@ export async function openFailingRowsInSqlEditor({
                 ? 'The query for this check is no longer kept. Run the check to see its failing rows.'
                 : "This check hasn't run yet. Run it to see its failing rows."
         )
+        return
+    }
+    if (!run.compiled_query) {
+        lemonToast.info(UNPUBLISHED_REFRESH_QUERY_UNAVAILABLE)
         return
     }
     if (run.audited_staged_refresh) {

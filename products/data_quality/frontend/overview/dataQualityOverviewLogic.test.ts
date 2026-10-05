@@ -548,9 +548,13 @@ describe('dataQualityOverviewLogic', () => {
         expect(lemonToast.info).toHaveBeenCalledTimes(explained ? 1 : 0)
     })
 
-    it.each<[string, Record<string, string>[]]>([
+    it.each<[string, Record<string, string | boolean>[]]>([
         ['the check has never run', []],
         ['every run has lost its query to retention', [{ compiled_query: '' }]],
+        [
+            'the newest run checked an unpublished refresh but has no query',
+            [{ compiled_query: '', audited_staged_refresh: true }, { compiled_query: 'SELECT 1' }],
+        ],
     ])('says why there is nothing to open when %s', async (_case, runs) => {
         ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
