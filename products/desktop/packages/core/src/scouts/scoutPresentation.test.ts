@@ -28,6 +28,7 @@ import {
   SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
   SCOUT_DAILY_AT_SCHEDULE_MODE,
   SCOUT_WEEKLY_ON_SCHEDULE_MODE,
+  type ScoutFleetSort,
   type ScoutOrigin,
   type ScoutRunFilter,
   scoutCreatorDisplayName,
@@ -35,12 +36,28 @@ import {
   scoutCronScheduleError,
   scoutRunOutcomeLabel,
   scoutScheduleNamesClockTime,
+  sortConfigsBy,
   sortConfigsForDisplay,
   summarizeRunWindow,
   weeklyCronToDayTime,
 } from "./scoutPresentation";
 
 const NOW = new Date("2026-06-10T12:00:00Z");
+const OLDER = "2026-06-01T00:00:00Z";
+const NEWER = "2026-06-09T00:00:00Z";
+
+type RecencyField = "created_at" | "updated_at" | "last_run_at";
+
+function datedConfig(
+  skillName: string,
+  field: RecencyField,
+  value: string,
+): ScoutConfig {
+  const config = makeConfig({ skill_name: skillName });
+  if (field === "created_at") return { ...config, created_at: value };
+  if (field === "updated_at") return { ...config, updated_at: value };
+  return { ...config, last_run_at: value };
+}
 
 function makeRun(overrides: Partial<ScoutRun> = {}): ScoutRun {
   return {
@@ -416,6 +433,82 @@ describe("intervals and ordering", () => {
       "signals-scout-surveys",
       "signals-scout-logs",
     ]);
+  });
+
+  it("sorts by name alone, whatever the lifecycle says", () => {
+    const configs = [
+      makeConfig({ skill_name: "signals-scout-surveys" }),
+      makeConfig({ skill_name: "signals-scout-apm", enabled: false }),
+      makeConfig({ skill_name: "signals-scout-logs" }),
+    ];
+    expect(
+      sortConfigsBy(configs, "name").map((config) => config.skill_name),
+    ).toEqual([
+      "signals-scout-apm",
+      "signals-scout-logs",
+      "signals-scout-surveys",
+    ]);
+  });
+
+  it("keeps the lifecycle order when sorting by status", () => {
+    const configs = [
+      makeConfig({ skill_name: "signals-scout-logs", enabled: false }),
+      makeConfig({ skill_name: "signals-scout-surveys" }),
+    ];
+    expect(sortConfigsBy(configs, "status")).toEqual(
+      sortConfigsForDisplay(configs),
+    );
+  });
+
+  describe.each<[ScoutFleetSort, RecencyField]>([
+    ["created", "created_at"],
+    ["updated", "updated_at"],
+    ["last_run", "last_run_at"],
+  ])("sorting by %s", (sort, field) => {
+    it("puts the newest scout first", () => {
+      const configs = [
+        datedConfig("signals-scout-apm", field, OLDER),
+        datedConfig("signals-scout-logs", field, NEWER),
+      ];
+      expect(
+        sortConfigsBy(configs, sort).map((config) => config.skill_name),
+      ).toEqual(["signals-scout-logs", "signals-scout-apm"]);
+    });
+
+    it("keeps equal timestamps in name order", () => {
+      const configs = [
+        datedConfig("signals-scout-surveys", field, NEWER),
+        datedConfig("signals-scout-apm", field, NEWER),
+        datedConfig("signals-scout-logs", field, NEWER),
+      ];
+      expect(
+        sortConfigsBy(configs, sort).map((config) => config.skill_name),
+      ).toEqual([
+        "signals-scout-apm",
+        "signals-scout-logs",
+        "signals-scout-surveys",
+      ]);
+    });
+  });
+
+  // Only these two can come back null: a scout always has a creation time.
+  it.each<[ScoutFleetSort, ScoutConfig]>([
+    [
+      "updated",
+      makeConfig({ skill_name: "signals-scout-apm", updated_at: null }),
+    ],
+    [
+      "last_run",
+      makeConfig({ skill_name: "signals-scout-apm", last_run_at: null }),
+    ],
+  ])("sends a scout with no %s timestamp to the end", (sort, undated) => {
+    const configs = [
+      undated,
+      makeConfig({ skill_name: "signals-scout-logs", updated_at: OLDER }),
+    ];
+    expect(
+      sortConfigsBy(configs, sort).map((config) => config.skill_name),
+    ).toEqual(["signals-scout-logs", "signals-scout-apm"]);
   });
 
   it("leads the off-block with system-paused scouts", () => {
