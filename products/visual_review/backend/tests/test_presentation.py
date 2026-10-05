@@ -28,7 +28,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, quarantine, runs
+from products.visual_review.backend.logic import artifact_store, github_api, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
@@ -89,7 +89,13 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_expire_quarantine_takes_only_an_identifier(self):
+    @parameterized.expand(
+        [
+            ("head_known", "abc123", status.HTTP_204_NO_CONTENT, []),
+            ("head_unknown", None, status.HTTP_503_SERVICE_UNAVAILABLE, ["Button"]),
+        ]
+    )
+    def test_expire_quarantine_takes_only_an_identifier(self, _name, head_sha, expected_status, expected_active):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
         quarantine.quarantine_identifier(
             repo_id=repo.id,
@@ -100,14 +106,16 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
-            {"identifier": "Button"},
-            format="json",
-        )
+        with patch.object(github_api, "default_branch_head_sha", return_value=head_sha):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+                {"identifier": "Button"},
+                format="json",
+            )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+        assert response.status_code == expected_status
+        active = quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        assert [entry.identifier for entry in active] == expected_active
 
     @parameterized.expand(
         [
@@ -141,16 +149,33 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             assert entry.expires_at is not None
             assert before + window <= entry.expires_at <= timezone.now() + window
 
-    def test_opening_a_quarantine_still_needs_a_reason(self):
+    @parameterized.expand(
+        [
+            ("without_a_reason", {}),
+            ("with_a_past_expiry", {"reason": "flaky", "expires_at": "2020-01-01T00:00:00Z"}),
+        ]
+    )
+    def test_opening_a_quarantine_rejects_bad_input(self, _name, body):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}",
-            {"identifier": "Button"},
+            {"identifier": "Button", **body},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert [
+            entry.identifier for entry in quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        ] == ["Button"]
 
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):

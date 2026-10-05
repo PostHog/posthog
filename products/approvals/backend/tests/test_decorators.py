@@ -14,7 +14,7 @@ from posthog.api.utils import ServiceRequest
 
 from products.approvals.backend.decorators import _create_change_request
 from products.approvals.backend.exceptions import ApprovalRequired
-from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -166,6 +166,37 @@ class TestApprovalGateFailsClosed(_ApprovalGateFixtures):
 
         flag.refresh_from_db()
         assert flag.active is False
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestDuplicateCheckForPostUpdate(_ApprovalGateFixtures):
+    def test_renamed_flag_still_matches_its_pending_change_request(self, _mock_enabled):
+        # An update of an existing flag can reach the gate as a POST, for example an experiment
+        # launch. Its change request then has no resource id, and its key can change while it waits.
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        request.method = "POST"
+        context = {
+            "request": request,
+            "team_id": self.team.id,
+            "project_id": self.team.project_id,
+            "get_team": lambda: self.team,
+            "get_organization": lambda: self.organization,
+        }
+
+        with self.assertRaises(ApprovalRequired) as first:
+            self._serializer(flag, {"active": True}, context).save()
+
+        FeatureFlag.objects.filter(id=flag.id).update(key="renamed-flag")
+        flag.refresh_from_db()
+
+        with self.assertRaises(ApprovalRequired) as second:
+            self._serializer(flag, {"active": True}, context).save()
+
+        assert second.exception.error_code == "change_request_pending"
+        assert second.exception.change_request.id == first.exception.change_request.id
+        assert ChangeRequest.objects.filter(team=self.team, state=ChangeRequestState.PENDING).count() == 1
 
 
 class TestChangeRequestIntentIsJsonSafe(APIBaseTest):

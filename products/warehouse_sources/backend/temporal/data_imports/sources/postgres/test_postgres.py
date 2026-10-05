@@ -485,6 +485,9 @@ class TestPostgresSourceNonRetryableErrors:
             # Distinct from the transient "not yet accepting connections" startup refusal above (which
             # reads "not yet", not "not currently"). Host/db are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections',
+            # A serverless provider refuses every connect while the branch is hibernated, until the
+            # customer reactivates it. Host and IP are invented, not real values.
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  branch is hibernated, reactivate it to continue',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -523,6 +526,22 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, "a dropped relation must be classified non-retryable"
         assert matches[0] is not None, "a dropped relation must surface an actionable message, not raw driver text"
         assert "no longer exists" in matches[0].lower()
+
+    def test_hibernated_branch_wins_over_a_generic_refusal_for_another_address(self, source):
+        # Host and IPs are invented, not real values.
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: Connection refused '
+            'Multiple connection attempts failed. All failures were: - host: "db.example.com", port: "5432", '
+            'hostaddr: "203.0.113.8": connection failed: connection to server at "203.0.113.8", port 5432 '
+            "failed: FATAL:  branch is hibernated, reactivate it to continue"
+        )
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert "reactivate the branch" in matches[0].lower()
 
     def test_connect_timeout_surfaces_actionable_message(self, source):
         # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
@@ -4092,13 +4111,16 @@ class TestChunkedRereadAfterRecoveryConflict:
             return self._rows[pivot:] + self._rows[:pivot]
 
     class _PageCursor:
-        def __init__(self, scan, column_names: list[str], column_type: str):
+        def __init__(self, scan, column_names: list[str], column_type: str, error: BaseException | None = None):
             self.description = [_fake_column(name) for name in column_names]
             self._scan = scan
             self._column_type = column_type
+            self._error = error
             self._result: list[tuple[Any, ...]] = []
 
         def execute(self, query, *args, **kwargs):
+            if self._error is not None:
+                raise self._error
             text = query.as_string()
             # Only an ORDER BY that reaches the primary key is total. Anything short of it leaves
             # rows tied, and each page is its own statement, so the pages overlap and skip.
@@ -4186,6 +4208,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
+        page_error: BaseException | None = None,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4214,7 +4237,8 @@ class TestChunkedRereadAfterRecoveryConflict:
         with (
             patch(f"{module}.psycopg.connect", return_value=connection),
             patch(
-                f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan, column_names, column_type)
+                f"{module}.psycopg.Cursor",
+                side_effect=lambda _conn: self._PageCursor(scan, column_names, column_type, page_error),
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
@@ -4303,6 +4327,22 @@ class TestChunkedRereadAfterRecoveryConflict:
         )
 
         assert sorted(ids) == [1, 2, 3, 4, 5, 6]
+
+    def test_xmin_reread_that_times_out_is_non_retryable(self):
+        # The replica canceled the server cursor with a recovery conflict, and the chunked re-read
+        # then hit the statement timeout as well. A whole-activity retry would re-read into the same
+        # replica, so the error must be the non-retryable one that names the replica settings.
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                is_xmin=True,
+                page_error=psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            )
+
+        assert "max_standby_streaming_delay" in str(exc_info.value)
+        assert type(exc_info.value).__name__ in PostgresSource().get_non_retryable_errors()
 
     def test_retried_full_refresh_seeks_instead_of_reopening_the_cursor(self):
         # The first attempt re-raised past its first row, so a second server cursor conflicts at the
@@ -5050,6 +5090,25 @@ class TestValidateCredentialsErrorMapping:
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
             ),
+            # Supavisor rejects a client IP outside the project's network restrictions.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: '
+                "FATAL:  (EADDRNOTALLOWED) address not in tenant allow_list: {192, 0, 2, 1}",
+                "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
+                "allow list. Add PostHog's IP addresses to that allow list, then try again.",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) user not found in the database",
+                "Your database doesn't have a user with the username you entered. Check the user for this "
+                "source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) unsupported or invalid secret format",
+                "Your connection pooler can't check this user's password because of how your database "
+                "stores it. Reset the user's password in your database, then try again.",
+            ),
             # A proxy/pooler in front of some providers rejects bad credentials during its own
             # database-identification step, wrapping the rejection in its own sentence instead of
             # libpq's "password authentication failed for user".
@@ -5058,6 +5117,22 @@ class TestValidateCredentialsErrorMapping:
                 "Failed to identify your database: Your Postgres credentials are incorrect. "
                 "Please check your username and password and try again.",
                 "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  PAM authentication failed for user "example_user"',
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: FATAL:  no such user',
+                "Your connection pooler doesn't recognize this username. Use the username your pooler "
+                "expects, such as postgres.<project-ref> for Supabase, then try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  role "example_user" is not permitted to log in',
+                "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
+                "different user, then try again.",
             ),
             (
                 f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",

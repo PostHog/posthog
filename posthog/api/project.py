@@ -30,6 +30,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 # project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
 from posthog.api.team import (
+    LOCKED_CONVERSATIONS_COLUMNS,
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -47,14 +48,14 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
-    conversations_settings_as_dict,
     get_or_mint_live_events_token,
-    handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
     heatmaps_screenshot_secret_for_reader,
+    merge_conversations_settings_locked,
     report_conversations_settings_changes,
+    strip_managed_conversations_settings,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
     validate_team_attrs,
@@ -663,8 +664,7 @@ class ProjectBackwardCompatSerializer(
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Conversation settings must be an object or null.")
+        strip_managed_conversations_settings(value)
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
@@ -1219,6 +1219,13 @@ class ProjectBackwardCompatSerializer(
         # the passthrough loop below setattr()s everything left in validated_data onto the Project
         # or its Team. So tags come out here and are written at the end.
         tags = validated_data.pop("tags", None)
+        # The settings patch persisted under lock below must not be written again from the
+        # stale request snapshot; the token handler can add the key later, so capture the
+        # client's intent now.
+        patch_conversations_settings = "conversations_settings" in validated_data
+        # Captured before the locked block pops the keys, so the refresh/re-cache step
+        # below still knows this request touched the team row.
+        conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
 
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
@@ -1307,16 +1314,6 @@ class ProjectBackwardCompatSerializer(
                 **validated_data["modifiers"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
-        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = conversations_settings_as_dict(team.conversations_settings)
-            new_settings = validated_data["conversations_settings"]
-            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
-
-        validated_data = handle_conversations_token_on_update(
-            validated_data, team.conversations_enabled, team.conversations_settings
-        )
-
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
@@ -1325,6 +1322,8 @@ class ProjectBackwardCompatSerializer(
         updated_team_fields = []
         updated_project_fields = []
         for attr, value in validated_data.items():
+            if attr in LOCKED_CONVERSATIONS_COLUMNS:
+                continue
             if attr not in self.Meta.team_passthrough_fields:
                 # This attr is a Project field
                 setattr(instance, attr, value)
@@ -1342,13 +1341,21 @@ class ProjectBackwardCompatSerializer(
 
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
-        if updated_team_fields:
+        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+        if conversations_lock_applied:
+            locked_conversations = merge_conversations_settings_locked(
+                team, validated_data, patch_conversations_settings, updated_team_fields
+            )
+            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+            team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+            team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+        elif updated_team_fields:
             # auto_now fields only refresh when included in update_fields
             team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
-        if updated_team_fields:
+        if updated_team_fields or conversations_lock_applied:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
             # and re-cache so the team cache reflects the merged row.
@@ -1393,6 +1400,7 @@ class ProjectBackwardCompatSerializer(
         report_conversations_settings_changes(
             cast(User, self.context["request"].user),
             team_before_update.get("conversations_settings"),
+            team_after_update.get("conversations_settings"),
             team,
         )
 
