@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -12,7 +13,7 @@ import type {
     ReviewUserSettingsApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { expect, waitFor, within } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import { CodeReviewScene } from './CodeReviewScene'
 

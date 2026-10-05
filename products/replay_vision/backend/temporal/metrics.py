@@ -95,12 +95,6 @@ REPLAY_VISION_NETWORK_STATE = Counter(
     ["scanner_type", "state"],
 )
 
-REPLAY_VISION_VERIFICATION_OUTCOMES = Counter(
-    "replay_vision_verification_outcomes_total",
-    "Verify-positives results per verified monitor `yes`: agreed, flipped, no_cache, no_budget, draw_failed",
-    ["scanner_type", "mode", "outcome"],
-)
-
 REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS = Counter(
     "replay_vision_quota_exhausted_skips_total",
     "Observations skipped because the org's monthly credit quota was exhausted",
@@ -286,12 +280,6 @@ def record_mission_pass(model: str, path: str) -> None:
     labels = {"model": model, "path": path}
     REPLAY_VISION_MISSION_PASSES.labels(**labels).inc()
     _otel.record_counter_twin(REPLAY_VISION_MISSION_PASSES, 1, labels)
-
-
-def record_verification_outcome(*, scanner_type: str, mode: str, outcome: str) -> None:
-    labels = {"scanner_type": scanner_type, "mode": mode, "outcome": outcome}
-    REPLAY_VISION_VERIFICATION_OUTCOMES.labels(**labels).inc()
-    _otel.record_counter_twin(REPLAY_VISION_VERIFICATION_OUTCOMES, 1, labels)
 
 
 def record_quota_exhausted_skip(scanner_type: str) -> None:
