@@ -3,8 +3,9 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
-    TombstonedDeleteOutcome, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, DistinctIdVersionHead, Person,
+    PersonTombstoneQueueEntry, PersonVersionHead, SplitResult, TombstonedDeleteOutcome,
+    TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -146,4 +147,22 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         min_version: i64,
     ) -> StorageResult<bool>;
+
+    // Sweep reconciliation
+
+    /// Read the stored version of each person, tombstones included, from the replica.
+    /// Persons with no row are left out.
+    async fn get_person_version_heads(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<PersonVersionHead>>;
+
+    /// Read the stored version of each distinct id, tombstones included, from the
+    /// replica. Distinct ids with no row are left out.
+    async fn get_distinct_id_version_heads(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdVersionHead>>;
 }

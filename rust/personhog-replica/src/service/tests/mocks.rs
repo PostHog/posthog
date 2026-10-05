@@ -168,6 +168,22 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<bool> {
         Err(self.error.clone())
     }
+
+    async fn get_person_version_heads(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionHead>> {
+        Err(self.error.clone())
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -581,6 +597,22 @@ impl storage::PersonLookup for SuccessStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn get_person_version_heads(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionHead>> {
+        Ok(Vec::new())
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Ok(Vec::new())
     }
 }
 
@@ -1055,6 +1087,22 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<bool> {
         Ok(false)
     }
+
+    async fn get_person_version_heads(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionHead>> {
+        Ok(Vec::new())
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1503,6 +1551,22 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn get_person_version_heads(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionHead>> {
+        Ok(Vec::new())
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Ok(Vec::new())
     }
 }
 

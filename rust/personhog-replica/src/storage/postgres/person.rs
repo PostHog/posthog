@@ -13,8 +13,9 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
-    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, DistinctIdVersionHead, Person,
+    PersonTombstoneQueueEntry, PersonVersionHead, SplitResult, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -1343,6 +1344,127 @@ impl PersonLookup for PostgresStorage {
 
         Ok(result.rows_affected() > 0)
     }
+
+    async fn get_person_version_heads(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<PersonVersionHead>> {
+        if uuids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_replica_labels("get_person_version_heads");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.bulk_replica_pool.clone();
+        let chunks: Vec<Vec<Uuid>> = uuids
+            .chunks(self.bulk_chunk_size)
+            .map(|c| c.to_vec())
+            .collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[(
+                "operation".to_string(),
+                "get_person_version_heads".to_string(),
+            )],
+            chunks.len() as f64,
+        );
+        let results: Vec<Vec<PersonVersionHead>> = stream::iter(chunks.into_iter().map(|chunk| {
+            let pool = pool.clone();
+            async move {
+                let mut conn = PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
+                let rows = sqlx::query_as!(
+                    PersonVersionHead,
+                    r#"
+                    SELECT uuid as "uuid!", COALESCE(version, 0)::bigint as "version!",
+                           is_deleted as "is_deleted!"
+                    FROM posthog_person
+                    WHERE team_id = $1 AND uuid = ANY($2)
+                    "#,
+                    team_id as i32,
+                    &chunk
+                )
+                .fetch_all(&mut *conn)
+                .await?;
+                Ok::<_, StorageError>(rows)
+            }
+        }))
+        .buffer_unordered(self.bulk_max_concurrent_chunks)
+        .try_collect()
+        .await?;
+
+        let heads: Vec<PersonVersionHead> = results.into_iter().flatten().collect();
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, heads.len() as f64);
+        Ok(heads)
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdVersionHead>> {
+        if distinct_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_replica_labels("get_distinct_id_version_heads");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.bulk_replica_pool.clone();
+        let chunks: Vec<Vec<String>> = distinct_ids
+            .chunks(self.bulk_chunk_size)
+            .map(|c| c.to_vec())
+            .collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[(
+                "operation".to_string(),
+                "get_distinct_id_version_heads".to_string(),
+            )],
+            chunks.len() as f64,
+        );
+        let results: Vec<Vec<DistinctIdVersionHead>> =
+            stream::iter(chunks.into_iter().map(|chunk| {
+                let pool = pool.clone();
+                async move {
+                    let mut conn = PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
+                    // LEFT JOIN: the distinct id FK is NOT VALID, so an old row can
+                    // point at a person that has no row.
+                    let rows = sqlx::query_as!(
+                        DistinctIdVersionHead,
+                        r#"
+                        SELECT d.distinct_id as "distinct_id!",
+                               COALESCE(d.version, 0)::bigint as "version!",
+                               d.is_deleted as "is_deleted!",
+                               p.uuid as "person_uuid?"
+                        FROM posthog_persondistinctid d
+                        LEFT JOIN posthog_person p ON p.team_id = d.team_id AND p.id = d.person_id
+                        WHERE d.team_id = $1 AND d.distinct_id = ANY($2)
+                        "#,
+                        team_id as i32,
+                        &chunk
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?;
+                    Ok::<_, StorageError>(rows)
+                }
+            }))
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
+
+        let heads: Vec<DistinctIdVersionHead> = results.into_iter().flatten().collect();
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, heads.len() as f64);
+        Ok(heads)
+    }
+}
+
+fn bulk_replica_labels(operation: &str) -> [(String, String); 4] {
+    [
+        ("operation".to_string(), operation.to_string()),
+        ("pool".to_string(), BULK_POOL_LABEL.to_string()),
+        ("client".to_string(), current_client_name().to_string()),
+        ("method".to_string(), current_method_name().to_string()),
+    ]
 }
 
 /// Tombstone the requested persons in one transaction, so the caller gets
