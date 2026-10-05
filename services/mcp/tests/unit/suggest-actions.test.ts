@@ -9,7 +9,7 @@ import { ToolExecutor } from '@/hono/tool-executor'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { ChatActionSchema } from '@/tools/chatActions'
-import { type ChatActionBindingCache, ChatActionBindings } from '@/tools/posthogAiTools/chatActionBindings'
+import { ChatActionBindings } from '@/tools/posthogAiTools/chatActionBindings'
 import {
     bindChatActions,
     createSuggestActionsTool,
@@ -162,9 +162,10 @@ describe('suggest-actions', () => {
     describe('binding picks to results the session produced', () => {
         const pickEnable = (id: string): string =>
             `call --json suggest-actions ${JSON.stringify({ actions: [{ key: 'workflows-create.enable', args: { id } }] })}`
+        const newSession = (): ChatActionBindings => new ChatActionBindings(new MemoryCache(randomUUID()))
         const sessionTools = (
             offeringTool: Tool<ZodObjectAny>,
-            cache: ChatActionBindingCache | undefined = new MemoryCache(randomUUID())
+            bindings: ChatActionBindings = newSession()
         ): Tool<ZodObjectAny>[] =>
             bindChatActions(
                 [
@@ -172,7 +173,7 @@ describe('suggest-actions', () => {
                     fakeTool('workflows-enable', async () => ({})),
                     createSuggestActionsTool() as unknown as Tool<ZodObjectAny>,
                 ],
-                new ChatActionBindings(cache)
+                bindings
             )
         const suggested = async (tools: Tool<ZodObjectAny>[], command: string): Promise<SuggestActionsResult> =>
             JSON.parse((await execCall(tools, command)).content[0]!.text) as SuggestActionsResult
@@ -211,14 +212,38 @@ describe('suggest-actions', () => {
             expect(result.errors).toEqual([{ key: 'workflows-create.enable', reason: 'unbound_slot: id' }])
         })
 
-        it.each([
-            ['the request carries no session', undefined],
-            ['the id came from another session', new MemoryCache<Record<string, true>>(randomUUID())],
-        ])('refuses the id when %s', async (_case, pickCache) => {
+        it('refuses an id that another session got back', async () => {
             const offeringTool = fakeTool('workflows-create', async () => ({ id: 'wf_created' }))
             await execCall(sessionTools(offeringTool), 'call --json workflows-create {}')
 
-            const result = await suggested(sessionTools(offeringTool, pickCache), pickEnable('wf_created'))
+            const result = await suggested(sessionTools(offeringTool), pickEnable('wf_created'))
+            expect(result.errors).toEqual([{ key: 'workflows-create.enable', reason: 'unbound_slot: id' }])
+        })
+
+        it('refuses even an id the tool just returned when the request has no session', async () => {
+            const tools = sessionTools(
+                fakeTool('workflows-create', async () => ({ id: 'wf_created' })),
+                new ChatActionBindings(undefined)
+            )
+            await execCall(tools, 'call --json workflows-create {}')
+
+            const result = await suggested(tools, pickEnable('wf_created'))
+            expect(result.errors).toEqual([{ key: 'workflows-create.enable', reason: 'unbound_slot: id' }])
+        })
+
+        it('refuses the slotted pick and keeps the rest when the binding store fails', async () => {
+            const failingStore = new MemoryCache<Record<string, true>>(randomUUID())
+            failingStore.get = async () => Promise.reject(new Error('store unavailable'))
+            const tools = sessionTools(
+                fakeTool('workflows-create', async () => ({ id: 'wf_created' })),
+                new ChatActionBindings(failingStore)
+            )
+
+            const result = await suggested(
+                tools,
+                'call --json suggest-actions {"actions":[{"key":"workflows-create.test-send"},{"key":"workflows-create.enable","args":{"id":"wf_created"}}]}'
+            )
+            expect(result.actions.map((action) => action.key)).toEqual(['workflows-create.test-send'])
             expect(result.errors).toEqual([{ key: 'workflows-create.enable', reason: 'unbound_slot: id' }])
         })
 

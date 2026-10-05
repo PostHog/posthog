@@ -95,11 +95,11 @@ export class RequestContext {
     }
 
     get chatActionBindingCache(): ChatActionBindingCache | undefined {
-        const session = this.props.taskId ?? resolveSessionKey(this.requestContext)
-        if (!session || !this.props.userHash) {
+        const { taskId, userHash } = this.props
+        if (!taskId || !userHash) {
             return undefined
         }
-        const digest = createHash('sha256').update(`${this.props.userHash}:${session}`).digest()
+        const digest = createHash('sha256').update(`${userHash}:${taskId}`).digest()
         return new RedisCache<Record<string, true>>(
             `chat-actions:${digest.subarray(0, 16).toString('base64url')}`,
             this.redis,

@@ -23,6 +23,7 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
+import type { ChatActionBindingCache } from '@/tools/posthogAiTools/chatActionBindings'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
@@ -493,6 +494,35 @@ describe('RequestContext', () => {
                 'EX',
                 7 * 24 * 60 * 60
             )
+        })
+    })
+
+    describe('chatActionBindingCache', () => {
+        it('shares bindings between requests of one task and token, and isolates other tasks and tokens', async () => {
+            const redis = fakeRedis()
+            const cacheFor = (overrides: Partial<RequestProperties>): ChatActionBindingCache | undefined =>
+                new RequestContext(redis, env, makeProps(overrides)).chatActionBindingCache
+
+            await cacheFor({ taskId: 'task-1' })!.set('chat-action:workflows-create.enable:id=wf_1', true)
+
+            expect(await cacheFor({ taskId: 'task-1' })!.get('chat-action:workflows-create.enable:id=wf_1')).toBe(true)
+            expect(
+                await cacheFor({ taskId: 'task-2' })!.get('chat-action:workflows-create.enable:id=wf_1')
+            ).toBeUndefined()
+            expect(
+                await cacheFor({ taskId: 'task-1', userHash: 'other-user' })!.get(
+                    'chat-action:workflows-create.enable:id=wf_1'
+                )
+            ).toBeUndefined()
+        })
+
+        it('has no cache for a request outside a task, whatever session it names', () => {
+            const ctx = new RequestContext(
+                fakeRedis(),
+                env,
+                makeProps({ sessionId: 'sess-1', mcpSessionId: 'mcp-1', mcpConversationId: 'conv-1' })
+            )
+            expect(ctx.chatActionBindingCache).toBeUndefined()
         })
     })
 })

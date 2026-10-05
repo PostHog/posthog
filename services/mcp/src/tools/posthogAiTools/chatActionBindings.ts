@@ -29,7 +29,13 @@ export class ChatActionBindings {
         if (slotsOf(action).length === 0) {
             return true
         }
-        return (await this.cache?.get(bindingKey(toolName, action, values))) === true
+        const key = bindingKey(toolName, action, values)
+        try {
+            return (await this.cache?.get(key)) === true
+        } catch (error) {
+            console.warn(`[suggest-actions] could not read the binding ${key}`, error)
+            return false
+        }
     }
 }
 
