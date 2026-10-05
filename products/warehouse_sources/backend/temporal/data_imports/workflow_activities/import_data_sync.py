@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    cap_future_incremental_value,
     handle_non_retryable_error,
     report_heartbeat_timeout,
     trim_source_job_inputs,
@@ -471,6 +472,24 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 schema.incremental_field_earliest_value,
                 schema.incremental_field_type,
             )
+
+            # A cursor that an earlier run saved from a future-dated row stops every sync. Save the
+            # capped value, so a run that fails still leaves a cursor the next run can use.
+            capped_incremental_last_value = cap_future_incremental_value(
+                processed_incremental_last_value, model.created_at
+            )
+            if (
+                schema.should_use_incremental_field
+                and capped_incremental_last_value != processed_incremental_last_value
+            ):
+                await logger.awarning(
+                    f"The last synced value {processed_incremental_last_value} of the incremental field "
+                    f"'{schema.incremental_field}' is in the future, so syncs found no new rows. The sync "
+                    f"continues from {capped_incremental_last_value}. Rows that changed while the sync found no "
+                    f"new rows can be missing. Resync the table to import them."
+                )
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(capped_incremental_last_value)
+                processed_incremental_last_value = capped_incremental_last_value
 
             # Shift the watermark back by the user-configured lookback for the source query only
             # (the stored watermark is untouched), so each incremental run re-reads a rolling
