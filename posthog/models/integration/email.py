@@ -1,7 +1,7 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -38,7 +38,7 @@ class EmailIntegration:
         self.acting_user = acting_user
 
     @staticmethod
-    def _domain_shares_one_mail_from_label(team: Team, acting_user: User | None) -> bool:
+    def _shares_domain_label_for(team: Team, acting_user: User | None) -> bool:
         return feature_enabled_or_false(
             EMAIL_DOMAIN_AGENT_SETUP_FLAG,
             acting_user.distinct_id if acting_user and acting_user.distinct_id else str(team.uuid),
@@ -48,7 +48,7 @@ class EmailIntegration:
 
     @cached_property
     def _shares_domain_label(self) -> bool:
-        return self._domain_shares_one_mail_from_label(self.integration.team, self.acting_user)
+        return self._shares_domain_label_for(self.integration.team, self.acting_user)
 
     @property
     def mail_from_subdomain(self) -> str:
@@ -64,13 +64,13 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> model.Integration:
-        if not cls._domain_shares_one_mail_from_label(Team.objects.get(id=team_id), created_by):
+        shares_domain_label = cls._shares_domain_label_for(Team.objects.get(id=team_id), created_by)
+        domain_access: AbstractContextManager[None] = (
+            cls._exclusive_domain_access(cls._email_domain(config["email"])) if shares_domain_label else nullcontext()
+        )
+        with domain_access:
             return cls._create_native_integration(
-                config, team_id, organization_id, created_by, shares_domain_label=False
-            )
-        with cls._exclusive_domain_access(cls._email_domain(config["email"])):
-            return cls._create_native_integration(
-                config, team_id, organization_id, created_by, shares_domain_label=True
+                config, team_id, organization_id, created_by, shares_domain_label=shares_domain_label
             )
 
     @classmethod
