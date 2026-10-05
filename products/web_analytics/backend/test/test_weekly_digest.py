@@ -19,7 +19,7 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
@@ -184,6 +184,38 @@ class TestAutoSelectProjectForUser(ClickhouseTestMixin, APIBaseTest):
 
         self.user.refresh_from_db()
         assert "web_analytics_weekly_digest_project_enabled" not in (self.user.partial_notification_settings or {})
+
+    def test_leaves_a_choice_saved_since_the_digest_run_loaded_the_user(self):
+        team_b = Team.objects.create(organization=self.organization, name="Team B")
+        stale_user = User.objects.get(pk=self.user.pk)
+        User.objects.filter(pk=self.user.pk).update(
+            partial_notification_settings={"web_analytics_weekly_digest_project_enabled": {str(team_b.pk): True}}
+        )
+
+        team_traffic_data = {
+            self.team.pk: {"visitors": {"current": 50}, "team": self.team},
+            team_b.pk: {"visitors": {"current": 10}, "team": team_b},
+        }
+
+        assert auto_select_project_for_user(stale_user, team_traffic_data) is False
+        assert stale_user.notification_settings["web_analytics_weekly_digest_project_enabled"] == {str(team_b.pk): True}
+
+        self.user.refresh_from_db()
+        assert self.user.notification_settings["web_analytics_weekly_digest_project_enabled"] == {str(team_b.pk): True}
+
+    def test_keeps_other_settings_saved_since_the_digest_run_loaded_the_user(self):
+        stale_user = User.objects.get(pk=self.user.pk)
+        User.objects.filter(pk=self.user.pk).update(partial_notification_settings={"all_weekly_digest_disabled": True})
+
+        team_traffic_data = {self.team.pk: {"visitors": {"current": 10}, "team": self.team}}
+
+        assert auto_select_project_for_user(stale_user, team_traffic_data) is True
+
+        self.user.refresh_from_db()
+        assert self.user.notification_settings["all_weekly_digest_disabled"] is True
+        assert self.user.notification_settings["web_analytics_weekly_digest_project_enabled"] == {
+            str(self.team.pk): True
+        }
 
 
 class TestGetOverviewForTeam(ClickhouseTestMixin, APIBaseTest):
