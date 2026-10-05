@@ -206,6 +206,7 @@ jobs:
                         - 'products/access_control/backend/facade/**/*.py'
                         - 'products/analytics_platform/backend/**/*.py'
                         - 'products/cohorts/backend/**/*.py'
+                        - 'products/customer_analytics/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         # warehouse_sources is deliberately narrower than the other product

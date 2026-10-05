@@ -705,6 +705,9 @@ def delete_events(
         f"UNION ALL SELECT team_id FROM {load_and_verify_adhoc_event_deletes_dictionary.qualified_name}) "
         f"AND ({_DELETE_PREDICATE})"
     )
+    membership_params: dict[str, object] = dict(
+        _delete_predicate_params(load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary)
+    )
     refuse_unswept_membership_sources(
         cluster,
         [
@@ -712,9 +715,7 @@ def delete_events(
                 t.read_table,
                 t.uses_new_events_schema,
                 membership_predicate,
-                _delete_predicate_params(
-                    load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
-                ),
+                membership_params,
             )
             for t in EVENTS_TARGETS
             if t not in membership_sources
@@ -728,9 +729,7 @@ def delete_events(
                 t.read_table,
                 t.uses_new_events_schema,
                 membership_predicate,
-                _delete_predicate_params(
-                    load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
-                ),
+                membership_params,
             )
             for t in membership_sources
         ],
