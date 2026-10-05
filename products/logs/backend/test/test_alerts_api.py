@@ -958,7 +958,7 @@ class TestLogsAlertAPI(APIBaseTest):
             assert inputs["dedup_key"]["value"] == "posthog-alert-{event.properties.alert_id}"
             assert inputs["severity"]["value"] == "warning"
             assert inputs["region"]["value"] == "us"
-            action_by_event[hf.filters["events"][0]["id"]] = inputs["event_action"]["value"]
+            action_by_event[(hf.filters or {})["events"][0]["id"]] = inputs["event_action"]["value"]
         assert action_by_event == {"$logs_alert_incident_opened": "trigger", "$logs_alert_incident_closed": "resolve"}
 
         detail = self.client.get(f"{self.base_url}{created['id']}/")
