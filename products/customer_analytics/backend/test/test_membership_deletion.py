@@ -59,7 +59,7 @@ from products.customer_analytics.backend.facade.membership_deletion import (
     reconcile_membership_deletion,
     stage_membership_deletion,
 )
-from products.customer_analytics.backend.logic.membership_deletion import MembershipReconciliation
+from products.customer_analytics.backend.logic.membership_deletion import QUERY_SETTINGS, MembershipReconciliation
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.test.factories import create_account
 
@@ -446,12 +446,14 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
             "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version) VALUES",
             [("watermark", str(uuid4()), datetime.now(UTC) + timedelta(days=1), 1)],
         )
-        result = deletes_job.execute_in_process(
-            run_config={
-                "ops": {"create_pending_deletions_table": {"config": {"timestamp": datetime.now(UTC).isoformat()}}}
-            },
-            resources={"cluster": self.cluster},
-        )
+        # The deleted team's events hold 3 distinct membership keys, and every other case stages 1.
+        with patch.dict(QUERY_SETTINGS, {"max_rows_in_set": "2"}):
+            result = deletes_job.execute_in_process(
+                run_config={
+                    "ops": {"create_pending_deletions_table": {"config": {"timestamp": datetime.now(UTC).isoformat()}}}
+                },
+                resources={"cluster": self.cluster},
+            )
         assert result.success
         if deletion == "team":
             assert self._rows() == []

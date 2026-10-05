@@ -700,9 +700,13 @@ def delete_events(
     # Every target this run sweeps must get the delete, or rows survive on the one that missed it.
     placements = resolve_placements(cluster, _targets_named(swept_targets))
     membership_sources = [p.target for p in placements if p.target in EVENTS_TARGETS]
+    # finish_membership_deletion deletes all membership of a deleted team, so its events are not staged.
+    # Staging them would put every membership key in the team's events into one GLOBAL IN set, which can
+    # pass the set limits for a large team and fail the whole run.
     membership_predicate = (
         f"team_id GLOBAL IN (SELECT team_id FROM {load_and_verify_deletes_dictionary.qualified_name} "
         f"UNION ALL SELECT team_id FROM {load_and_verify_adhoc_event_deletes_dictionary.qualified_name}) "
+        "AND NOT dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id)) "
         f"AND ({_DELETE_PREDICATE})"
     )
     membership_params: dict[str, object] = dict(
