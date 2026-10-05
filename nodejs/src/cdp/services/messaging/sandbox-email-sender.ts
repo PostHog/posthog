@@ -30,6 +30,7 @@ export type SandboxDailyCapClaim =
 
 type SandboxEmailOutcome =
     | { type: 'sent'; recipientCount: number }
+    | { type: 'delivered' }
     | {
           type: 'blocked'
           reason: 'switch_off' | 'recipient_not_member' | 'check_failed' | 'cap_reached' | 'paused'
@@ -203,7 +204,9 @@ export class SandboxEmailSender {
                 const properties =
                     outcome.type === 'sent'
                         ? { recipient_count: outcome.recipientCount, source: isTest ? 'test' : 'workflow' }
-                        : { reason: outcome.reason, blocked_recipient_count: outcome.blockedRecipientCount }
+                        : outcome.type === 'blocked'
+                          ? { reason: outcome.reason, blocked_recipient_count: outcome.blockedRecipientCount }
+                          : {}
                 captureTeamEvent(team, `workflows sandbox email ${outcome.type}`, { ...properties, is_test: isTest })
             }
         } catch (error) {

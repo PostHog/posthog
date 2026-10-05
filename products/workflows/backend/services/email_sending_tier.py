@@ -25,6 +25,7 @@ logger = structlog.get_logger(__name__)
 APP_SOURCE = "hog_flow"
 
 SENT_METRIC = "email_sent"
+SANDBOX_SENT_METRIC = "email_sandbox_sent"
 HARD_BOUNCE_METRIC = "email_bounced_hard"
 # SES complaint events are recorded under this name (see the SES webhook handler in the email
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
@@ -330,7 +331,7 @@ def _fetch_daily_metrics(
     workload: Workload = Workload.DEFAULT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
-    metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
+    metric_names = [SENT_METRIC, SANDBOX_SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
     # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
     # state in the background, so it is enrichment, not a customer-facing query. One context here
@@ -346,17 +347,22 @@ def _fetch_daily_metrics(
         )
 
 
+def _own_sends(counts: dict[str, int]) -> int:
+    return max(0, counts.get(SENT_METRIC, 0) - counts.get(SANDBOX_SENT_METRIC, 0))
+
+
 def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSendingHistory:
     # The tier decision only reads team totals, so metrics recorded under a batch job id and under
     # its parent workflow id sum the same either way and need no per-source resolution.
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
+    daily_sends = {day: sent for day, counts in days.items() if (sent := _own_sends(counts)) > 0}
     return TeamSendingHistory(
         team_id=team_id,
-        sent=sum(counts.get(SENT_METRIC, 0) for counts in days.values()),
+        sent=sum(daily_sends.values()),
         hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in days.values()),
         complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in days.values()),
         auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
-        daily_sends={day: counts.get(SENT_METRIC, 0) for day, counts in days.items() if counts.get(SENT_METRIC, 0)},
+        daily_sends=daily_sends,
     )
 
 

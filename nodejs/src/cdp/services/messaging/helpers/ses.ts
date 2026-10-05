@@ -373,7 +373,8 @@ export class SesWebhookHandler {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         // Empty set means no restriction (dev/test); prod is expected to configure the workflow SES
         // topic ARN.
-        allowedTopicArns: string[] = []
+        allowedTopicArns: string[] = [],
+        private sandboxConfigurationSetName = ''
     ) {
         this.allowedTopicArns = new Set(allowedTopicArns.map((arn) => arn.trim()).filter(Boolean))
     }
@@ -589,6 +590,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[]
+        sandboxDeliveries?: { teamId: string; isTest: boolean }[]
     }> {
         logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
         const parsed = this.parseIncomingBody(opts.body)
@@ -688,6 +690,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[] = []
+        const sandboxDeliveries: { teamId: string; isTest: boolean }[] = []
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
@@ -832,6 +835,16 @@ export class SesWebhookHandler {
             // carrier is only used for engagement metrics/log entries above.
             const codeIsTrusted = parsedCode?.format === 'signed'
 
+            if (
+                rec.eventType === 'Delivery' &&
+                codeIsTrusted &&
+                teamId &&
+                this.sandboxConfigurationSetName &&
+                rec.mail.tags?.['ses:configuration-set']?.[0] === this.sandboxConfigurationSetName
+            ) {
+                sandboxDeliveries.push({ teamId, isTest: isTest ?? false })
+            }
+
             // Suppression writes (below) skip test sends — editor "Run test" traffic must not be
             // able to perturb production suppression state by targeting a bad recipient.
             const suppressionAllowed = teamId && codeIsTrusted && !isTest
@@ -892,6 +905,7 @@ export class SesWebhookHandler {
             hardBounceRecipients,
             complainedRecipients,
             deliveredRecipients,
+            sandboxDeliveries,
         }
     }
 }
