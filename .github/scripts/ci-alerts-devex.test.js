@@ -849,6 +849,7 @@ describe('ci-alerts-devex', () => {
         ['stays quiet when green', runs('Backend CI', ['success', 'failure']), { action: 'none', blocking: '0' }],
         ['holds an open incident when the file is missing', null, { action: 'hold', blocking: '0' }],
         ['holds an open incident for a non-array payload', 'invalid', { action: 'hold', blocking: '0' }],
+        ['holds an open incident for an empty payload', [], { action: 'hold', blocking: '0' }],
         [
             'holds an open incident for missing run timestamps',
             [{ status: 'completed', conclusion: 'success' }],
@@ -856,8 +857,9 @@ describe('ci-alerts-devex', () => {
         ],
         ['holds an open incident for null run entries', [null], { action: 'hold', blocking: '0' }],
     ]) {
-        it(`scheduled lane read from Depot CI: ${scenario}`, async () => {
+        it(`scheduled lane read from Depot CI: ${scenario}`, async (t) => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depot-runs-'))
+            t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
             const runsFile = path.join(dir, 'runs.json')
             if (depotRuns) {
                 fs.writeFileSync(runsFile, JSON.stringify(depotRuns))

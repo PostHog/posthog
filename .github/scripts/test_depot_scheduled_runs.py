@@ -93,6 +93,28 @@ def test_gate_window_requires_a_settled_verdict(monkeypatch: pytest.MonkeyPatch,
             script.gate_runs()
 
 
+def test_gate_window_keeps_in_progress_runs_alongside_a_settled_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
+    def depot_response(*args: str) -> str:
+        if args[:2] == ("workflow", "list"):
+            return json.dumps(
+                [
+                    {
+                        "workflow_id": status,
+                        "run_id": status,
+                        "sha": "abc",
+                        "status": status,
+                        "created_at": "2026-10-05T12:23:00Z",
+                    }
+                    for status in ("finished", "running")
+                ]
+            )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": args[2]}]})
+
+    monkeypatch.setattr(script, "depot", depot_response)
+
+    assert [run["status"] for run in script.gate_runs()] == ["completed", "in_progress"]
+
+
 def test_download_keeps_the_newest_artifact_per_name() -> None:
     artifacts = [
         {"name": "timing_data-Core-1", "artifact_id": "retry", "created_at": "2026-10-05T12:40:00Z"},

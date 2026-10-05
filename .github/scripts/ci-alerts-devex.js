@@ -112,6 +112,7 @@ function buildLanes(env) {
                 const runs = JSON.parse(fs.readFileSync(env.DEPOT_SCHEDULED_RUNS_FILE, 'utf8'))
                 if (
                     !Array.isArray(runs) ||
+                    runs.length === 0 ||
                     runs.some(
                         (run) =>
                             !run ||
