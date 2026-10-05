@@ -14,7 +14,7 @@ Insights can be saved or updated before running the SQL. Updating a view still r
 
 ## Choosing data in Business intelligence
 
-**Business intelligence** opens a visual worksheet at `/bi`, separately from the SQL editor. Both products keep their own unsaved working copies. Existing SQL editor links with `mode=bi` open in Business intelligence.
+**Business intelligence** opens a visual worksheet at `/bi`, separately from the SQL editor, when the `sql-editor-bi-mode` feature flag is enabled. Both products keep their own unsaved working copies, including edits to the same saved view, insight, or draft. Existing SQL working copies remain available. Worksheet breadcrumbs preserve the visual configuration, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
 Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
 

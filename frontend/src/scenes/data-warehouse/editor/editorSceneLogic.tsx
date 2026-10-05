@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
@@ -106,8 +107,8 @@ export interface editorSceneLogicValues {
     dataLogicKey: string // sqlEditorLogic
     editingInsight: InsightModel | null // sqlEditorLogic
     editingView: DataWarehouseSavedQuery | undefined // sqlEditorLogic
-    editorUrl: string // sqlEditorLogic
     editorSource: SqlEditorSource // sqlEditorLogic
+    editorUrl: string // sqlEditorLogic
     featureFlags: FeatureFlagsSet // sqlEditorLogic
     insightLoading: boolean // sqlEditorLogic
     queryInput: string | null // sqlEditorLogic
@@ -306,6 +307,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             (s) => [s.activeTab, s.editorUrl],
             (activeTab: null | import('./sqlEditorLogic').QueryTab, editorUrl: string): Breadcrumb[] => {
                 const { draft, insight, view } = activeTab || {}
+                const biHash =
+                    editorUrl === urls.businessIntelligence() && activeTab?.biEditorState
+                        ? { mode: activeTab.biEditorState.editorView, bi: activeTab.biEditorState.config }
+                        : undefined
                 const first = {
                     key: editorUrl === urls.businessIntelligence() ? Scene.BusinessIntelligence : Scene.SQLEditor,
                     name: editorUrl === urls.businessIntelligence() ? 'Business intelligence' : 'SQL query',
@@ -319,7 +324,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         {
                             key: view.id,
                             name: view.name,
-                            path: `${editorUrl}?open_view=${encodeURIComponent(view.id)}`,
+                            path: combineUrl(editorUrl, { open_view: view.id }, biHash).url,
                             iconType: 'sql_editor',
                         },
                     ]
@@ -329,7 +334,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         {
                             key: insight.id,
                             name: insight.name || insight.derived_name || 'Untitled',
-                            path: `${editorUrl}?open_insight=${encodeURIComponent(insight.short_id)}`,
+                            path: combineUrl(editorUrl, { open_insight: insight.short_id }, biHash).url,
                             iconType: 'sql_editor',
                         },
                     ]
@@ -339,7 +344,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         {
                             key: draft.id,
                             name: draft.name || 'Untitled',
-                            path: `${editorUrl}?open_draft=${encodeURIComponent(draft.id)}`,
+                            path: combineUrl(editorUrl, { open_draft: draft.id }, biHash).url,
                             iconType: 'sql_editor',
                         },
                     ]

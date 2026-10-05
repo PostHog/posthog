@@ -267,7 +267,7 @@ export interface biEditorLogicActions {
         tableNames: string[]
     } // databaseTableListLogic
     loadDatabaseSuccess: (
-        database: Required<import('~/queries/schema/schema-general').DatabaseSchemaQueryResponse> | null,
+        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null,
         payload?:
             | {
                   force?: boolean
@@ -275,14 +275,14 @@ export interface biEditorLogicActions {
               }
             | undefined
     ) => {
-        database: Required<import('~/queries/schema/schema-general').DatabaseSchemaQueryResponse> | null
+        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null
         payload?: {
             force?: boolean
             shallow?: boolean
         }
     } // databaseTableListLogic
-    setSourceQuery: (sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode) => {
-        sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode
+    setSourceQuery: (sourceQuery: import('~/queries/schema').DataVisualizationNode) => {
+        sourceQuery: import('~/queries/schema').DataVisualizationNode
     } // sqlEditorLogic
     syncUrlWithQuery: () => {
         value: true

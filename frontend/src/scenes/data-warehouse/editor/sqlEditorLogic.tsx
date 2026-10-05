@@ -620,6 +620,7 @@ export interface sqlEditorLogicValues {
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
     editorSource: SqlEditorSource
+    editorUrl: string
     error: string | null
     exportContext: ExportContext
     filtersPlaceholderBindings: string[] | null
@@ -635,7 +636,6 @@ export interface sqlEditorLogicValues {
     insightLoading: boolean
     isDraft: boolean
     isEditingMaterializedView: boolean
-    editorUrl: string
     isEmbeddedMode: boolean
     isMultiQuery: boolean
     isSourceQueryLastRun: boolean
@@ -1181,6 +1181,7 @@ export interface sqlEditorLogicActions {
 export interface sqlEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        editorUrl: (arg: SQLEditorMode | undefined) => string
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
         ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
@@ -1230,7 +1231,6 @@ export interface sqlEditorLogicMeta {
             suggestedQueryInput: string,
             metadataLoading: boolean
         ) => boolean
-        editorUrl: (mode: SQLEditorMode | undefined) => string
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
@@ -1835,10 +1835,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                   ? `view:${view.id}`
                   : insight
                     ? `insight:${insight.short_id}`
-                    : props.mode === SQLEditorMode.BusinessIntelligence
-                      ? 'bi:new'
-                      : 'new'
-            const storage = sqlEditorDraftStorage(values.user?.uuid, teamLogic.values.currentTeamId, target)
+                    : 'new'
+            const storage = sqlEditorDraftStorage(
+                values.user?.uuid,
+                teamLogic.values.currentTeamId,
+                props.mode === SQLEditorMode.BusinessIntelligence ? `bi:${target}` : target
+            )
             const savedQuery =
                 draft?.query.query ?? view?.query?.query ?? toDataVisualizationNode(insight?.query)?.source.query
             if (savedQuery !== undefined && values.queryInput === savedQuery) {
@@ -3796,10 +3798,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                   ? `view:${viewTarget}`
                   : insightTarget
                     ? `insight:${insightTarget}`
-                    : props.mode === SQLEditorMode.BusinessIntelligence
-                      ? 'bi:new'
-                      : 'new'
-            const draftStorage = sqlEditorDraftStorage(values.user?.uuid, teamLogic.values.currentTeamId, target)
+                    : 'new'
+            const draftStorage = sqlEditorDraftStorage(
+                values.user?.uuid,
+                teamLogic.values.currentTeamId,
+                props.mode === SQLEditorMode.BusinessIntelligence ? `bi:${target}` : target
+            )
             const storedDraft = draftStorage?.get()
             const isReload =
                 initial &&

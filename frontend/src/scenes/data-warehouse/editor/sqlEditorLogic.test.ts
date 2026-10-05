@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import * as clipboard from 'lib/utils/copyToClipboard'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { draftsLogic } from 'scenes/data-warehouse/editor/draftsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
@@ -529,19 +530,38 @@ describe('sqlEditorLogic', () => {
             }
         )
 
-        it('keeps unsaved BI and SQL working copies separate', async () => {
-            const sqlDraft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, 'new')!
-            const biDraft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, 'bi:new')!
+        it.each([
+            ['new', {}],
+            [`view:${MOCK_VIEW.id}`, { open_view: MOCK_VIEW.id }],
+            [`insight:${MOCK_INSIGHT_SHORT_ID}`, { open_insight: MOCK_INSIGHT_SHORT_ID }],
+            [`draft:${MOCK_DRAFT.id}`, { open_draft: MOCK_DRAFT.id }],
+        ])('keeps BI and existing SQL working copies separate for %s', async (target, searchParams) => {
+            const sqlDraft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, target)!
+            const biDraft = sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, `bi:${target}`)!
             sqlDraft.set({ q: 'SELECT sql_draft' })
             biDraft.set({ q: 'SELECT bi_draft' })
             logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
             logic.mount()
-            await expectLogic(logic, () => router.actions.push(urls.businessIntelligence()))
-                .toDispatchActions(['createTab', 'updateTab', 'setQueryInput'])
+            draftsLogic.actions.setDrafts([MOCK_DRAFT])
+            await expectLogic(logic, () => router.actions.push(urls.businessIntelligence(), searchParams))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
                 .toMatchValues({ queryInput: 'SELECT bi_draft' })
             logic.actions.setQueryInput('SELECT edited_bi_draft')
             expect(biDraft.get()?.q).toBe('SELECT edited_bi_draft')
             expect(sqlDraft.get()?.q).toBe('SELECT sql_draft')
+
+            logic.unmount()
+            initKeaTests()
+            mountEditor()
+            draftsLogic.actions.setDrafts([MOCK_DRAFT])
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), searchParams))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: 'SELECT sql_draft' })
+            logic.actions.setQueryInput('SELECT edited_sql_draft')
+            expect(sqlDraft.get()?.q).toBe('SELECT edited_sql_draft')
+            expect(biDraft.get()?.q).toBe('SELECT edited_bi_draft')
         })
 
         it('does not replace this tab with another browser tab’s draft on reload', async () => {
@@ -2438,6 +2458,34 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.q).toBe('SELECT event FROM events')
             expect(router.values.hashParams.bi).toMatchObject(config)
         })
+
+        it.each([{ open_view: MOCK_VIEW.id }, { open_insight: MOCK_INSIGHT_SHORT_ID }, { open_draft: MOCK_DRAFT.id }])(
+            'preserves worksheet configuration in saved-item breadcrumbs (%j)',
+            async (searchParams) => {
+                logic = sqlEditorLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+                logic.mount()
+                editorRootLogic = editorSceneLogic({ tabId: TAB_ID, mode: SQLEditorMode.BusinessIntelligence })
+                editorRootLogic.mount()
+                draftsLogic.actions.setDrafts([{ ...MOCK_DRAFT, saved_query_id: undefined }])
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligence(), searchParams, {
+                        mode: BIEditorView.BI,
+                        bi: config,
+                    })
+                )
+                    .toDispatchActions(['createTab', 'setQueryInput'])
+                    .toFinishAllListeners()
+
+                const breadcrumb = editorRootLogic.values.breadcrumbs.at(-1)!
+                expect(breadcrumb).toHaveProperty('path')
+                const breadcrumbUrl = new URL((breadcrumb as { path: string }).path, window.location.origin)
+                const hashParams = new URLSearchParams(breadcrumbUrl.hash.slice(1))
+                expect(breadcrumbUrl.pathname).toBe(urls.businessIntelligence())
+                expect(Object.fromEntries(breadcrumbUrl.searchParams)).toEqual(searchParams)
+                expect(hashParams.get('mode')).toBe(BIEditorView.BI)
+                expect(JSON.parse(hashParams.get('bi')!)).toMatchObject(config)
+            }
+        )
 
         it('updates the chart breakdown when dimensions move between shelves or are removed', async () => {
             logic = sqlEditorLogic({

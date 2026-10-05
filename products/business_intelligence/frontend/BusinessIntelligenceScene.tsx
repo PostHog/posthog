@@ -1,7 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import 'scenes/data-warehouse/editor/EditorScene.scss'
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { OutputPane } from 'scenes/data-warehouse/editor/OutputPane'
@@ -23,7 +26,12 @@ export const scene: SceneExport = {
 }
 
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { shareTab } = useActions(editorSceneLogic({ tabId, mode: SQLEditorMode.BusinessIntelligence }))
+
+    if (!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]) {
+        return <NotFound object="page" />
+    }
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
