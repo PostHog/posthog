@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "attribution_lookback_days": {
+            "default": 7,
+            "description": "Lookback window for attribution health (1-365 days); defaults to 7",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "number"
+        },
+        "include_conversion_goals": {
+            "default": true,
+            "description": "Whether to include the conversion-goal summary in the diagnostic",
+            "type": "boolean"
+        },
+        "source_type": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional integration filter"
+        }
+    },
+    "type": "object"
+}

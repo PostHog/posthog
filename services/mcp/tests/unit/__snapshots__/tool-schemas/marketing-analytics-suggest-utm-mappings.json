@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "lookback_days": {
+            "default": 90,
+            "description": "Days of history to inspect (1-365); defaults to 90",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "number"
+        },
+        "min_event_count": {
+            "default": 10,
+            "description": "Only suggest for raw values with >= this many events",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "default": "-30d",
+            "description": "Start date for the audit period",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "End date for the audit period"
+        }
+    },
+    "type": "object"
+}
