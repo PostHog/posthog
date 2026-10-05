@@ -75,7 +75,6 @@ import {
     prefillScannerForExperiment,
     reconcileVariantKey,
 } from './experimentTargeting'
-import { consumeGoalDraftIntent } from './goalDraftIntent'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
@@ -1740,12 +1739,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         typeof router.values.searchParams.goal === 'string'
                             ? router.values.searchParams.goal.trim()
                             : ''
-                    // Consumed unconditionally on every wizard entry: whichever prefill path wins
-                    // below, a hand-off armed by the nudge must not stay usable for the rest of
-                    // the tab session, where a later ?goal= link would auto-start a draft and
-                    // spend the user's AI allowance without fresh intent.
-                    const handedOffGoal = consumeGoalDraftIntent()?.trim() ?? ''
-                    // Consumed unconditionally for the same reason: a cross-product hand-off must
+                    // Consumed unconditionally on every wizard entry: a cross-product hand-off must
                     // not stay armed for the rest of the tab session and prefill a later,
                     // unrelated wizard visit.
                     const handoff = consumeScannerHandoffIntent()
@@ -1857,17 +1851,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } finally {
                         cache.restoringDraft = false
                     }
-                    // The goal prefills the AI box; the draft only auto-starts for the in-player
-                    // nudge's sessionStorage hand-off (which carries the goal so the free text
-                    // never enters the URL), and never over a saved draft. A crafted external
-                    // ?goal= link can therefore neither spend the user's AI allowance nor
-                    // overwrite saved work without an explicit click.
-                    const goal = handedOffGoal || goalParam
-                    if (goal && !hasFiltersPrefill) {
-                        actions.setGoalDraftInput(goal)
-                        if (handedOffGoal && !draft) {
-                            actions.draftScannerFromGoal(handedOffGoal)
-                        }
+                    // The goal only prefills the AI box, so a crafted external ?goal= link can neither
+                    // spend the user's AI allowance nor overwrite saved work without an explicit click.
+                    if (goalParam && !hasFiltersPrefill) {
+                        actions.setGoalDraftInput(goalParam)
                     }
                     return
                 }

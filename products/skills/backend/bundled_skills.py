@@ -35,14 +35,14 @@ _PRODUCTS_DIR = Path(__file__).resolve().parents[2]
 _NON_SKILL_FILES = frozenset({"README.md", "AGENTS.md", "CLAUDE.md"})
 # Frontmatter opens the entry point, so a bounded read holds all of it in every ordinary case.
 _FRONTMATTER_READ_BYTES = 4096
-# The block `parse_frontmatter` in products/posthog_ai/scripts/build_skills.py reads.
+# The block `parse_frontmatter` in products/posthog_ai/scripts/build_skills/frontmatter.py reads.
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 def _entry_point(path: Path) -> Path | None:
     """Return the file a skill is built from, or None when `path` holds no skill.
 
-    Mirrors `SkillDiscoverer.discover` in products/posthog_ai/scripts/build_skills.py: a skill is
+    Mirrors `SkillDiscoverer.discover` in products/posthog_ai/scripts/build_skills/discovery.py: a skill is
     a directory holding a SKILL.md(.j2), or a loose <name>.md(.j2) file. The two walks must agree,
     because a skill the build ships and this walk misses is a name the skills store hands out.
     """
