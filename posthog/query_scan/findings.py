@@ -24,8 +24,9 @@ ASSISTANT_GOAL = (
 
 ASSISTANT_RULES = (
     "The events table is sorted by project, day and event name, so a query is fast when it bounds `timestamp` "
-    "and names events; property filters and persons joins do not narrow the read. Use relative time bounds, "
-    "never a calendar date. Never invent event names, property values or dates; use only names seen in results "
+    "and names events; property filters and persons joins do not narrow the read. Preserve existing time bounds "
+    "for same-answer rewrites. When suggesting a new time bound, use a relative bound, never a calendar date. "
+    "Never invent event names, property values or dates; use only names seen in results "
     "or given by the person. Run at most the one exploration query a finding's guidance names, always with a "
     "recent time bound and a LIMIT, and none when the guidance says none. Propose the rewritten query and label "
     "every change as same answer, narrower, or different. When a change would alter the answer and it is unclear "
@@ -397,6 +398,20 @@ _PERSONS_JOIN_INSIGHT = _Copy(
 )
 
 
+_REPEATED_CTE = _Copy(
+    lead="{subject} references the same events-reading CTE in several UNION ALL branches. ClickHouse can repeat that work.",
+    advice="Consider computing the results together, then using ARRAY JOIN to turn them into rows.",
+    fix=(
+        "Inspect the shared CTE and compute the branch aggregates in one pass where equivalent, then expand "
+        "the results with ARRAY JOIN over aligned arrays or tuples. Merely adding another CTE does not cache "
+        "its result. Preserve time bounds, event filters, identity handling, output types, ordering, duplicates, "
+        "empty inputs, nulls and division-by-zero behavior. Do not merge volatile or branch-dependent calculations "
+        "without establishing equivalence. No exploration needed. Propose the rewrite, and compare results before "
+        "benchmarking. A speedup is unproven until both versions are measured on the same data and settings."
+    ),
+)
+
+
 def _by_cause(table: dict[FindingCause, _Copy], cause: FindingCause | None, default: _Copy) -> _Copy:
     return default if cause is None else table.get(cause, default)
 
@@ -427,6 +442,8 @@ def _copy_for(
         return _BOUND_NOT_USED_SQL if cause == FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE else _NO_START_DATE_SQL
     if kind == QueryScanFindingKind.PERSONS_JOIN:
         return _PERSONS_JOIN if is_sql else _PERSONS_JOIN_INSIGHT
+    if kind == QueryScanFindingKind.REPEATED_CTE:
+        return _REPEATED_CTE
     raise ValueError(f"No copy for finding kind {kind}")
 
 
@@ -435,6 +452,8 @@ def is_actionable(kind: QueryScanFindingKind, cause: FindingCause | None, *, is_
     question. A read inside a saved view counts: the person can edit the view."""
     if by_design:
         return False
+    if kind == QueryScanFindingKind.REPEATED_CTE:
+        return is_sql
     if kind == QueryScanFindingKind.PERSONS_JOIN:
         # An insight joins the persons table because of the project's person properties mode, which
         # nothing in the insight changes. A SQL author wrote the join and can take it out.

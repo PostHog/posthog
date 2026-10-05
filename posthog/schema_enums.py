@@ -2610,6 +2610,7 @@ class QueryScanFindingKind(StrEnum):
     NO_EVENT_FILTER = "no_event_filter"
     NO_START_DATE = "no_start_date"
     PERSONS_JOIN = "persons_join"
+    REPEATED_CTE = "repeated_cte"
 
 
 class QueryScanFixLocation(StrEnum):

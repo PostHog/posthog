@@ -1346,6 +1346,7 @@ class SelectSetNode(AST):
 @dataclass(kw_only=True, slots=True)
 class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
+    view_name: Optional[str] = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
     limit: Optional[Expr] = None
