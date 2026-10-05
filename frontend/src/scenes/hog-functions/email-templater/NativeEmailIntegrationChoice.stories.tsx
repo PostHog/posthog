@@ -42,7 +42,6 @@ type StoryArgs = {
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-App/HogFunctions/Email sender picker',
-    component: NativeEmailIntegrationChoice,
     parameters: { layout: 'padded', viewMode: 'story' },
 }
 export default meta

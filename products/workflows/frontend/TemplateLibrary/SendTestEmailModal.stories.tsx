@@ -31,7 +31,6 @@ type StoryArgs = {
 
 const meta: Meta<StoryArgs> = {
     title: 'Products/Workflows/Send test email modal',
-    component: SendTestEmailModal,
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

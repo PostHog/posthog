@@ -773,13 +773,13 @@ export interface integrationsLogicMeta {
         getGitHubRepositoriesTotal: (
             githubRepositoriesTotal: Record<number, number>
         ) => (integrationId: number) => number | null
-        sandboxEmailSenderEnabled: (featureFlags: any) => boolean
+        sandboxEmailSenderEnabled: (featureFlags: FeatureFlagsSet) => boolean
         sandboxEmailSender: (
             integrations: IntegrationType[] | null,
-            sandboxEmailSenderEnabled: any
+            sandboxEmailSenderEnabled: boolean
         ) => IntegrationType | null
         ownEmailIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
-        domainGroupedEmailIntegrations: (ownEmailIntegrations: any) => EmailIntegrationDomainGroupedType[]
+        domainGroupedEmailIntegrations: (ownEmailIntegrations: IntegrationType[]) => EmailIntegrationDomainGroupedType[]
     }
 }
 

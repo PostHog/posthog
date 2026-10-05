@@ -120,7 +120,7 @@ export interface messageTemplateTestSendLogicMeta {
         ) => number | null
         emailIntegrationsLoading: (
             integrationsLoading: boolean,
-            sandboxEmailSenderProvisionResultLoading: any
+            sandboxEmailSenderProvisionResultLoading: boolean
         ) => boolean
         isSandboxSenderSelected: (
             senderIntegrationId: number | null,
