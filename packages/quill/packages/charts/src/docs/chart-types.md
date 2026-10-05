@@ -94,7 +94,11 @@ There is no `series` or `labels`.
   `onNodeClick` and `onLinkClick` receive the laid-out datum with its `meta`.
   `tooltip.placement` takes the cartesian charts' values and defaults to `cursor`.
   On touch, the first tap on a node or ribbon shows its tooltip and a second tap on the same one fires the click handler.
+- `onHoverChange` reports the node or ribbon under the cursor, and `null` when it leaves.
+  `highlight` takes over emphasis: the chart dims everything outside `{ nodeIds, linkIndices }` and stops its own hover dimming, so a host can light up a whole downstream path or a selection.
+  Link indices are positions in the `links` prop; the layout keeps that order.
 - Custom overlays read `useSankeyLayout()` for the positioned `nodes`, `links`, `columnX`, and `total`.
+  An overlay with its own pointer handling marks its root with `data-hog-charts-interactive-overlay`, which also stops the chart from reporting a hover while the cursor is on it.
 - The layout engine ships on its own as `sankeyLayout` (plus the `sankeyLeft` / `sankeyJustify` alignments and `sankeyLinkHorizontal`) for hosts that draw their own SVG.
 
 ## Sparkline

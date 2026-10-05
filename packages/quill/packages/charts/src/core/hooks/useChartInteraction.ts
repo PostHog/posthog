@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useRef } from 'react'
 
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
+import { originatesInElement, originatesInInteractiveOverlay } from '../dom-events'
 import {
     buildLabelPositions,
     buildPointClickData,
@@ -24,24 +25,11 @@ import { useDragToZoom } from './useDragToZoom'
 import { useLatest } from './useLatest'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
 
-function originatesInElement(e: React.SyntheticEvent, selector: string): boolean {
-    return e.target instanceof Element && !!e.target.closest(selector)
-}
-
 /** The tooltip is portaled out of the wrapper's DOM tree, but React portals still bubble
  *  synthetic events through the React tree — so a click or drag that starts inside the pinned
  *  tooltip reaches the wrapper's handlers and would dismiss the pin or start a zoom drag. */
 function originatesInTooltip(e: React.SyntheticEvent): boolean {
     return originatesInElement(e, '[data-hog-charts-tooltip]')
-}
-
-/** An interactive overlay child (e.g. a clickable exemplar marker) renders inside the same
- *  wrapper this hook's mousemove handler is bound to, so every hover over it still bubbles here.
- *  Without this guard the chart's own nearest-point tooltip fights the overlay child's tooltip
- *  for the cursor. An overlay opts out of chart hover tracking by marking its interactive root
- *  with this attribute. */
-function originatesInInteractiveOverlay(e: React.SyntheticEvent): boolean {
-    return originatesInElement(e, '[data-hog-charts-interactive-overlay]')
 }
 
 interface UseChartInteractionOptions<Meta> {
