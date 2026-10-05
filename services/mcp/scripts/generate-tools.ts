@@ -21,6 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
+import { hasScope } from '../src/lib/api'
 import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
@@ -1762,12 +1763,12 @@ function resolveToolAnnotations(name: string, config: ToolConfig, method: string
     return { ...defaults }
 }
 
-/** Scopes the API requires that the YAML list leaves out. Empty when the YAML has no list or the spec has none. */
+/** Scopes the API requires that the YAML list leaves out. A `:write` scope covers `:read`, as at runtime. Empty when the YAML has no list or the spec has none. */
 function findMissingSpecScopes(config: ToolConfig, resolved: ResolvedOperation): string[] {
     if (!config.scopes?.length) {
         return []
     }
-    return getSpecScopes(resolved.operation).filter((scope) => !config.scopes?.includes(scope))
+    return getSpecScopes(resolved.operation).filter((scope) => !hasScope(config.scopes ?? [], scope))
 }
 
 function reportMissingSpecScopes(name: string, yamlLabel: string, missingScopes: string[]): void {

@@ -2565,6 +2565,14 @@ describe('derived scopes and annotations', () => {
             }
         })
 
+        it('treats a write scope as covering a spec read scope', () => {
+            const lines = captureStdout()
+
+            generate(specWith('GET', [{ PersonalAPIKeyAuth: ['thing:read'] }]), { scopes: ['thing:write'] })
+
+            expect(lines.join('')).toBe('')
+        })
+
         it('skips tools whose spec declares no scopes', () => {
             const lines = captureStdout()
 
