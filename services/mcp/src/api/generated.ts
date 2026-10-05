@@ -10754,7 +10754,9 @@ export namespace Schemas {
     export interface BIValue {
       aggregation: BIAggregation;
       customExpression?: string | null;
+      display?: ChartSettingsDisplay | null;
       field: BIField;
+      formatting?: ChartSettingsFormatting | null;
       label?: string | null;
       tableCalculation?: BITableCalculation | null;
     }
