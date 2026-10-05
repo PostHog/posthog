@@ -2743,11 +2743,27 @@ export interface WatchFeedItemApi {
 }
 
 /**
+ * * `weighted-score` - weighted-score
+ * * `jev` - jev
+ */
+export type RankerEnumApi = (typeof RankerEnumApi)[keyof typeof RankerEnumApi]
+
+export const RankerEnumApi = {
+    WeightedScore: 'weighted-score',
+    Jev: 'jev',
+} as const
+
+/**
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
+    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+     *
+     * * `weighted-score` - weighted-score
+     * * `jev` - jev */
+    ranker: RankerEnumApi
 }
 
 export type VisionAlertsListParams = {
