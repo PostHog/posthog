@@ -56,6 +56,10 @@ pub struct Args {
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
+    /// Skip source map pairs without IDs when the build contains native debug IDs.
+    #[arg(long)]
+    pub skip_missing_debug_ids: bool,
+
     /// The maximum number of chunks to upload in a single batch
     #[arg(long, default_value = "50")]
     pub batch_size: usize,
@@ -119,6 +123,10 @@ pub fn upload_pairs(
         warn!(
             "--skip-on-conflict is ignored with --release-mode=event. Every chunk's content changes with each release, so skipping conflicts would leave the previous release id in place. Overwriting instead."
         );
+    }
+
+    if args.skip_missing_debug_ids {
+        pairs = skip_uninstrumented_pairs_when_native(pairs);
     }
 
     // Fingerprinting re-serializes and hashes every pair, which is not free for large
@@ -274,6 +282,36 @@ pub fn upload_pairs(
     }
 
     Ok(())
+}
+
+/// Native-debug-ID bundlers can emit a few runtime or manifest pairs without IDs. When native
+/// IDs are present, those pairs cannot be matched to runtime frames and should not prevent the
+/// instrumented pairs from uploading. Keep the existing all-or-nothing validation for directories
+/// with no native IDs, so `sourcemap upload` still catches builds that forgot injection entirely.
+fn skip_uninstrumented_pairs_when_native(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
+    let has_native_debug_ids = pairs
+        .iter()
+        .any(|pair| !pair.has_chunk_id() && pair.get_debug_id().is_some());
+    if !has_native_debug_ids {
+        return pairs;
+    }
+
+    let (uploadable, skipped): (Vec<_>, Vec<_>) = pairs
+        .into_iter()
+        .partition(|pair| pair.has_chunk_id() || pair.get_debug_id().is_some());
+    if !skipped.is_empty() {
+        warn!(
+            "Skipping {} source map pairs without a chunk ID or native debug ID",
+            skipped.len()
+        );
+        for pair in skipped {
+            debug!(
+                "Skipping {}: no chunk ID or native debug ID",
+                pair.source.inner.path.display()
+            );
+        }
+    }
+    uploadable
 }
 
 /// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
@@ -545,6 +583,7 @@ fn restore_staged(staged: &Path, path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{sourcemaps::inject::inject_pairs, utils::files::FileSelection};
+    use posthog_symbol_data::{read_symbol_data, SourceAndMap};
 
     const MAP_JSON: &str = r#"{"version":3,"sources":["a.ts"],"names":[],"mappings":""}"#;
 
@@ -777,5 +816,76 @@ mod tests {
         let uploads =
             prepare_uploads(injected, ReleaseMode::Event).expect("Failed to prepare uploads");
         assert_eq!(uploads.len(), 1);
+    }
+
+    #[test]
+    fn event_mode_uploads_native_debug_ids_without_rewriting_files() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let source = format!(
+            "console.log('hi');\n//# debugId={debug_id}\n//# sourceMappingURL=app.js.map\n"
+        );
+        let sourcemap = format!(
+            r#"{{"version":3,"sources":["app.ts"],"sourcesContent":["console.log('hi')\n"],"mappings":"AAAA,QAAQ,IAAI,IAAI","names":[],"debugId":"{debug_id}"}}"#
+        );
+        let source_path = dir.path().join("app.js");
+        let map_path = dir.path().join("app.js.map");
+        std::fs::write(&source_path, &source).expect("Failed to write entry");
+        std::fs::write(&map_path, &sourcemap).expect("Failed to write sourcemap");
+        let (runtime_path, runtime_map_path) = write_pair(dir.path(), "runtime");
+        let runtime = std::fs::read_to_string(&runtime_path).unwrap();
+        let runtime_map = std::fs::read_to_string(&runtime_map_path).unwrap();
+
+        let unfiltered_error = prepare_uploads(read_dir_pairs(dir.path()), ReleaseMode::Event)
+            .expect_err("Mixed builds stay strict unless missing IDs are explicitly skipped");
+        assert!(
+            format!("{unfiltered_error:#}").contains("Chunk ID or debug ID not found"),
+            "{unfiltered_error:#}"
+        );
+
+        let pairs = skip_uninstrumented_pairs_when_native(read_dir_pairs(dir.path()));
+        assert_eq!(pairs.len(), 1);
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("Failed to prepare native debug ID upload");
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
+        let stored: SourceAndMap =
+            read_symbol_data(&uploads[0].data).expect("Failed to read upload payload");
+        assert_eq!(stored.minified_source, source);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&stored.sourcemap)
+                .expect("Failed to parse uploaded sourcemap")["debugId"],
+            debug_id
+        );
+        assert_eq!(std::fs::read_to_string(source_path).unwrap(), source);
+        assert_eq!(std::fs::read_to_string(map_path).unwrap(), sourcemap);
+        assert_eq!(std::fs::read_to_string(runtime_path).unwrap(), runtime);
+        assert_eq!(
+            std::fs::read_to_string(runtime_map_path).unwrap(),
+            runtime_map
+        );
+    }
+
+    #[test]
+    fn upload_without_native_or_injected_ids_still_fails() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        write_pair(dir.path(), "app");
+
+        let pairs = skip_uninstrumented_pairs_when_native(read_dir_pairs(dir.path()));
+        assert_eq!(pairs.len(), 1);
+        let error = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect_err("Uninstrumented builds must still fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("While preparing files for upload"),
+            "{error:#}"
+        );
+        assert!(
+            format!("{error:#}").contains("Chunk ID or debug ID not found"),
+            "{error:#}"
+        );
     }
 }
