@@ -29,7 +29,8 @@ tools:
             idempotent: false
         title: Add persons to static cohort
         description: >-
-            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
+            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true). 'person_ids'
+            must be person UUIDs (the 'id' column of the persons table), not distinct IDs or emails.
 
 
             Intended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static
