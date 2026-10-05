@@ -33,7 +33,7 @@ export function OAuthScopeGroupControl({
             onChange={(level) => onChangeGroup(keys, level)}
             noneDisabledReason={allRequired ? `${appName} requires these permissions` : undefined}
             writeDisabledReason={anyWritable ? undefined : `Not requested by ${appName}`}
-            dataAttrPrefix="oauth-scope-group-toggle"
+            dataAttrPrefix="oauth-scope-group"
         >
             {rows.map((row) => (
                 <OAuthScopeRowControl key={row.key} row={row} appName={appName} onChange={onChangeRow} />

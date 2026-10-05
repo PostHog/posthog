@@ -25,7 +25,7 @@ interface ScopeAccessGroupProps {
     valueTooltip?: string
     /** Whether the rows show on first render. */
     defaultOpen?: boolean
-    /** Prefix of the toggle's `data-attr`, followed by the slug of the label. */
+    /** Prefix of the `data-attr`s: `<prefix>-toggle-<slug>` on the toggle, `<prefix>-<slug>-<level>` on an option. */
     dataAttrPrefix: string
     /** The rows of the group, rendered when the group is open. */
     children: ReactNode
@@ -60,7 +60,7 @@ export function ScopeAccessGroup({
                     onClick={() => setOpen(!open)}
                     aria-expanded={open}
                     aria-controls={panelId}
-                    data-attr={`${dataAttrPrefix}-${groupSlug}`}
+                    data-attr={`${dataAttrPrefix}-toggle-${groupSlug}`}
                 >
                     <IconChevronRight
                         className={clsx(
@@ -102,7 +102,12 @@ export function ScopeAccessGroup({
                                 { label: 'No access', value: 'none', disabledReason: noneDisabledReason },
                                 { label: 'Read', value: 'read', disabledReason: readDisabledReason },
                                 { label: 'Write', value: 'write', disabledReason: writeDisabledReason },
-                            ].map((option) => (option.value === value ? { ...option, tooltip: valueTooltip } : option))}
+                            ].map((option) => ({
+                                ...option,
+                                // Tells a group change apart from a row change in autocapture.
+                                'data-attr': `${dataAttrPrefix}-${groupSlug}-${option.value}`,
+                                tooltip: option.value === value ? valueTooltip : undefined,
+                            }))}
                         />
                     </div>
                 </div>

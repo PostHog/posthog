@@ -38,7 +38,7 @@ export function PersonalAPIKeyScopeGroup({
             readDisabledReason={groupDisabledReason('readDisabledReason')}
             writeDisabledReason={groupDisabledReason('writeDisabledReason')}
             defaultOpen={defaultOpen}
-            dataAttrPrefix="personal-api-key-scope-group-toggle"
+            dataAttrPrefix="personal-api-key-scope-group"
         >
             {rows.map(({ scope, value, muted, readDisabledReason, writeDisabledReason }) => (
                 <ScopeAccessRow
