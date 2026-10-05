@@ -25,6 +25,7 @@ const CLASSIFY_TIMEOUT_MS = 7000
 // so a mocked test run fails on the same inputs as a live run.
 const MAX_QUESTION_LENGTH = 2000
 const MAX_CATEGORIES = 16
+const MAX_CATEGORY_NAME_LENGTH = 100
 const MAX_DESCRIPTION_LENGTH = 500
 // Counted on the JSON text, like MAX_CONTEXT_CHARS in workflow_classifications.py.
 const MAX_CONTEXT_CHARS = 65_536
@@ -47,6 +48,9 @@ const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
     }
     if (Object.keys(categories).some((name) => !name.trim())) {
         throw new Error('Give every category a name')
+    }
+    if (Object.keys(categories).some((name) => [...name].length > MAX_CATEGORY_NAME_LENGTH)) {
+        throw new Error(`Keep category names to ${MAX_CATEGORY_NAME_LENGTH} characters or fewer`)
     }
     if (
         Object.values(categories).some(

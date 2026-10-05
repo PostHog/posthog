@@ -68,6 +68,11 @@ describe('postHogClassify', () => {
             { ...payload, categories: { ' ': 'Spam', support: 'Help' } },
             /Give every category a name/,
         ],
+        [
+            'a long category name',
+            { ...payload, categories: { ['x'.repeat(101)]: 'Spam', support: 'Help' } },
+            /category names to 100 characters or fewer/,
+        ],
         ['one category', { ...payload, categories: { spam: 'Spam' } }, /at least two categories/],
         [
             'seventeen categories',

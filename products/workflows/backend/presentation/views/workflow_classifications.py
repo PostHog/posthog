@@ -24,6 +24,7 @@ TIMEOUT_SECONDS = 5.0
 _QUESTION_ID = "category"
 # The gateway's GATEWAY_MAX_CHOICE_OPTIONS, copied because its module must stay out of Django startup.
 MAX_CATEGORIES = 16
+MAX_CATEGORY_NAME_LENGTH = 100
 # Same state limit as the ml_inference decide API, which asks the same model.
 # Keep it equal to MAX_CONTEXT_CHARS in nodejs/src/cdp/async-functions/classify.ts.
 MAX_CONTEXT_CHARS = 65_536
@@ -51,7 +52,7 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
     )
     categories = serializers.DictField(
         child=serializers.CharField(max_length=500, allow_blank=True),
-        help_text=f"Category names mapped to a short description of when each applies. 2 to {MAX_CATEGORIES} categories.",
+        help_text=f"Category names of at most {MAX_CATEGORY_NAME_LENGTH} characters mapped to a short description of when each applies. 2 to {MAX_CATEGORIES} categories.",
     )
 
     def validate_context(self, value: Any) -> Any:
@@ -64,6 +65,8 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Enter between 2 and {MAX_CATEGORIES} categories.")
         if any(not name.strip() for name in value):
             raise serializers.ValidationError("Give every category a name.")
+        if any(len(name) > MAX_CATEGORY_NAME_LENGTH for name in value):
+            raise serializers.ValidationError(f"Keep category names to {MAX_CATEGORY_NAME_LENGTH} characters or fewer.")
         return value
 
 
