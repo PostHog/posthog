@@ -92,18 +92,18 @@ def ticketmaster_source(
     path = schema_for_resource(ENDPOINTS, endpoint)
     if not config.keyword.strip():
         raise ValueError(KEYWORD_ERROR)
-    response_actions: list[ResponseAction] = [
-        *[{"status_code": status, "action": "raise", "message": message} for status, message in AUTH_ERRORS.items()],
-        *[
-            {
-                "status_code": status,
-                "action": "raise",
-                "message": f"Ticketmaster request failed (HTTP {status}). Try again.",
-            }
-            for status in range(400, 500)
-            if status not in AUTH_ERRORS and status != 429
-        ],
-    ]
+    response_actions: list[ResponseAction] = []
+    for status, message in AUTH_ERRORS.items():
+        response_actions.append({"status_code": status, "action": "raise", "message": message})
+    for status in range(400, 500):
+        if status not in AUTH_ERRORS and status != 429:
+            response_actions.append(
+                {
+                    "status_code": status,
+                    "action": "raise",
+                    "message": f"Ticketmaster request failed (HTTP {status}). Try again.",
+                }
+            )
     endpoint_config: Endpoint = {
         "path": path,
         "params": {"size": PAGE_SIZE, "keyword": config.keyword.strip(), "sort": "name,asc"},
