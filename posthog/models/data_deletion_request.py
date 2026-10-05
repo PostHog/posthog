@@ -877,8 +877,8 @@ def discover_affected_mat_columns(properties: list[str], table_column: str) -> l
     in the deletion job so verification counts a row as dirty on the same terms the deletion does — a
     value left in a materialized column after its JSON key is gone still counts.
 
-    Scoped to ``events`` deliberately, matching the deletion job; see
-    docs/internal/clickhouse-deletion-coverage.md.
+    Reads ``events`` only. The deletion job also rewrites flag_evaluations, so the admin remaining
+    count built on this does not cover rows there; see docs/internal/clickhouse-deletion-coverage.md.
     """
     if not properties:
         return []
@@ -952,7 +952,10 @@ def _property_presence_where(
 
 
 def count_remaining_property_events(request: "DataDeletionRequest") -> int:
-    """Count events that still carry any of a property-removal request's target properties."""
+    """Count events that still carry any of a property-removal request's target properties.
+
+    Counts ``events`` only, not the flag_evaluations rows the deletion job also rewrites.
+    """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
