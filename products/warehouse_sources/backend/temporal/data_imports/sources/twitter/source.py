@@ -112,7 +112,6 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
             name=ExternalDataSourceType.TWITTER,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Twitter",
-            # Twitter was rebranded to X; match the terms users now search by.
             keywords=["x", "x.com"],
             caption=(
                 "Sync one X account's profile, posts, mentions and audience. "
