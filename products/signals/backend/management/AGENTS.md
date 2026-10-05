@@ -203,7 +203,10 @@ Idempotent. It recomputes each report from its artefacts and writes only the row
 
 An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
 Those rows look like a person's pause, so the coordinator's reconcile leaves them alone.
-`resume_setup_paused_operational_scouts` resumes only operational rows paused without an attributed user within `--max-gap-seconds` (default 300) of creation.
+The setup flow paused them over MCP on the user's own session, so `status_changed_by` holds the user and cannot tell the two apart.
+`resume_setup_paused_operational_scouts` resumes only operational rows whose pause has an `mcp` activity log entry within a few seconds of `status_changed_at`.
+It leaves pauses from the UI, the system, a scout, or with no log entry alone, and prints how many paused rows each source holds.
+Pass `--max-gap-seconds` to also require that the pause landed soon after creation. It is off by default.
 It skips withheld scouts and does not go past the enabled-scout cap.
 
 ```bash
@@ -215,6 +218,23 @@ uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
 ```
 
 Idempotent. A resumed row no longer matches.
+
+## Reactivating report checks a paused scout retired
+
+Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired an `agent` check as `errored`.
+`reactivate_pause_errored_report_checks` makes such a check active and due again with a clear error count.
+A check matches only when its last result is the paused-scout refusal, its report is still resolved, and its horizon has not passed.
+If the scout is still paused, the reactivated check waits for the resume without spending errors.
+
+```bash
+# Dry run (the default): how many checks match, and the first team ids
+uv run manage.py reactivate_pause_errored_report_checks
+
+# Write, optionally for one environment
+uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
+```
+
+Idempotent. A reactivated check no longer matches.
 
 ## Tips
 

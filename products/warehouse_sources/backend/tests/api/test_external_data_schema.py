@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -1732,6 +1732,44 @@ class TestExternalDataSchema(APIBaseTest):
                 400,
                 (3, datetime(2026, 9, 26, tzinfo=UTC)),
             ),
+            (
+                "setting_a_time_moves_the_next_refresh_to_it",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 10, 1, 3, tzinfo=UTC)),
+                None,
+                time(3, 0),
+            ),
+            (
+                "resaving_the_same_time_keeps_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 9, 26, tzinfo=UTC)),
+                time(3, 0),
+                time(3, 0),
+            ),
+            (
+                "a_time_without_an_interval_is_not_stored",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                {"full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+            ),
+            (
+                "clearing_the_interval_clears_the_time",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": None, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+                time(3, 0),
+                None,
+            ),
         ]
     )
     def test_full_refresh_interval_schedules_the_next_full_refresh(
@@ -1742,6 +1780,8 @@ class TestExternalDataSchema(APIBaseTest):
         payload: dict[str, Any],
         expected_status: int,
         expected: tuple[int | None, datetime | None],
+        initial_time: time | None = None,
+        expected_time: time | None = None,
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1756,6 +1796,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=sync_type,
             sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "timestamp"},
             full_refresh_interval_days=initial_days,
+            full_refresh_time_of_day=initial_time,
             next_full_refresh_at=datetime(2026, 9, 26, tzinfo=UTC) if initial_days else None,
         )
 
@@ -1773,6 +1814,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
         assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
+        assert schema.full_refresh_time_of_day == expected_time
 
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
@@ -2981,24 +3023,37 @@ class TestUpdateExternalDataSchema:
         return stack
 
     @pytest.mark.parametrize(
-        "initial_sync_complete, prior_config",
+        "initial_sync_complete, prior_config, management_mode",
         [
-            pytest.param(False, {}, id="never_synced"),
-            pytest.param(True, {}, id="loaded_by_full_refresh"),
+            pytest.param(False, {}, "posthog", id="never_synced"),
+            pytest.param(True, {}, "posthog", id="loaded_by_full_refresh"),
             pytest.param(
                 True,
-                {"cdc_mode": "streaming", "cdc_last_log_position": "0/16B3748", "cdc_deferred_runs": [{"run": 1}]},
+                {
+                    "cdc_mode": "streaming",
+                    "cdc_last_log_position": "0/16B3748",
+                    "cdc_snapshot_lane": "buffer",
+                },
+                "posthog",
                 id="left_over_from_earlier_cdc_period",
+            ),
+            pytest.param(
+                True,
+                {"cdc_mode": "streaming", "cdc_snapshot_lane": "buffer"},
+                "self_managed",
+                id="left_over_on_a_self_managed_source",
             ),
         ],
     )
     def test_switch_to_cdc_starts_a_fresh_snapshot(
-        self, team, user, client: HttpClient, temporal, initial_sync_complete, prior_config
+        self, team, user, client: HttpClient, temporal, initial_sync_complete, prior_config, management_mode
     ):
         client.force_login(user)
-        _, schema = self._managed_cdc_source_and_full_refresh_schema(
+        source, schema = self._managed_cdc_source_and_full_refresh_schema(
             team, initial_sync_complete=initial_sync_complete, sync_type_config=prior_config
         )
+        source.job_inputs = {**source.job_inputs, "cdc_management_mode": management_mode}
+        source.save()
 
         with self._patch_cdc_switch():
             response = client.patch(
@@ -3012,7 +3067,7 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type == ExternalDataSchema.SyncType.CDC
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert "cdc_last_log_position" not in schema.sync_type_config
-        assert "cdc_deferred_runs" not in schema.sync_type_config
+        assert "cdc_snapshot_lane" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
 
     @pytest.mark.parametrize(

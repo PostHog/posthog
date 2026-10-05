@@ -28,7 +28,11 @@ import { resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
+    appendToRunLog,
+    emptyRunLog,
     extractRunArtifacts,
+    type FoldCheckpoint,
+    foldLogFromCheckpoint,
     foldLogToThread,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
@@ -275,6 +279,45 @@ describe('runStreamLogic', () => {
                 endedAt: 5000,
             })
             expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
+        })
+
+        it('folds the same thread when it resumes from the last completed turn', () => {
+            const frames: [StoredLogEntry, 'live' | 'replay'][] = [
+                [notification('_posthog/run_started', {}), 'replay'],
+                [notification('_posthog/user_message', { content: 'first question' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'slow', status: 'in_progress' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', title: 'Reading' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'first answer' } }), 'replay'],
+                [notification('_client/human_message', { content: 'queued follow-up' }), 'live'],
+                [notification('_posthog/turn_complete', { traceId: 'trace-1' }), 'live'],
+                [notification('_posthog/user_message', { content: 'queued follow-up' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { text: 'queued follow-up' } }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'completed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'second ' } }), 'live'],
+                [notification('_posthog/console', { level: 'debug', message: 'tick' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'answer' } }), 'live'],
+                [notification('_posthog/turn_complete', { traceId: 'trace-2' }), 'live'],
+                [notification('_client/human_message', { content: 'third question' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', rawOutput: 'late' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'fast', status: 'in_progress' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'third' } }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'failed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'fast', status: 'completed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'third answer' } }), 'live'],
+            ]
+            const options = { isResumeRun: false, taskId: 'task-1' }
+
+            let log = emptyRunLog()
+            let checkpoint: FoldCheckpoint | null = null
+            frames.forEach(([entry, source], index) => {
+                log = appendToRunLog(log, [
+                    { source, entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() } },
+                ])
+                const resumed = foldLogFromCheckpoint(log.entries, options, checkpoint)
+                checkpoint = resumed.checkpoint
+                expect(resumed.folded).toEqual(foldLogToThread(log.entries, options))
+            })
+            expect(checkpoint!.entries.at(-1)?.entry.notification.params).toEqual({ traceId: 'trace-2' })
         })
 
         it.each([
@@ -1142,7 +1185,7 @@ describe('runStreamLogic', () => {
     })
 
     describe('pushHumanMessage', () => {
-        it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
+        it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {
                 logic.actions.pushHumanMessage('hello agent')
                 // The agent takes the send up and echoes it, which is what places the message.
@@ -1159,6 +1202,7 @@ describe('runStreamLogic', () => {
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
+                startedAt: expect.any(Number),
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
@@ -1203,6 +1247,47 @@ describe('runStreamLogic', () => {
                     .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
                     .map((item) => item.text)
             ).toEqual(['still here', '10', 'answer to 10', '11'])
+        })
+
+        it('stops sinking a send the agent never took up once two turns closed over it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('never echoed')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'second' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['never echoed', 'first', 'second'])
+        })
+
+        it('still takes up a send that settled when its echo finally arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('late echo')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'first' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'late echo' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'at last' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['first', 'late echo', 'at last'])
         })
 
         it('leaves a send typed mid-answer below the text already streaming', async () => {

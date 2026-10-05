@@ -1,6 +1,9 @@
+import { router } from 'kea-router'
+
 import { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -29,6 +32,14 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     // Connectable, and shares the "apple" token with the unreleased `Apple` above so a search for
     // "apple" fuzzy-matches both — used to assert connectable results outrank "Coming soon" ones.
     ApplePay: { name: 'ApplePay', label: 'Apple Pay', fields: [] } as unknown as SourceConfigResponseApi,
+    // A Databases-category source, so a search for the words people use for the category itself
+    // has something to find.
+    Postgres: {
+        name: 'Postgres',
+        label: 'Postgres',
+        category: 'Databases',
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
     // Two sources in distinct categories, used to assert that a category-filtered search which only
     // matches a source in another category flags a cross-category hint instead of dead-ending.
     Salesforce: {
@@ -125,15 +136,17 @@ describe('sourceCatalogLogic', () => {
         expect(names.indexOf('ApplePay')).toBeLessThan(names.indexOf('Apple'))
     })
 
-    it('surfaces self-managed file-storage connectors when searching for a file format', () => {
-        const logic = sourceCatalogLogic()
-        logic.actions.setSearch('csv')
+    // Each of these dead-ended on "no sources match" and pushed the user to request a source we
+    // already have. "self-managed" is the name the sources list itself gives these connectors.
+    it.each(['csv', 'parquet', 'self-managed', 'self managed', 'bring your own'])(
+        'surfaces the self-managed connectors when searching for "%s"',
+        (search) => {
+            const logic = sourceCatalogLogic()
+            logic.actions.setSearch(search)
 
-        // CSV files are imported via the self-managed bucket connectors, so a "csv" search must
-        // find them instead of dead-ending on "no sources match".
-        const names = logic.values.filteredItems.map((item) => item.name)
-        expect(names).toContain('aws')
-    })
+            expect(logic.values.filteredItems.map((item) => item.name)).toContain('aws')
+        }
+    )
 
     // Fuse matches the whole search term as one pattern, so one extra word buries a term that
     // matches on its own: each of these returned nothing at all, which sent the user to "request
@@ -159,10 +172,22 @@ describe('sourceCatalogLogic', () => {
         expect(names.indexOf('google-cloud')).toBeLessThan(names.indexOf('aws'))
     })
 
-    it('flags a cross-category match when a filtered search only hits another category', () => {
+    // "database" already found these through the category name. The word in the product's own
+    // name found nothing at all, which sent the user to "request a source".
+    it.each(['warehouse', 'dwh'])('finds database sources when searching "%s"', (search) => {
         const logic = sourceCatalogLogic()
-        logic.actions.setSelectedCategory('Sales')
-        logic.actions.setSearch('Datadog')
+        logic.actions.setSearch(search)
+
+        expect(logic.values.filteredItems.map((item) => item.name)).toContain('Postgres')
+    })
+
+    it.each([
+        { category: 'Sales' as const, search: 'Datadog' },
+        { category: 'self-managed' as const, search: 'Datadog' },
+    ])('flags a cross-category match when a $category search only hits another category', ({ category, search }) => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSelectedCategory(category)
+        logic.actions.setSearch(search)
 
         // The category filter hides the only match, so the list dead-ends...
         expect(logic.values.filteredItems).toHaveLength(0)
@@ -173,6 +198,37 @@ describe('sourceCatalogLogic', () => {
         logic.actions.setSelectedCategory('all')
         expect(logic.values.filteredItems.map((item) => item.name)).toContain('Datadog')
         expect(logic.values.hasCrossCategoryMatches).toBe(false)
+    })
+
+    // No other test covers narrowing the catalog by category: `self-managed` is the one filter that
+    // narrows on the connection model rather than on `item.category`, so it needs its own coverage.
+    it('narrows the catalog to the self-managed connectors', () => {
+        const logic = sourceCatalogLogic()
+        const selfManagedCount = logic.values.catalogItems.filter((item) => item.selfManaged).length
+        expect(selfManagedCount).toBeGreaterThan(0)
+
+        expect(logic.values.categoriesWithCounts).toContainEqual({
+            category: 'self-managed',
+            label: 'Self-managed',
+            count: selfManagedCount,
+        })
+
+        logic.actions.setSelectedCategory('self-managed')
+        expect(logic.values.filteredItems).toHaveLength(selfManagedCount)
+        expect(logic.values.filteredItems.every((item) => item.selfManaged)).toBe(true)
+        expect(logic.values.selectedCategoryLabel).toEqual('Self-managed')
+    })
+
+    it('opens on the category the sources list linked to', () => {
+        const logic = sourceCatalogLogic()
+        expect(logic.values.selectedCategory).toEqual('all')
+
+        router.actions.push(urls.dataPipelinesNew('source'), { category: 'self-managed' })
+        expect(logic.values.selectedCategory).toEqual('self-managed')
+
+        // An unknown value leaves the catalog as it is rather than filtering it down to nothing.
+        router.actions.push(urls.dataPipelinesNew('source'), { category: 'not-a-category' })
+        expect(logic.values.selectedCategory).toEqual('self-managed')
     })
 
     it('clears the request text when the modal is closed', () => {
@@ -230,6 +286,18 @@ describe('sourceCatalogLogic', () => {
         const byName = Object.fromEntries(logic.values.catalogItems.map((item) => [item.name, item]))
         expect(byName.Stripe.existingSource).toBe(true)
         expect(byName.Mango.existingSource).toBeUndefined()
+    })
+
+    it('records which "Coming soon" sources the visit already asked about', () => {
+        const logic = sourceCatalogLogic()
+        const apple = logic.values.catalogItems.find((item) => item.name === 'Apple')!
+
+        logic.actions.registerInterest(apple)
+        logic.actions.registerInterest(apple)
+
+        // The tile swaps to a confirmation once it is in here, so a second entry would let the
+        // same source be registered twice.
+        expect(logic.values.registeredInterestSources).toEqual(['Apple'])
     })
 
     it('leaves the incoming webhook source out of a catalog restricted to warehouse sources', () => {

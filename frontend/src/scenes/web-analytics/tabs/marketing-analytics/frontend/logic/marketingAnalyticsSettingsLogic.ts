@@ -155,6 +155,7 @@ export interface marketingAnalyticsSettingsLogicActions {
             | 'OpenAIAds'
             | 'PinterestAds'
             | 'RedditAds'
+            | 'RoktAds'
             | 'SnapchatAds'
             | 'TikTokAds'
     }

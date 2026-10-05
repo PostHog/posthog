@@ -8,12 +8,15 @@ from parameterized import parameterized
 from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr import (
-    PAGE_SIZE,
     HuntrResumeConfig,
     huntr_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.settings import ENDPOINTS, HUNTR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.settings import (
+    ENDPOINTS,
+    HUNTR_ENDPOINTS,
+    PAGE_SIZE,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -145,6 +148,46 @@ class TestPagination:
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_endpoint_reads_bare_array_in_one_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": "t1", "name": "Hot Jobs"}, {"id": "t2", "name": "Exclusive"}])])
+
+        rows = _rows(_source(_make_manager(), "tags"))
+
+        assert rows == [{"id": "t1", "name": "Hot Jobs"}, {"id": "t2", "name": "Exclusive"}]
+        assert session.send.call_count == 1
+        assert params == [{}]
+
+
+class TestCandidateActionMetrics:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_candidates_and_explodes_action_types(self, MockSession) -> None:
+        session = MockSession.return_value
+        metrics = {"uniqueEmployersCt": 1, "totalCt": 2, "employers": [{"id": "e1", "name": "Acme", "totalCt": 2}]}
+        params = _wire(
+            session,
+            [
+                _page([{"id": "c1"}, {"id": "c2"}], next_cursor="c2"),
+                _response({"CANDIDATE_PROFILE_VIEWED": metrics, "OTHER_ACTION": {"totalCt": 5}}),
+                # Candidate deleted between the listing and the metrics fetch.
+                _response({"error": "not found"}, status=404),
+                _page([{"id": "c3"}]),
+                _response({}),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), "candidate_action_metrics"))
+
+        assert rows == [
+            {"candidate_id": "c1", "action_type": "CANDIDATE_PROFILE_VIEWED", **metrics},
+            {"candidate_id": "c1", "action_type": "OTHER_ACTION", "totalCt": 5},
+        ]
+        assert session.send.call_count == 5
+        assert params[0] == {"limit": PAGE_SIZE}
+        assert params[3] == {"limit": PAGE_SIZE, "next": "c2"}
+        assert "limit" not in params[1]
+
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
@@ -230,10 +273,6 @@ class TestHuntrSourceResponse:
     def test_source_response_shape(self, endpoint: str, MockSession) -> None:
         response = _source(_make_manager(), endpoint)
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == HUNTR_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
         assert response.partition_mode is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in HUNTR_ENDPOINTS.values())
-        assert set(HUNTR_ENDPOINTS) == set(ENDPOINTS)

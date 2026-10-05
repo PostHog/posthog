@@ -19,14 +19,16 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef, Q, QuerySet
+from django.db.models import CharField, Exists, F, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 import structlog
 from croniter import CroniterError, croniter
 
-from posthog.models.activity_logging.activity_log import Trigger
+from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
+from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import (
@@ -71,6 +73,11 @@ _CRON_SAMPLE_OCCURRENCES = 100
 
 _OPERATIONAL_RECONCILE_JOB_TYPE = "signals_scout_operational_reconcile"
 _SETUP_PAUSE_RESUME_JOB_TYPE = "signals_scout_setup_pause_resume"
+# The client the old setup flow's config writes carry in the activity log.
+SETUP_FLOW_CLIENT = "mcp"
+# The log entry is written in the same save that stamps `status_changed_at`, so the two differ by
+# milliseconds. The window only absorbs clock and transaction delay.
+_SETUP_PAUSE_LOG_WINDOW = timedelta(seconds=10)
 
 
 def cron_schedule_error(value: str) -> str | None:
@@ -557,28 +564,77 @@ def _resume_operational_config(config: SignalScoutConfig, *, max_enabled_scouts:
         )
 
 
-def setup_paused_operational_configs(*, max_gap: timedelta, team_id: int | None = None) -> QuerySet[SignalScoutConfig]:
-    """Operational scout configs that a setup flow switched off right after the seed.
+def _setup_pause_candidates(*, max_gap: timedelta | None, team_id: int | None) -> QuerySet[SignalScoutConfig]:
+    """Paused operational scout configs, each annotated with the activity log entry of its pause.
 
-    The setup flow wrote `enabled: false` through the config API without a user attribution,
-    seconds after the seed created the row. That leaves a `paused_by_user` row with no
-    `status_changed_by` and a `status_changed_at` close to `created_at`. A person's pause carries
-    an attribution, or lands long after the seed, so it does not match.
+    The entry is the `updated` log for the row within `_SETUP_PAUSE_LOG_WINDOW` of
+    `status_changed_at`. `max_gap` optionally limits the rows to pauses that landed soon after the seed.
     """
+    pause_log = ActivityLog.objects.filter(
+        team_id=OuterRef("team_id"),
+        scope="SignalScoutConfig",
+        item_id=Cast(OuterRef("pk"), output_field=CharField()),
+        activity="updated",
+        created_at__gte=OuterRef("status_changed_at") - _SETUP_PAUSE_LOG_WINDOW,
+        created_at__lte=OuterRef("status_changed_at") + _SETUP_PAUSE_LOG_WINDOW,
+    ).order_by("-created_at")
     configs = (
         SignalScoutConfig.all_teams.filter(
             skill_name__in=canonical_operational_scout_names(),
             status=SignalScoutConfig.Status.PAUSED_BY_USER,
-            status_changed_by__isnull=True,
             status_changed_at__isnull=False,
-            status_changed_at__lte=F("created_at") + max_gap,
         )
         .filter(_harness_seeded_skill_exists())
+        .annotate(
+            pause_log_exists=Exists(pause_log),
+            pause_log_client=Subquery(pause_log.values("client")[:1]),
+            pause_log_is_system=Subquery(pause_log.values("is_system")[:1]),
+        )
         .order_by("team_id", "skill_name")
     )
+    if max_gap is not None:
+        configs = configs.filter(status_changed_at__lte=F("created_at") + max_gap)
     if team_id is not None:
         configs = configs.filter(team_id=team_id)
     return configs
+
+
+def _pause_source(*, log_exists: bool, client: str | None, is_system: bool | None) -> str:
+    if not log_exists:
+        return "no_log"
+    if client == SETUP_FLOW_CLIENT:
+        return SETUP_FLOW_CLIENT
+    if client is not None and client.startswith(SCOUT_CLIENT_PREFIX):
+        return "scout"
+    if is_system:
+        return "system"
+    if client is None:
+        # The web app sends no client header, so a pause made in the UI lands here.
+        return "ui"
+    return "other"
+
+
+def setup_paused_operational_configs(
+    *, max_gap: timedelta | None = None, team_id: int | None = None
+) -> QuerySet[SignalScoutConfig]:
+    """Operational scout configs that a setup flow switched off right after the seed.
+
+    The setup flow wrote `enabled: false` through the config API over MCP, on the user's own
+    session. So the row carries the user in `status_changed_by`, the same as a manual pause. The
+    activity log entry of the pause tells them apart: only the setup flow's entry has the `mcp` client.
+    """
+    return _setup_pause_candidates(max_gap=max_gap, team_id=team_id).filter(Q(pause_log_client=SETUP_FLOW_CLIENT))
+
+
+def setup_pause_sources(*, max_gap: timedelta | None = None, team_id: int | None = None) -> Counter[str]:
+    """How many paused operational scouts each pause source holds, to show what the selection skips."""
+    rows = _setup_pause_candidates(max_gap=max_gap, team_id=team_id).values_list(
+        F("pause_log_exists"), F("pause_log_client"), F("pause_log_is_system")
+    )
+    return Counter(
+        _pause_source(log_exists=log_exists, client=client, is_system=is_system)
+        for log_exists, client, is_system in rows
+    )
 
 
 def resume_setup_paused_operational_config(config: SignalScoutConfig, *, max_enabled_scouts: int) -> bool:
@@ -596,7 +652,6 @@ def resume_setup_paused_operational_config(config: SignalScoutConfig, *, max_ena
         if (
             locked is None
             or locked.status != SignalScoutConfig.Status.PAUSED_BY_USER
-            or locked.status_changed_by_id is not None
             or locked.status_changed_at != config.status_changed_at
         ):
             return False
@@ -640,18 +695,19 @@ class ResumeSummary:
     resumed: Counter[str] = field(default_factory=Counter)
     skipped_withheld: Counter[str] = field(default_factory=Counter)
     not_resumed: Counter[str] = field(default_factory=Counter)
+    pause_sources: Counter[str] = field(default_factory=Counter)
     team_ids: list[int] = field(default_factory=list)
 
 
 def resume_setup_paused_operational_scouts(
-    *, apply: bool, team_id: int | None, batch_size: int, max_gap: timedelta
+    *, apply: bool, team_id: int | None, batch_size: int, max_gap: timedelta | None = None
 ) -> ResumeSummary:
     # One flag read for the whole run, so every team resolves its holdback and cap from one payload.
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     default_team_config = _default_team_config(payload)
 
-    summary = ResumeSummary()
+    summary = ResumeSummary(pause_sources=setup_pause_sources(max_gap=max_gap, team_id=team_id))
     seen_team_ids: set[int] = set()
     # A pk cursor rather than re-reading the first page: a row this run skips still matches.
     after_pk = None

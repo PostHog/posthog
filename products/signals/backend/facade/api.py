@@ -26,10 +26,32 @@ from products.signals.backend.artefact_schemas import (
     # notification thread without naming the relationship vocabulary itself.
     TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
 )
+from products.signals.backend.briefing_reports import (
+    IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
+    # Re-exported for the Today briefing, which ranks these reports next to other products' items.
+    BriefingReport as BriefingReport,
+    BriefingReportDetails as BriefingReportDetails,
+    BriefingReportRelation as BriefingReportRelation,
+    OpenReportCounts as OpenReportCounts,
+    open_report_counts as open_report_counts,
+    report_details as report_details,
+    reports_for_briefing as reports_for_briefing,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
+from products.signals.backend.report_metric_access import (
+    # Re-exported so the Today briefing reads report metrics with the viewer's access, as the Inbox does.
+    ReportMetricAccessPolicy as ReportMetricAccessPolicy,
+)
+from products.signals.backend.report_metrics import (
+    # Re-exported so the Today briefing can serialize metric snapshots with the inbox's vocabulary.
+    REPORT_METRIC_KINDS as REPORT_METRIC_KINDS,
+    REPORT_METRIC_ROLES as REPORT_METRIC_ROLES,
+    REPORT_METRIC_VALUE_FORMATS as REPORT_METRIC_VALUE_FORMATS,
+    ReportMetricSnapshot as ReportMetricSnapshot,
+)
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
@@ -56,6 +78,135 @@ logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+
+def is_scout_trial_task(*, team_id: int, task_id: uuid.UUID) -> bool:
+    return (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .exists()
+    )
+
+
+def is_scout_trial_task_run(*, team_id: int, task_id: uuid.UUID, task_run_id: uuid.UUID) -> bool:
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(task_run_id=task_run_id, task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .first()
+    )
+    if run is None:
+        return False
+    marker = (run.metadata or {})["scout_trial"]
+    launch_id = marker.get("launch_id")
+    return (
+        isinstance(launch_id, str)
+        and run.task_run.task.origin_product == "signals_scout"
+        and run.task_run.task.origin_key == f"scout-trial:{launch_id}"
+        and (run.task_run.state or {}).get("scout_trial") == marker
+    )
+
+
+def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) -> bool:
+    from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoids loading evaluation storage for ordinary tasks
+        _assert_worker_access,
+        _read_trial_judge_input,
+    )
+
+    if not isinstance(marker, dict) or type(marker.get("version")) is not int or marker["version"] != 1:
+        return False
+    if type(marker.get("user_id")) is not int or marker["user_id"] != user_id:
+        return False
+    identifiers: dict[str, uuid.UUID] = {}
+    for key in (
+        "evaluation_id",
+        "launch_id",
+        "context_id",
+        "source_task_id",
+        "source_task_run_id",
+        "source_scout_run_id",
+    ):
+        value = marker.get(key)
+        if not isinstance(value, str):
+            return False
+        try:
+            identifiers[key] = uuid.UUID(value)
+        except ValueError:
+            return False
+        if str(identifiers[key]) != value:
+            return False
+    snapshot = _read_trial_judge_input(team_id, identifiers["evaluation_id"], identifiers["launch_id"])
+    if snapshot is None or snapshot.user_id != user_id or snapshot.context_id != identifiers["context_id"]:
+        return False
+    _assert_worker_access(snapshot)
+    evidence = next((run for run in snapshot.runs if run.launch_id == identifiers["launch_id"]), None)
+    if evidence is None or (
+        evidence.task_id != identifiers["source_task_id"]
+        or evidence.task_run_id != identifiers["source_task_run_id"]
+        or evidence.run_id != identifiers["source_scout_run_id"]
+        or evidence.execution_status != "completed"
+        or evidence.exclusion_reason is not None
+    ):
+        return False
+    source = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(
+            id=identifiers["source_scout_run_id"],
+            task_run_id=identifiers["source_task_run_id"],
+            task_run__task_id=identifiers["source_task_id"],
+            task_run__team_id=team_id,
+            task_run__task__team_id=team_id,
+            task_run__task__created_by_id=user_id,
+            task_run__task__deleted=False,
+            task_run__task__origin_product="signals_scout",
+            task_run__task__origin_key=f"scout-trial:{marker['launch_id']}",
+            task_run__status="completed",
+            metadata__scout_trial__version=1,
+            metadata__scout_trial__launch_id=marker["launch_id"],
+            metadata__scout_trial__context_id=marker["context_id"],
+        )
+        .first()
+    )
+    if source is None or (source.task_run.state or {}).get("scout_trial") != (source.metadata or {}).get("scout_trial"):
+        return False
+    private_state = (source.task_run.state or {}).get("scout_trial_private")
+    return not isinstance(private_state, dict) or not private_state.get("invalid_reason")
+
+
+@frozen
+class ScoutTrialSkill:
+    name: str
+    version: int
+    body: str = dataclasses.field(repr=False)
+
+
+def get_scout_trial_skill_override(*, team_id: int, task_id: uuid.UUID) -> ScoutTrialSkill | None:
+    from products.signals.backend.scout_harness.trial_launch import (
+        read_trial_launch,  # noqa: PLC0415 -- trial tools import the shared Signals facade
+    )
+
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .first()
+    )
+    if run is None:
+        return None
+    marker = (run.metadata or {})["scout_trial"]
+    launch_id = marker.get("launch_id")
+    if (
+        not isinstance(launch_id, str)
+        or run.task_run.task.origin_product != "signals_scout"
+        or run.task_run.task.origin_key != f"scout-trial:{launch_id}"
+        or (run.task_run.state or {}).get("scout_trial") != marker
+    ):
+        return None
+    launch = read_trial_launch(team_id, launch_id)
+    if launch.skill_name != run.skill_name or launch.skill_version != run.skill_version:
+        return None
+    return ScoutTrialSkill(name=launch.skill_name, version=launch.skill_version, body=launch.skill_body)
 
 
 @dataclasses.dataclass(frozen=True)

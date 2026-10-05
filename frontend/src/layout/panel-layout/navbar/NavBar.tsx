@@ -2,8 +2,7 @@ import './NavBar.scss'
 
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
 
@@ -22,7 +21,6 @@ import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { urls } from 'scenes/urls'
 
 import {
     NavExperimentTab,
@@ -37,7 +35,10 @@ import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearch
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
+import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
+import { postHogTeamCohortBannerLogic } from './postHogTeamCohortBannerLogic'
 import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
+import { navProductsTabLogic } from './tabs/navProductsTabLogic'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 import { NavTabFiles } from './tabs/NavTabFiles'
 import { NavTabProducts } from './tabs/NavTabProducts'
@@ -112,6 +113,7 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
 ]
 
 export function NavBar(): JSX.Element {
+    useMountedLogic(navProductsTabLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         toggleLayoutNavCollapsed,
@@ -134,6 +136,7 @@ export function NavBar(): JSX.Element {
     const { toggleCommand } = useActions(commandLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
     const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
+    const { bannerVisible: isCohortBannerVisible } = useValues(postHogTeamCohortBannerLogic)
     const isOverlayOpen = isSimpleSidepanelEnabled && isNavCollapsed && isNavOverlayOpen
     const isLayoutNavCollapsed = isNavCollapsed && !isOverlayOpen
     const isFlatNavEnabled = useFeatureFlag('FLAT_NAV', 'test')
@@ -260,9 +263,6 @@ export function NavBar(): JSX.Element {
                                                 is_open: isOpening,
                                             })
                                             handlePanelTriggerClick('Chat')
-                                            if (isOpening) {
-                                                router.actions.push(urls.ai())
-                                            }
                                         }}
                                     >
                                         <span
@@ -303,9 +303,6 @@ export function NavBar(): JSX.Element {
                         if (isSimpleSidepanelEnabled) {
                             clearActivePanelIdentifier()
                             showLayoutPanel(false)
-                        }
-                        if (value === 'chat') {
-                            router.actions.push(urls.ai())
                         }
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
@@ -427,6 +424,12 @@ export function NavBar(): JSX.Element {
                     <div className={cn('p-1', !isSimpleSidepanelEnabled && isLayoutNavCollapsed && 'hidden')}>
                         <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
                     </div>
+                    {/* The collapsed nav hides the footer without the simple side panel, so the reminder renders here instead. */}
+                    {!isSimpleSidepanelEnabled && isLayoutNavCollapsed && isCohortBannerVisible && (
+                        <div className="flex justify-center p-1">
+                            <PostHogTeamCohortBanner isCollapsed />
+                        </div>
+                    )}
                 </Tabs.Root>
                 {!isMobileLayout && !isOverlayOpen && (
                     <Resizer

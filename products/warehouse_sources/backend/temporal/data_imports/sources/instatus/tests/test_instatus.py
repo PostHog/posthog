@@ -141,27 +141,35 @@ class TestPagesEndpoint:
 
 
 class TestFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, url_suffix",
+        [
+            ("components", "components"),
+            # Schema names use underscores, but the API path is hyphenated.
+            ("generic_notices", "generic-notices"),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_pages_and_injects_page_id(self, MockSession):
+    def test_fans_out_over_pages_and_injects_page_id(self, MockSession, endpoint, url_suffix):
         session = MockSession.return_value
         urls, _ = _wire(
             session,
             [
                 _response([{"id": "p1"}, {"id": "p2"}]),  # /v2/pages page 1
-                _response([{"id": "c1"}]),  # /v1/p1/components page 1
-                _response([]),  # /v1/p1/components page 2 (stop)
-                _response([{"id": "c2"}]),  # /v1/p2/components page 1
-                _response([]),  # /v1/p2/components page 2 (stop)
+                _response([{"id": "c1"}]),  # /v1/p1/<endpoint> page 1
+                _response([]),  # /v1/p1/<endpoint> page 2 (stop)
+                _response([{"id": "c2"}]),  # /v1/p2/<endpoint> page 1
+                _response([]),  # /v1/p2/<endpoint> page 2 (stop)
                 _response([]),  # /v2/pages page 2 (stop)
             ],
         )
 
-        rows = _rows(_source("components", _make_manager()))
+        rows = _rows(_source(endpoint, _make_manager()))
 
         # page_id injected so the composite [page_id, id] key stays unique table-wide.
         assert rows == [{"id": "c1", "page_id": "p1"}, {"id": "c2", "page_id": "p2"}]
-        assert "https://api.instatus.com/v1/p1/components" in urls
-        assert "https://api.instatus.com/v1/p2/components" in urls
+        assert f"https://api.instatus.com/v1/p1/{url_suffix}" in urls
+        assert f"https://api.instatus.com/v1/p2/{url_suffix}" in urls
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_fan_out_at_saved_parent_and_page(self, MockSession):
@@ -271,6 +279,8 @@ class TestInstatusSourceResponse:
             ("templates", "createdAt"),
             ("incidents", "started"),
             ("maintenances", "start"),
+            ("outages", "createdAt"),
+            ("generic_notices", "createdAt"),
             ("subscribers", None),
             ("metrics", None),
         ],

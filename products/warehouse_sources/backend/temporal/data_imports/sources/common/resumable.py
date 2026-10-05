@@ -14,6 +14,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
@@ -88,7 +89,7 @@ class ResumableSourceManager(Generic[ResumableData]):
             try:
                 parsed_data = json.loads(data)
             except Exception as e:
-                raise ValueError(f"Failed to load resumable data: {data}") from e
+                raise ValueError("Failed to load resumable data") from e
 
         # Fields the running code does not know come from state a newer deploy wrote. Dropping
         # them makes a rollback a cache miss; passing them through raises TypeError and fails
@@ -120,9 +121,12 @@ class ResumableSourceManager(Generic[ResumableData]):
         Nothing reaches Redis until commit(), which the pipeline calls right after a write lands.
         A source with nothing outstanding stages inside committing(), which commits at block end.
         """
-        json_data = self._dump_json(data)
-        self._logger.debug(f"Staging resumable source state. key={self._key}, data={json_data}")
-        self._staged[self._key] = json_data
+        # No log here: a source can stage on every row, and commit() logs each cursor that persists.
+        self._staged[self._key] = self._dump_json(data)
+
+    def has_staged_state(self) -> bool:
+        """Whether the next `commit` will write anything."""
+        return bool(self._staged)
 
     def commit(self) -> None:
         """Persist every staged cursor, across namespaces."""
@@ -130,7 +134,7 @@ class ResumableSourceManager(Generic[ResumableData]):
             return
         with self._get_redis() as redis_client:
             for key, json_data in list(self._staged.items()):
-                self._logger.debug(f"Saving resumable source state. key={key}, data={json_data}")
+                self._logger.debug(f"Saving resumable source state. key={key}")
                 self._write_with_stale_replica_retry(
                     redis_client,
                     functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
@@ -148,6 +152,17 @@ class ResumableSourceManager(Generic[ResumableData]):
             yield
         finally:
             self.commit()
+
+    def safe_point(self) -> None:
+        """Mark a point where resuming from the staged cursor loses no rows.
+
+        Call it only when every row the staged cursor covers has been yielded, and the source holds
+        none of them in a local buffer. The pipeline can then hand the run to another worker during a
+        shutdown, or commit the cursor when nothing is waiting to be written. A source that makes many
+        requests that return no rows needs this, because the pipeline otherwise acts only when an
+        item arrives. See `safe_point.py`.
+        """
+        reach_safe_point()
 
     def clear_state(self) -> None:
         """Drop any saved resume state so a subsequent attempt starts from scratch.
@@ -174,7 +189,7 @@ class ResumableSourceManager(Generic[ResumableData]):
                 self._logger.debug(f"No resumable source state found. key={self._key}")
                 return None
 
-            self._logger.debug(f"Loading resumable source state. key={self._key}, data={data}")
+            self._logger.debug(f"Loading resumable source state. key={self._key}")
             return self._load_json(data)
 
 
