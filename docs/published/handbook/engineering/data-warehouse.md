@@ -242,3 +242,18 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+## Connected fields in BI mode
+
+Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
+Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
+fields and further links appear without section headings.
+
+Drag connected fields onto a shelf, double-click them, or press Enter or Space to add dimensions to Rows and measures to Values.
+Measures are aggregated automatically. The worksheet keeps its original source table and uses the full
+connection path in queries and shelf labels, such as `person.company.name`.
+Connections expand on demand, including repeated links to the same table. Search filters the fields
+inside expanded connections, and a failed field load has a Retry button.
+Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
+Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
+not include their field types or nested link definitions, so these connections do not infer measures or further links.

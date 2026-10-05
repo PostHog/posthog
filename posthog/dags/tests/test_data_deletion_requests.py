@@ -30,6 +30,7 @@ from posthog.dags.data_deletion_requests import (
     HogQLEventRemovalContext,
     PersonRemovalContext,
     PropertyRemovalTarget,
+    _cleaned_select_list,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
     _ShardStaging,
@@ -1027,6 +1028,39 @@ def test_auto_approve_schedule_launches_a_run_on_tick():
 # ---------------------------------------------------------------------------
 
 PROP_TEAM_ID = 88888
+
+
+def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
+    client = Mock(spec=Client)
+    client.execute.return_value = [
+        ("properties", "String"),
+        ("person_properties", "String"),
+        ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
+        ("_timestamp", "DateTime"),
+    ]
+    request = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=PROP_TEAM_ID,
+        start_time=datetime.now() - timedelta(days=1),
+        end_time=datetime.now(),
+        events=["$pageview"],
+        properties=["$ip"],
+        person_properties=["email"],
+    )
+
+    cleaned = _cleaned_select_list(
+        client,
+        request,
+        PropertyRemovalTarget(table="sharded_events", shard=1, json_schema=False),
+        [],
+        "2026-10-05 13:03:36.419459",
+    )
+
+    assert "CAST(JSONDropKeysPool(properties, %(keys)s) AS String) AS `properties`" in cleaned.expressions
+    assert (
+        "CAST(JSONDropKeysPool(person_properties, %(person_keys)s) AS String) AS `person_properties`"
+        in cleaned.expressions
+    )
 
 
 def _insert_events_with_properties(events: list[tuple], client: Client) -> None:
