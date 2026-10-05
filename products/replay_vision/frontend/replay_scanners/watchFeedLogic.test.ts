@@ -41,7 +41,10 @@ describe('watchFeedLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadFeed', 'loadFeedSuccess']).toFinishAllListeners()
         expect(logic.values.feedItems).toHaveLength(2)
         expect(new URL(feedSpy.mock.calls[0][0].request.url).searchParams.get('date_from')).toBe('-7d')
+        // A response without a ranker (an older API) reads as the default arm.
+        expect(logic.values.feedRanker).toBe('weighted-score')
 
+        feedSpy.mockImplementation(() => [200, { results: [item('o1', 'jev_watchable')], ranker: 'jev' }])
         await expectLogic(logic, () => {
             logic.actions.setScannerTypeFilter('monitor')
         })
@@ -49,6 +52,8 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(lastUrl.searchParams.get('scanner_type')).toBe('monitor')
+        // The response names the ranker, which picks the card layout.
+        expect(logic.values.feedRanker).toBe('jev')
 
         await expectLogic(logic, () => {
             logic.actions.setDateRange('-30d', null)
