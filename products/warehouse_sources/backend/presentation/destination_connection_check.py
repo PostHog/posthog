@@ -1,4 +1,6 @@
+import socket
 import tempfile
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import StrEnum
@@ -60,6 +62,30 @@ def _ssl_root_cert_path(ssl_root_cert: str) -> Iterator[str]:
         yield cert_file.name
 
 
+@contextmanager
+def _query_deadline(connection: psycopg.Connection, timeout_seconds: float) -> Iterator[None]:
+    """Interrupt libpq's socket if an untrusted server ignores the statement timeout."""
+
+    def _interrupt() -> None:
+        try:
+            interrupt_socket = socket.socket(fileno=connection.pgconn.socket)
+            try:
+                interrupt_socket.shutdown(socket.SHUT_RDWR)
+            finally:
+                # The request thread owns libpq's descriptor and closes it after the query unwinds.
+                interrupt_socket.detach()
+        except Exception:
+            pass
+
+    timer = threading.Timer(timeout_seconds, _interrupt)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+
+
 def check_postgres_destination(integration: Integration, config: dict[str, str] | None) -> None:
     """Connect to the destination with a short timeout and check that a writer can create tables.
 
@@ -92,9 +118,10 @@ def check_postgres_destination(integration: Integration, config: dict[str, str] 
                 sslrootcert=ssl_root_cert,
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,
                 options=f"-c statement_timeout={STATEMENT_TIMEOUT_MILLISECONDS}",
+                autocommit=True,
                 **host_kwargs,
             ) as connection:
-                with connection.cursor() as cursor:
+                with _query_deadline(connection, CONNECT_TIMEOUT_SECONDS), connection.cursor() as cursor:
                     cursor.execute("SELECT 1")
                     cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = %s)", (schema,))
                     schema_row = cursor.fetchone()

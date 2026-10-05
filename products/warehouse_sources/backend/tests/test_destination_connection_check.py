@@ -1,3 +1,4 @@
+import socket
 from contextlib import contextmanager
 from typing import Any
 
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
     FAILURE_MESSAGES,
     CheckFailure,
     DestinationConnectionCheckError,
+    _query_deadline,
     check_postgres_destination,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
@@ -41,6 +43,26 @@ def _connection(*, fetches: list[tuple[Any, ...] | None], execute_error: Excepti
     return connection
 
 
+def test_query_deadline_interrupts_the_connection_socket() -> None:
+    connection = MagicMock()
+    connection.pgconn.socket = 42
+    timer = MagicMock()
+
+    with (
+        patch(f"{MODULE}.threading.Timer", return_value=timer) as timer_constructor,
+        patch(f"{MODULE}.socket.socket") as socket_constructor,
+        _query_deadline(connection, 5),
+    ):
+        timer_constructor.call_args.args[1]()
+
+    timer_constructor.assert_called_once_with(5, timer_constructor.call_args.args[1])
+    timer.start.assert_called_once_with()
+    timer.cancel.assert_called_once_with()
+    socket_constructor.assert_called_once_with(fileno=42)
+    socket_constructor.return_value.shutdown.assert_called_once_with(socket.SHUT_RDWR)
+    socket_constructor.return_value.detach.assert_called_once_with()
+
+
 class TestCheckPostgresDestination:
     def test_a_usable_destination_passes(self) -> None:
         connection = _connection(fetches=[(True,), (True,)])
@@ -59,6 +81,7 @@ class TestCheckPostgresDestination:
         assert connect.call_args.kwargs["hostaddr"] == "203.0.113.10"
         assert connect.call_args.kwargs["connect_timeout"] == 5
         assert connect.call_args.kwargs["options"] == "-c statement_timeout=5000"
+        assert connect.call_args.kwargs["autocommit"] is True
         statements = [call.args[0] for call in connection.cursor_mock.execute.call_args_list]
         assert "has_schema_privilege" in statements[-1]
 
