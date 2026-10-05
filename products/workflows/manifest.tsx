@@ -43,11 +43,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Send a one-time or scheduled email to a group of people',
         },
+        WorkflowsEmailDomain: {
+            import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
+            name: 'Workflows',
+            iconType: 'workflows',
+            projectBased: true,
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
         '/workflows': ['Workflows', 'workflows'],
         '/workflows/:tab': ['Workflows', 'workflows'],
+        '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -70,6 +77,7 @@ export const manifest: ProductManifest = {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
         workflowNew: (): string => '/workflows/new/workflow',
+        workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
         workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
         workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',

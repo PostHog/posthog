@@ -7,16 +7,14 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { DomainConnectProviderName } from '~/queries/schema/schema-general'
 
+import type { EmailDomainConnectCheckApi } from 'products/integrations/frontend/generated/api.schemas'
+
 export interface DomainConnectProvider {
     endpoint: string
     name: DomainConnectProviderName
 }
 
-export interface DomainConnectInfo {
-    supported: boolean
-    provider_name: DomainConnectProviderName | null
-    available_providers: DomainConnectProvider[]
-}
+export type DomainConnectInfo = EmailDomainConnectCheckApi
 
 export interface DomainConnectLogicProps {
     /** Unique key to prevent state sharing between instances (not `key` because React strips it) */
@@ -115,13 +113,13 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
         providerName: [
             (s) => [s.domainConnectInfo],
             (info: DomainConnectInfo | null): DomainConnectProviderName | null => {
-                return info?.provider_name ?? null
+                return (info?.provider_name as DomainConnectProviderName | null) ?? null
             },
         ],
         availableProviders: [
             (s) => [s.domainConnectInfo],
             (info: DomainConnectInfo | null): DomainConnectProvider[] => {
-                return info?.available_providers ?? []
+                return (info?.available_providers as DomainConnectProvider[] | undefined) ?? []
             },
         ],
         hasAnyOption: [
