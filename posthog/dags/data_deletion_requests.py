@@ -1315,12 +1315,11 @@ def delete_property_removal_shard(
             log("skip", "delete already finished")
             return steps[_DELETED]["rows"]
         if _COPIED not in steps:
-            copied = _copy_property_removal_target(
-                client, deletion_request, target, marker_str, hogql_compiled, staging, log
+            raise dagster.Failure(
+                description=f"[{target.mapping_key}] staged copy is missing. Re-execute the copy step before "
+                "the delete step. Nothing was deleted."
             )
-            steps[_COPIED] = copied
-        else:
-            copied = steps[_COPIED]
+        copied = steps[_COPIED]
 
         staged = staging.count_staged_uuids(client, sorted(copied["months"]))
         if staged != copied["months"]:

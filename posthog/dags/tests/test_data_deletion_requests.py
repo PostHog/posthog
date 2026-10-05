@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from typing import NoReturn
 from uuid import UUID, uuid4
 
 import pytest
@@ -2124,7 +2125,7 @@ def test_full_job_property_removal_counts_duplicate_uuids_once(cluster: Clickhou
 
 
 @pytest.mark.django_db
-def test_reexecuting_the_failed_shard_steps_completes_failed_request(cluster: ClickhouseCluster):
+def test_reexecuting_after_partial_delete_restores_every_row(cluster: ClickhouseCluster):
     now = datetime.now()
     props = json.dumps({"secret": "value", "keep": "yes"})
     events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(20)]
@@ -2133,11 +2134,22 @@ def test_reexecuting_the_failed_shard_steps_completes_failed_request(cluster: Cl
     request = _property_removal_request(start_time=now - timedelta(days=7))
     run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
 
-    with patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed")):
+    deleted_uuid = events[0][2]
+
+    def partially_delete_then_fail(runner: LightweightDeleteMutationRunner, client: Client) -> NoReturn:
+        client.execute(
+            f"DELETE FROM {django_settings.CLICKHOUSE_DATABASE}.{runner.table} WHERE uuid = %(uuid)s",
+            {"uuid": deleted_uuid},
+            settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+        )
+        raise Exception("delete-originals failed after deleting one row")
+
+    with patch.object(LightweightDeleteMutationRunner, "__call__", partially_delete_then_fail):
         failed = data_deletion_request_property_removal.execute_in_process(
             run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
         )
     assert not failed.success
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 19
     request.refresh_from_db()
     assert request.status == RequestStatus.FAILED
 
@@ -2205,8 +2217,9 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
         assert "copied" in cluster.any_host(staging.finished_steps).result()
         return
 
-    # Re-executing from the failed delete does not rerun the upstream copy op, so delete rebuilds
-    # the discarded copy while it is still safe to do so.
+    # The pre-delete mismatch invalidated the copy marker. Re-run the copy op explicitly before
+    # retrying the delete; the delete op never writes or replaces staged data.
+    copy_property_removal_shard(build_op_context(), cluster, target, ctx)
     delete_property_removal_shard(build_op_context(), cluster, target, ctx)
     assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 0
 
