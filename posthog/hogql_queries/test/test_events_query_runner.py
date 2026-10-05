@@ -35,6 +35,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 
 from posthog.clickhouse.client import sync_execute
+from posthog.date_util import start_of_day
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.event.util import events_only_in_active_schema
@@ -1501,9 +1502,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_flag_evaluations_list_stops_at_the_retention_window(self, _name: str, after: str):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self._insert_flag_evaluation("recent-user", uuid.uuid4())
-        # The UTC start of the day FLAG_EVALUATIONS_TTL_DAYS before the frozen clock below.
         self._insert_flag_evaluation(
-            "first-retained-day-user", uuid.uuid4(), timestamp=datetime(2019, 10, 13, tzinfo=UTC)
+            "first-retained-day-user",
+            uuid.uuid4(),
+            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)),
         )
         self._insert_flag_evaluation(
             "expired-user", uuid.uuid4(), timestamp=FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 30)
