@@ -16,10 +16,17 @@ from posthog.models.team.team import Team
 
 
 def email_domain_flag(*, organization_id: str | None = None, distinct_id: str | None = None) -> Callable[..., bool]:
-    def feature_enabled(key: str, flag_distinct_id: str, groups: Mapping[str, str] | None = None, **_kwargs) -> bool:
-        return key == "workflows-email-domain-agent-setup" and (
-            (groups or {}).get("organization") == organization_id or flag_distinct_id == distinct_id
-        )
+    def feature_enabled(
+        key: str,
+        flag_distinct_id: str,
+        groups: Mapping[str, str] | None = None,
+        group_properties: Mapping[str, Mapping[str, str]] | None = None,
+        **_kwargs,
+    ) -> bool:
+        organization_matches = (groups or {}).get("organization") == organization_id and (group_properties or {}).get(
+            "organization", {}
+        ).get("id") == organization_id
+        return key == "workflows-email-domain-agent-setup" and (organization_matches or flag_distinct_id == distinct_id)
 
     return feature_enabled
 

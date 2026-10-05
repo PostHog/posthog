@@ -63,7 +63,7 @@ class EmailIntegration:
 
     @classmethod
     def create_native_integration(
-        cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
+        cls, config: dict[str, Any], team_id: int, organization_id: str, created_by: User | None = None
     ) -> model.Integration:
         shares_domain_label = cls._shares_domain_label_for(Team.objects.get(id=team_id), created_by)
         domain_access: AbstractContextManager[None] = (
@@ -76,7 +76,13 @@ class EmailIntegration:
 
     @classmethod
     def _create_native_integration(
-        cls, config: dict, team_id: int, organization_id: str, created_by: User | None, *, shares_domain_label: bool
+        cls,
+        config: dict[str, Any],
+        team_id: int,
+        organization_id: str,
+        created_by: User | None,
+        *,
+        shares_domain_label: bool,
     ) -> model.Integration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
@@ -186,11 +192,11 @@ class EmailIntegration:
             )
         return domain_subdomain
 
-    def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
+    def update_native_integration(self, config: dict[str, Any], team_id: int) -> model.Integration:
         with self._domain_guard():
             return self._update_native_integration(config)
 
-    def _update_native_integration(self, config: dict) -> model.Integration:
+    def _update_native_integration(self, config: dict[str, Any]) -> model.Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
