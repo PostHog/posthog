@@ -32,115 +32,15 @@ def _uuid7_token(age_seconds: float) -> str:
 
 
 class TestCheckPipelineVersionActivity:
-    @pytest.mark.parametrize(
-        "ff_enabled, expected_is_v3",
-        [
-            (False, False),
-            (True, True),
-        ],
-        ids=["v2", "v3"],
-    )
-    @patch(f"{MODULE}.is_pipeline_v3_enabled")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_returns_ff_result(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_v3_check: MagicMock,
-        ff_enabled: bool,
-        expected_is_v3: bool,
-    ) -> None:
-        mock_source = MagicMock()
-        mock_source.source_type = "Stripe"
-        mock_source_model.objects.get.return_value = mock_source
-        mock_v3_check.return_value = ff_enabled
-
+    # Pre-patch workflow histories still schedule this activity. It must answer V3 without a
+    # database read, so a replayed run never asks for the removed V2 pipeline.
+    @pytest.mark.parametrize("schema_id", [None, SCHEMA_ID], ids=["legacy_payload", "with_schema"])
+    def test_always_returns_v3(self, schema_id: uuid.UUID | None) -> None:
         result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID)
-        )
-
-        assert result.is_v3 is expected_is_v3
-        mock_v3_check.assert_called_once_with(TEAM_ID, "Stripe")
-
-    @pytest.mark.parametrize(
-        "cdc_mode, expected_is_v3",
-        [
-            ("streaming", True),
-            ("snapshot", False),
-        ],
-        ids=["consumer_forces_v3", "snapshot_follows_flag"],
-    )
-    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=False)
-    @patch(f"{MODULE}.ExternalDataSchema")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_buffered_cdc_consumption_overrides_the_flag(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_schema_model: MagicMock,
-        _mock_v3_check: MagicMock,
-        cdc_mode: str,
-        expected_is_v3: bool,
-    ) -> None:
-        schema = MagicMock()
-        schema.is_cdc = True
-        schema.cdc_mode = cdc_mode
-        schema.cdc_table_mode = "consolidated"
-        schema.initial_sync_complete = True
-        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = schema
-        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
-        )
-
-        assert result.is_v3 is expected_is_v3
-
-    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=True)
-    @patch(f"{MODULE}.ExternalDataSchema")
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_a_missing_schema_row_falls_back_to_the_flag(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-        mock_schema_model: MagicMock,
-        _mock_v3_check: MagicMock,
-    ) -> None:
-        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = None
-        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
+            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=schema_id)
         )
 
         assert result.is_v3 is True
-
-    @patch(f"{MODULE}.ExternalDataSource")
-    @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.bind_contextvars")
-    def test_source_not_found_returns_not_v3(
-        self,
-        _bind: MagicMock,
-        _close: MagicMock,
-        mock_source_model: MagicMock,
-    ) -> None:
-        mock_source_model.DoesNotExist = type("DoesNotExist", (Exception,), {})
-        mock_source_model.objects.get.side_effect = mock_source_model.DoesNotExist
-
-        result = check_pipeline_version_activity(
-            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID)
-        )
-
-        assert result.is_v3 is False
 
 
 class TestAcquireV3PipelineLockActivity:

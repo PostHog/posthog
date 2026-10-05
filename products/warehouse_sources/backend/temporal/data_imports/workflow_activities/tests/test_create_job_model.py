@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     SourceOrSchemaDeletedError,
+    V2PipelineRemovedError,
     V3PipelineLockLostError,
     _build_schema_snapshot,
     _create_job,
@@ -238,7 +239,7 @@ class TestCreateJob:
                 team_id=team.id,
                 source_id=schema.source_id,
                 schema_id=schema.id,
-                pipeline_version=ExternalDataJob.PipelineVersion.V2,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
                 billable=True,
                 schema_snapshot={},
             )
@@ -255,8 +256,9 @@ class TestCreateJobActivityStatusOrdering:
     # job behind it can never be finalized, so it stays stuck on Running forever and blocks cancel.
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}._create_job", side_effect=OperationalError("insert failed"))
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
     def test_schema_not_left_running_when_job_creation_fails(
-        self, _mock_create: MagicMock, _mock_close_connections: MagicMock
+        self, _mock_verify_lock: MagicMock, _mock_create: MagicMock, _mock_close_connections: MagicMock
     ) -> None:
         team = _team()
         schema = _schema(team, None)
@@ -275,6 +277,22 @@ class TestCreateJobActivityStatusOrdering:
 
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
+
+    # A replayed pre-patch history can still ask for a V2 job. The V2 pipeline is gone, so the
+    # run must fail before it creates a job row that no pipeline can run.
+    @patch(f"{MODULE}.close_old_connections")
+    def test_a_v2_request_fails_without_creating_a_job(self, _mock_close_connections: MagicMock) -> None:
+        team = _team()
+        schema = _schema(team, None)
+
+        with pytest.raises(V2PipelineRemovedError):
+            create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=False
+                )
+            )
+
+        assert not ExternalDataJob.objects.filter(schema_id=schema.id).exists()
 
     @parameterized.expand([("broken", "cdc_broken"), ("paused", "cdc_extraction_paused")])
     @patch(f"{MODULE}.close_old_connections")
@@ -435,8 +453,10 @@ class TestCreateJobActivityDeletedSourceOrSchema:
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.delete_external_data_schedule")
     @patch(f"{MODULE}._create_job")
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
     def test_integrity_error_on_insert_is_treated_as_the_same_race(
         self,
+        _mock_verify_lock: MagicMock,
         mock_create_job: MagicMock,
         mock_delete_schedule: MagicMock,
         _mock_close_connections: MagicMock,
