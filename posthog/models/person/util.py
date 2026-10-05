@@ -1009,6 +1009,9 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
 
     A missing person gets a tombstone at the floor and a live row comes back LIVE unchanged; each batch
     commits on its own, is safe to repeat, and returns results in request order.
+    Publish a ClickHouse tombstone at the returned version for every result that is not LIVE, because the
+    drain removes only tombstones the sweep finds in ClickHouse; a retry can report its own insert as
+    TOMBSTONE_AT_FLOOR.
     """
 
     def personhog_fn() -> list[PersonVersionFloorResult]:

@@ -1423,6 +1423,9 @@ export const PersonVersionFloorSchema: GenMessage<PersonVersionFloor> =
  * EnsurePersonVersionFloorsRequest raises each person tombstone to at least min_version, so a
  * later revival by ingestion lands above it; a missing person gets a tombstone, a live row is
  * left unchanged, and no version is lowered. One transaction per request.
+ * The caller publishes a ClickHouse tombstone at the returned version for every result that is not LIVE,
+ * because the drain removes only tombstones the sweep finds in ClickHouse; a retried call can report its
+ * own committed insert as TOMBSTONE_AT_FLOOR.
  *
  * @generated from message personhog.types.v1.EnsurePersonVersionFloorsRequest
  */
