@@ -188,7 +188,10 @@ Reconciliation pages the durable staged keys and reads each page's full survivin
 Only bounded key pages enter Python, not event payloads.
 
 Each page contains at most 1,000 keys, or the configured `max_rows_in_set` when that limit is smaller.
-The code also splits pages using a conservative byte estimate.
+The code also splits pages using a conservative byte estimate and a 32 KiB key-literal budget.
+Key literals share the query-size limit with the source predicate and request keys.
+ClickHouse still rejects an oversized query.
+Membership scan failures retain the ClickHouse error code but omit error details that can contain bound identifiers.
 Queries keep synchronous distributed inserts, the 30-minute query limit, the 2 GiB memory limit, and the set limits of one million entries or 256 MiB.
 ClickHouse throws if a page still exceeds a limit, including a single oversized key.
 Paging lets a request contain more keys than one set permits without truncation or higher limits.

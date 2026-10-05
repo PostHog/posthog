@@ -248,6 +248,13 @@ def removes_account_group_property(cluster: ClickhouseCluster, team_id: int, pro
 
 class MembershipReconciliation:
     class _Query(_RedactedQuery):
+        def __call__(self, client: Client) -> list[tuple]:
+            try:
+                return super().__call__(client)
+            except ServerException as exc:
+                # ClickHouse errors can echo bound identifiers in application logs.
+                raise ServerException("Membership query failed", code=exc.code) from None
+
         def __repr__(self) -> str:
             return Query.__repr__(replace(self, parameters=dict.fromkeys(self.parameters or {}, "[REDACTED]")))
 
@@ -287,6 +294,8 @@ class MembershipReconciliation:
         row_limit = int(QUERY_SETTINGS["max_rows_in_set"])
         byte_limit = int(QUERY_SETTINGS["max_bytes_in_set"])
         page_size = min(1000, row_limit) if row_limit else 1000
+        # Key literals share the query-size budget with the source predicate and its request keys.
+        batch_limit = min(32 * 1024, byte_limit // 2) if byte_limit else 32 * 1024
         after: tuple | None = None
         while True:
             parameters: dict[str, object] = {"page_size": page_size}
@@ -319,7 +328,7 @@ class MembershipReconciliation:
                     previous = key
                     # Leave space for the set's string offsets and hash entries. ClickHouse still enforces its limit.
                     key_bytes = len(group_key.encode()) + len(distinct_id.encode()) + 128
-                    if batch and byte_limit and batch_bytes + key_bytes > byte_limit // 2:
+                    if batch and batch_bytes + key_bytes > batch_limit:
                         yield {"membership_team_id": team, "membership_index": index, "membership_keys": batch}
                         batch = []
                         batch_bytes = 0

@@ -74,13 +74,15 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
             ("native_rows", True, 2, 64),
             ("legacy_bytes", False, 100, 20000),
             ("native_bytes", True, 100, 20000),
+            ("legacy_query_size", False, 1000, 1000, 200, 256 * 1024**2),
+            ("native_query_size", True, 1000, 1000, 200, 256 * 1024**2),
         ]
     )
     def test_pages_membership_before_scanning_and_rebuilds_full_history(
-        self, _name: str, native: bool, row_limit: int, key_length: int
+        self, _name: str, native: bool, row_limit: int, key_length: int, key_count: int = 7, byte_limit: int = 65536
     ) -> None:
         self._select_schema(native)
-        keys = [(f"account-{i}-" + "x" * key_length, f"member-{i}") for i in range(7)]
+        keys = [(f"account-{i:04d}-" + "x" * key_length, f"member-{i}") for i in range(key_count)]
         events = []
         for i, (key, did) in enumerate(keys):
             for day in [5] if i == 0 else [0, 5, 12]:
@@ -119,7 +121,10 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
             + [(self.team.pk + 2000000, 0, keys[0][0], keys[0][1], self.start, self.start)]
         )
         sources = [(self.source, self.native, "team_id = %(team_id)s AND event = 'delete'", {"team_id": self.team.pk})]
-        with patch.dict(QUERY_SETTINGS, {"max_rows_in_set": str(row_limit), "max_bytes_in_set": "65536"}):
+        with patch.dict(
+            QUERY_SETTINGS,
+            {"max_rows_in_set": str(row_limit), "max_bytes_in_set": str(byte_limit), "max_query_size": "262144"},
+        ):
             self.reconciliation.stage(
                 [
                     (
@@ -131,7 +136,7 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
                 ]
             )
             self.reconciliation.stage(sources)
-            assert sync_execute(f"SELECT count() FROM {self.reconciliation.read_table}") == [(7,)]
+            assert sync_execute(f"SELECT count() FROM {self.reconciliation.read_table}") == [(key_count,)]
             sync_execute(
                 f"DELETE FROM {self.storage} WHERE team_id = %(team_id)s AND event = 'delete'",
                 {"team_id": self.team.pk},
@@ -147,6 +152,37 @@ class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
         assert sync_execute(
             f"SELECT count() FROM {PERSON_GROUP_MEMBERSHIP_TABLE} WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk + 2000000},
+        ) == [(1,)]
+
+    def test_parser_failure_keeps_source_rows_and_redacts_identifiers(self) -> None:
+        self._select_schema(False)
+        identifier = "private@example.com"
+        group_key = identifier + "x" * 64000
+        self._insert_events(
+            [
+                (
+                    self.team.pk,
+                    "delete",
+                    uuid4(),
+                    self.start,
+                    identifier,
+                    uuid4(),
+                    json.dumps({"$group_0": group_key}),
+                    self.start,
+                )
+            ]
+        )
+        self._insert_membership([(self.team.pk, 0, group_key, identifier, self.start, self.start)])
+        with (
+            patch.dict(QUERY_SETTINGS, {"max_query_size": "4096"}),
+            self.assertLogs(level="INFO") as logs,
+            self.assertRaises(ServerException) as error,
+        ):
+            self.reconciliation.stage([(self.source, False, "team_id = %(team_id)s", {"team_id": self.team.pk})])
+        assert error.exception.code == 62
+        assert identifier not in "\n".join(logs.output)
+        assert sync_execute(
+            f"SELECT count() FROM {self.source} WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
         ) == [(1,)]
 
     @parameterized.expand([("legacy", False), ("native", True)])
