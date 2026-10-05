@@ -7,6 +7,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.models import Team
 
 HAS_SPANS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
@@ -20,12 +21,16 @@ class HasSpansQueryRunner:
         query = parse_select("SELECT 1 FROM posthog.trace_spans LIMIT 1")
         assert isinstance(query, ast.SelectQuery)
 
-        response = execute_hogql_query(
-            query_type="HasSpansQuery",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="HasSpansQuery",
+                query=query,
+                team=self.team,
+                workload=Workload.LOGS,
+            )
+        except CHQueryErrorUnknownTable:
+            # A logs cluster without the span tables simply has no spans yet.
+            return False
 
         return len(response.results) > 0
 
