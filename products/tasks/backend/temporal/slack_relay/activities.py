@@ -122,7 +122,13 @@ class _SlackChunkPacker:
         Every chunk repeats the fence pair, so it comes out of that chunk's own budget.
         A break lands on a line boundary when one falls inside the remaining room.
         """
-        room = max(1, self._limit - len(fence_open) - len(fence_close))
+        overhead = len(fence_open) + len(fence_close)
+        room = self._limit - overhead
+        if room < overhead:
+            # Repeating fences that cost more than the body would amplify a long
+            # language label. Plain-text packing keeps output growth bounded.
+            self._pack_lines(body)
+            return
         cursor = 0
         while cursor < len(body):
             end = min(cursor + room, len(body))

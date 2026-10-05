@@ -786,7 +786,7 @@ class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
         assert result == text
 
 
-class TestSplitTextForSlack(TestCase):
+class TestSplitTextForSlack(unittest.TestCase):
     # The splitter takes its limit from the caller and behaves the same at any size, so these
     # cases use a small one to keep the fixtures small. Production passes the markdown block cap.
     _LIMIT = 3500
@@ -837,6 +837,21 @@ class TestSplitTextForSlack(TestCase):
             assert chunk.endswith("\n```")
             assert chunk.count("```") == 2
             assert len(chunk) <= self._LIMIT
+
+    def test_fence_overhead_near_limit_does_not_amplify(self):
+        # This label leaves fewer than 100 body characters per chunk, so 5,000
+        # characters would otherwise expand into more than 50 repeated fenced chunks.
+        # The fallback avoids repeating the oversized label around every chunk.
+        long_label = "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN - 100)
+        body = "y" * 5000
+        text = f"```{long_label}\n{body}\n```"
+        chunks = _split_markdown_for_slack(text, SLACK_MARKDOWN_TEXT_MAX_LEN)
+        # Plain-text packing keeps this to a small number of chunks.
+        assert len(chunks) < 50
+        for chunk in chunks:
+            assert len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN
+        # Plain text, no fences since the available body room is below fence overhead.
+        assert all("```" not in chunk for chunk in chunks)
 
     def test_mixed_text_and_code_block_preserves_block(self):
         prefix = "intro paragraph\n\n"
