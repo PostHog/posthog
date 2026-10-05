@@ -225,7 +225,15 @@ function mergeWithExisting(
     tag: string,
     validOperationIds: Set<string>,
     subset = false
-): { content: string; added: number; removed: number; updated: number; matched: number; unmatchedTools: string[] } {
+): {
+    content: string
+    added: number
+    removed: number
+    updated: number
+    matched: number
+    unmatchedTools: string[]
+    lostEnabledTools: string[]
+} {
     const parsed = parseYaml(fs.readFileSync(existingPath, 'utf-8'))
     const result = CategoryConfigSchema.safeParse(parsed)
     if (!result.success) {
@@ -245,6 +253,7 @@ function mergeWithExisting(
     let updated = 0
     let matched = 0
     const unmatchedTools: string[] = []
+    const lostEnabledTools: string[] = []
 
     // Preserve hand-authored config (enabled, scopes, descriptions, etc.) per tool.
     // Tool order itself is normalized alphabetically below — see `sortedTools`.
@@ -267,6 +276,10 @@ function mergeWithExisting(
             // different tag/URL space) but warn so missing tags get noticed
             mergedTools[name] = { ...config }
             unmatchedTools.push(`${name} (${config.operation})`)
+        } else if (config.enabled) {
+            // Dropping an enabled tool would silently remove it from the MCP server.
+            mergedTools[name] = { ...config }
+            lostEnabledTools.push(`${name} (${config.operation})`)
         } else {
             unmatchedTools.push(`${name} (${config.operation})`)
             removed++
@@ -278,8 +291,10 @@ function mergeWithExisting(
         const existingBaseIds = new Set(Object.values(existingTools).map((c) => c.operation.replace(/_\d+$/, '')))
         for (const op of ops) {
             const base = op.operationId.replace(/_\d+$/, '')
-            if (!existingBaseIds.has(base)) {
-                mergedTools[operationIdToToolName(op.operationId)] = {
+            const toolName = operationIdToToolName(op.operationId)
+            // A kept enabled tool with a lost operation can share this name. Do not overwrite it.
+            if (!existingBaseIds.has(base) && !(toolName in mergedTools)) {
+                mergedTools[toolName] = {
                     operation: op.operationId,
                     enabled: false,
                 }
@@ -314,6 +329,7 @@ function mergeWithExisting(
         updated,
         matched,
         unmatchedTools,
+        lostEnabledTools,
     }
 }
 
@@ -404,7 +420,7 @@ function syncAll(spec: OpenApiSpec): void {
         }
         const label = path.relative(REPO_ROOT, filePath)
         const validIds = new Set(rawOps.map((op) => op.operationId))
-        const { content, added, removed, updated, matched, unmatchedTools } = mergeWithExisting(
+        const { content, added, removed, updated, matched, unmatchedTools, lostEnabledTools } = mergeWithExisting(
             filePath,
             ops,
             product,
@@ -437,6 +453,16 @@ function syncAll(spec: OpenApiSpec): void {
             for (const tool of unmatchedTools) {
                 process.stderr.write(`    - ${tool}\n`)
             }
+        }
+        if (lostEnabledTools.length > 0) {
+            process.stderr.write(
+                `  ✗ ${lostEnabledTools.length} enabled tool(s) reference an operationId that no longer exists in OpenAPI. ` +
+                    `Fix "operation:" or set "enabled: false" / remove the tool:\n`
+            )
+            for (const tool of lostEnabledTools) {
+                process.stderr.write(`    - ${tool}\n`)
+            }
+            process.exitCode = 1
         }
     }
 

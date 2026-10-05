@@ -1717,10 +1717,11 @@ function generateCategoryFile(
         }
         const resolved = findOperation(spec, config.operation)
         if (!resolved) {
-            console.warn(
-                `Warning: operationId "${config.operation}" not found in OpenAPI for tool "${name}" — skipping`
+            console.error(
+                `Enabled tool "${name}": operationId "${config.operation}" not found in OpenAPI. ` +
+                    `The operationId no longer exists. Fix "operation:" in the tool's YAML, or set "enabled: false" / remove the tool.`
             )
-            continue
+            process.exit(1)
         }
         enabledTools.push([name, config as EnabledToolConfig, resolved])
     }
