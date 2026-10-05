@@ -26,7 +26,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
 
 /** What is known about the selected job. Steps are not synced yet, so the job is the deepest level. */
 export function CIExplorerJobPanel({ job, run }: { job: WorkflowJobApi; run: WorkflowRun }): JSX.Element {
-    const { repoOwner, repoName, sourceId, focusLevels } = useValues(ciExplorerLogic)
+    const { repoOwner, repoName, sourceId, focusLevels, focusedJobFailure } = useValues(ciExplorerLogic)
     const { setFocus } = useActions(ciExplorerLogic)
 
     return (
@@ -61,6 +61,11 @@ export function CIExplorerJobPanel({ job, run }: { job: WorkflowJobApi; run: Wor
                     <Row label="Estimated cost">{compactUsd(job.estimated_cost_usd)}</Row>
                 )}
             </dl>
+            {focusedJobFailure && (
+                <pre className="m-0 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-fill-error-tertiary p-3 font-mono text-xs text-danger">
+                    {focusedJobFailure.lines.map((line) => line.text).join('\n')}
+                </pre>
+            )}
             {run.runId !== null && (
                 <div className="flex flex-wrap gap-2">
                     <LemonButton

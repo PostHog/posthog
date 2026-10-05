@@ -35,6 +35,7 @@ import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 import { CIExplorerJobPanel } from './CIExplorerJobPanel'
 import { CIExplorerLegend } from './CIExplorerLegend'
 import { CIExplorerTile } from './CIExplorerTile'
+import { CIExplorerTooltip } from './CIExplorerTooltip'
 
 const NO_NODES: Node[] = []
 const NO_EDGES: Edge[] = []
@@ -258,6 +259,7 @@ function CIExplorerCanvasContent(): JSX.Element {
                         ))}
                     </div>
                 </ViewportPortal>
+                <CIExplorerTooltip stage={stage} />
                 {(focusLevels.length > 0 || pastOverview) && (
                     <Panel position="top-left">
                         <LemonButton

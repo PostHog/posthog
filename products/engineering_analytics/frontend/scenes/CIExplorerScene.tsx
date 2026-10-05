@@ -11,6 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CIExplorerCanvas } from '../components/ciExplorer/CIExplorerCanvas'
+import { CIExplorerShare } from '../components/ciExplorer/CIExplorerShare'
 import { CIExplorerTrail } from '../components/ciExplorer/CIExplorerTrail'
 import { EntityHeader } from '../components/EntityHeader'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
@@ -115,8 +116,9 @@ export function CIExplorerScene(): JSX.Element {
             ) : (
                 <>
                     <CIExplorerTrail />
+                    <CIExplorerShare />
                     {/* The canvas takes the height the header leaves, and no less than a readable minimum. */}
-                    <div className="h-[calc(100vh-18rem)] min-h-96 overflow-hidden rounded-lg border border-primary">
+                    <div className="h-[calc(100vh-22rem)] min-h-96 overflow-hidden rounded-lg border border-primary">
                         <CIExplorerCanvas />
                     </div>
                 </>
