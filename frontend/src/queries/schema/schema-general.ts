@@ -5526,6 +5526,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     intents?: ProductKey[]
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
+    /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {
