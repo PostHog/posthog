@@ -391,6 +391,7 @@ function AnnotationsPopover({
             onClickOutside={closePopover}
             showArrow
             padded={false}
+            overflowHidden
             overlay={
                 <LemonModal
                     inline
@@ -411,7 +412,7 @@ function AnnotationsPopover({
                     width="var(--annotations-popover-width)"
                 >
                     {popoverAnnotations.length > 0 ? (
-                        <ul className="flex flex-col gap-2 w-full overflow-y-auto">
+                        <ul className="flex flex-col gap-2 w-full">
                             {popoverAnnotations.map((annotation) => (
                                 <AnnotationCard key={annotation.id} annotation={annotation} />
                             ))}
