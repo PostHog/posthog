@@ -26,7 +26,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
 )
-from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError, SyntaxError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
@@ -301,6 +301,10 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         runner = get_query_runner(query_node, Team.objects.get(pk=team_id))
         query = clone_expr(runner.to_query(), clear_locations=True)
         return query
+    except ExposedHogQLError as e:
+        if e.start is None or e.end is None:
+            e.start, e.end = node.start, node.end
+        raise
     except Exception as e:
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
 

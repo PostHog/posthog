@@ -30,7 +30,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -1384,6 +1384,18 @@ class TestResolver(BaseTest):
             ],
         )
         assert clone_expr(node, clear_types=True) == expected
+
+    @parameterized.expand(
+        [
+            ("select_clause", "select <picture />", 7, 18),
+            ("from_clause", "select 1 from <img />", 14, 21),
+        ]
+    )
+    def test_visit_hogqlx_unknown_tag_raises_exposed_syntax_error(self, _name, query, start, end):
+        with self.assertRaises(SyntaxError) as context:
+            resolve_types(parse_select(query), self.context, dialect="clickhouse")
+        assert "Unknown tag" in str(context.exception)
+        assert (context.exception.start, context.exception.end) == (start, end)
 
     def test_visit_hogqlx_object(self):
         node = self._select("select {'key': {'key': 'value'}}")
