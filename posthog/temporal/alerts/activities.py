@@ -87,6 +87,7 @@ from posthog.temporal.alerts.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import get_metric_meter
 
+from products.access_control.backend.facade.api import UserNotOrganizationMemberError
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
@@ -110,6 +111,10 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
+
+ALERT_CREATOR_NOT_MEMBER_MESSAGE = (
+    "The alert owner is no longer a member of this organization. Recreate the alert to make yourself the owner."
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -720,6 +725,18 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     },
                 )
                 error = {"message": str(err), "traceback": traceback.format_exc()}
+        except UserNotOrganizationMemberError as err:
+            # The creator left the organization, so their property restrictions are unknown. The
+            # check fails on every run until someone else owns the alert, so do not capture it.
+            logger.warning("alerts.evaluate.creator_not_member", alert_id=alert.id)
+            report_creator_access_revoked(
+                user=alert.created_by,
+                team=alert.team,
+                source="alert",
+                error=err,
+                properties={"alert_id": str(alert.id), "insight_id": alert.insight_id},
+            )
+            error = {"message": ALERT_CREATOR_NOT_MEMBER_MESSAGE}
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
