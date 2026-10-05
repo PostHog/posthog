@@ -2282,7 +2282,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // is disabled (not left to fail as a query error) when it can't, and the caption knows
         // whether evidence is the stamped-property fallback. A Postgres-only read on the backend.
         actions.loadInSessionExposure()
-        actions.loadLinkedScanners()
+        // Only the vision entry point renders the watching-scanners card, so don't spend the lookup
+        // for everyone else who opens this tab without the flag.
+        if (values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {
+            actions.loadLinkedScanners()
+        }
 
         // The mode persists, so a tab reopened in a bucket needs its session set again.
         if (values.sessionBucketRequest) {
