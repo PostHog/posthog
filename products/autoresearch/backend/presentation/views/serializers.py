@@ -1593,6 +1593,21 @@ class MaterializeFeaturesResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="The numeric feature column names (excludes distinct_id, __label, __fold).",
     )
+    elapsed_s = serializers.FloatField(
+        help_text=(
+            "Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql "
+            "over the whole inference population on every cadence, so a slow query here is slow there too."
+        )
+    )
+    rows_read = serializers.IntegerField(help_text="Rows ClickHouse read to materialize the matrix.")
+    bytes_read = serializers.IntegerField(help_text="Bytes ClickHouse read to materialize the matrix.")
+    hints = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Advice on the cost of features_sql. A hint does not block the materialization or the upload, "
+            "but a champion whose features.sql cannot score today's population in time is not promoted."
+        ),
+    )
 
 
 # ── Artifact bundle serializers ─────────────────────────────────────────────
