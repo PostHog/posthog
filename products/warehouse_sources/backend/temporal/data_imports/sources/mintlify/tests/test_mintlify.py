@@ -244,3 +244,38 @@ def test_project_id_cannot_change_request_path(
     assert url.netloc == "api.mintlify.com"
     assert url.path == "/v1/analytics/example%2Fother%3Flimit%3D5%23fragment/feedback"
     assert parse_qs(url.query)["limit"] == ["100"]
+
+
+def test_source_adapter_delegates_to_mintlify_transport(config: MintlifySourceConfig) -> None:
+    source = MintlifySource()
+    inputs = MagicMock(
+        schema_name="assistant_conversations",
+        team_id=1,
+        job_id="job",
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-01-01T00:00:00Z",
+    )
+    manager = source.get_resumable_source_manager(inputs)
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.source.validate_credentials",
+        return_value=(True, None),
+    ) as validate:
+        assert source.validate_credentials(config, 1, "feedback") == (True, None)
+        validate.assert_called_once_with(config, "feedback")
+
+    expected = MagicMock()
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.source.mintlify_source",
+        return_value=expected,
+    ) as build_source:
+        assert source.source_for_pipeline(config, manager, inputs) is expected
+        build_source.assert_called_once_with(
+            config=config,
+            endpoint_name="assistant_conversations",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
