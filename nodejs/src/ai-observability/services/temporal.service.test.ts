@@ -63,6 +63,8 @@ describe('TemporalService', () => {
     })
 
     afterEach(() => {
+        jest.useRealTimers()
+        jest.restoreAllMocks()
         jest.clearAllMocks()
     })
 
@@ -382,7 +384,18 @@ describe('TemporalService', () => {
                 ],
                 workflowId: 'llma-session-eval-eval-123-ai-session-9',
             },
-        ])('starts one workflow for $name', async ({ target, units, workflowId }) => {
+        ])('starts one workflow for $name until the dedup window ends', async ({ target, units, workflowId }) => {
+            // lru-cache reads the clock through the performance object it captured at import. Fake
+            // timers replace that global object, so only a spy on the method moves the cache clock.
+            // The fake timers still have to run, because lru-cache holds each clock reading until a
+            // timer clears it.
+            let now = performance.now()
+            jest.spyOn(performance, 'now').mockImplementation(() => now)
+            jest.useFakeTimers({ doNotFake: ['performance'] })
+            const advanceClock = (ms: number): void => {
+                now += ms
+                jest.advanceTimersByTime(ms)
+            }
             const starts = () =>
                 units.map(
                     ({ uuid, traceId, aiSessionId }) =>
@@ -406,6 +419,16 @@ describe('TemporalService', () => {
             const calls = (mockClient.workflow.start as jest.Mock).mock.calls
             expect(calls).toHaveLength(1)
             expect(calls[0][1].workflowId).toEqual(workflowId)
+
+            const [repeatStart] = starts()
+            advanceClock(40_000)
+            await repeatStart()
+            expect(calls).toHaveLength(1)
+
+            advanceClock(40_000)
+            await repeatStart()
+            expect(calls).toHaveLength(2)
+            expect(calls[1][1].workflowId).toEqual(workflowId)
         })
 
         it('rethrows non-dedup start failures and lets the next start retry', async () => {
