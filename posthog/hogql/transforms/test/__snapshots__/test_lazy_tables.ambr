@@ -346,6 +346,20 @@
   LIMIT 50000
   '''
 # ---
+# name: TestLazyJoins.test_resolve_qualified_lazy_table_as_select_table
+  '''
+  
+  SELECT posthog__persons.id AS id, posthog__persons.properties___email AS email 
+  FROM (
+    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS posthog__persons 
+  LIMIT 50000
+  '''
+# ---
 # name: TestLazyJoins.test_select_count_from_lazy_table
   '''
   

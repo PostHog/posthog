@@ -82,6 +82,12 @@ class TestLazyJoins(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_resolve_qualified_lazy_table_as_select_table(self):
+        printed = self._print_select("select id, properties.email from posthog.persons")
+        self._assert_matches_snapshot(printed)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_table_as_table_in_join(self):
         printed = self._print_select(
             "select event, distinct_id, events.person_id, persons.properties.email from events left join persons on persons.id = events.person_id limit 10"

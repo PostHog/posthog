@@ -100,7 +100,7 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
             self.team,
         ).results
 
-        # Unaliased, the lazy-table pass keys each table by its printed name, so the two names must not collide.
+        # The saved-query shape that reads the legacy and the current table together.
         both_names = execute_hogql_query(
             f"""
             SELECT cohort_membership.person_id FROM cohort_membership

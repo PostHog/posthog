@@ -113,11 +113,9 @@ class CohortMembership(CohortPeople):
     """`cohort_people` under its legacy name, so saved queries written against the removed
     realtime `cohort_membership` table keep resolving.
 
-    It must be a subclass, not `CohortPeople()` registered under a second key: the lazy-table pass
-    finds an unaliased table by `to_printed_hogql()`, which must match the name the query used."""
+    It is a subclass so `person_id` keeps the legacy UUID type, which makes the resolver trim
+    and canonicalize UUID literals compared to it."""
 
-    # A UUID type makes the resolver trim and canonicalize UUID literals compared to `person_id`,
-    # as saved queries on the legacy table expect.
     fields: dict[str, FieldOrTable] = {
         **COHORT_PEOPLE_FIELDS,
         "person_id": UUIDDatabaseField(
