@@ -67,17 +67,14 @@ const descriptions: Record<string, string> = {
 export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'AI gateway',
     'Apps',
+    'Autoresearch',
     'Broadcasts',
     'Business knowledge',
     'Engineering analytics',
     'Identity matching',
-    'Links',
-    'Live Debugger',
     'Product tours',
     'Pulse',
-    'User research',
     'Visual review',
-    'Wizard',
 ])
 
 const examples: Record<string, string> = {
@@ -113,8 +110,6 @@ const examples: Record<string, string> = {
     Evaluations: 'Check whether AI responses meet your quality criteria.',
     'Identity matching': 'Review how identities connect across your data.',
     Inbox: 'Review a report about friction discovered in user sessions.',
-    Links: 'Create a trackable link for a new campaign.',
-    'Live Debugger': 'Inspect the state of running code when a breakpoint fires.',
     Logs: 'Search application logs around the time an error occurred.',
     'MCP analytics': 'See which tools AI users call and what they are trying to achieve.',
     'MCP servers': 'Find a server that gives your agent the tools it needs.',
@@ -131,10 +126,8 @@ const examples: Record<string, string> = {
     Tasks: 'Ask an agent to investigate an issue and prepare a code change.',
     Toolbar: 'Inspect elements on your website while setting up tracking.',
     Tracing: 'Follow a slow request across services to find the bottleneck.',
-    'User research': 'Run a voice research campaign about a recent product experience.',
     'Visual review': 'Review visual changes before they reach users.',
     'Web scripts': 'Add a website tag without changing your application code.',
-    Wizard: 'Review the code changes an agent prepares to set up PostHog.',
     Workflows: 'Send a follow-up when someone completes an onboarding step.',
     Actions: 'Combine related clicks into a single event for analysis.',
     Annotations: 'Mark a release date to help explain a change in a chart.',

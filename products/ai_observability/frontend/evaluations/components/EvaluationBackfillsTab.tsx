@@ -489,23 +489,14 @@ export function EvaluationBackfillsTab({
                                         <span>
                                             {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
                                             {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
-                                            {pluralize(
-                                                backfill.rerun_existing
-                                                    ? backfillTotalCount(backfill)
-                                                    : backfill.total_count,
-                                                backfill.target
-                                            )}
+                                            {pluralize(backfill.total_count, backfill.target)}
                                             {backfill.rerun_existing
                                                 ? ' in range'
                                                 : " that hadn't been evaluated when the backfill began"}
+                                            {lateArrivals > 0 &&
+                                                `, plus ${lateArrivals.toLocaleString('en-US')} that arrived during the run`}
                                         </span>
                                     </div>
-                                    {lateArrivals > 0 && (
-                                        <div className="text-muted">
-                                            {pluralize(lateArrivals, backfill.target)} arrived in this range after the
-                                            backfill started, so it covered more than the first count found.
-                                        </div>
-                                    )}
                                     {liveCovered > 0 && (
                                         <div className="text-muted">
                                             {pluralize(liveCovered, backfill.target)}{' '}

@@ -533,6 +533,32 @@ const loopsRunsRetrieve = (): ToolBase<
     },
 })
 
+const TasksConfigAgentInstructionsCreateSchema = () => {
+    const TasksConfigAgentInstructionsCreateBody = orvalSchemas.TasksConfigAgentInstructionsCreateBody()
+    return TasksConfigAgentInstructionsCreateBody
+}
+
+const tasksConfigAgentInstructionsCreate = (): ToolBase<
+    ReturnType<typeof TasksConfigAgentInstructionsCreateSchema>,
+    Schemas.TasksAgentInstructions
+> => ({
+    name: 'tasks-config-agent-instructions-create',
+    schema: TasksConfigAgentInstructionsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksConfigAgentInstructionsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.agent_instructions !== undefined) {
+            body['agent_instructions'] = params.agent_instructions
+        }
+        const result = await context.api.request<Schemas.TasksAgentInstructions>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/config/agent_instructions/`,
+            body,
+        })
+        return result
+    },
+})
+
 const TasksConfigCreateSchema = () => {
     const TasksConfigCreateBody = orvalSchemas.TasksConfigCreateBody()
     return TasksConfigCreateBody
@@ -780,6 +806,35 @@ const tasksList = (): ToolBase<
     },
 })
 
+const TasksMeConfigAgentInstructionsCreateSchema = () => {
+    const TasksMeConfigAgentInstructionsCreateBody = orvalSchemas.TasksMeConfigAgentInstructionsCreateBody()
+    return TasksMeConfigAgentInstructionsCreateBody
+}
+
+const tasksMeConfigAgentInstructionsCreate = (): ToolBase<
+    ReturnType<typeof TasksMeConfigAgentInstructionsCreateSchema>,
+    Schemas.TasksAgentInstructions
+> => ({
+    name: 'tasks-me-config-agent-instructions-create',
+    schema: TasksMeConfigAgentInstructionsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof TasksMeConfigAgentInstructionsCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.agent_instructions !== undefined) {
+            body['agent_instructions'] = params.agent_instructions
+        }
+        const result = await context.api.request<Schemas.TasksAgentInstructions>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/@me/config/agent_instructions/`,
+            body,
+        })
+        return result
+    },
+})
+
 const TasksMeConfigCreateSchema = () => {
     const TasksMeConfigCreateBody = orvalSchemas.TasksMeConfigCreateBody()
     return TasksMeConfigCreateBody
@@ -815,10 +870,7 @@ const tasksMeConfigCreate = (): ToolBase<
     },
 })
 
-const TasksMeConfigListSchema = () => {
-    const TasksMeConfigListQueryParams = orvalSchemas.TasksMeConfigListQueryParams()
-    return TasksMeConfigListQueryParams
-}
+const TasksMeConfigListSchema = () => z.object({})
 
 const tasksMeConfigList = (): ToolBase<
     ReturnType<typeof TasksMeConfigListSchema>,
@@ -826,15 +878,11 @@ const tasksMeConfigList = (): ToolBase<
 > => ({
     name: 'tasks-me-config-list',
     schema: TasksMeConfigListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksMeConfigListSchema>>) => {
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof TasksMeConfigListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.TasksUserConfigResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/@me/config/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
         })
         return result
     },
@@ -902,6 +950,12 @@ const tasksRunCreate = (): ToolBase<ReturnType<typeof TasksRunCreateSchema>, Sch
             'title',
             'description',
             'repository',
+            'run.id',
+            'run.stage',
+            'run.status',
+            'run.scheduled_at',
+            'run.model',
+            'run.reasoning_effort',
             'latest_run.id',
             'latest_run.stage',
             'latest_run.status',
@@ -1033,11 +1087,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-retrieve': loopsRetrieve,
     'loops-run-create': loopsRunCreate,
     'loops-runs-retrieve': loopsRunsRetrieve,
+    'tasks-config-agent-instructions-create': tasksConfigAgentInstructionsCreate,
     'tasks-config-create': tasksConfigCreate,
     'tasks-config-list': tasksConfigList,
     'tasks-create': tasksCreate,
     'tasks-create-and-run': tasksCreateAndRun,
     'tasks-list': tasksList,
+    'tasks-me-config-agent-instructions-create': tasksMeConfigAgentInstructionsCreate,
     'tasks-me-config-create': tasksMeConfigCreate,
     'tasks-me-config-list': tasksMeConfigList,
     'tasks-models-retrieve': tasksModelsRetrieve,

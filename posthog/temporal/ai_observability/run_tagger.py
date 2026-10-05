@@ -5,6 +5,7 @@ from typing import Any
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import BaseModel, Field
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
@@ -18,7 +19,7 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
 from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.errors import (
@@ -27,8 +28,10 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -49,6 +52,7 @@ LLM_TAGGER_RETRY_POLICY = RetryPolicy(
 
 TAGGER_DISABLED_ERROR_TYPE = "tagger_disabled"
 TAGGER_PARSE_ERROR_TYPE = "tagger_parse_error"
+TAGGER_REQUEST_REJECTED_ERROR_TYPE = "tagger_request_rejected"
 # model_resolution is shared with evaluations, so the tagger types its skip reasons on the way out.
 MODEL_RESOLUTION_SKIP_ERROR_TYPES = {
     "provider_key_required": "tagger_provider_key_required",
@@ -57,7 +61,12 @@ MODEL_RESOLUTION_SKIP_ERROR_TYPES = {
 }
 # RunTaggerWorkflow turns these into a skipped result, so they must stay out of error tracking.
 SKIPPED_RESULT_ERROR_TYPES = frozenset(
-    {TAGGER_DISABLED_ERROR_TYPE, TAGGER_PARSE_ERROR_TYPE, *MODEL_RESOLUTION_SKIP_ERROR_TYPES.values()}
+    {
+        TAGGER_DISABLED_ERROR_TYPE,
+        TAGGER_PARSE_ERROR_TYPE,
+        TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+        *MODEL_RESOLUTION_SKIP_ERROR_TYPES.values(),
+    }
 )
 
 
@@ -208,9 +217,9 @@ class ExecuteTaggerInputs:
         }
 
 
-async def _resolve_model(model_configuration: dict[str, Any] | None, team_id: int) -> ResolvedModel:
+def _resolve_model(model_configuration: dict[str, Any] | None, team_id: int) -> ResolvedModel:
     try:
-        return await database_sync_to_async(lambda: model_spec(model_configuration).resolve(team_id))()
+        return model_spec(model_configuration).resolve(team_id)
     except ApplicationError as e:
         skip_type = MODEL_RESOLUTION_SKIP_ERROR_TYPES.get(e.details[0].get("error_type")) if e.details else None
         if skip_type is None:
@@ -218,11 +227,14 @@ async def _resolve_model(model_configuration: dict[str, Any] | None, team_id: in
         raise ApplicationError(e.message, *e.details, type=skip_type, non_retryable=True) from e
 
 
+# Sync, so the worker runs it in its activity executor: the provider call blocks a thread there for
+# the whole request instead of the event loop, which also times workflow activations.
 @temporalio.activity.defn
+@close_db_connections
 # The worker interceptor captures failures after filtering out SKIPPED_RESULT_ERROR_TYPES, and a
 # capture in here would run before that filter.
-@scoped_temporal(capture_exceptions=False)
-async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
+@posthoganalytics.scoped(capture_exceptions=False)
+def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     tagger = inputs.tagger
     event_data = inputs.event_data
@@ -243,7 +255,7 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     # active key (provider-aware), matching execute_llm_judge_activity.
     team_id = tagger["team_id"]
     model_configuration = tagger.get("model_configuration")
-    resolved = await _resolve_model(model_configuration, team_id)
+    resolved = _resolve_model(model_configuration, team_id)
     provider = resolved.provider
     model = resolved.model
     provider_key = resolved.provider_key
@@ -310,6 +322,12 @@ Output: {output_data}"""
                 non_retryable=True,
             )
         raise
+    except RetryableRateLimitError as e:
+        raise ApplicationError(
+            str(e),
+            {"error_type": "provider_unavailable", "provider": provider},
+            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+        ) from e
     except RateLimitError:
         if is_byok:
             raise ApplicationError(
@@ -323,6 +341,13 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except ProviderRequestRejectedError as e:
+        raise ApplicationError(
+            str(e),
+            {"error_type": "request_rejected"},
+            type=TAGGER_REQUEST_REJECTED_ERROR_TYPE,
+            non_retryable=True,
+        ) from e
     except (OutputTokenLimitError, StructuredOutputParseError, ContentFilteredError) as e:
         # A reply cut off at the output limit or refused by the content filter reaches the tagger
         # as unusable output, same as a malformed one, so all take the parse path.
@@ -652,6 +677,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         "key_invalid",
                         "parse_error",
                         "no_default_model",
+                        "request_rejected",
                     ):
                         if error_type in (
                             "provider_key_required",

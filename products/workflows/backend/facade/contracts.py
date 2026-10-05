@@ -1,12 +1,19 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.enums import (
+    HogFlowBatchJobState,
+    HogFlowTemplateExitCondition,
+    HogFlowTemplateScope,
+)
+
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 
 @frozen
@@ -29,6 +36,33 @@ class WorkflowActivitySummary:
     total_count: int
     active_count: int
     recent: tuple[RecentWorkflow, ...]
+
+
+@frozen
+class WorkflowTaskDailyLimits:
+    """A team's daily caps on tasks created by workflows. None means the default cap applies."""
+
+    per_workflow: int | None
+    per_team: int | None
+
+
+@frozen
+class WorkflowBatchJob:
+    """One batch run of a workflow.
+
+    ``created_by`` carries the core ``User`` row rather than a projection of it, so the
+    presentation layer keeps serializing it through core's ``UserBasicSerializer`` and the
+    generated ``UserBasic`` component stays as it was.
+    """
+
+    id: UUID
+    hog_flow_id: UUID
+    status: HogFlowBatchJobState
+    filters: dict[str, Any]
+    variables: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    created_by: "User | None"
 
 
 @dataclass(frozen=True)
@@ -69,6 +103,24 @@ class AccountAudienceProvider(Protocol):
     ) -> list[str]: ...
 
     def get_account_group_type_name(self, team: "Team") -> str | None: ...
+
+
+@frozen
+class AudienceSize:
+    """How many recipients a batch audience matches, and the most a batch trigger may send to."""
+
+    affected: int
+    total: int
+    limit: int
+    dedupe_key: str | None
+
+
+@frozen
+class AudiencePage:
+    """One cursor-paginated page of a batch audience: person, group or account ids."""
+
+    ids: list[str]
+    has_more: bool
 
 
 @frozen
@@ -114,3 +166,78 @@ class EmailSendingSuspensionChange:
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+
+
+@frozen
+class WorkflowTemplate:
+    """A workflow template stored in the database, owned by one team.
+
+    ``created_by`` carries the core ``User`` row rather than a projection of it, so the
+    presentation layer keeps serializing it through core's ``UserBasicSerializer``.
+
+    ``edges`` and ``actions`` hold lists, but a row saved without them keeps the model default
+    ``{}``, so both fields can also be a dict.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    image_url: str | None
+    tags: list[str]
+    scope: HogFlowTemplateScope
+    created_at: datetime
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: dict[str, Any]
+    trigger_masking: dict[str, Any] | None
+    conversion: dict[str, Any] | None
+    exit_condition: HogFlowTemplateExitCondition
+    edges: list[dict[str, Any]] | dict[str, Any]
+    actions: list[dict[str, Any]] | dict[str, Any]
+    abort_action: str | None
+    variables: list[dict[str, Any]] | None
+
+
+@frozen
+class FunctionTemplateSchema:
+    """The parts of a cdp function template that a workflow step validates its inputs against."""
+
+    type: str
+    inputs_schema: list[dict[str, Any]] | None
+
+
+# The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint
+# returns them as JSON without a serializer, so the keys are the API response keys.
+
+EmailDomainVerificationStatus = Literal["success", "failed", "pending"]
+
+
+class EmailDomainDnsRecord(TypedDict):
+    """One DNS record the customer adds before the domain can send email."""
+
+    type: Literal["verification", "dkim", "mail_from", "dmarc"]
+    recordType: Literal["TXT", "CNAME", "MX"]
+    recordHostname: str
+    recordValue: str
+    status: Literal["success", "pending"]
+    priority: NotRequired[int]
+
+
+class EmailDomainVerification(TypedDict):
+    status: EmailDomainVerificationStatus
+    dnsRecords: list[EmailDomainDnsRecord]
+
+
+class TwilioPhoneNumber(TypedDict):
+    """The fields callers read. The Twilio payload has more keys."""
+
+    sid: str
+    phone_number: str
+    friendly_name: str
+
+
+class TwilioAccount(TypedDict, total=False):
+    """Empty when the Twilio request fails."""
+
+    sid: str

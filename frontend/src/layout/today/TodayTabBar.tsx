@@ -1,0 +1,53 @@
+import { useActions, useValues } from 'kea'
+
+import { IconSearch } from '@posthog/icons'
+import { cn } from '@posthog/quill'
+
+import { commandLogic } from 'lib/components/Command/commandLogic'
+
+import { TODAY_TAB_BAR_ITEMS } from './todayRailItems'
+import { TODAY_MORE_PANES, todayShellLogic } from './todayShellLogic'
+
+const TAB_CLASS =
+    'flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md text-xxs font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset [&_svg]:size-5'
+
+export function TodayTabBar(): JSX.Element {
+    const { activePane } = useValues(todayShellLogic)
+    const { pickPane } = useActions(todayShellLogic)
+    const { toggleCommand } = useActions(commandLogic)
+
+    return (
+        <div className="TodayTabBar" data-quill>
+            <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
+                {TODAY_TAB_BAR_ITEMS.map(({ pane, label, icon }) => {
+                    const active = activePane === pane || (pane === 'more' && TODAY_MORE_PANES.includes(activePane))
+                    return (
+                        <button
+                            key={pane}
+                            type="button"
+                            aria-current={active ? 'page' : undefined}
+                            data-attr={`today-rail-${pane}`}
+                            onClick={() => pickPane(pane)}
+                            className={cn(
+                                TAB_CLASS,
+                                active ? 'bg-fill-selected text-foreground' : 'text-muted-foreground'
+                            )}
+                        >
+                            {icon}
+                            <span className="max-w-full truncate">{label}</span>
+                        </button>
+                    )
+                })}
+                <button
+                    type="button"
+                    data-attr="today-rail-search"
+                    onClick={() => toggleCommand('nav-search-button')}
+                    className={cn(TAB_CLASS, 'text-muted-foreground')}
+                >
+                    <IconSearch />
+                    <span className="max-w-full truncate">Search</span>
+                </button>
+            </nav>
+        </div>
+    )
+}

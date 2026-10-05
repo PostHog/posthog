@@ -181,10 +181,3 @@ DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_M
 DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
 )
-# A set may span consecutive runs of one schema. Off keeps every set inside one run. Off by default
-# until every loader pod runs a build that reads the `members` commit tag: an older pod that
-# redelivers a later run's member of a cross-run set cannot find that member's commit, and on an
-# append table that loads its rows a second time.
-DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS = get_from_env(
-    "DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS", False, type_cast=str_to_bool
-)

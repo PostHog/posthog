@@ -89,6 +89,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "ticket",
     "web_analytics",
     "activity_log",
+    "business_knowledge",
     "error_tracking",
     "logs",
     "mcp_analytics",
@@ -209,6 +210,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "llm_playground":
         # The playground is a single page, not a collection of objects
         return "LLM playground"
+    if resource == "business_knowledge":
+        return "business knowledge"
     if resource == "stamphog":
         # Product name: a proper noun, and it does not take a plural
         return "Stamphog"
