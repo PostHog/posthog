@@ -37,7 +37,8 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import scorer
 from products.signals.backend.ranking.inventory import SCORABLE_STATUSES, spine_report_filter
-from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
+from products.signals.backend.ranking.model_store import ModelLoadError, ServingSet, load_serving_set
+from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
 
@@ -119,6 +120,7 @@ class _ScoreStamp(pydantic.BaseModel):
     scored_at: datetime.datetime
     embedding_inserted_at: datetime.datetime | None = None
     manifest_version: str
+    served_key: str
 
 
 def _batches(items: Sequence[str], size: int = _POSTGRES_BATCH_SIZE) -> Iterator[Sequence[str]]:
@@ -201,19 +203,24 @@ def _latest_scores(report_ids: Sequence[str]) -> dict[str, _ScoreStamp | None]:
     return scores
 
 
-def _is_due(score: _ScoreStamp | None, vector_inserted_at: datetime.datetime, manifest_version: str) -> bool:
+def _is_due(
+    score: _ScoreStamp | None, vector_inserted_at: datetime.datetime, manifest_version: str, served_key: str
+) -> bool:
+    # A `served` override changes the served model and leaves `manifest_version` as it is, so the
+    # served key is compared too. Setting or removing an override then rescores every report.
     return (
         score is None
         or score.embedding_inserted_at is None
         or vector_inserted_at > score.embedding_inserted_at
         or score.manifest_version != manifest_version
+        or score.served_key != served_key
     )
 
 
 def reports_due_for_scoring(
-    now: datetime.datetime, *, manifest_version: str, rendering: str, limit: int
+    now: datetime.datetime, *, manifest_version: str, served_key: str, rendering: str, limit: int
 ) -> list[ScoringCandidate]:
-    """In-window scorable reports whose score is missing, older than their vector, or from another manifest.
+    """In-window scorable reports whose score is missing, older than their vector, or from another manifest or served model.
 
     Unscored reports come first, then the oldest scores, so no report starves under the cap. A
     report with no live vector is never a candidate, so a safety-suppressed or retracted report is
@@ -229,7 +236,7 @@ def reports_due_for_scoring(
     for report_id in kept:
         team_id, vector_inserted_at = vectors[report_id]
         score = latest.get(report_id)
-        if not _is_due(score, vector_inserted_at, manifest_version):
+        if not _is_due(score, vector_inserted_at, manifest_version, served_key):
             continue
         candidate = ScoringCandidate(team_id=team_id, report_id=report_id, vector_inserted_at=vector_inserted_at)
         due.append((score.scored_at if score else None, candidate))
@@ -237,21 +244,41 @@ def reports_due_for_scoring(
     return [candidate for _, candidate in due[:limit]]
 
 
+def _load_serving(overrides: RankingOverrides) -> ServingSet | None:
+    """The serving set with the `served` override applied when it can be served, else without it."""
+    serving = load_serving_set(overrides)
+    if serving is None or serving.served_override is None:
+        return serving
+    try:
+        scorer.served_rendering(serving)
+    except scorer.ScoringError as error:
+        logger.warning(
+            "inbox_ranking_override_rejected",
+            override_served=serving.served_override.served,
+            reason=str(error),
+        )
+        return load_serving_set()
+    return serving
+
+
 def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     if not settings.INBOX_RANKING_SCORING_ENABLED:
         logger.info("inbox_ranking_sweep_skipped", skipped_reason="disabled")
         return ScoreInboxReportsResult(skipped_reason="disabled")
     deadline = time.monotonic() + _TIME_BUDGET.total_seconds()
-    # A served model that does not load raises here and aborts the run.
-    serving = load_serving_set()
+    now = timezone.now()
+    # A served model that does not load raises here and aborts the run. A served override that
+    # does not load only logs.
+    serving = _load_serving(read_ranking_overrides(now))
     if serving is None:
         logger.info("inbox_ranking_sweep_skipped", skipped_reason="no manifest")
         return ScoreInboxReportsResult(skipped_reason="no manifest")
     manifest_version = serving.manifest.manifest_version
-    now = timezone.now()
+    override = serving.served_override
     candidates = reports_due_for_scoring(
         now,
         manifest_version=manifest_version,
+        served_key=serving.manifest.served.key,
         rendering=scorer.served_rendering(serving),
         limit=limit or settings.INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK,
     )
@@ -320,6 +347,8 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         deferred_teams=result.deferred_teams,
         deferred_reports=result.deferred_reports,
         manifest_version=result.manifest_version,
+        override_served=override.served if override else None,
+        override_expires_at=override.expires_at.isoformat() if override and override.expires_at else None,
         peak_rss_mb=_peak_rss_mb(),
     )
     return result

@@ -28,6 +28,7 @@
   "SAVED_SEARCHES_RAIL_FLAG": "posthog-desktop-saved-searches-rail",
   "SELF_DRIVING_SETUP_TASK_FLAG": "posthog-code-self-driving-setup-task",
   "SERVER_AGENT_INSTRUCTIONS_FLAG": "posthog-desktop-server-agent-instructions",
+  "SERVER_TASK_DEFAULTS_FLAG": "posthog-desktop-server-task-defaults",
   "SETTINGS_BACKUP_FLAG": "posthog-desktop-settings-backup",
   "SIGNALS_PR_REFUNDS_FLAG": "signals-pr-refunds",
   "SPACE_SETUP_FLAG": "code-space-setup",

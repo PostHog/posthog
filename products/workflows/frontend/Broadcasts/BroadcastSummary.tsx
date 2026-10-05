@@ -20,6 +20,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
@@ -381,6 +382,19 @@ export function BroadcastSummary(): JSX.Element {
             <BroadcastSceneHeader nameSuffix={<BroadcastStatusTag status={summaryStatus} />} actions={actionsMenu} />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
+                {broadcast?.status === 'draft' ? (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Open in workflow editor',
+                            to: urls.workflow(broadcastId ?? '', 'workflow'),
+                            'data-attr': 'broadcast-draft-open-in-workflow-editor',
+                        }}
+                    >
+                        This draft has steps or an audience the broadcast editor can't show, so it opens here read-only.
+                        Edit it in the workflow editor.
+                    </LemonBanner>
+                ) : null}
                 {summaryStatus === 'failed' && !latestBatchJob && !batchJobsLoading ? (
                     <LemonBanner
                         type="warning"

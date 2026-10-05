@@ -12,6 +12,15 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
+## Choosing data in BI mode
+
+Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens it again.
+The sidebar toggle remains available in both modes. **Locate** in the BI data pane is shown only while the sidebar is open.
+
+Use the table picker in the data pane to browse the same source groups and folders as the database tree.
+The selected table is highlighted; expanding a folder does not select it.
+Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
+
 ## Calculated measures in BI mode
 
 With `SQL_EDITOR_BI_MODE` enabled, select a table in the SQL editor's BI mode and choose **Add calculated measure** in the data pane.
@@ -22,6 +31,24 @@ The measure appears on Rows. Its menu lets you edit the name and formula, sort b
 Cancel discards the draft. Names and formulas persist with the worksheet's BI configuration; measures are not shared across worksheets.
 Calculated measures cannot become dimensions or row filters.
 If a measure name conflicts with a field or another result column, the generated query adds a numeric suffix to its column name. The worksheet keeps the name you entered on the measure pill and sort menu.
+
+## Filters in BI mode
+
+Drop a field onto the compact Filters shelf beside or below the data pane. Quick filters on the right
+show the current selection; click a value to edit it, or use the checkbox beside its name to toggle it.
+Wider worksheets show quick filters in two columns. In tight scenes, click a filter pill on the left
+to edit its values and settings. String fields start with
+**Is any of**: select several values, or type a value and press Enter. **Is none of** excludes the
+selected values. An empty selection leaves all values included. Suggestions load when the picker
+opens, respect the other applied filters, and show up to 100 distinct values; additional values can
+always be entered manually.
+
+Use **Between** for numeric or date fields. Both bounds are inclusive, and either can be left empty
+for an open-ended range. Date-time fields include the time. Uncheck **Apply filter** in the editor to temporarily
+ignore a filter without losing its settings. Click the field pill to edit the field expression, date
+part, or custom SQL condition, or to remove the filter. Filter changes respect the worksheet's
+auto-update setting and are preserved with its saved configuration.
+Numeric filters preserve the precision of entered values. Invalid numbers show an error and prevent the worksheet from running until corrected or disabled.
 
 ## Apple Ads in Marketing analytics
 
