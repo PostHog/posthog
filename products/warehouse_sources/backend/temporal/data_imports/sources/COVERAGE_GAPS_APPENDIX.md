@@ -4078,21 +4078,21 @@ Note: The Redoc page at hightouch.com/docs/api-reference loads its spec from htt
 
 ## Honeybadger — gaps
 
-Today (9): `affected_users`, `deploys`, `environments`, `faults`, `notices`, `occurrences`, `outages`, `projects`, `sites`
+Today (13): `affected_users`, `alarm_history`, `check_ins`, `comments`, `deploys`, `environments`, `faults`, `notices`, `occurrences`, `outages`, `projects`, `sites`, `uptime_checks`
 
 Diffed against: <https://docs.honeybadger.io/api/>
 
 - [x] `projects/{id}/occurrences` — error occurrence counts over time - Honeybadger's headline volume metric, and we already sync faults (high)
 - [ ] `projects/{id}/faults/{id}/occurrences` — per-fault occurrence counts over time; skipped, one request per fault for a rolling window, and per-fault history is derivable from `notices` (low)
-- [ ] `projects/{id}/sites/{id}/uptime_checks` — the actual uptime measurements behind the sites table we already sync (high)
+- [x] `projects/{id}/sites/{id}/uptime_checks` — the actual uptime measurements behind the sites table we already sync (high). Added as `uptime_checks` (fan-out over `sites`, incremental on `created_at`; off by default).
 - [x] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
 - [x] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)
 - [x] `projects/{id}/environments` — lookup table resolving the environment names carried on faults and deploys (high)
 - [ ] `projects/{id}/reports/notices_per_day` — prebuilt daily error volume breakdown (medium)
 - [ ] `projects/{id}/reports/notices_by_class` — error-class breakdown dimension for triage dashboards (medium)
-- [ ] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium)
-- [ ] `projects/{id}/alarms/{id}/history` — alarm state transition history - classic state-change fact table (medium)
-- [ ] `projects/{id}/faults/{id}/comments` — triage discussion attached to faults we already sync (medium)
+- [x] `projects/{id}/check_ins` — cron/heartbeat monitor state, a separate reliability signal from faults (medium). Added as `check_ins` (full refresh).
+- [x] `projects/{id}/alarms/{id}/history` — alarm state transition history - classic state-change fact table (medium). Added as `alarm_history` (fan-out over alarms, full refresh; off by default).
+- [x] `projects/{id}/faults/{id}/comments` — triage discussion attached to faults we already sync (medium). Added as `comments` (fan-out over `faults`, full refresh; off by default).
 - [ ] `teams/{id}/team_members` — membership table resolving assignee/owner references (low)
 - [ ] `accounts (and accounts/{id}/users)` — account-level roster for multi-account orgs (low)
 
@@ -4230,40 +4230,41 @@ Note: docs.imagga.com is a JS SPA that ships no server-rendered resource list, n
 
 ## IncidentIo — gaps
 
-Today (17): `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalations`, `follow_ups`, `incident_alerts`, `incident_roles`, `incident_statuses`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `schedules`, `severities`, `users`
+Today (22): `alert_sources`, `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalation_paths`, `escalations`, `follow_ups`, `incident_alerts`, `incident_roles`, `incident_statuses`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `schedule_entries`, `schedules`, `severities`, `status_page_incidents`, `status_pages`, `users`
 
 Diffed against: <https://api-docs.incident.io/>
 
 - [x] `/v2/incident_alerts` — join table linking alerts to the incidents they triggered - without it the synced `alerts` and `incidents` tables cannot be related at all (high)
 - [x] `/v1/custom_field_options` — lookup resolving the option IDs stored inside the custom field values on every incident; `custom\_fields` alone only gives definitions (high). Added as `custom_field_options` (fan-out over `custom_fields`, since `custom_field_id` is a required query param).
 - [x] `/v2/incident_timestamps` — lookup naming the timestamp IDs carried in incident timestamp_values - required to compute MTTA/MTTR from the incidents table (high)
-- [ ] `/v2/escalation_paths` — lookup resolving the escalation path IDs referenced by the already-synced `escalations` rows (high)
-- [ ] `/v2/alert_sources` — lookup resolving alert_source_config IDs on `alerts`, so alert volume can be attributed to Datadog/Sentry/etc (high)
-- [ ] `/v2/schedule_entries` — the actual on-call shifts; `schedules` today is only the rota config, so no one can query who was on call when (high)
+- [x] `/v2/escalation_paths` — lookup resolving the escalation path IDs referenced by the already-synced `escalations` rows (high)
+- [x] `/v2/alert_sources` — lookup resolving alert_source_config IDs on `alerts`, so alert volume can be attributed to Datadog/Sentry/etc (high). Added as `alert_sources`, with `secret_token` dropped from every row.
+- [x] `/v2/schedule_entries` — the actual on-call shifts; `schedules` today is only the rota config, so no one can query who was on call when (high). Added as `schedule_entries` (fan-out over `schedules`, since `schedule_id` is a required query param). The endpoint returns nothing before "now" without a window, so each full refresh reads the `final` entries from 365 days back to 30 days ahead.
 - [x] `/v3/catalog_types and /v3/catalog_entries` — the service/team catalog that custom fields, alert routes and escalation paths all reference by ID - the master lookup for the whole account (high). Added as `catalog_types` and `catalog_entries` (fan-out over `catalog_types`, since `catalog_type_id` is a required query param).
 - [ ] `/v3/teams` — team lookup for attributing incidents, escalations and follow-ups to owning teams (medium)
 - [ ] `/v2/actions` — per-incident action items during the response, complementing the already-synced follow_ups (medium)
 - [ ] `/v2/incident_participants and /v2/incident_participant_workloads` — membership table of who participated in each incident plus incident.io's on-call workload metric (medium)
 - [ ] `/v2/alert_attributes` — lookup resolving the attribute IDs in each alert's attribute payload (medium)
-- [ ] `/v2/status_page_incidents and /v2/status_page_incident_updates` — customer-facing incident communications, separate objects from internal incidents (medium)
+- [x] `/v2/status_page_incidents and /v2/status_page_incident_updates` — customer-facing incident communications, separate objects from internal incidents (medium). Added as `status_page_incidents` (fan-out over `status_pages`, since `status_page_id` is a required query param). `/v2/status_page_incident_updates` is create-only (no list operation); the updates arrive in each incident's `updates` column.
+- [x] `/v2/status_pages` — status page lookup, and the parent the status page incident fan-out iterates. Added as `status_pages`.
 
 Note: The Mintlify docs site serves the same 537KB SPA shell for every path (including /openapi.json, /llms.txt, /docs.json), but that shell embeds the full route table plus a per-tag spec manifest (openapi/tags/\*.json, 53 tags). I diffed against that. Note the API spans three versions concurrently - v1 (severities, incident_statuses, incident_types, custom_field_options, postmortem_documents, maintenance_windows), v2 (most things) and v3 (catalog, teams, alert_routes) - and the existing PostHog source already mixes v1 and v2, so adding v3 paths is consistent. Excluded as config/plumbing: alert_routes, workflows, secrets, api_keys, ip_allowlists, heartbeat, telemetry, notification methods/rules, schedule sync rules/targets.
 
 ## Infisical — gaps
 
-Today (11): `audit_logs`, `group_members`, `groups`, `identities`, `organization_memberships`, `organization_roles`, `project_group_memberships`, `project_memberships`, `project_roles`, `projects`, `secret_scanning_findings`
+Today (14): `audit_logs`, `group_members`, `groups`, `identities`, `organization_memberships`, `organization_roles`, `project_environments`, `project_group_memberships`, `project_identity_memberships`, `project_memberships`, `project_roles`, `projects`, `secret_scanning_findings`, `secret_syncs`
 
 Diffed against: <https://app.infisical.com/api/docs/json>
 
 - [x] `/api/v1/organization/roles and /api/v2/workspace/{projectId}/roles` — lookup resolving the role IDs already carried on the synced organization_memberships and project_memberships rows (high)
 - [x] `/api/v1/groups (+ /{id}/users, /{id}/machine-identities, /{id}/projects)` — org group membership - the main way access is actually granted, invisible today (high)
 - [x] `/api/v2/workspace/{projectId}/groups` — which groups are attached to which project, the group half of project access (high)
-- [ ] `/api/v2/workspace/{projectId}/identity-memberships` — machine identities scoped per project; `identities` today is org-level only, so no one can see which CI identity can read which project (high)
-- [ ] `/api/v1/projects/{projectId}/environments/{envId}` — lookup resolving the environment IDs/slugs that audit_logs, folders and secrets all key on (also embedded in the project detail payload) (high)
+- [x] `/api/v2/workspace/{projectId}/identity-memberships` — machine identities scoped per project; `identities` today is org-level only, so no one can see which CI identity can read which project (high)
+- [x] `/api/v1/projects/{projectId}/environments/{envId}` — lookup resolving the environment IDs/slugs that audit_logs, folders and secrets all key on (also embedded in the project detail payload) (high)
 - [x] `/api/v2/secret-scanning/findings` — leaked-credential findings - the headline security metric of the product and the most obviously dashboardable table (high)
 - [ ] `/api/v2/folders` — the secret path tree; without it secret/audit rows referencing folderId cannot be resolved to a path (medium)
 - [ ] `/api/v2/secret-rotations` — rotation configs and last/next rotation timestamps - compliance reporting on stale credentials (medium)
-- [ ] `/api/v1/secret-syncs` — sync destinations and their last sync status, for pipeline health reporting (medium)
+- [x] `/api/v1/secret-syncs` — sync destinations and their last sync status, for pipeline health reporting (medium)
 - [ ] `/api/v2/secret-scanning/data-sources and /api/v2/secret-scanning/data-sources/{provider}/{dataSourceId}/scans` — scan run history that gives the findings table its denominator and coverage over time (medium)
 - [ ] `/api/v1/projects/{projectId}/secret-snapshots` — point-in-time change history of a project's secrets, the audit trail complement to audit_logs (medium)
 - [ ] `/api/v1/dynamic-secrets and /api/v1/dynamic-secrets/{name}/leases` — ephemeral credential leases - who checked out DB credentials and when (medium)
@@ -4338,13 +4339,13 @@ Diffed against: <https://instana.github.io/openapi/openapi.json>
 - [x] `/api/releases (+ /api/releases/{releaseId})` — release markers used to correlate deploys with events and metric regressions; the standard overlay on every Instana chart (high). Added as `releases`. `/api/releases/{releaseId}` skipped: it returns the same object as the list row.
 - [x] `/api/settings/slo and /api/slo/report/{sloId}` — SLO definitions plus attainment/error-budget reports - the headline reliability metric, entirely absent today (high). Added as `slo_configs` and `slo_reports` (fan-out over `slo_configs`).
 - [x] `/api/synthetics/settings/tests/ci-cd and /api/synthetics/results/{testid}/{testresultid}` — actual synthetic test results; `synthetic\_tests` today is only the test configuration, so there is no pass/fail or latency data (high). Added as `synthetic_test_ci_cds` (on-demand and CI/CD runs with their completion state). `/api/synthetics/results/{testid}/{testresultid}` skipped: it returns only playback file names, not results. Pass/fail and latency live behind the POST `/api/synthetics/results/list` query API.
-- [ ] `/api/synthetics/settings/locations and /api/synthetics/settings/datacenters` — lookup resolving the location IDs on synthetic tests and results - required to break results down by PoP (high)
-- [ ] `POST /api/application-monitoring/metrics/{applications,services,endpoints}` — the golden-signal time series (calls, errors, latency percentiles) for the applications/services/endpoints already synced as catalogs only (high)
-- [ ] `/api/settings/apdex and /api/apdex/report/{apdexId}` — Apdex configs and scores, the per-service user-satisfaction metric (medium)
+- [x] `/api/synthetics/settings/locations and /api/synthetics/settings/datacenters` — lookup resolving the location IDs on synthetic tests and results - required to break results down by PoP (high). Added as `synthetic_locations` and `synthetic_datacenters`.
+- [x] `POST /api/application-monitoring/metrics/{applications,services,endpoints}` — the golden-signal time series (calls, errors, latency percentiles) for the applications/services/endpoints already synced as catalogs only (high). Added as `application_metrics`, `service_metrics` and `endpoint_metrics`: a daily rollup (calls, erroneous calls, error rate, mean/p50/p90/p99 latency), incremental on the bucket `timestamp`.
+- [x] `/api/settings/apdex and /api/apdex/report/{apdexId}` — Apdex configs and scores, the per-service user-satisfaction metric (medium). Added as `apdex_configs` and `apdex_reports` (fan-out over `apdex_configs`, trailing 7-day window).
 - [ ] `/api/host-agent (+ /api/host-agent/{id})` — agent and host inventory with versions, for fleet coverage and upgrade tracking (medium)
 - [ ] `/api/settings/users, /api/settings/rbac/teams, /api/settings/rbac/groups` — user and team membership tables for attributing alerts and ownership (medium)
 - [ ] `/api/settings/auditlog and /api/settings/accesslog` — who changed which alert config or dashboard and when - the standard compliance table (medium)
-- [ ] `/api/mobile-app-monitoring/config` — mobile app inventory, the exact parallel of the `websites` table already synced from website-monitoring/config (medium)
+- [x] `/api/mobile-app-monitoring/config` — mobile app inventory, the exact parallel of the `websites` table already synced from website-monitoring/config (medium). Added as `mobile_apps`.
 - [ ] `/api/business-monitoring/business-perspectives` — business perspective definitions that segment traces by business context, a key breakdown dimension (medium)
 
 Note: Instana publishes a full OpenAPI 3 spec (1.9MB JSON / 1.5MB YAML, version 1.307.1417) at instana.github.io/openapi - very reliable to diff against. Two caveats for an implementer: (1) much of the analytical surface is POST-with-body (metrics, analyze/traces, analyze/beacons, analyze/entities) rather than GET, so those tables need request bodies rather than query params; (2) as the source's own settings.py notes, /api/events has no pagination and infrastructure snapshots use a `size` cap, so wide time windows must be chunked. Excluded as config: custom dashboards, API tokens, alert channel infos, maintenance windows, session settings, automation policies, sourcemap uploads, and the per-plugin catalog/tag metadata endpoints.
