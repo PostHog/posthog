@@ -79,19 +79,16 @@ def _rebound_names(tree: ast.Module) -> frozenset[str]:
     return frozenset(names)
 
 
-def _assigned_collection(tree: ast.Module, name: str) -> ast.List | ast.Tuple | ast.Set | None:
-    """The list, tuple or set literal a top-level statement assigns to the name."""
+def _assigned_value(tree: ast.Module, name: str) -> ast.expr | None:
+    """The expression a top-level statement assigns to the name."""
     for statement in tree.body:
         if isinstance(statement, ast.Assign) and any(
             isinstance(target, ast.Name) and target.id == name for target in statement.targets
         ):
-            value: ast.expr | None = statement.value
-        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
-            value = statement.value if statement.target.id == name else None
-        else:
-            continue
-        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
-            return value
+            return statement.value
+        if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            if statement.target.id == name and statement.value is not None:
+                return statement.value
     return None
 
 
@@ -245,11 +242,21 @@ class WiringInterfaceResolver:
         scope = self._scope(module) if module else None
         if scope is None:
             return []
-        collection = _assigned_collection(scope.tree, name)
-        if collection is not None:
-            return [member for element in collection.elts if (member := self._qualify(element, scope)) is not None]
+        value = _assigned_value(scope.tree, name)
+        if value is not None:
+            return self._expression_members(value, scope, seen | {qualified})
         if name in scope.bindings:
             return self._members(scope.bindings[name], seen | {qualified})
+        return []
+
+    def _expression_members(self, node: ast.expr, scope: _ModuleScope, seen: frozenset[str]) -> list[str]:
+        """The class names a collection expression holds, such as `[A, B]` or `FLOWS + OTHER_FLOWS`."""
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            return [member for element in node.elts if (member := self._qualify(element, scope)) is not None]
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return self._expression_members(node.left, scope, seen) + self._expression_members(node.right, scope, seen)
+        if isinstance(node, (ast.Name, ast.Attribute)) and (operand := self._qualify(node, scope)) is not None:
+            return self._members(operand, seen)
         return []
 
     def _ancestor_verdict(self, qualified: str, seen: frozenset[str]) -> WiringVerdict:

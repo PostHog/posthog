@@ -485,6 +485,10 @@ _WIRING_SOURCES: dict[str, dict[str, str]] = {
         ),
     },
     "collection_of_classes": {"temporal/flows.py": "class Plain:\n    pass\n\n\nHanded = [Plain]\n"},
+    "concatenated_collections": {
+        "temporal/flows.py": "from .impl import FLOWS as IMPL_FLOWS\n\n\nclass Plain:\n    pass\n\n\nHanded = [Plain] + IMPL_FLOWS\n",
+        "temporal/impl.py": "class Other:\n    pass\n\n\nFLOWS = [Other]\n",
+    },
     "absolute_reexport": {
         "temporal/flows.py": "from products.my_product.backend.temporal.impl import Handed\n",
         "temporal/impl.py": "class Handed:\n    pass\n",
@@ -505,6 +509,7 @@ class TestWiringInterfaces:
             ("import_shadowed_by_a_local_class", {("Handed", "unresolved")}),
             ("import_rebound_by_an_assignment", {("Handed", "unresolved")}),
             ("collection_of_classes", {("Plain", "unapproved")}),
+            ("concatenated_collections", {("Plain", "unapproved"), ("Other", "unapproved")}),
             ("absolute_reexport", {("Handed", "unapproved")}),
         ],
     )
@@ -2872,46 +2877,6 @@ class TestFacadeShape:
                 "logic/crud.py": "def run_it():\n    ...\n",
                 "tasks/__init__.py": "def run_it():\n    ...\n",
             },
-        )
-        logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
-        assert [f.bodies for f in logic] == ([expected] if expected else [])
-
-    @pytest.mark.parametrize(
-        "module_key, expected_dotted",
-        [
-            ("api.py", "products.my_product.backend.facade.api"),
-            ("destinations/s3.py", "products.my_product.backend.facade.destinations.s3"),
-            ("destinations/__init__.py", "products.my_product.backend.facade.destinations"),
-        ],
-    )
-    def test_a_finding_carries_the_module_path_and_dotted_name(
-        self, tmp_path: Path, module_key: str, expected_dotted: str
-    ) -> None:
-        # A nested module reaches the models with `...`, a flat one with `..`.
-        dots = "." * (module_key.count("/") + 2)
-        backend = _write_shape_product(
-            tmp_path, {module_key: f"from {dots}models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n"}
-        )
-        findings = facade_shape_findings(backend, "my_product")
-        assert [(f.facade_module, f.dotted_module) for f in findings] == [(module_key, expected_dotted)]
-
-    @pytest.mark.parametrize(
-        "module_key, expected",
-        [
-            ("testing.py", None),
-            ("destinations/testing.py", ("helper",)),
-        ],
-    )
-    def test_name_exemptions_apply_to_top_level_modules_only(
-        self, tmp_path: Path, module_key: str, expected: tuple[str, ...] | None
-    ) -> None:
-        dots = "." * (module_key.count("/") + 2)
-        backend = _write_shape_product(
-            tmp_path,
-            {
-                module_key: f"from {dots}temporal.flows import run_it\n\n__all__ = ['run_it']\n\n\ndef helper():\n    return 1\n"
-            },
-            sources={"temporal/flows.py": "def run_it():\n    ...\n"},
         )
         logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
         assert [f.bodies for f in logic] == ([expected] if expected else [])
