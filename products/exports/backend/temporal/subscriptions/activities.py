@@ -23,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     deliver_email,
     deliver_slack,
 )
+from products.exports.backend.temporal.subscriptions.delivery_milestones import record_first_delivery_completed
 from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_teams_webhook
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
@@ -628,6 +629,17 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         delivery_id=inputs.delivery_id,
         status=inputs.status,
     )
+
+    if inputs.finished and inputs.status == SubscriptionDelivery.Status.COMPLETED:
+        # Analytics only, so a failure here must never fail an otherwise delivered subscription.
+        try:
+            await database_sync_to_async(record_first_delivery_completed, thread_sensitive=False)(inputs.delivery_id)
+        except Exception:
+            await LOGGER.awarning(
+                "update_delivery_record.first_delivery_milestone_failed",
+                delivery_id=inputs.delivery_id,
+                exc_info=True,
+            )
 
 
 @temporalio.activity.defn
