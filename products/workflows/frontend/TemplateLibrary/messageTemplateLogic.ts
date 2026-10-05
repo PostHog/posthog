@@ -38,6 +38,8 @@ export interface messageTemplateLogicValues {
     message: any
     messageLoading: boolean
     originalTemplate: MessageTemplate
+    savedTemplate: MessageTemplate | null
+    savedTemplateLoading: boolean
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -161,10 +163,10 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     saveTemplateSuccess: (
-        template: MessageTemplate,
+        savedTemplate: MessageTemplate,
         payload?: any
     ) => {
-        template: MessageTemplate
+        savedTemplate: MessageTemplate
         payload?: any
     }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
@@ -411,13 +413,18 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
 
                 return await api.messaging.getTemplate(props.id)
             },
-            saveTemplate: (template) => {
-                if (template.id === 'new') {
-                    return api.messaging.createTemplate(template)
-                }
-                return api.messaging.updateTemplate(template.id, template)
-            },
         },
+        savedTemplate: [
+            null as MessageTemplate | null,
+            {
+                saveTemplate: (template) => {
+                    if (template.id === 'new') {
+                        return api.messaging.createTemplate(template)
+                    }
+                    return api.messaging.updateTemplate(template.id, template)
+                },
+            },
+        ],
         message: {
             loadMessage: async () => {
                 if (!props.messageId) {
@@ -436,7 +443,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         templateEditedElsewhere: ({ event }) => {
             // The echo of our own save can arrive before its response. Parked until the flight settles,
             // it then compares equal to the loaded stamp and is dropped.
-            if (values.templateLoading) {
+            if (values.templateLoading || values.savedTemplateLoading) {
                 actions.setDeferredExternalEdit(event)
                 return
             }
@@ -503,13 +510,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             lemonToast.error('Failed to save template. Please try again.')
         },
-        saveTemplateSuccess: async ({ template }) => {
+        saveTemplateSuccess: async ({ savedTemplate }) => {
             lemonToast.success('Template saved')
             // Clear the unsaved-changes state before navigating so the beforeUnload guard
             // does not intercept the post-save redirect.
-            actions.resetTemplate(template)
-            actions.setOriginalTemplate(template)
-            template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+            actions.resetTemplate(savedTemplate)
+            actions.setOriginalTemplate(savedTemplate)
+            savedTemplate.id && router.actions.replace(urls.workflowsLibraryTemplate(savedTemplate.id))
             actions.replayDeferredExternalEdit()
         },
         loadMessageSuccess: async ({ message }) => {

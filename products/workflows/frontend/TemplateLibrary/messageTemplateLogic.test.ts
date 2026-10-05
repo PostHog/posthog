@@ -145,6 +145,30 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    it('keeps the loaded template on screen while a save is in flight', async () => {
+        let finishSave!: () => void
+        const saveHeld = new Promise<void>((resolve) => {
+            finishSave = resolve
+        })
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                    await saveHeld
+                    return [200, { id: 'existing-id', name: 'Saved' }]
+                },
+            },
+        })
+        logic = messageTemplateLogic({ id: 'existing-id' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+        logic.actions.saveTemplate({ ...logic.values.template, name: 'Saved' })
+        expect(logic.values.templateLoading).toBe(false)
+
+        finishSave()
+        await expectLogic(logic).toDispatchActions(['saveTemplateSuccess'])
+    })
+
     describe('edited elsewhere', () => {
         const LOADED_AT = '2026-01-01T00:00:00Z'
         const LATER = '2026-01-01T00:01:00Z'
