@@ -25,9 +25,13 @@ const pick = (metadata: Record<string, unknown>, ...keys: string[]): unknown => 
     return undefined
 }
 
+const isValidTokenCount = (value: unknown): value is number => {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
 const tokenCountOf = (detail: Record<string, unknown>): number | null => {
-    const tokenCount = detail['tokenCount'] ?? detail['token_count']
-    return typeof tokenCount === 'number' ? tokenCount : null
+    const tokenCount = detail['tokenCount'] ?? detail['token_count'] ?? detail['tokens']
+    return isValidTokenCount(tokenCount) ? tokenCount : null
 }
 
 const modalityOf = (detail: Record<string, unknown>): string | null => {
@@ -94,15 +98,15 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     }
                 }
             } else if (isObject(tokenDetails)) {
-                if (typeof tokenDetails['audioTokens'] === 'number' && tokenDetails['audioTokens'] > 0) {
+                if (isValidTokenCount(tokenDetails['audioTokens']) && tokenDetails['audioTokens'] > 0) {
                     event.properties['$ai_audio_input_tokens'] = tokenDetails['audioTokens']
                     extractedSources.add('gemini_input')
                 }
-                if (typeof tokenDetails['imageTokens'] === 'number' && tokenDetails['imageTokens'] > 0) {
+                if (isValidTokenCount(tokenDetails['imageTokens']) && tokenDetails['imageTokens'] > 0) {
                     event.properties['$ai_image_input_tokens'] = tokenDetails['imageTokens']
                     extractedSources.add('gemini_input')
                 }
-                if (typeof tokenDetails['textTokens'] === 'number') {
+                if (isValidTokenCount(tokenDetails['textTokens'])) {
                     event.properties['$ai_text_input_tokens'] = tokenDetails['textTokens']
                     extractedSources.add('gemini_input')
                 }
@@ -129,17 +133,21 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                         event.properties['$ai_image_output_tokens'] = tokenCount
                         extractedSources.add('gemini_output')
                     }
+                    if (modality === 'audio' && tokenCount > 0) {
+                        event.properties['$ai_audio_output_tokens'] = tokenCount
+                        extractedSources.add('gemini_output')
+                    }
                     if (modality === 'text') {
                         event.properties['$ai_text_output_tokens'] = tokenCount
                         extractedSources.add('gemini_output')
                     }
                 }
             } else if (isObject(tokenDetails)) {
-                if (typeof tokenDetails['imageTokens'] === 'number' && tokenDetails['imageTokens'] > 0) {
+                if (isValidTokenCount(tokenDetails['imageTokens']) && tokenDetails['imageTokens'] > 0) {
                     event.properties['$ai_image_output_tokens'] = tokenDetails['imageTokens']
                     extractedSources.add('gemini_output')
                 }
-                if (typeof tokenDetails['textTokens'] === 'number') {
+                if (isValidTokenCount(tokenDetails['textTokens'])) {
                     event.properties['$ai_text_output_tokens'] = tokenDetails['textTokens']
                     extractedSources.add('gemini_output')
                 }
@@ -166,14 +174,20 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                         event.properties['$ai_cache_read_audio_tokens'] = tokenCount
                         extractedSources.add('gemini_cache')
                     }
+                    if (modality === 'image' && tokenCount > 0) {
+                        event.properties['$ai_cache_read_image_tokens'] = tokenCount
+                        extractedSources.add('gemini_cache')
+                    }
                 }
-            } else if (
-                isObject(tokenDetails) &&
-                typeof tokenDetails['audioTokens'] === 'number' &&
-                tokenDetails['audioTokens'] > 0
-            ) {
-                event.properties['$ai_cache_read_audio_tokens'] = tokenDetails['audioTokens']
-                extractedSources.add('gemini_cache')
+            } else if (isObject(tokenDetails)) {
+                if (isValidTokenCount(tokenDetails['audioTokens']) && tokenDetails['audioTokens'] > 0) {
+                    event.properties['$ai_cache_read_audio_tokens'] = tokenDetails['audioTokens']
+                    extractedSources.add('gemini_cache')
+                }
+                if (isValidTokenCount(tokenDetails['imageTokens']) && tokenDetails['imageTokens'] > 0) {
+                    event.properties['$ai_cache_read_image_tokens'] = tokenDetails['imageTokens']
+                    extractedSources.add('gemini_cache')
+                }
             }
         }
 
@@ -186,7 +200,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                 return
             }
             const audioTokens = promptDetails['audio_tokens']
-            if (typeof audioTokens === 'number' && audioTokens > 0) {
+            if (isValidTokenCount(audioTokens) && audioTokens > 0) {
                 event.properties['$ai_audio_input_tokens'] = audioTokens
                 extractedSources.add('openai_input')
             }
@@ -202,7 +216,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                 return
             }
             const audioTokens = cachedDetails['audio_tokens']
-            if (typeof audioTokens === 'number' && audioTokens > 0) {
+            if (isValidTokenCount(audioTokens) && audioTokens > 0) {
                 event.properties['$ai_cache_read_audio_tokens'] = audioTokens
                 extractedSources.add('openai_cache')
             }
@@ -278,11 +292,21 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                 return
             }
             extractAnthropicCacheCreation(metadata)
-            extractInputModality(pick(metadata, 'promptTokensDetails', 'prompt_tokens_details'))
-            extractOutputModality(
-                pick(metadata, 'candidatesTokensDetails', 'candidates_tokens_details', 'outputTokenDetails')
+            extractInputModality(
+                pick(metadata, 'promptTokensDetails', 'prompt_tokens_details', 'input_tokens_by_modality')
             )
-            extractCacheModality(pick(metadata, 'cacheTokensDetails', 'cache_tokens_details'))
+            extractOutputModality(
+                pick(
+                    metadata,
+                    'candidatesTokensDetails',
+                    'candidates_tokens_details',
+                    'outputTokenDetails',
+                    'output_tokens_by_modality'
+                )
+            )
+            extractCacheModality(
+                pick(metadata, 'cacheTokensDetails', 'cache_tokens_details', 'cached_tokens_by_modality')
+            )
             extractOpenAIInputModality(metadata)
             extractOpenAICacheModality(metadata)
         }

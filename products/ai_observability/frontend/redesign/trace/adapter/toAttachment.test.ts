@@ -75,6 +75,41 @@ describe('toAttachment', () => {
             },
         ],
         [
+            'a Gemini Interactions image with top-level data and MIME type',
+            { type: 'image', data: 'iVBORw0=', mime_type: 'image/png' },
+            { mediaType: 'image', name: null, mimeType: 'image/png', url: 'data:image/png;base64,iVBORw0=' },
+        ],
+        [
+            'a Gemini Interactions image with an HTTPS URI',
+            { type: 'image', uri: 'https://cdn.example.com/image.png' },
+            { mediaType: 'image', name: null, mimeType: null, url: 'https://cdn.example.com/image.png' },
+        ],
+        [
+            'a Gemini Interactions image with an offloaded blob URI',
+            { type: 'image', uri: `phaiblob://v1/sha256/${BLOB_HASH}?mime=image/png` },
+            {
+                mediaType: 'image',
+                name: null,
+                mimeType: 'image/png',
+                url: `/api/projects/7/ai_blob/v1/sha256/${BLOB_HASH}`,
+            },
+        ],
+        [
+            'a Gemini Interactions image with redacted data and a URI',
+            {
+                type: 'image',
+                data: '[base64 image/png redacted]',
+                mime_type: 'image/png',
+                uri: 'https://cdn.example.com/image.png',
+            },
+            { mediaType: 'image', name: null, mimeType: 'image/png', url: null },
+        ],
+        [
+            'a Gemini Interactions image with redacted data, no MIME type, and a URI',
+            { type: 'image', data: '[base64 image redacted]', uri: 'https://cdn.example.com/image.png' },
+            { mediaType: 'image', name: null, mimeType: null, url: null },
+        ],
+        [
             'an image whose payload the SDK redacted',
             { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '[base64 image redacted]' } },
             { mediaType: 'image', name: null, mimeType: 'image/png', url: null },
