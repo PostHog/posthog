@@ -1,10 +1,14 @@
-import { BuiltLogic, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { FormContext } from 'kea-forms'
 import { useContext, useEffect } from 'react'
 
 import { LemonInputSelect } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { ExternalIssueAssigneeKind, externalIssueAssigneesLogic } from './externalIssueAssigneesLogic'
 
@@ -28,29 +32,57 @@ export function ExternalIssueAssigneeField({
     const scopeField = SCOPE_FIELDS[kind]
     const scope: string | null = scopeField ? (formValues[scopeField.field]?.[0] ?? null) : null
 
-    const { users, usersLoading } = useValues(externalIssueAssigneesLogic({ integrationId, kind, scope }))
+    const { assignees, assigneesLoading } = useValues(externalIssueAssigneesLogic({ integrationId, kind, scope }))
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    const restrictedReason = useIntegrationManagementRestriction()
 
     // Someone assignable in one team or repository may not be assignable in the next one.
     useEffect(() => {
         ;(formLogic as BuiltLogic).actions.setFormValue('assignees', [])
     }, [formLogic, scope])
 
+    const reconnectRequired = !!assignees?.reconnect_required
     const placeholder =
         scopeField && !scope
             ? scopeField.placeholder
-            : !usersLoading && users === null
-              ? "Couldn't load users"
-              : 'Unassigned'
+            : reconnectRequired
+              ? 'Reconnect to choose an assignee'
+              : !assigneesLoading && assignees === null
+                ? "Couldn't load users"
+                : 'Unassigned'
 
     return (
-        <LemonField name="assignees" label="Assignee" showOptional>
+        <LemonField
+            name="assignees"
+            label="Assignee"
+            showOptional
+            help={
+                reconnectRequired ? (
+                    restrictedReason ? (
+                        'Ask a project admin to reconnect this integration so it can list users.'
+                    ) : (
+                        <>
+                            This connection can't list users.{' '}
+                            <Link
+                                to={api.integrations.authorizeUrl({ kind, next: window.location.pathname })}
+                                disableClientSideRouting
+                                onClick={() => reportIntegrationConnectClicked(kind, kind, 'missing_scopes_reconnect')}
+                            >
+                                Reconnect
+                            </Link>{' '}
+                            to grant access.
+                        </>
+                    )
+                ) : undefined
+            }
+        >
             <LemonInputSelect
                 mode="single"
                 data-attr="external-issue-assignee"
                 placeholder={placeholder}
-                options={(users ?? []).map((user) => ({ key: user.id, label: user.name }))}
-                loading={usersLoading}
-                disabled={!!scopeField && !scope}
+                options={(assignees?.users ?? []).map((user) => ({ key: user.id, label: user.name }))}
+                loading={assigneesLoading}
+                disabled={(!!scopeField && !scope) || reconnectRequired}
             />
         </LemonField>
     )

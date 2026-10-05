@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.integration import Integration, JiraIntegration
+from posthog.models.integration import Integration, JiraIntegration, JiraReconnectRequired
 
 
 class TestJiraIntegrationModel:
@@ -163,3 +163,32 @@ class TestJiraIntegrationModel:
         )
 
         assert mock_post.call_args.kwargs["json"]["fields"].get("assignee") == expected_assignee
+
+    @parameterized.expand(
+        [
+            ("grant_without_user_scope", {"scope": "read:jira-work write:jira-work offline_access"}, None, False),
+            ("grant_unrecorded_and_denied", {}, 403, True),
+        ]
+    )
+    @patch("posthog.models.integration.jira.requests.get")
+    def test_list_assignable_users_requires_reconnect(self, _name, extra_config, status_code, calls_jira, mock_get):
+        integration = self.integration()
+        integration.config = {"cloud_id": "cloud-id", "refreshed_at": 9999999999, **extra_config}
+        mock_get.return_value.status_code = status_code
+
+        with pytest.raises(JiraReconnectRequired):
+            JiraIntegration(integration).list_assignable_users("ENG")
+
+        assert mock_get.called is calls_jira
+
+    @patch("posthog.models.integration.jira.requests.get")
+    def test_list_assignable_users_skips_inactive_users(self, mock_get):
+        integration = self.integration()
+        integration.config = {"cloud_id": "cloud-id", "scope": "read:jira-work read:jira-user"}
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"accountId": "a1", "displayName": "Ada", "active": True},
+            {"accountId": "a2", "displayName": "Gone", "active": False},
+        ]
+
+        assert JiraIntegration(integration).list_assignable_users("ENG") == [{"id": "a1", "name": "Ada"}]

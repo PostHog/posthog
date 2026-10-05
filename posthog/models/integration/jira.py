@@ -67,6 +67,13 @@ def description_to_adf(description: str) -> dict[str, Any]:
     return {"type": "doc", "version": 1, "content": content}
 
 
+JIRA_USER_SCOPE = "read:jira-user"
+
+
+class JiraReconnectRequired(Exception):
+    """The connection's grant predates a scope that the call needs, so only a reconnect fixes it."""
+
+
 class JiraIntegration:
     integration: model.Integration
 
@@ -158,7 +165,14 @@ class JiraIntegration:
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
 
     def list_assignable_users(self, project_key: str) -> list[dict[str, str]]:
-        """Users who can be assigned issues in the project, up to the first 100."""
+        """Users who can be assigned issues in the project, up to the first 100.
+
+        Raises JiraReconnectRequired for a connection made before PostHog requested read:jira-user.
+        """
+        granted_scope = self.integration.config.get("scope")
+        if isinstance(granted_scope, str) and JIRA_USER_SCOPE not in granted_scope.split():
+            raise JiraReconnectRequired()
+
         cloud_id = self.cloud_id()
         if not cloud_id:
             raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
@@ -174,6 +188,9 @@ class JiraIntegration:
             },
             timeout=10,
         )
+        # A connection without a recorded scope can still lack the grant, which Jira reports as 401 or 403.
+        if response.status_code in (401, 403):
+            raise JiraReconnectRequired()
         if response.status_code != 200:
             raise ValidationError("Could not list the Jira project's assignable users.")
         return [

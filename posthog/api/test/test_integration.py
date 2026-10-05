@@ -60,6 +60,7 @@ from posthog.models.integration import (
     GitHubIntegrationError,
     GitHubUserAuthorization,
     Integration,
+    JiraReconnectRequired,
     SlackIntegration,
     StripeIntegration,
     github_account_type,
@@ -2089,8 +2090,30 @@ class TestIntegrationAPIKeyAccess:
             )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"users": [{"id": "u1", "name": "Ada"}]}
+        assert response.json()["users"] == [{"id": "u1", "name": "Ada"}]
         mock_list.assert_called_once_with(*expected_call)
+
+    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration.JiraIntegration.list_assignable_users", side_effect=JiraReconnectRequired)
+    def test_jira_assignable_users_reports_reconnect_required(
+        self, _mock_list, _mock_ensure_token_valid, client: HttpClient
+    ):
+        integration = Integration.objects.create(team=self.team, kind="jira", config={}, sensitive_config={})
+        key_value = "test_key_jira_reconnect"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/jira_assignable_users/?project_key=ENG",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"users": [], "reconnect_required": True}
 
     @patch("posthog.models.integration.github.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):

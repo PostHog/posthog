@@ -91,6 +91,7 @@ from posthog.models.integration import (
     Integration,
     IntegrationError,
     JiraIntegration,
+    JiraReconnectRequired,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
@@ -421,6 +422,13 @@ class IntegrationAssigneeSerializer(serializers.Serializer):
 
 class IntegrationAssigneesResponseSerializer(serializers.Serializer):
     users = IntegrationAssigneeSerializer(many=True, help_text="Users who can be assigned an issue, up to 100.")
+    reconnect_required = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when the connection lacks the permission to list users. "
+            "Reconnecting the integration grants it. Only Jira sets this."
+        ),
+    )
 
 
 class LinearTeamMembersQuerySerializer(serializers.Serializer):
@@ -2506,7 +2514,11 @@ class IntegrationViewSet(
             raise ValidationError("jira_assignable_users endpoint is only supported for Jira integrations")
         _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
-        return Response({"users": jira.list_assignable_users(query_serializer.validated_data["project_key"])})
+        try:
+            users = jira.list_assignable_users(query_serializer.validated_data["project_key"])
+        except JiraReconnectRequired:
+            return Response({"users": [], "reconnect_required": True})
+        return Response({"users": users, "reconnect_required": False})
 
     @extend_schema(responses={200: IntegrationAssigneesResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="gitlab_members")

@@ -57186,6 +57186,8 @@ export namespace Schemas {
     export interface IntegrationAssigneesResponse {
       /** Users who can be assigned an issue, up to 100. */
       users: IntegrationAssignee[];
+      /** True when the connection lacks the permission to list users. Reconnecting the integration grants it. Only Jira sets this. */
+      reconnect_required?: boolean;
     }
 
     /**

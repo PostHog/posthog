@@ -356,6 +356,8 @@ export interface IntegrationAssigneeApi {
 export interface IntegrationAssigneesResponseApi {
     /** Users who can be assigned an issue, up to 100. */
     users: IntegrationAssigneeApi[]
+    /** True when the connection lacks the permission to list users. Reconnecting the integration grants it. Only Jira sets this. */
+    reconnect_required?: boolean
 }
 
 export interface GitHubBranchesResponseApi {

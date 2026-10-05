@@ -55,7 +55,7 @@ from .google_cloud import (
     GoogleCloudServiceAccountIntegration,
     is_unique_service_account_by_organization_id,
 )
-from .jira import JiraIntegration
+from .jira import JiraIntegration, JiraReconnectRequired
 from .linear import LinearIntegration
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
@@ -209,6 +209,7 @@ __all__ = [
     "external_issue_url",
     "is_supported_external_issue_provider",
     "JiraIntegration",
+    "JiraReconnectRequired",
     "GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS",
     "GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS",
     "GitHubUserAuthorization",
