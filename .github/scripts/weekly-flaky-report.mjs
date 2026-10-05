@@ -12,7 +12,7 @@
 // into the span pipeline are invisible. Master-burst breakage and branch-only tests
 // are filtered out client-side.
 
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
 import {
@@ -40,6 +40,7 @@ const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 // The synced runs table name carries the warehouse source prefix, which differs per project.
 const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
 const QUARANTINE_FILE = '.test_quarantine.json'
+const QUARANTINE_MATCHER = '.github/scripts/quarantine_matches.py'
 
 // A HogQL query without a LIMIT returns 100 rows.
 const QUERY_ROW_LIMIT = 50000
@@ -290,56 +291,37 @@ function sharedTrunkLookup(fetchQuarantine = fetchTrunkQuarantine, enabled = TRU
     return (runner) => fetchTrunkQuarantined(runner, () => (pending ??= fetchQuarantine()), enabled)
 }
 
-// `product:batch-exports` stands for the path prefix `products/batch_exports/`.
-function expandedQuarantineSelector(entryId) {
-    return entryId.startsWith('product:')
-        ? `products/${entryId.slice('product:'.length).replaceAll('-', '_')}/`
-        : entryId
-}
-
-// Mirrors `selector_matches` in tools/hogli-commands/hogli_commands/quarantine/core.py: an entry
-// covers a test, a class, a file, a directory, or a whole product.
-function quarantineEntryCovers(entryId, selector) {
-    if (entryId.startsWith('product:')) {
-        return selector.startsWith(expandedQuarantineSelector(entryId))
-    }
-    const id = entryId.replace(/\/+$/, '')
-    return selector === id || ['/', '::', '[', ' '].some((boundary) => selector.startsWith(`${id}${boundary}`))
-}
-
-// Which entry of the repository quarantine file covered a test during the report window. An entry
-// suppresses the test through its `expires` date and is inert after it, so an entry that expired
-// inside the window still explains the xfailed runs before that date.
+// Which entry of the repository quarantine file covered each candidate during the report window.
+// An entry suppresses the test through its `expires` date and is inert after it, so an entry that
+// expired inside the window still explains the xfailed runs before that date.
+//
+// The file's contract in tools/hogli-commands/hogli_commands/quarantine/core.py reads the file and
+// matches the selectors, so no rule about either lives here.
 //
 // Returns null when the file cannot be read. No entry then means "unknown", not "not quarantined".
-function loadQuarantineFile(runner, { read = () => readFileSync(QUARANTINE_FILE, 'utf8'), now = new Date() } = {}) {
-    let entries
-    try {
-        const parsed = JSON.parse(read())
-        entries = parsed.entries
-        if (parsed.version !== 1 || !Array.isArray(entries)) {
-            throw new Error('not a version 1 quarantine file')
-        }
-    } catch (err) {
-        console.warn(`${QUARANTINE_FILE} is unreadable — reporting without file quarantines: ${err.message}`)
-        return null
-    }
+function loadQuarantineFile(runner, candidates, { file = QUARANTINE_FILE, now = new Date() } = {}) {
     const today = now.toISOString().slice(0, 10)
     const windowStart = new Date(now.getTime() - REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    // Longest selector first, so the first match is the most specific one, as it is when CI
-    // applies the file.
-    const inWindow = entries
-        .filter(
-            (entry) =>
-                (entry.runner || 'pytest') === runner && entry.id && entry.expires && entry.expires >= windowStart
+    let covering
+    try {
+        const out = execFileSync('python3', [QUARANTINE_MATCHER, file, runner, windowStart], {
+            encoding: 'utf8',
+            input: JSON.stringify(
+                Object.fromEntries(candidates.map((item) => [item.selector, selectorVariants(item.selector)]))
+            ),
+            env: { ...process.env, PYTHONPATH: 'tools/hogli-commands' },
+            stdio: 'pipe',
+        })
+        covering = new Map(Object.entries(JSON.parse(out)))
+    } catch (err) {
+        console.warn(
+            `${file} is unreadable — reporting without file quarantines: ${err.stderr?.trim() || err.message}`
         )
-        .sort(
-            (left, right) => expandedQuarantineSelector(right.id).length - expandedQuarantineSelector(left.id).length
-        )
+        return null
+    }
     return (item) => {
-        const variants = selectorVariants(item.selector)
-        const covering = inWindow.find((entry) => variants.some((variant) => quarantineEntryCovers(entry.id, variant)))
-        return covering ? { expires: covering.expires, active: covering.expires >= today } : null
+        const entry = covering.get(item.selector)
+        return entry ? { expires: entry.expires, active: entry.expires >= today } : null
     }
 }
 
@@ -476,7 +458,7 @@ async function buildRunnerReports(
     return Promise.all(
         candidatePools.map(async ({ runner, candidates }) => {
             const trunkFor = await getTrunk(runner)
-            const fileFor = getQuarantineFile(runner)
+            const fileFor = getQuarantineFile(runner, candidates)
             const statusFor = quarantineStatusFor(trunkFor, fileFor)
             const knownFlakes = trunkFor
                 ? candidates.filter((item) => isKnownFlake(item, trunkFor, fileFor))

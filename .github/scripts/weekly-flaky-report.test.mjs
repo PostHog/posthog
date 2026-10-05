@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
 
 import {
@@ -470,25 +473,37 @@ describe('weekly flaky report', () => {
             quarantined_failed_run_count: 3,
             failed_run_count: 4,
         }
-        const fileFor = loadQuarantineFile('pytest', {
-            read: () =>
-                JSON.stringify({
-                    version: 1,
-                    entries: [
-                        // A file-level entry covers every test in the file.
-                        { id: 'file.py', runner: 'pytest', expires: '2026-07-20' },
-                        { id: unparked.selector, runner: 'pytest', expires: '2026-07-14' },
-                        { id: 'plain.py::test_plain', runner: 'jest', expires: '2026-07-20' },
-                    ],
-                }),
-            now: new Date('2026-07-15T00:00:00Z'),
-        })
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
         const overdue = { runner: 'pytest', selector: 'overdue.py::test_overdue', failed_run_count: 7 }
         const unlimited = { runner: 'pytest', selector: 'unlimited.py::test_unlimited', failed_run_count: 3 }
         const undated = { runner: 'pytest', selector: 'undated.py::test_undated', failed_run_count: 2 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
         const items = [quarantineFile, unparked, trunked, overdue, unlimited, undated, plain]
+        const directory = mkdtempSync(join(tmpdir(), 'quarantine-'))
+        const file = join(directory, 'quarantine.json')
+        const now = new Date('2026-07-15T00:00:00Z')
+        const entry = (id, runner, expires) => ({ id, runner, added: '2026-07-01', expires })
+        let fileFor
+        try {
+            writeFileSync(
+                file,
+                JSON.stringify({
+                    version: 1,
+                    entries: [
+                        // A file-level entry covers every test in the file.
+                        entry('file.py', 'pytest', '2026-07-20'),
+                        entry(unparked.selector, 'pytest', '2026-07-14'),
+                        entry(plain.selector, 'jest', '2026-07-20'),
+                    ],
+                })
+            )
+            fileFor = loadQuarantineFile('pytest', items, { file, now })
+            // A file that breaks the contract is unknown, which is not the same as no entry.
+            writeFileSync(file, JSON.stringify({ version: 2, entries: [] }))
+            assert.equal(loadQuarantineFile('pytest', items, { file, now }), null)
+        } finally {
+            rmSync(directory, { recursive: true })
+        }
         const trunkRows = new Map([
             [trunked.selector, { quarantinedAt: '2026-07-13T17:12:22Z', overdue: false, fixBy: '2026-07-28' }],
             [overdue.selector, { quarantinedAt: '2026-06-20T08:00:00Z', overdue: true, fixBy: '2026-07-05' }],
