@@ -95,7 +95,7 @@ class TestChatAgentGatewayRouting(BaseTest):
                     self.assertEqual(call_kwargs["anthropic_api_key"], "test-key")
                     self.assertEqual(call_kwargs["default_headers"], expected_headers)
                     self.assertIs(call_kwargs["bypass_proxy"], True)
-                    self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+                    self.assertEqual(call_kwargs["model"], "claude-sonnet-5-5")
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
     @patch(
@@ -122,7 +122,9 @@ class TestChatAgentGatewayRouting(BaseTest):
         self.assertNotIn("anthropic_api_key", call_kwargs)
         self.assertNotIn("default_headers", call_kwargs)
         self.assertIs(call_kwargs["bypass_proxy"], False)
-        self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+        self.assertEqual(call_kwargs["model"], "claude-sonnet-5-5")
+        self.assertEqual(call_kwargs["thinking"]["type"], "adaptive")
+        self.assertNotIn("budget_tokens", call_kwargs["thinking"])
 
     @parameterized.expand(
         [
@@ -201,4 +203,4 @@ class TestChatAgentGatewayRouting(BaseTest):
             self.assertNotIn("anthropic_api_key", call_kwargs)
             self.assertNotIn("default_headers", call_kwargs)
             self.assertIs(call_kwargs["bypass_proxy"], False)
-            self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+            self.assertEqual(call_kwargs["model"], "claude-sonnet-5-5")
