@@ -52,17 +52,23 @@ def archive_row(
     }
 
 
-def view_read_comment(
-    saved_query: DataWarehouseSavedQuery, hogql: str, client_query_id: str, user_id: int, **extra: Any
-) -> dict[str, Any]:
+def read_comment(client_query_id: str, user_id: int, **tags: Any) -> dict[str, Any]:
     return {
         "kind": "request",
         "product": "sql_editor",
         "client_query_id": client_query_id,
         "user_id": user_id,
-        "saved_query_ids": [str(saved_query.id)],
-        "query": {"kind": "HogQLQuery", "query": hogql},
-        **extra,
+        **tags,
+    }
+
+
+def read_tags(
+    *, saved_query_ids: list[str], warehouse_table_ids: list[str], directly_read_ids: list[str]
+) -> dict[str, list[str]]:
+    return {
+        "saved_query_ids": saved_query_ids,
+        "warehouse_table_ids": warehouse_table_ids,
+        "directly_read_ids": directly_read_ids,
     }
 
 
@@ -97,21 +103,22 @@ def insert_archive_rows(rows: list[dict[str, Any]], client: Client) -> None:
 
 
 def read_rollup(team_id: int, day: date, subject_ids: list[str], client: Client) -> list[tuple]:
-    return client.execute(
-        f"""
-        SELECT read_kind, subject_id, workflow_id, read_alone,
-            uniqMerge(requests), uniqMerge(users), sum(read_count), sum(duration_ms_sum), sum(read_bytes_sum)
-        FROM {SAVED_QUERY_READS_DAILY_TABLE}
-        WHERE team_id = %(team_id)s AND day = %(day)s AND subject_id IN %(subject_ids)s
-        GROUP BY read_kind, subject_id, workflow_id, read_alone
-        ORDER BY read_kind, read_alone
-        """,
-        {"team_id": team_id, "day": day, "subject_ids": subject_ids},
+    return sorted(
+        client.execute(
+            f"""
+            SELECT read_kind, subject_kind, subject_id, workflow_id, read_alone,
+                uniqMerge(requests), uniqMerge(users), sum(read_count), sum(duration_ms_sum), sum(read_bytes_sum)
+            FROM {SAVED_QUERY_READS_DAILY_TABLE}
+            WHERE team_id = %(team_id)s AND day = %(day)s AND subject_id IN %(subject_ids)s
+            GROUP BY read_kind, subject_kind, subject_id, workflow_id, read_alone
+            """,
+            {"team_id": team_id, "day": day, "subject_ids": subject_ids},
+        )
     )
 
 
 @pytest.mark.django_db
-def test_rollup_counts_view_reads_and_refreshes_and_replaces_its_partition_on_rerun(
+def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_partition_on_rerun(
     cluster: ClickhouseCluster, team: Team
 ) -> None:
     day = rollup_day()
@@ -121,8 +128,11 @@ def test_rollup_counts_view_reads_and_refreshes_and_replaces_its_partition_on_re
     customers = DataWarehouseSavedQuery.objects.create(
         team=team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1"}
     )
-    DataWarehouseTable.objects.create(
+    stripe_charges = DataWarehouseTable.objects.create(
         team=team, name="stripe_charges", format="Parquet", url_pattern="https://example.com/stripe_charges"
+    )
+    hubspot_contacts = DataWarehouseTable.objects.create(
+        team=team, name="hubspot_contacts", format="Parquet", url_pattern="https://example.com/hubspot_contacts"
     )
     retired = DataWarehouseSavedQuery.objects.create(
         team=team, name="retired", query={"kind": "HogQLQuery", "query": "SELECT 1"}, deleted=True
@@ -132,33 +142,43 @@ def test_rollup_counts_view_reads_and_refreshes_and_replaces_its_partition_on_re
     DataModelingJob.objects.create(team=team, saved_query=customers, workflow_id=refresh_workflow_id)
     DataModelingJob.objects.create(team=team, saved_query=retired, workflow_id=retired_workflow_id)
 
-    view_only = "SELECT count() FROM orders"
-    view_only_naming_a_table = "SELECT count() FROM orders WHERE source = 'stripe_charges' -- not stripe_charges"
-    joined = "SELECT count() FROM orders o JOIN `stripe_charges` c ON o.id = c.order_id"
-    comma_joined = "SELECT count() FROM orders o, stripe_charges c WHERE o.id = c.order_id"
-    commented_join = "SELECT count() FROM orders o JOIN /* warehouse */ stripe_charges c ON o.id = c.order_id"
+    view_id, nested_view_id = str(orders.id), str(customers.id)
+    table_id, joined_table_id = str(stripe_charges.id), str(hubspot_contacts.id)
+    from_view = read_tags(
+        saved_query_ids=[view_id, nested_view_id], warehouse_table_ids=[table_id], directly_read_ids=[view_id]
+    )
+    from_view_joined_to_table = read_tags(
+        saved_query_ids=[view_id, nested_view_id],
+        warehouse_table_ids=[table_id, joined_table_id],
+        directly_read_ids=[view_id, joined_table_id],
+    )
+    from_table = read_tags(saved_query_ids=[], warehouse_table_ids=[table_id], directly_read_ids=[table_id])
+    untagged_view_read = {"saved_query_ids": [view_id]}
     rows = [
-        archive_row(team, day, log_comment=view_read_comment(orders, view_only, "shared", 7), duration_ms=100),
-        archive_row(team, day, log_comment=view_read_comment(orders, view_only, "shared", 7), duration_ms=300),
-        archive_row(
-            team, day, log_comment=view_read_comment(orders, view_only_naming_a_table, "literal", 7), duration_ms=10
-        ),
-        archive_row(team, day, log_comment=view_read_comment(orders, joined, "joined", 8), duration_ms=50),
-        archive_row(team, day, log_comment=view_read_comment(orders, comma_joined, "comma", 8), duration_ms=60),
-        archive_row(team, day, log_comment=view_read_comment(orders, commented_join, "comment", 8), duration_ms=70),
-        archive_row(team, day, log_comment=view_read_comment(orders, view_only, "staff", 9, is_impersonated=True)),
-        archive_row(team, day, log_comment=view_read_comment(orders, view_only, "leaf", 7), is_initial_query=False),
+        archive_row(team, day, log_comment=read_comment("shared", 7, **from_view), duration_ms=100),
+        archive_row(team, day, log_comment=read_comment("shared", 7, **from_view), duration_ms=300),
+        archive_row(team, day, log_comment=read_comment("joined", 8, **from_view_joined_to_table), duration_ms=50),
+        archive_row(team, day, log_comment=read_comment("table", 9, **from_table), duration_ms=20),
+        archive_row(team, day, log_comment=read_comment("untagged", 7, **untagged_view_read), duration_ms=10),
+        archive_row(team, day, log_comment=read_comment("staff", 9, is_impersonated=True, **from_view)),
+        archive_row(team, day, log_comment=read_comment("leaf", 7, **from_view), is_initial_query=False),
         archive_row(team, day, log_comment=refresh_comment(refresh_workflow_id), duration_ms=2000, read_bytes=50000),
         archive_row(team, day, log_comment=refresh_comment(retired_workflow_id)),
     ]
     cluster.any_host(partial(insert_archive_rows, rows)).result()
 
-    expected = [
-        ("read", str(orders.id), "", False, 3, 1, 3, 180, 3000),
-        ("read", str(orders.id), "", True, 2, 1, 3, 410, 3000),
-        ("refresh", str(customers.id), refresh_workflow_id, False, 1, 1, 1, 2000, 50000),
-    ]
-    subject_ids = [str(orders.id), str(customers.id), str(retired.id)]
+    expected = sorted(
+        [
+            ("read", "saved_query", view_id, "", True, 1, 1, 2, 400, 2000),
+            ("read", "saved_query", view_id, "", False, 2, 2, 2, 60, 2000),
+            ("read", "saved_query", nested_view_id, "", False, 2, 2, 3, 450, 3000),
+            ("read", "table", table_id, "", False, 2, 2, 3, 450, 3000),
+            ("read", "table", table_id, "", True, 1, 1, 1, 20, 1000),
+            ("read", "table", joined_table_id, "", False, 1, 1, 1, 50, 1000),
+            ("refresh", "saved_query", nested_view_id, refresh_workflow_id, False, 1, 1, 1, 2000, 50000),
+        ]
+    )
+    subject_ids = [view_id, nested_view_id, table_id, joined_table_id, str(retired.id)]
     for _ in range(2):
         run_rollup(cluster, day)
         assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected

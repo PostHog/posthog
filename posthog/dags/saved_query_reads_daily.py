@@ -20,8 +20,7 @@ from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.api import all_saved_query_names, saved_query_ids_by_workflow_id
-from products.warehouse_sources.backend.facade.api import all_queryable_table_keys
+from products.data_modeling.backend.facade.api import saved_query_ids_by_workflow_id
 from products.web_analytics.dags.web_preaggregated_utils import (
     get_partitions,
     recreate_staging_table,
@@ -37,12 +36,14 @@ ROLLUP_START_DATE = "2026-08-01"
 SCHEDULE_HOUR_UTC = 7
 CONCURRENCY_TAG = {"saved_query_reads_backfill_concurrency": "saved_query_reads_v1"}
 
-SUBJECT_NAMES_TABLE = "subject_names"
 REFRESH_SUBJECTS_TABLE = "refresh_subjects"
-IDENTIFIER_QUOTE_PATTERN = r"[`\"]"
-LITERAL_OR_COMMENT_PATTERN = r"(?s)'(?:[^'\\]|\\.)*'|--[^\n]*|/\*.*?\*/"
 PARTITION_ID_FORMAT = "%Y%m%d"
-IDENTIFIER_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
+READ_SUBJECT_ID = "read_subject_id"
+DIRECTLY_READ_IDS = "log_comment.directly_read_ids::Array(String)"
+SUBJECT_ID_TAGS = {
+    SubjectKind.SAVED_QUERY: "saved_query_ids",
+    SubjectKind.TABLE: "warehouse_table_ids",
+}
 
 AGGREGATE_COLUMNS = (
     "uniqState(request_id) AS requests",
@@ -65,32 +66,21 @@ REFRESH_ROW_FILTER = f"""lc_feature = '{Feature.DATA_MODELING.value}'
         AND lc_kind = '{TEMPORAL_QUERY_KIND}'
         AND lc_temporal__workflow_id != ''"""
 
-TEAMS_WITH_READS_SQL = f"""
-SELECT
-    team_id,
-    countIf(notEmpty(log_comment.saved_query_ids::Array(String))) > 0 AS has_view_reads,
-    groupUniqArrayIf(lc_temporal__workflow_id, {REFRESH_ROW_FILTER}) AS refresh_workflow_ids
+TEAM_REFRESHES_SQL = f"""
+SELECT team_id, groupUniqArray(lc_temporal__workflow_id) AS refresh_workflow_ids
 FROM {QUERY_LOG_ARCHIVE_TABLE}
 WHERE {ARCHIVE_ROW_FILTER}
+    AND {REFRESH_ROW_FILTER}
 GROUP BY team_id
-HAVING has_view_reads OR notEmpty(refresh_workflow_ids)
 """
 
 daily_partitions = dagster.DailyPartitionsDefinition(start_date=ROLLUP_START_DATE, timezone="UTC")
 
 
 @frozen
-class TeamReadsOnDay:
+class TeamRefreshesOnDay:
     team_id: int
-    has_view_reads: bool
     refresh_workflow_ids: tuple[str, ...]
-
-
-@frozen
-class SubjectNameRow:
-    team_id: int
-    subject_id: str
-    name: str
 
 
 @frozen
@@ -101,12 +91,20 @@ class RefreshSubjectRow:
 
 
 def _archive_branch_sql(
-    *, read_kind: ReadKind, subject_id: str, workflow_id: str, queried_names: str, array_join: str, extra_filter: str
+    *,
+    read_kind: ReadKind,
+    subject_kind: SubjectKind,
+    subject_id: str,
+    workflow_id: str,
+    read_alone: str,
+    array_join: str,
+    extra_filter: str,
 ) -> str:
     return f"""
     SELECT
         team_id,
         '{read_kind.value}' AS read_kind,
+        '{subject_kind.value}' AS subject_kind,
         {subject_id} AS subject_id,
         {workflow_id} AS workflow_id,
         lc_kind,
@@ -121,26 +119,30 @@ def _archive_branch_sql(
         query_duration_ms,
         read_bytes,
         event_time,
-        {queried_names} AS queried_names
+        {read_alone} AS read_alone
     FROM {QUERY_LOG_ARCHIVE_TABLE}
     {array_join}
     WHERE {ARCHIVE_ROW_FILTER}{extra_filter}"""
 
 
-VIEW_READS_SQL = _archive_branch_sql(
-    read_kind=ReadKind.READ,
-    subject_id="viewed_saved_query_id",
-    workflow_id="''",
-    queried_names="arrayDistinct(extractAll(replaceRegexpAll(replaceRegexpAll(lc_query__query, %(literal_or_comment_pattern)s, ' '), %(identifier_quote_pattern)s, ''), %(identifier_pattern)s))",
-    array_join="ARRAY JOIN log_comment.saved_query_ids::Array(String) AS viewed_saved_query_id",
-    extra_filter="",
-)
+def _subject_reads_sql(subject_kind: SubjectKind) -> str:
+    return _archive_branch_sql(
+        read_kind=ReadKind.READ,
+        subject_kind=subject_kind,
+        subject_id=READ_SUBJECT_ID,
+        workflow_id="''",
+        read_alone=f"{DIRECTLY_READ_IDS} = [{READ_SUBJECT_ID}]",
+        array_join=f"ARRAY JOIN log_comment.{SUBJECT_ID_TAGS[subject_kind]}::Array(String) AS {READ_SUBJECT_ID}",
+        extra_filter="",
+    )
+
 
 REFRESH_READS_SQL = _archive_branch_sql(
     read_kind=ReadKind.REFRESH,
+    subject_kind=SubjectKind.SAVED_QUERY,
     subject_id="''",
     workflow_id="lc_temporal__workflow_id",
-    queried_names="CAST([], 'Array(String)')",
+    read_alone="false",
     array_join="",
     extra_filter=f"\n        AND {REFRESH_ROW_FILTER}",
 )
@@ -155,7 +157,7 @@ FROM (
         reads.team_id AS team_id,
         toDate(%(day)s) AS day,
         reads.read_kind AS read_kind,
-        '{SubjectKind.SAVED_QUERY.value}' AS subject_kind,
+        reads.subject_kind AS subject_kind,
         if(reads.read_kind = '{ReadKind.REFRESH.value}', {REFRESH_SUBJECTS_TABLE}.subject_id, reads.subject_id) AS subject_id,
         reads.workflow_id AS workflow_id,
         reads.lc_kind AS lc_kind,
@@ -165,20 +167,14 @@ FROM (
         reads.source AS source,
         reads.scene AS scene,
         reads.has_user_id AS has_user_id,
-        arrayFilter(
-            name -> (reads.team_id, name) IN (SELECT team_id, name FROM {SUBJECT_NAMES_TABLE}),
-            reads.queried_names
-        ) AS known_queried_names,
-        notEmpty(known_queried_names) AND arrayAll(
-            name -> (reads.team_id, subject_id, name) IN (SELECT team_id, subject_id, name FROM {SUBJECT_NAMES_TABLE}),
-            known_queried_names
-        ) AS read_alone,
+        reads.read_alone AS read_alone,
         reads.request_id AS request_id,
         reads.user_id AS user_id,
         reads.query_duration_ms AS query_duration_ms,
         reads.read_bytes AS read_bytes,
         reads.event_time AS event_time
-    FROM ({VIEW_READS_SQL}
+    FROM ({_subject_reads_sql(SubjectKind.SAVED_QUERY)}
+    UNION ALL{_subject_reads_sql(SubjectKind.TABLE)}
     UNION ALL{REFRESH_READS_SQL}
     ) AS reads
     LEFT JOIN {REFRESH_SUBJECTS_TABLE}
@@ -195,36 +191,18 @@ def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
         "day": day,
         "day_start": day_start,
         "day_end": day_start + timedelta(days=1),
-        "identifier_pattern": IDENTIFIER_PATTERN,
-        "identifier_quote_pattern": IDENTIFIER_QUOTE_PATTERN,
-        "literal_or_comment_pattern": LITERAL_OR_COMMENT_PATTERN,
     }
 
 
-def find_teams_with_reads(client: Client, day: date) -> list[TeamReadsOnDay]:
-    rows = client.execute(TEAMS_WITH_READS_SQL, _day_query_parameters(day))
+def find_team_refreshes(client: Client, day: date) -> list[TeamRefreshesOnDay]:
+    rows = client.execute(TEAM_REFRESHES_SQL, _day_query_parameters(day))
     return [
-        TeamReadsOnDay(
-            team_id=team_id, has_view_reads=bool(has_view_reads), refresh_workflow_ids=tuple(refresh_workflow_ids)
-        )
-        for team_id, has_view_reads, refresh_workflow_ids in rows
+        TeamRefreshesOnDay(team_id=team_id, refresh_workflow_ids=tuple(refresh_workflow_ids))
+        for team_id, refresh_workflow_ids in rows
     ]
 
 
-def _subject_name_rows(team_id: int) -> list[SubjectNameRow]:
-    view_rows = [
-        SubjectNameRow(team_id=team_id, subject_id=saved_query_id, name=name)
-        for saved_query_id, name in all_saved_query_names(team_id).items()
-    ]
-    table_rows = [
-        SubjectNameRow(team_id=team_id, subject_id=str(table_id), name=name)
-        for table_id, table_names in all_queryable_table_keys(team_id).items()
-        for name in {table_names.row_name, table_names.queryable_key}
-    ]
-    return view_rows + table_rows
-
-
-def _refresh_subject_rows(team: TeamReadsOnDay) -> list[RefreshSubjectRow]:
+def _refresh_subject_rows(team: TeamRefreshesOnDay) -> list[RefreshSubjectRow]:
     return [
         RefreshSubjectRow(team_id=team.team_id, workflow_id=workflow_id, subject_id=saved_query_id)
         for workflow_id, saved_query_id in saved_query_ids_by_workflow_id(
@@ -233,29 +211,16 @@ def _refresh_subject_rows(team: TeamReadsOnDay) -> list[RefreshSubjectRow]:
     ]
 
 
-def load_subject_names(teams: list[TeamReadsOnDay]) -> list[SubjectNameRow]:
-    return [row for team in teams if team.has_view_reads for row in _subject_name_rows(team.team_id)]
+def load_refresh_subjects(teams: list[TeamRefreshesOnDay]) -> list[RefreshSubjectRow]:
+    return [row for team in teams for row in _refresh_subject_rows(team)]
 
 
-def load_refresh_subjects(teams: list[TeamReadsOnDay]) -> list[RefreshSubjectRow]:
-    return [row for team in teams if team.refresh_workflow_ids for row in _refresh_subject_rows(team)]
-
-
-def as_external_tables(
-    subject_names: list[SubjectNameRow], refresh_subjects: list[RefreshSubjectRow]
-) -> list[ClickHouseExternalTable]:
-    return [
-        ClickHouseExternalTable(
-            name=SUBJECT_NAMES_TABLE,
-            structure=[("team_id", "Int64"), ("subject_id", "String"), ("name", "String")],
-            data=[asdict(row) for row in subject_names],
-        ),
-        ClickHouseExternalTable(
-            name=REFRESH_SUBJECTS_TABLE,
-            structure=[("team_id", "Int64"), ("workflow_id", "String"), ("subject_id", "String")],
-            data=[asdict(row) for row in refresh_subjects],
-        ),
-    ]
+def as_external_table(refresh_subjects: list[RefreshSubjectRow]) -> ClickHouseExternalTable:
+    return ClickHouseExternalTable(
+        name=REFRESH_SUBJECTS_TABLE,
+        structure=[("team_id", "Int64"), ("workflow_id", "String"), ("subject_id", "String")],
+        data=[asdict(row) for row in refresh_subjects],
+    )
 
 
 def insert_rollup_into_staging(
@@ -311,19 +276,19 @@ def rollup_saved_query_reads_for_day(
 ) -> None:
     refuse_to_run_beside_another_rollup(context)
     day = date.fromisoformat(context.partition_key)
-    teams = cluster.any_host_by_roles(lambda client: find_teams_with_reads(client, day), [NodeRole.DATA]).result()
+    teams = cluster.any_host_by_roles(lambda client: find_team_refreshes(client, day), [NodeRole.DATA]).result()
     refresh_subjects = load_refresh_subjects(teams)
-    context.log.info(f"Rolling up saved query reads for {day} across {len(teams)} teams")
+    context.log.info(f"Rolling up saved query reads for {day}")
 
     recreate_staging_table(
         context, cluster, SAVED_QUERY_READS_DAILY_STAGING_TABLE, REPLACE_SAVED_QUERY_READS_DAILY_STAGING_TABLE_SQL
     )
-    insert_rollup_into_staging(context, cluster, day, as_external_tables(load_subject_names(teams), refresh_subjects))
+    insert_rollup_into_staging(context, cluster, day, [as_external_table(refresh_subjects)])
     publish_day(context, cluster, day)
 
     context.add_output_metadata(
         {
-            "teams": dagster.MetadataValue.int(len(teams)),
+            "refresh_teams": dagster.MetadataValue.int(len(teams)),
             "refresh_workflows": dagster.MetadataValue.int(sum(len(team.refresh_workflow_ids) for team in teams)),
             "resolved_refresh_workflows": dagster.MetadataValue.int(len(refresh_subjects)),
         }
