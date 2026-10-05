@@ -170,7 +170,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
             ),
-            self._parse_expr("properties.arr > 100"),
+            self._parse_expr("toFloat(properties.arr) > 100"),
         )
 
     @parameterized.expand(
@@ -1435,6 +1435,59 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
             self._parse_expr("properties.count in (5, 6)"),
         )
+        # ordered operators leave a Numeric-typed LHS alone too, with no toFloat wrap
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "count", "value": 5, "operator": "gt"}),
+            self._parse_expr("properties.count > 5"),
+        )
+
+    @parameterized.expand(
+        [
+            ("person", "person", None),
+            ("event", "event", None),
+            ("group", "group", 0),
+        ]
+    )
+    def test_property_to_expr_ordered_numeric_filter_on_string_property(self, _name, property_type, group_type_index):
+        # An ordered numeric filter on a string-typed (or as-yet-undefined) property compiles to
+        # <String> > <number>, which ClickHouse rejects at read time with NO_COMMON_TYPE (386), so
+        # the LHS needs a toFloat (accurateCastOrNull) cast that drops non-numeric values instead.
+        base: dict = {"type": property_type, "key": "prop", "value": 200, "operator": "gt"}
+        if group_type_index is not None:
+            base["group_type_index"] = group_type_index
+        prefix = {"person": "person.properties", "event": "properties", "group": "group_0.properties"}[property_type]
+
+        for operator, symbol in [("gt", ">"), ("lt", "<"), ("gte", ">="), ("lte", "<=")]:
+            self.assertEqual(
+                self._property_to_expr({**base, "operator": operator}),
+                self._parse_expr(f"toFloat({prefix}.prop) {symbol} 200"),
+            )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "between", "value": [5, 10]}),
+            self._parse_expr(f"toFloat({prefix}.prop) >= 5 and toFloat({prefix}.prop) <= 10"),
+        )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "not_between", "value": [5, 10]}),
+            self._parse_expr(
+                f"toFloat({prefix}.prop) < 5 or toFloat({prefix}.prop) > 10 or isNull(toFloat({prefix}.prop))"
+            ),
+        )
+        # a string value keeps the uncoerced String comparison
+        self.assertEqual(
+            self._property_to_expr({**base, "value": "abc"}),
+            self._parse_expr(f"{prefix}.prop > 'abc'"),
+        )
+
+    def test_property_to_expr_between_string_bound_parses_against_coerced_lhs(self):
+        # Coercion triggers off the numeric bound, so the string bound must become a number too,
+        # or the comparison fails with the same NO_COMMON_TYPE the coercion avoids.
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": [5, "10"], "operator": "between"})
+        assert isinstance(expr, ast.And)
+        upper = expr.exprs[1]
+        assert isinstance(upper, ast.CompareOperation)
+        assert isinstance(upper.right, ast.Constant)
+        self.assertIsInstance(upper.right.value, float)
+        self.assertEqual(upper.right.value, 10.0)
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
         with self.assertRaises(Exception) as e:
@@ -1695,17 +1748,19 @@ class TestProperty(BaseTest):
     def test_property_to_expr_between_operator(self):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
-            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+            self._parse_expr("(toFloat(properties.age) >= 18 AND toFloat(properties.age) <= 65)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
-            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+            self._parse_expr("(toFloat(person.properties.age) >= 25 AND toFloat(person.properties.age) <= 50)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100 OR isNull(properties.score))"),
+            self._parse_expr(
+                "(toFloat(properties.score) < 0 OR toFloat(properties.score) > 100 OR isNull(toFloat(properties.score)))"
+            ),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -1768,25 +1823,25 @@ class TestProperty(BaseTest):
         # Test MIN operator (alias for GTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
-            self._parse_expr("properties.age >= 18"),
+            self._parse_expr("toFloat(properties.age) >= 18"),
         )
 
         # Test MAX operator (alias for LTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
-            self._parse_expr("properties.age <= 65"),
+            self._parse_expr("toFloat(properties.age) <= 65"),
         )
 
         # Test MIN with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
-            self._parse_expr("person.properties.age >= 25"),
+            self._parse_expr("toFloat(person.properties.age) >= 25"),
         )
 
         # Test MAX with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
-            self._parse_expr("person.properties.score <= 100"),
+            self._parse_expr("toFloat(person.properties.score) <= 100"),
         )
 
     def test_property_to_expr_semver_operators(self):

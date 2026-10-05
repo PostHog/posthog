@@ -319,27 +319,27 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_0_int[new_events_schema]
-  '''
-  SELECT count() AS `count()`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 5), 0))
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_1_float[new_events_schema]
-  '''
-  SELECT count() AS `count()`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), 5.5), 0))
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_2_datetime[new_events_schema]
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_datetime_constant_against_string_column_errors[new_events_schema]
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), ifNull(less(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^test_prop)), if(isNull(nullIf(toString(events.properties.test_prop), '')), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.test_prop), '[]'), '{}'), toString(events.properties.test_prop)))), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_constant_against_string_column_coerces_0_int[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(events.properties.test_prop, 'Float64'), 5), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_constant_against_string_column_coerces_1_float[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(events.properties.test_prop, 'Float64'), 5.5), 0))
   LIMIT 50000
   '''
 # ---

@@ -434,33 +434,24 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
-def _coerce_numeric_value_for_string_property(value: ValueT, property: Property, team: Team) -> ValueT:
-    """Person, event, and group properties are pulled out of JSON as strings, so a numeric
-    filter value against a string-typed one compiles to equals(<String>, <number>), which
-    ClickHouse rejects with NO_COMMON_TYPE. Stringify the numeric value in that case,
-    mirroring _stringify_group_key_value for group keys.
+# bool is a subclass of int — exclude it so booleans keep flowing through _handle_bool_values
+def _is_numeric_filter_value(v: object) -> bool:
+    return not isinstance(v, bool) and isinstance(v, (int, float))
+
+
+def _property_lhs_stays_string(property: Property, team: Team) -> bool:
+    """Whether the property's LHS compiles to a JSON-extracted String.
 
     Numeric-, Boolean-, and DateTime-typed properties are cast to a Float / Bool / DateTime
-    LHS by PropertySwapper, so their comparisons already resolve to a common type — those are
-    left untouched (stringifying them would reintroduce the mismatch the other way around).
-    Only the narrow numeric-value-vs-string-property shape is coerced.
-
-    Accepts a scalar or a list of values; the type lookup runs at most once either way."""
-
-    # bool is a subclass of int — exclude it so booleans keep flowing through _handle_bool_values
-    def _is_numeric(v: object) -> bool:
-        return not isinstance(v, bool) and isinstance(v, (int, float))
-
-    values = value if isinstance(value, list) else [value]
-    if not any(_is_numeric(v) for v in values):
-        return value
-
+    LHS by PropertySwapper, so their comparisons already resolve to a common type.
+    A String-typed or as-yet-undefined property keeps its String LHS, and a numeric
+    comparison against it needs coercion on one side or the other."""
     # map_virtual_properties rewrites a $virt_ key to a typed column on the parent table instead
     # of a JSON extract, so its LHS is already numeric and has no PropertyDefinition row to look
-    # up. Without this guard the lookup below misses and stringifies, which breaks numeric virtual
+    # up. Without this guard the lookup below misses and coerces, which breaks numeric virtual
     # properties such as $virt_revenue.
     if property.key and property.key.startswith("$virt_"):
-        return value
+        return False
 
     if property.type == "person":
         type_filters: dict[str, object] = {"type": PropertyDefinition.Type.PERSON}
@@ -473,7 +464,7 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
     else:
         # Other property types (session, data warehouse, logs, spans, …) resolve to properly
         # typed columns, so a numeric comparison already has a common type — leave them alone.
-        return value
+        return False
 
     property_type = (
         PropertyDefinition.objects.alias(
@@ -488,13 +479,29 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
         .first()
     )
 
-    if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
+    return property_type not in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime)
+
+
+def _coerce_numeric_value_for_string_property(value: ValueT, property: Property, team: Team) -> ValueT:
+    """Person, event, and group properties are pulled out of JSON as strings, so a numeric
+    filter value against a string-typed one compiles to equals(<String>, <number>), which
+    ClickHouse rejects with NO_COMMON_TYPE. Stringify the numeric value in that case,
+    mirroring _stringify_group_key_value for group keys.
+
+    Only the narrow numeric-value-vs-string-property shape is coerced; a typed LHS is
+    left untouched (stringifying it would reintroduce the mismatch the other way around).
+
+    Accepts a scalar or a list of values; the type lookup runs at most once either way."""
+    values = value if isinstance(value, list) else [value]
+    if not any(_is_numeric_filter_value(v) for v in values):
         return value
 
-    # String-typed or as-yet-undefined property: the LHS stays a JSON-extracted String, so
-    # stringify to keep both sides comparable. An integer-valued float loses its '.0' (13.0 -> '13').
+    if not _property_lhs_stays_string(property, team):
+        return value
+
+    # An integer-valued float loses its '.0' (13.0 -> '13').
     def _stringify(v: object) -> object:
-        if not _is_numeric(v):
+        if not _is_numeric_filter_value(v):
             return v
         if isinstance(v, float) and v.is_integer():
             return str(int(v))
@@ -503,6 +510,24 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
     if isinstance(value, list):
         return cast(ValueT, [_stringify(v) for v in value])
     return cast(ValueT, _stringify(value))
+
+
+def _force_numeric_for_string_property(expr: ast.Expr, value: ValueT, property: Property, team: Team) -> ast.Expr:
+    """Coerce the LHS of an ordered comparison (lt/gt/lte/gte/between) to Float64 when a
+    numeric filter value meets a String LHS.
+
+    Stringifying the value, the way exact/is_not do, would order lexicographically
+    ('9' > '10'), so the cast has to go on the LHS instead. HogQL's toFloat prints as
+    accurateCastOrNull(..., 'Float64'), so a row whose value does not parse as a number
+    becomes NULL and drops out of the comparison, same as a row missing the property."""
+    values = value if isinstance(value, list) else [value]
+    if not any(_is_numeric_filter_value(v) for v in values):
+        return expr
+
+    if not _property_lhs_stays_string(property, team):
+        return expr
+
+    return ast.Call(name="toFloat", args=[expr])
 
 
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
@@ -593,6 +618,20 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     if low > high:
         raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
     return True
+
+
+def _normalize_between_bounds(value: list) -> tuple[int | float, int | float]:
+    """Parse between bounds for a comparison against a Float64-coerced LHS.
+
+    Coercion triggers when at least one bound is numeric, so the other bound can still be a
+    numeric string ('10'); left as a String constant it would fail against the Float64 LHS
+    with the same NO_COMMON_TYPE the coercion exists to avoid. _validate_between_values
+    already guaranteed both bounds parse."""
+
+    def _parse(v: object) -> int | float:
+        return float(v) if isinstance(v, str) else cast(int | float, v)
+
+    return _parse(value[0]), _parse(value[1])
 
 
 def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
@@ -805,7 +844,8 @@ def _expr_to_compare_op(
             ),
         )
     elif operator == PropertyOperator.LT:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric_for_string_property(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -814,7 +854,8 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.GT:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric_for_string_property(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_AFTER:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -823,28 +864,35 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
-        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric_for_string_property(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
-        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric_for_string_property(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
+        left = _force_numeric_for_string_property(expr, value, property, team)
+        low, high = _normalize_between_bounds(value) if left is not expr else (value[0], value[1])
         return ast.And(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
+                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=low)),
+                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=high)),
             ]
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
+        left = _force_numeric_for_string_property(expr, value, property, team)
+        low, high = _normalize_between_bounds(value) if left is not expr else (value[0], value[1])
         return ast.Or(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=low)),
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=high)),
                 # A missing property makes both comparisons NULL and drops the row; keep it, matching
-                # every other negative operator.
-                ast.Call(name="isNull", args=[expr]),
+                # every other negative operator. With a coerced LHS this also keeps rows whose value
+                # does not parse as a number: they match no range, so "not between" holds for them.
+                ast.Call(name="isNull", args=[left]),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:

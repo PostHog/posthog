@@ -319,27 +319,27 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_0_int
-  '''
-  SELECT count() AS `count()`
-  FROM events
-  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 5), isNotNull(events.mat_test_prop)))
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_1_float
-  '''
-  SELECT count() AS `count()`
-  FROM events
-  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 5.5), isNotNull(events.mat_test_prop)))
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_2_datetime
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_datetime_constant_against_string_column_errors
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), isNotNull(events.mat_test_prop)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_constant_against_string_column_coerces_0_int
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(events.mat_test_prop, 'Float64'), 5), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_constant_against_string_column_coerces_1_float
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(events.mat_test_prop, 'Float64'), 5.5), 0))
   LIMIT 50000
   '''
 # ---

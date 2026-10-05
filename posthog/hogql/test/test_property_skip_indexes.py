@@ -422,21 +422,36 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
 
     @parameterized.expand(
         [
-            # Non-string Python constants — printer emits the constant raw (``less(col, 5)`` or ``less(col, toDateTime64('2024-01-15 ...'))``) and ClickHouse refuses ``String < UInt8 / Float64 / DateTime64`` at execution. (Same behavior as the existing equality / IN rewrites — none of them gate on constant type. For numeric/datetime compare, declare ``property_type`` on the PropertyDefinition; see ``test_mat_col_lt_typed_*``.)
+            # Int/float constants against an untyped property get a ``toFloat(col)`` wrap, so the
+            # comparison executes (no NO_COMMON_TYPE), but the Call hides the column from minmax,
+            # same as ``test_mat_col_lt_typed_numeric_property``.
             ("int", 5),
             ("float", 5.5),
-            ("datetime", datetime(2024, 1, 15, 10, 30)),
         ]
     )
-    def test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors(
+    def test_mat_col_nullable_minmax_lt_numeric_constant_against_string_column_coerces(
         self, _name: str, value: Any
     ) -> None:
         self._seed()
+        mat_col = self._materialize_with(is_nullable=True, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        self._assert_indexes(
+            self._filter(PropertyOperator.LT, value),
+            expected_used=set(),
+            expected_not_used={index},
+        )
+
+    def test_mat_col_nullable_minmax_lt_datetime_constant_against_string_column_errors(self) -> None:
+        # A datetime constant stays raw (``less(col, toDateTime64('2024-01-15 ...'))``) and ClickHouse
+        # refuses ``String < DateTime64`` at execution. (Same behavior as the existing equality / IN
+        # rewrites — none of them gate on constant type. For datetime compare, declare
+        # ``property_type`` on the PropertyDefinition; see ``test_mat_col_lt_typed_datetime_property``.)
+        self._seed()
         self._materialize_with(is_nullable=True, create_minmax_index=True)
-        query, values = self._filter_to_sql(self._filter(PropertyOperator.LT, value))
+        query, values = self._filter_to_sql(self._filter(PropertyOperator.LT, datetime(2024, 1, 15, 10, 30)))
         with self.assertRaises(Exception) as ctx:
             sync_execute(query, values)
-        # ClickHouse: ``No supertype for types String, UInt8`` or ``No operation less between String and DateTime64``.
+        # ClickHouse: ``No operation less between String and DateTime64``.
         message = str(ctx.exception).lower()
         assert "supertype" in message or "no operation" in message, (
             f"Expected a type-mismatch error from ClickHouse, got: {ctx.exception}"
