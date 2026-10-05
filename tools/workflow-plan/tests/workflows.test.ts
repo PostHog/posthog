@@ -481,6 +481,8 @@ const E2E_DISPATCH: Scenario = {
     },
 }
 
+const E2E_SHOULD_RUN: Stubs = { changes: { decide: { outputs: { shouldRun: 'true' } } } }
+
 const STEP_EXPECTATIONS: StepExpectation[] = [
     ...PINNED_WORKFLOWS.flatMap((file) => [
         { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
@@ -503,6 +505,20 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     ]),
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+    {
+        file: 'ci-e2e-playwright.yml',
+        job: 'changes',
+        step: 'debounce',
+        scenario: { name: 'ready PR', github: pullRequest(), steps: E2E_SHOULD_RUN },
+        runs: true,
+    },
+    {
+        file: 'ci-e2e-playwright.yml',
+        job: 'changes',
+        step: 'debounce',
+        scenario: { name: 'merge queue', github: mergeQueue(), steps: E2E_SHOULD_RUN },
+        runs: false,
+    },
 ]
 
 const namedJobs = (file: string): Set<string> =>
