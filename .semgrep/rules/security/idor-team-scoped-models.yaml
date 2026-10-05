@@ -322,6 +322,7 @@ rules:
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
+                              |PurgedTicketThread
                               |QuarantineLiftRequest
                               |QuarantinedIdentifier
                               |QueryTabState
@@ -759,6 +760,7 @@ rules:
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
+                        |PurgedTicketThread
                         |QuarantineLiftRequest
                         |QuarantinedIdentifier
                         |QueryTabState

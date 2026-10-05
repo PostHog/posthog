@@ -103,6 +103,65 @@ class TestTicketAPI(APIBaseTest):
             status=Status.NEW,
         )
 
+    def test_delete_soft_deletes_and_logs_who(self, mock_on_commit):
+        from products.conversations.backend.cache import get_cached_tickets, set_cached_tickets
+
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Customer wrote this",
+            created_by=self.user,
+        )
+        outbox = EmailOutboxMessage.objects.create(
+            team=self.team, ticket=self.ticket, comment=comment, message_id="<reply@example.com>"
+        )
+        set_cached_tickets(
+            self.team.id,
+            self.ticket.widget_session_id,
+            {"count": 1, "results": [{"id": str(self.ticket.id)}]},
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.deleted_at)
+        self.assertEqual(self.ticket.deleted_by_id, self.user.id)
+        self.assertFalse(Ticket.objects.filter(id=self.ticket.id).exists())
+
+        log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity="deleted"
+        )
+        self.assertEqual(log.user_id, self.user.id)
+        assert log.detail is not None
+        self.assertEqual(log.detail["name"], f"Ticket #{self.ticket.ticket_number}")
+        outbox.refresh_from_db()
+        self.assertEqual(outbox.status, EmailOutboxMessage.Status.FAILED_PERMANENT)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(listed.json()["count"], 0)
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
+        messages = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/messages/")
+        self.assertEqual(messages.status_code, status.HTTP_404_NOT_FOUND)
+        comment_detail = self.client.get(f"/api/projects/{self.team.id}/comments/{comment.id}/")
+        self.assertEqual(comment_detail.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIsNone(get_cached_tickets(self.team.id, self.ticket.widget_session_id))
+
+    def test_soft_deleted_ticket_number_is_not_reused(self, mock_on_commit):
+        deleted_number = self.ticket.ticket_number
+        self.ticket.deleted_at = timezone.now()
+        self.ticket.save(update_fields=["deleted_at"])
+
+        nxt = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="next-session",
+            distinct_id="user-next",
+        )
+        self.assertEqual(nxt.ticket_number, deleted_number + 1)
+
     def test_list_tickets(self, mock_on_commit):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1733,7 +1792,7 @@ class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
         # Pause before the insert so the advisory lock is held and the Team row is not.
         paused = Event()
         resume = Event()
-        real_create = type(Ticket.objects).create
+        real_create = type(Ticket.all_objects).create
 
         def pausing_create(manager, *args, **kwargs):
             paused.set()
@@ -1756,7 +1815,7 @@ class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
             finally:
                 close_old_connections()
 
-        with patch.object(type(Ticket.objects), "create", pausing_create):
+        with patch.object(type(Ticket.all_objects), "create", pausing_create):
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(allocate)
                 if not paused.wait(timeout=5):
@@ -3315,6 +3374,51 @@ class TestTicketAccessControl(APIBaseTest):
         self._set_resource_level(access_level)
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
         self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_403_FORBIDDEN),
+            ("manager", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_delete_requires_manager(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.delete(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, expected_status)
+        self.ticket.refresh_from_db()
+        if expected_status == status.HTTP_204_NO_CONTENT:
+            self.assertIsNotNone(self.ticket.deleted_at)
+        else:
+            self.assertIsNone(self.ticket.deleted_at)
+
+    def test_delete_api_key_without_manager_is_forbidden(self) -> None:
+        self._set_resource_level("editor")
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="ticket-write",
+            user=self.member,
+            secure_value=hash_key_value(raw_key),
+            scopes=["ticket:write"],
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        response = self.client.delete(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.deleted_at)
+
+    def test_delete_read_api_key_is_forbidden(self) -> None:
+        self._set_resource_level("manager")
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="ticket-read",
+            user=self.member,
+            secure_value=hash_key_value(raw_key),
+            scopes=["ticket:read"],
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        response = self.client.delete(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_200_OK)])
     def test_update_access_by_resource_level(self, access_level: str, expected_status: int) -> None:

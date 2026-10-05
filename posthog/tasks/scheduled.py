@@ -86,7 +86,7 @@ from products.approvals.backend.tasks import (
 )
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
-from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
@@ -1087,6 +1087,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="15"),
+        purge_deleted_tickets.s(),
+        name="purge soft-deleted conversation tickets",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)
