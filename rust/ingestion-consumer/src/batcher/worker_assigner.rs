@@ -32,14 +32,6 @@ impl WorkerAssigner {
         }
     }
 
-    pub fn in_flight_requests(&self) -> usize {
-        self.request_load.values().sum()
-    }
-
-    pub fn in_flight_messages(&self) -> usize {
-        self.message_load.values().sum()
-    }
-
     pub fn free_slots(&self, pool: &[WorkerId]) -> usize {
         pool.iter()
             .map(|worker| self.max_requests_per_worker - self.requests_on(worker))

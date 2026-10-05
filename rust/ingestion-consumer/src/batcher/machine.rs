@@ -41,6 +41,23 @@ pub struct MachineConfig {
     pub stall_timeout: Duration,
 }
 
+impl MachineConfig {
+    /// A zero cap would never send, and a zero stall timeout or poll interval
+    /// would fire on every action.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_requests_per_worker == 0 {
+            return Err("max_requests_per_worker must be > 0".to_string());
+        }
+        if self.stall_timeout.is_zero() {
+            return Err("stall_timeout must be > 0".to_string());
+        }
+        if self.unplaced_retry_interval.is_zero() {
+            return Err("unplaced_retry_interval must be > 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FailureCause {
     Fault,
@@ -100,8 +117,9 @@ pub enum BatcherState {
 }
 
 impl BatcherState {
-    pub fn new(config: MachineConfig, router: Router, now: Instant) -> Self {
-        BatcherState::Running(Work::new(config, router, now))
+    pub fn new(config: MachineConfig, router: Router, now: Instant) -> Result<Self, String> {
+        config.validate()?;
+        Ok(BatcherState::Running(Work::new(config, router, now)))
     }
 
     /// One poll's key runs, in poll order, collected under `assignment_epoch`.
@@ -615,7 +633,7 @@ mod tests {
     }
 
     fn machine(config: MachineConfig, now: Instant) -> BatcherState {
-        BatcherState::new(config, Router::new(RoutingStrategy::BinPack), now)
+        BatcherState::new(config, Router::new(RoutingStrategy::BinPack), now).expect("valid config")
     }
 
     fn pool(workers: &[&str]) -> WorkerPool {
@@ -882,6 +900,15 @@ mod tests {
         let (machine, step) = machine.on_request_succeeded(now, &workers, request, 1, Vec::new());
         assert!(matches!(machine, BatcherState::Stopped));
         assert_eq!(step.next_wakeup, None);
+    }
+
+    #[rstest]
+    #[case::no_send_slots(MachineConfig { max_requests_per_worker: 0, ..config(100, Duration::ZERO, 4) })]
+    #[case::zero_stall_timeout(MachineConfig { stall_timeout: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
+    #[case::zero_poll_interval(MachineConfig { unplaced_retry_interval: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
+    fn a_config_that_would_never_send_or_always_fire_is_rejected(#[case] config: MachineConfig) {
+        let router = Router::new(RoutingStrategy::BinPack);
+        assert!(BatcherState::new(config, router, Instant::now()).is_err());
     }
 
     #[test]
