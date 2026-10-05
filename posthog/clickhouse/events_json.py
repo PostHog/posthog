@@ -16,7 +16,7 @@ UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
 TEMPORARY_PROPERTIES_COLUMN = "temporary_properties"
 
 # Mirrors isTemporaryProperty in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go, so update both.
-_TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
+TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
     {
         "$set",
         "$set_once",
@@ -35,7 +35,7 @@ _TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
         "$lib_custom_api_host",
     }
 )
-_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
+TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
 
 
 def is_temporary_event_property(key: str) -> bool:
@@ -43,7 +43,7 @@ def is_temporary_event_property(key: str) -> bool:
 
     A dotted key such as `$set.foo` is one flat key, so it matches only the prefix rule, never a root name.
     """
-    return key in _TEMPORARY_EVENT_PROPERTY_ROOTS or key.startswith(_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
+    return key in TEMPORARY_EVENT_PROPERTY_ROOTS or key.startswith(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
 
 
 # Every path not declared below is a dynamic subcolumn (up to the column's max_dynamic_paths per part, then

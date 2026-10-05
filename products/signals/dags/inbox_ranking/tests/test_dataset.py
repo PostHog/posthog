@@ -3,13 +3,16 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 import dagster
 import pyarrow as pa
 from parameterized import parameterized
 
+from posthog.models import Organization, Team
+
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
@@ -24,9 +27,10 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
 from products.signals.dags.inbox_ranking.dataset.queries import (
     IMPRESSIONS_SQL,
     LABEL_DEFAULTS,
-    LABEL_STREAMS,
+    LABEL_STREAM_COLUMNS,
     LABELED_REPORT_IDS_SQL,
     OUTCOME_FIRST_EVENT_COLUMNS,
+    SERVER_ACTIONS_COLUMNS,
     STATUS_COLUMNS,
     STATUS_SQL,
     hogql_rows,
@@ -101,6 +105,37 @@ def test_region_app_host_comes_from_the_region_not_the_site_url(monkeypatch, clo
 )
 def test_latest_advances_monotonically_and_backfills_never_clobber_it(existing, partition_key, expected):
     assert common.latest_is_stale(existing, partition_key) is expected
+
+
+@pytest.mark.parametrize(
+    "stamps,requested,limit,expected",
+    [
+        ({"2026-07-01": None, "2026-07-02": 8, "2026-07-03": 9}, (), 6, ["2026-07-02", "2026-07-01"]),
+        ({"2026-07-01": 10}, (), 6, []),
+        ({f"2026-07-{day:02d}": None for day in range(1, 11)}, (), 3, ["2026-07-10", "2026-07-09", "2026-07-08"]),
+        ({"2026-07-01": 8, "2026-07-02": 8, "2026-07-03": 8}, ("2026-07-03",), 1, ["2026-07-02"]),
+    ],
+)
+def test_stale_label_partitions_newest_first_capped_and_skips_requested(stamps, requested, limit, expected):
+    assert dag.stale_label_partitions(stamps, 9, limit, requested) == expected
+
+
+class _MetadataS3:
+    def __init__(self) -> None:
+        self.metadata: dict[str, dict[str, str]] = {}
+
+    def upload_fileobj(self, fileobj, bucket, key, ExtraArgs):
+        self.metadata[key] = ExtraArgs["Metadata"]
+
+    def head_object(self, Bucket, Key):
+        return {"Metadata": self.metadata[Key]}
+
+
+@pytest.mark.parametrize("schema_version", [9, None])
+def test_schema_version_stamp_round_trips(schema_version):
+    client = _MetadataS3()
+    common.write_parquet(client, "b", "k", pa.table({"x": [1]}), schema_version=schema_version)
+    assert common.object_schema_version(client, "b", "k") == schema_version
 
 
 @pytest.mark.parametrize(
@@ -186,14 +221,15 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
         "actions": [
-            ("bogus-id", 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1),
+            ("bogus-id", *([1, T1] * 12)),
             # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
             # position lands a wrong value in some asserted field below.
-            (UUID_B, 5, T1, 0, None, 6, T2, 7, T1, 2, T1, 3, T2, 4, T1),
+            (UUID_B, 5, T1, 0, None, 6, T2, 7, T1, 2, T1, 3, T2, 4, T1, 8, T2, 9, T1, 10, T2, 11, T1, 12, T2),
         ],
         "feedback": [(UUID_B, 2, T1, 1, T2, T1, "negative")],
         "status_changes": [],
         "pr_events": [(UUID_B, 1, T1, 1, T2, 1, T2)],
+        "server_actions": [(UUID_B, 13, T1, 14, T2, 15, T1, 16, T2)],
     }
     rows = {row["report_id"]: row for row in merge_label_streams(stream_rows, SNAPSHOT_DATE)}
 
@@ -228,6 +264,19 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["first_reviewer_removed_at"] == T2
     assert r2["resolve_click_count"] == 4
     assert r2["first_resolve_clicked_at"] == T1
+    assert r2["copy_prompt_count"] == 8
+    assert r2["first_prompt_copied_at"] == T2
+    assert r2["implement_click_count"] == 9
+    assert r2["open_pr_click_count"] == 10
+    assert r2["view_diff_count"] == 11
+    assert r2["restore_count"] == 12
+    assert r2["first_restored_at"] == T2
+    assert r2["claim_count"] == 13
+    assert r2["first_claimed_at"] == T1
+    assert r2["linked_pr_count"] == 14
+    assert r2["note_count"] == 15
+    assert r2["slack_discussion_count"] == 16
+    assert r2["first_slack_discussed_at"] == T2
 
 
 @pytest.mark.parametrize("alias_first", [True, False])
@@ -252,7 +301,7 @@ def test_stream_row_width_mismatch_fails_loudly():
 
 
 def test_label_stream_columns_all_exist_in_defaults():
-    for _name, _sql, columns in LABEL_STREAMS:
+    for columns in LABEL_STREAM_COLUMNS.values():
         assert set(columns) <= set(LABEL_DEFAULTS)
 
 
@@ -405,6 +454,86 @@ class TestSpineInclusion(BaseTest):
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
 
+    def test_state_snapshot_keeps_only_reports_of_organizations_opted_in_to_ai_training(self):
+        self.organization.is_ai_training_opted_in = True
+        self.organization.save()
+        consenting = self._report(SignalReport.Status.READY)
+        excluded: list[str] = []
+        for consent in (False, None):
+            organization = Organization.objects.create(name=f"consent-{consent}", is_ai_training_opted_in=consent)
+            team = Team.objects.create(organization=organization)
+            report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+            SignalReport.objects.filter(id=report.id).update(created_at=BEFORE_CUTOFF)
+            excluded.append(str(report.id))
+        written: dict[str, Any] = {}
+
+        with (
+            patch.object(dag, "skip_unconfigured", lambda context: False),
+            patch.object(dag, "_tag_dagster_queries", lambda context, query_type: None),
+            # A label event that names an opted-out report must not pull it back into the spine.
+            patch.object(dag, "labels_team", lambda: self.team),
+            patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],)]),
+            patch.object(dag, "s3_client", lambda: None),
+            patch.object(dag, "write_parquet", lambda client, bucket, key, table: written.update(table=table)),
+            dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
+        ):
+            dag.inbox_report_state(context)
+            metadata = context.get_output_metadata("result")
+
+        assert written["table"].column("report_id").to_pylist() == [consenting]
+        assert metadata["excluded_no_training_consent_reports"].value == 2
+        assert metadata["excluded_no_training_consent_teams"].value == 2
+
+
+class TestServerActions(BaseTest):
+    def test_only_actions_a_person_or_an_external_agent_wrote_before_the_cutoff_count(self):
+        snapshot_end = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="t", summary="s")
+        claims = {
+            kind: SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.WORK_CLAIM,
+                content="{}",
+                actor_kind=kind,
+            )
+            for kind in ("user", "agent", "task", "system", None)
+        }
+        for kind in ("task", "user"):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                content="{}",
+                actor_kind=kind,
+            )
+        late_note = SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.NOTE, content="{}", actor_kind="user"
+        )
+        SignalReportArtefact.objects.filter(id=late_note.id).update(
+            created_at=snapshot_end + datetime.timedelta(hours=1)
+        )
+        SignalReportAction.all_teams.create(
+            team=self.team,
+            report=report,
+            user=self.user,
+            type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+            count=5,
+            last_at=snapshot_end,
+        )
+
+        rows = dag.server_action_rows([str(report.id)], snapshot_end)
+
+        assert len(rows) == 1
+        row = dict(zip(("report_id", *SERVER_ACTIONS_COLUMNS), rows[0], strict=True))
+        assert row["report_id"] == str(report.id)
+        assert row["claim_count"] == 2
+        assert row["first_claimed_at"] == claims["user"].created_at
+        assert row["note_count"] == 1
+        assert row["linked_pr_count"] == 0
+        assert row["first_pr_linked_at"] is None
+        assert row["slack_discussion_count"] == 1
+
 
 class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("labeled_ids", LABELED_REPORT_IDS_SQL), ("impressions", IMPRESSIONS_SQL)])
@@ -473,6 +602,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["first_wrong_dismissed_at"] == T1
 
     @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_lowvalue_dismissal_count_survives_a_restore_and_ignores_wrong_reasons(self, gap):
+        # A wrong dismissal is not a low-value one. The later wontfix_irrelevant dismissal counts, and
+        # the restore after it must not take the cumulative label back to 0.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong")
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "wontfix_irrelevant")
+        self._transition(T1 + 3 * gap, "suppressed", "ready")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_wrong_dismissed_at"] == T1
+        assert row["lowvalue_dismissal_count"] == 1
+        assert row["first_lowvalue_dismissed_at"] == T1 + 2 * gap
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
     def test_a_reasonless_first_dismissal_carries_no_reason_forward(self, gap):
         # A dismissal with no reason is normal: the PR-closed path suppresses a report with no
         # artefact. The earliest dismissal must not borrow the reason of a later one, or a consumer
@@ -504,6 +648,31 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("reasonless_resolve", "ready", "resolved", None, 1),
+            ("already_fixed_dismissal", "ready", "suppressed", "already_fixed", 1),
+            ("analysis_wrong_resolve", "ready", "resolved", "analysis_wrong", 0),
+            ("other_dismissal", "ready", "suppressed", "other", 0),
+        ]
+    )
+    def test_fixed_count_reads_the_transition_and_its_reason(self, _name, previous, status, reason, expected):
+        self._transition(T1, previous, status, reason)
+
+        row = self._status_row()
+        assert row["fixed_count"] == expected
+        assert row["first_fixed_at"] == (T1 if expected else None)
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_fixed_count_survives_a_reopen(self, gap):
+        self._transition(T1, "ready", "resolved", None)
+        self._transition(T1 + gap, "resolved", "ready")
+
+        row = self._status_row()
+        assert row["latest_status_event"] == "ready"
+        assert row["fixed_count"] == 1
+        assert row["first_fixed_at"] == T1
+
+    @parameterized.expand(
+        [
             ("later_bucket", T2, "ready", "resolved", None),
             ("same_bucket", T1 + datetime.timedelta(minutes=1), "ready", "suppressed", "already_fixed"),
         ]
@@ -527,6 +696,17 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         # a dismissal the report's tenant never made.
         assert row["first_dismissed_server_at"] != T1
 
+    @parameterized.expand([("reasoned", "fixed_outside_posthog", 1), ("reasonless", None, 0), ("empty", "", 0)])
+    def test_only_a_reasoned_resolve_counts_as_a_reasoned_resolution(self, _name, reason, expected_count):
+        # A reason-less resolve is the automatic resolve after a tracked PR merges, not a person
+        # acting on the report.
+        self._transition(T1, "ready", "resolved", reason)
+
+        row = self._status_row()
+        assert row["first_resolved_at"] == T1
+        assert row["reasoned_resolution_count"] == expected_count
+        assert row["first_reasoned_resolved_at"] == (T1 if expected_count else None)
+
     def test_no_status_column_reads_an_event_from_another_tenant(self):
         # Forged-event invariance: transitions naming another team, all earlier than the genuine
         # ones, must leave every status column exactly as the genuine transitions alone produce it.
@@ -539,7 +719,8 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         genuine_only = self._status_row()
 
         for status in statuses:
-            self._transition(T1, "ready", status, "analysis_wrong", team_id=999)
+            for reason in ("analysis_wrong", "wontfix_irrelevant"):
+                self._transition(T1, "ready", status, reason, team_id=999)
 
         assert self._status_row() == genuine_only
 
@@ -554,7 +735,7 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)
 
 
-def _run_embeddings_asset(monkeypatch, asset, rows):
+def _run_embeddings_asset(monkeypatch, asset, rows, consent_team_ids=frozenset({2})):
     """Run one embeddings asset against a stubbed ClickHouse and S3, and return what it wrote."""
     captured: dict[str, Any] = {}
 
@@ -572,6 +753,9 @@ def _run_embeddings_asset(monkeypatch, asset, rows):
     monkeypatch.setattr(dag, "_tag_dagster_queries", lambda context, query_type: None)
     monkeypatch.setattr(dag, "dataset_bucket", lambda: "test-bucket")
     monkeypatch.setattr(dag, "s3_client", lambda: None)
+    monkeypatch.setattr(dag, "read_parquet_if_exists", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dag, "object_row_count", lambda *args: None)
+    monkeypatch.setattr(dag, "training_consent_team_ids", lambda: consent_team_ids)
     monkeypatch.setattr(dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
 
     context = dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat())
@@ -603,6 +787,20 @@ def test_an_empty_result_still_writes_the_full_schema(monkeypatch, asset):
 
     assert written["table"].num_rows == 0
     assert written["table"].schema == EMBEDDINGS_SCHEMA
+
+
+@pytest.mark.parametrize(
+    "asset", [dag.inbox_report_embeddings, dag.inbox_report_title_embeddings, dag.inbox_signal_embeddings]
+)
+@pytest.mark.parametrize("consent_team_ids", [frozenset({2, 7}), frozenset()])
+def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch, asset, consent_team_ids):
+    written = _run_embeddings_asset(monkeypatch, asset, [], consent_team_ids)
+
+    if consent_team_ids:
+        assert written["params"]["team_ids"] == [2, 7]
+    else:
+        assert "params" not in written
+    assert written["table"].num_rows == 0
 
 
 def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():

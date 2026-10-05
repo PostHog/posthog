@@ -68,7 +68,7 @@
             "category": "Data",
             "iconType": "business_knowledge",
             "type": null,
-            "intents": ["conversations"]
+            "intents": ["business_knowledge"]
         },
         {
             "path": "Web scripts",
@@ -169,14 +169,6 @@
             "intents": ["marketing_analytics"]
         },
         { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
-        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
-        {
-            "path": "Live Debugger",
-            "category": "Unreleased",
-            "iconType": "live_debugger",
-            "type": "live_debugger",
-            "intents": ["live_debugger"]
-        },
         { "path": "Logs", "category": "Monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
@@ -257,13 +249,6 @@
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Monitoring", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {
-            "path": "User research",
-            "category": "Unreleased",
-            "iconType": "user_interview",
-            "type": "user_interview",
-            "intents": ["user_interviews"]
-        },
-        {
             "path": "Visual review",
             "category": "Unreleased",
             "iconType": null,
@@ -284,7 +269,6 @@
             "type": null,
             "intents": ["web_analytics"]
         },
-        { "path": "Wizard", "category": "Tools", "iconType": "wizard", "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
             "category": "Messaging",

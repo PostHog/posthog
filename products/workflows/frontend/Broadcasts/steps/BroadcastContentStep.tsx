@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
@@ -11,11 +11,13 @@ import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
+import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import { BroadcastEmailValue, DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { email, stepValidationErrors, selectedSender } = useValues(broadcastWizardLogic)
-    const { setEmail } = useActions(broadcastWizardLogic)
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
+        useValues(broadcastWizardLogic)
+    const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
     const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
@@ -100,6 +102,41 @@ export function BroadcastContentStep(): JSX.Element {
                 variables={buildSampleGlobals({ type: 'batch' }, null)}
                 fieldErrors={fieldErrors}
             />
+            {email.to?.email && !email.to.email.includes('{{') ? (
+                <span className="text-xs text-warning" data-attr="broadcast-fixed-recipient-hint">
+                    Every email in this broadcast goes to {email.to.email}, not to each person in the audience. Use{' '}
+                    <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
+                </span>
+            ) : null}
+            <LemonSwitch
+                label="Track opens and link clicks"
+                checked={emailSettings.trackingEnabled}
+                onChange={(trackingEnabled) => setEmailSettings({ trackingEnabled })}
+                bordered
+                data-attr="broadcast-tracking-toggle"
+            />
+            {!emailSettings.trackingEnabled && (
+                <span className="text-xs text-secondary">
+                    Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.
+                </span>
+            )}
+            <LemonSwitch
+                label="Add UTM tags to links"
+                checked={emailSettings.utmTagsEnabled}
+                onChange={(utmTagsEnabled) => setEmailSettings({ utmTagsEnabled })}
+                bordered
+                data-attr="broadcast-utm-tags-toggle"
+            />
+            {emailSettings.utmTagsEnabled && (
+                <UtmTagFields
+                    value={emailSettings.utmParams}
+                    onChange={(utmParams) => setEmailSettings({ utmParams })}
+                    campaignDefault={name || 'Broadcast name'}
+                    contentDefault={
+                        broadcast?.actions?.find((action) => action.type === 'function_email')?.name ?? 'Send email'
+                    }
+                />
+            )}
         </div>
     )
 }

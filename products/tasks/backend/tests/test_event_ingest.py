@@ -241,7 +241,7 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 5)
         self.assertEqual(body["last_accepted_seq"], 5)
-        heartbeat_workflow.assert_called_once_with(agent_active=True)
+        heartbeat_workflow.assert_called_once_with(agent_active=True, force=True)
         self.assertEqual(
             signal_milestone.call_args_list,
             [call("agent_command_dispatched"), call("agent_activity_observed")],
@@ -259,6 +259,29 @@ class TestTaskRunEventIngest(TestCase):
             ],
         )
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
+
+    @parameterized.expand(
+        ["assistant_message_chunk", "assistant_thought_chunk", "tool_call_started", "tool_call_updated"]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_pi_turn_activity_bypasses_heartbeat_throttling(self, event_type: str) -> None:
+        token = self._create_token()
+        generation = {"type": "pi_event", "event": {"type": event_type}}
+        completed = {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "end_turn"}}
+        events = [generation, generation, completed, generation, generation]
+
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_boot_milestone", return_value=True),
+            patch.object(TaskRun, "signal_agent_turn_completed"),
+        ):
+            status, body = self._call_ingest(
+                token, [{"seq": index, "event": event} for index, event in enumerate(events, start=1)]
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], len(events))
+        self.assertEqual(heartbeat_workflow.call_args_list, [call(agent_active=True, force=True)] * 2)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_streaming_ingest_releases_failed_activity_claim(self) -> None:
@@ -653,7 +676,7 @@ class TestTaskRunEventIngest(TestCase):
         heartbeat_released = threading.Event()
         heartbeat_timed_out = threading.Event()
 
-        def blocking_heartbeat(_run_id: str, _agent_active: bool) -> None:
+        def blocking_heartbeat(_run_id: str, _agent_active: bool, *, force: bool = False) -> None:
             heartbeat_entered.set()
             if not heartbeat_released.wait(timeout=1):
                 heartbeat_timed_out.set()

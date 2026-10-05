@@ -28,7 +28,13 @@ from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import (
+    EXCEPTION_STRING_ARRAY_PROPERTIES,
+    FEATURE_FLAG_PROPERTY_PREFIX,
+    FEATURE_FLAG_VARIANT_SENTINELS,
+    INACTIVE_FEATURE_FLAG_VALUES,
+    is_virtual_feature_flag_key,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.errors import QueryError
@@ -38,6 +44,7 @@ from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS
 from posthog.hogql.restricted_properties import (
     mirrored_property_for_column,
     native_property_path_overlaps_restriction,
+    restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
 from posthog.hogql.type_system import (
@@ -52,6 +59,9 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
+    TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_COLUMN,
     is_temporary_event_property,
 )
@@ -142,6 +152,12 @@ def resolve_materialized_property_source(
 
     if json_source := resolve_json_subcolumn_source(field_type, table_name, field_name, property_name, context):
         return json_source
+
+    # The registries below list columns of the legacy events table. The native table has no materialized, dmat or
+    # property-group columns, so the reads that reach this point on it (`groupN_properties` keys, and paths that
+    # overlap a restriction) stay JSON reads.
+    if context.uses_new_events_schema() and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+        return None
 
     if context.modifiers.materializationMode == "disabled":
         return None
@@ -417,6 +433,21 @@ def _json_subcolumn_access(
     return value
 
 
+def _is_declared_array_path(
+    field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
+) -> bool:
+    """Whether the native events table declares an array type for the path, so that every row holds an array there."""
+    if source.json_column is not None or field_type.name != "properties":
+        return False
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.TableType):
+        return False
+    declared_type = EVENTS_PROPERTIES_JSON_SUBCOLUMNS.get(".".join(str(key) for key in keys), "")
+    return declared_type.startswith("Array(")
+
+
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
     json_value = ast.Call(
         name="nullIf",
@@ -489,6 +520,16 @@ def _json_subcolumn_value_expr(
     source: MaterializedPropertySource,
     as_json: bool = False,
 ) -> ast.Expr:
+    index_position = next((position for position, key in enumerate(keys) if isinstance(key, int)), None)
+    if index_position is not None and not _is_declared_array_path(field_type, keys[:index_position], source):
+        # ClickHouse runs arrayElement on every type a Dynamic path holds in the block, so one row with a string or
+        # a number at the path fails the whole query. Index the JSON text of the value instead, as the legacy table
+        # indexes the raw document, so that such a row reads NULL.
+        document = _json_subcolumn_value_expr(
+            field_type, cast(Sequence[str], keys[:index_position]), source=source, as_json=True
+        )
+        return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
+
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
     scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
     scalar_or_null = ast.Call(
@@ -505,7 +546,7 @@ def _json_subcolumn_value_expr(
         ],
         type=ast.StringType(nullable=True),
     )
-    if any(isinstance(key, int) for key in keys):
+    if index_position is not None:
         return scalar_or_null
     object_value = _dynamic_json_object_string_expr(field_type, list(cast(Sequence[str], keys)), source=source)
     return ast.Call(
@@ -534,29 +575,28 @@ def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) 
     return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
 
 
-def _false_variant_read(value: ast.Expr) -> ast.Expr:
-    """`value` with the `$false` sentinel read back as the variant name "false".
+def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
+    """`value` with each cleaner sentinel read back as the variant name it stands for.
 
-    The cleaner stores a variant named "false" as `$false` so it stays apart from a flag that was evaluated and switched
-    off, which the typed map holds as 'false'.
+    The cleaner stores a variant named "false" or "true" as `$false` or `$true`, so it stays apart from a boolean flag,
+    which the typed map holds as 'false' or 'true'.
     """
-    return _call(
-        "if",
-        [
-            _call("equals", [clone_expr(value), _const(FEATURE_FLAG_FALSE_VARIANT_SENTINEL)]),
-            _sentinel("false"),
-            value,
-        ],
-    )
+    branches: list[ast.Expr] = []
+    for sentinel, variant in FEATURE_FLAG_VARIANT_SENTINELS.items():
+        branches.append(_call("equals", [clone_expr(value), _const(sentinel)]))
+        branches.append(_sentinel(variant))
+    return _call("multiIf", [*branches, value])
 
 
 def _feature_flag_value_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
-    """`has(map, key) ? map[key] : null`, with the `$false` sentinel mapped back to "false"."""
+    """`has(map, key) ? map[key] : null`, with the cleaner sentinels mapped back to their variant names."""
     return ast.Call(
         name="if",
         args=[
             ast.Call(name="has", args=[clone_expr(feature_flags), ast.Constant(value=key)]),
-            _false_variant_read(ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))),
+            feature_flag_variant_read(
+                ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))
+            ),
             ast.Constant(value=None),
         ],
     )
@@ -582,8 +622,6 @@ def _is_moved_events_property(field_type: ast.FieldType, key: str, context: HogQ
     )
 
 
-FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
-
 # JSON functions that take a key path and that nothing earlier rewrites to read one property. The printer passes them
 # the serialized `properties` document, which never holds a key the native cleaner moves to `temporary_properties`.
 _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
@@ -597,6 +635,54 @@ _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
     }
 )
 
+_JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
+    "JSONExtract",
+    "JSONExtractBool",
+    "JSONExtractFloat",
+    "JSONExtractInt",
+    "JSONExtractRaw",
+    "JSONExtractString",
+    "JSONExtractUInt",
+    "JSONHas",
+}
+
+
+def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
+    """The SQL form of `is_temporary_event_property`, for a key that is computed per row."""
+    name = _call("toString", [key])
+    return _call(
+        "or",
+        [
+            _call("has", [ast.Array(exprs=[_const(root) for root in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS)]), name]),
+            _call("startsWith", [clone_expr(name), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+        ],
+    )
+
+
+RUNTIME_FEATURE_FLAG_KEY_ERROR = (
+    "A feature flag property can't be read through a key computed per row. "
+    "Use a constant key instead, for example properties.`$feature/my-flag`."
+)
+
+
+def _names_feature_flag_property(key: ast.Expr) -> ast.Expr:
+    """Whether a key that is computed per row names `$feature/<key>` or `$active_feature_flags`."""
+    name = _call("toString", [key])
+    return _call(
+        "ifNull",
+        [
+            _call(
+                "or",
+                [
+                    _call("startsWith", [name, _const(FEATURE_FLAG_PROPERTY_PREFIX)]),
+                    _call("equals", [clone_expr(name), _const("$active_feature_flags")]),
+                ],
+            ),
+            _const(0),
+        ],
+    )
+
+
 _JSON_PATH_FIRST_MEMBER = re.compile(
     r"""^\$(?:\.(?:"(?P<dot_quoted>[^"]*)"|(?P<dot>[^.\[]+))|\[(?:"(?P<bracket_double>[^"]*)"|'(?P<bracket_single>[^']*)')\])"""
 )
@@ -607,11 +693,6 @@ def _json_path_first_member(path: str) -> str | None:
     if match is None:
         return None
     return next(member for member in match.groups() if member is not None)
-
-
-def _is_virtual_feature_flag_key(key: str) -> bool:
-    """Whether a native events property is rebuilt from the `$feature_flags` map instead of read under its own name."""
-    return key in ("$active_feature_flags", "$feature_flags") or key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
 
 
 def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.Expr | None:
@@ -626,12 +707,7 @@ def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.
 
 
 def _restricted_feature_flag_keys(field_type: ast.FieldType, context: HogQLContext) -> list[str]:
-    keys = (
-        key
-        for key in restricted_property_keys_for_table_type(field_type.table_type, context)
-        if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
-    )
-    return sorted(key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys)
+    return restricted_feature_flag_names(restricted_property_keys_for_table_type(field_type.table_type, context))
 
 
 def _not_in_lambda_values(name: str, values: list[str], *, is_sensitive: bool = False) -> ast.Call:
@@ -660,7 +736,7 @@ def _filter_feature_flags(feature_flags: ast.Expr, restricted_keys: list[str]) -
 def _compact_feature_flags_map(
     feature_flags: ast.Expr, restricted_keys: list[str], *, map_values: bool = True
 ) -> ast.Expr:
-    """The visible flags map, with `$false` read back as "false".
+    """The visible flags map, with the cleaner sentinels read back as their variant names.
 
     Presence checks pass `map_values=False`: the mapping cannot change the key set, so they skip the per-row `mapApply`.
     """
@@ -672,7 +748,9 @@ def _compact_feature_flags_map(
         args=[
             ast.Lambda(
                 args=["key", "value"],
-                expr=ast.Tuple(exprs=[_lambda_string_arg("key"), _false_variant_read(_lambda_string_arg("value"))]),
+                expr=ast.Tuple(
+                    exprs=[_lambda_string_arg("key"), feature_flag_variant_read(_lambda_string_arg("value"))]
+                ),
             ),
             filtered,
         ],
@@ -693,9 +771,9 @@ def _nonempty_container_json(value: ast.Expr, empty_json: str) -> ast.Expr:
 def _active_flag_lambda(restricted_keys: list[str] | None, key_predicate: ast.Expr | None = None) -> ast.Lambda:
     """`(key, value) -> value is active, key is not restricted, and `key_predicate` holds.
 
-    A variant named "false" is stored as `$false`, so it counts as active here.
+    The cleaner stores variants named "false" and "true" as `$false` and `$true`, so both count as active here.
     """
-    predicates: list[ast.Expr] = [_not_in_lambda_values("value", ["", "false"])]
+    predicates: list[ast.Expr] = [_not_in_lambda_values("value", list(INACTIVE_FEATURE_FLAG_VALUES))]
     if restricted_keys:
         predicates.append(_not_in_lambda_values("key", restricted_keys, is_sensitive=True))
     if key_predicate is not None:
@@ -748,7 +826,7 @@ def _feature_flag_compatibility_read(
     deeper_keys = list(node.keys[1:])
     if (
         not context.uses_new_events_schema()
-        or not _is_virtual_feature_flag_key(first_key)
+        or not is_virtual_feature_flag_key(first_key)
         or not _is_events_properties(field_type, context)
     ):
         return None
@@ -1145,7 +1223,7 @@ class ClickHousePropertyResolver(CloningVisitor):
     def _is_virtual_feature_flag_property(self, field_type: ast.FieldType, property_name: str) -> bool:
         return (
             self.context.uses_new_events_schema()
-            and _is_virtual_feature_flag_key(property_name)
+            and is_virtual_feature_flag_key(property_name)
             and _is_events_properties(field_type, self.context)
         )
 
@@ -1203,21 +1281,17 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if node.name in ("toFloat", "toInt") and len(node.args) == 1:
             access = self._lowered_property_operand(node.args[0])
-            if access is not None:
+            # An array index reads through the JSON text of the value, so the cast wraps that read instead.
+            if access is not None and all(isinstance(key, str) for key in access.keys):
                 field_type = _blob_field_type_of(access)
                 assert field_type is not None
-                source = resolve_materialized_property_source(
-                    field_type,
-                    str(access.keys[0])
-                    if any(isinstance(key, int) for key in access.keys)
-                    else ".".join(cast(list[str], access.keys)),
-                    self.context,
-                )
+                keys = cast(list[str], access.keys)
+                source = resolve_materialized_property_source(field_type, ".".join(keys), self.context)
                 if source is not None and source.kind == "json_subcolumn":
                     return ast.Call(
                         name="accurateCastOrNull",
                         args=[
-                            _json_subcolumn_access(field_type, access.keys, source=source, is_nullable=True),
+                            _json_subcolumn_access(field_type, keys, source=source, is_nullable=True),
                             _sentinel("Float64" if node.name == "toFloat" else "Int64"),
                         ],
                         type=node.type,
@@ -1234,6 +1308,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         temporary_property_json_function = self._rewrite_json_function_on_temporary_property(node)
         if temporary_property_json_function is not None:
             return temporary_property_json_function
+
+        runtime_key_json_function = self._rewrite_json_function_with_runtime_key(node)
+        if runtime_key_json_function is not None:
+            return runtime_key_json_function
 
         temporary_property_json_value = self._rewrite_json_value_on_temporary_property(node)
         if temporary_property_json_value is not None:
@@ -1311,8 +1389,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
             return None
         if not isinstance(node.args[1], ast.Constant):
-            # A key computed per row can name a moved property, which the serialized `properties` document lacks.
-            raise QueryError(f"{node.name} over native event properties requires a constant first key")
+            return None
         first_key = node.args[1].value
         if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
             return None
@@ -1337,6 +1414,50 @@ class ClickHousePropertyResolver(CloningVisitor):
             type=node.type,
             name=node.name,
             args=args,
+            params=node.params,
+            distinct=node.distinct,
+            within_group=node.within_group,
+            order_by=node.order_by,
+            filter_expr=node.filter_expr,
+        )
+
+    def _rewrite_json_function_with_runtime_key(self, node: ast.Call) -> ast.Expr | None:
+        """`f(properties, <key computed per row>, ...)` on native events, reading the document that holds the key.
+
+        The serialized `properties` document has no moved keys, so a row whose key names one reads the serialized
+        `temporary_properties` document instead. The printer drops restricted keys from both documents. Neither
+        document holds `$feature/<key>`, so a row whose key names a flag fails the query instead of reading as missing.
+        """
+        if (
+            not self.context.uses_new_events_schema()
+            or node.name not in _JSON_KEY_PATH_FUNCTIONS
+            or len(node.args) < 2
+            or isinstance(node.args[1], ast.Constant)
+        ):
+            return None
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
+            return None
+        key = self.visit(node.args[1])
+        document = ast.Call(
+            name="multiIf",
+            args=[
+                _call(
+                    "throwIf", [_names_feature_flag_property(clone_expr(key)), _const(RUNTIME_FEATURE_FLAG_KEY_ERROR)]
+                ),
+                _const(""),
+                _names_temporary_event_property(clone_expr(key)),
+                _temporary_properties_document(field_type),
+                self.visit(node.args[0]),
+            ],
+            type=ast.StringType(nullable=False),
+        )
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=[document, key, *[self.visit(arg) for arg in node.args[2:]]],
             params=node.params,
             distinct=node.distinct,
             within_group=node.within_group,
@@ -1388,7 +1509,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
-        if not _is_virtual_feature_flag_key(first_key):
+        if not is_virtual_feature_flag_key(first_key):
             return None
 
         restricted_properties = restricted_property_keys_for_table_type(field_type.table_type, self.context)
@@ -1599,7 +1720,8 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         first_key_arg = node.args[1]
         if not isinstance(first_key_arg, ast.Constant):
-            raise QueryError("JSONHas over native event properties requires a constant first key")
+            # A key computed per row reads the serialized document, which the printer masks for restricted keys.
+            return None
         if not isinstance(first_key_arg.value, str):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
         first_key = first_key_arg.value

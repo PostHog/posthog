@@ -65,6 +65,7 @@ from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
     parse_and_validate_metric,
     validate_metric_action_ids,
+    validate_saved_metric_link_overrides,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -136,6 +137,8 @@ class CleanupRequestSummary(TypedDict):
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
+# The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
+ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
 
 
 def _parse_tag_names(value: Any) -> list[str]:
@@ -158,15 +161,29 @@ DEFAULT_VARIANTS = [
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
 
-# Synchronous freeze-exposure bounds. The snapshot is built inline in the request, so we cap both the
-# time spent scanning $feature_flag_called events (ClickHouse) and the number of exposed users we
-# materialize — the Postgres cohort sync is size-linear and is NOT covered by the query timeout.
-# The user cap is sized to the cohort insert (batches of 1000, sequential): 100k keeps the whole
-# freeze comfortably inside a web request. Long-running / very-high-traffic experiments that exceed
-# either bound are rejected rather than frozen synchronously (they would need a future async
-# populate path).
+# Synchronous freeze-exposure bounds. The freeze builds the snapshot inline in the web request, so the
+# request must finish before the ingress ends it at 120 seconds. After that the caller gets an error.
+#
+# The query timeout bounds the ClickHouse scan of the exposure events only. The user cap bounds the
+# two steps that the timeout does NOT cover. Both are linear in the number of exposed users, and
+# together they are almost all of the freeze duration:
+# - the personhog lookup: one RPC per PERSONHOG_BATCH_SIZE users, FREEZE_EXPOSURE_RESOLVE_CONCURRENCY at a time
+# - the cohort write: sequential batches of 1000, each with a ClickHouse read, a ClickHouse insert
+#   and a personhog insert
+#
+# The cap is sized so that the slowest freeze stays below the ingress limit. As of October 2026 the
+# slowest measured cost in production is about 0.5 ms per exposed user, which is about 105 seconds
+# at the cap. Every freeze logs its user count and step durations as experiment_freeze_exposure_timing.
+# Read those logs and repeat this calculation before you raise the cap.
+#
+# A longer build also widens the gap between the scan and the flag save. A user who is first exposed
+# in that gap is not in the snapshot and loses their variant when the flag narrows.
+#
+# Flag evaluation does not depend on the cap. It does one indexed lookup per person, whatever the
+# cohort size. An experiment over either bound is rejected. To freeze such an experiment, populate
+# the cohort in a background task and narrow the flag only after the cohort is complete.
 FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
-FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
+FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 200_000
 # Cohort membership is person-keyed, so exposed users without a person profile (anonymous
 # "personless" traffic, or since-deleted persons) can never match the snapshot cohort and would
 # silently lose their variant at freeze time. A small unresolvable share is tolerated as
@@ -966,7 +983,7 @@ class ExperimentService:
         if not isinstance(saved_metrics_ids, list):
             raise ValidationError("Saved metrics must be a list")
 
-        for saved_metric in saved_metrics_ids:
+        for i, saved_metric in enumerate(saved_metrics_ids):
             if not isinstance(saved_metric, dict):
                 raise ValidationError("Saved metric must be an object")
             if "id" not in saved_metric:
@@ -975,6 +992,10 @@ class ExperimentService:
                 raise ValidationError("Metadata must be an object")
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
+            if "metadata" in saved_metric:
+                validate_saved_metric_link_overrides(
+                    saved_metric["metadata"], error_prefix=f"Invalid saved metric metadata at index {i}: "
+                )
 
         saved_metrics = ExperimentSavedMetric.objects.filter(
             id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
@@ -1078,6 +1099,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode = "new",
+        analytics_properties: dict[str, Any] | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         # Seed the dedup set with uuids the inline metrics must not collide with:
@@ -1234,6 +1256,7 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
         )
 
@@ -1247,6 +1270,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
         try:
@@ -1256,7 +1280,15 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
+            if experiment.start_date is not None:
+                self._report_experiment_launched(
+                    experiment,
+                    launch_path="create_request",
+                    request=serializer_context.get("request") if serializer_context else None,
+                    event_source=event_source,
+                )
         except Exception:
             logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
@@ -1271,17 +1303,21 @@ class ExperimentService:
         *,
         request: Any | None,
         extra_metadata: dict[str, Any] | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
         """Emit a lifecycle analytics event with the experiment's standard metadata.
 
-        No-ops for non-HTTP callers (``request`` is None). ``report_user_action`` is referenced as a
-        module-level name so tests can patch it at this module's path.
+        No-ops for a caller that has neither a ``request`` nor an ``event_source``.
+        ``report_user_action`` is referenced as a module-level name so tests can patch it at this
+        module's path.
         """
-        if request is None:
+        if request is None and event_source is None:
             return
         metadata = experiment.get_analytics_metadata()
         if extra_metadata:
             metadata.update(extra_metadata)
+        if event_source is not None:
+            metadata["source"] = event_source
         report_user_action(self.user, event_name, metadata, team=experiment.team, request=request)
 
     def _report_experiment_created(
@@ -1292,6 +1328,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
@@ -1305,6 +1342,8 @@ class ExperimentService:
             analytics_metadata["allow_unknown_events"] = True
         if request is not None:
             analytics_metadata.update(_deprecated_fields_in_request(request))
+        if analytics_properties:
+            analytics_metadata.update(analytics_properties)
 
         report_user_action(
             self.user,
@@ -1318,14 +1357,26 @@ class ExperimentService:
         self,
         experiment: Experiment,
         *,
+        launch_path: ExperimentLaunchPath,
         request: Any | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
-        self._report_lifecycle_event(
-            experiment,
-            "experiment launched",
-            request=request,
-            extra_metadata={"launch_date": experiment.start_date.isoformat() if experiment.start_date else None},
-        )
+        # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
+        try:
+            flag_age = timezone.now() - experiment.feature_flag.created_at
+            self._report_lifecycle_event(
+                experiment,
+                "experiment launched",
+                request=request,
+                event_source=event_source,
+                extra_metadata={
+                    "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                    "launch_path": launch_path,
+                    "flag_age_seconds": int(flag_age.total_seconds()),
+                },
+            )
+        except Exception:
+            logger.exception("experiment_launched_analytics_failed", experiment_id=experiment.id)
 
     def _ensure_feature_flag(
         self,
@@ -1737,7 +1788,7 @@ class ExperimentService:
                 ]
             )
 
-        self._report_experiment_launched(experiment, request=request)
+        self._report_experiment_launched(experiment, launch_path="launch_endpoint", request=request)
 
         return experiment
 
@@ -3620,6 +3671,14 @@ class ExperimentService:
                     event_source=event_source,
                     deprecated_config_changed=deprecated_flag_config_changed,
                 )
+
+        if launching:
+            self._report_experiment_launched(
+                experiment,
+                launch_path="update_start_date",
+                request=report_request,
+                event_source=event_source,
+            )
 
         return experiment
 

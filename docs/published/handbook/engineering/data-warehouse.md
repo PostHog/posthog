@@ -6,6 +6,50 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## SQL editor drafts
+
+The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
+An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
+Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+## Choosing data in BI mode
+
+Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens it again.
+The sidebar toggle remains available in both modes. **Locate** in the BI data pane is shown only while the sidebar is open.
+
+Use the table picker in the data pane to browse the same source groups and folders as the database tree.
+The selected table is highlighted; expanding a folder does not select it.
+Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
+
+## Calculated measures in BI mode
+
+With `SQL_EDITOR_BI_MODE` enabled, select a table in the SQL editor's BI mode and choose **Add calculated measure** in the data pane.
+Enter a name and an aggregate SQL formula, such as `sum(revenue) / nullIf(count(DISTINCT user_id), 0)` for average revenue per user.
+Use field names from the selected table. Filters apply before the formula runs for each group on the worksheet.
+
+The measure appears on Rows. Its menu lets you edit the name and formula, sort by the measure, or remove it.
+Cancel discards the draft. Names and formulas persist with the worksheet's BI configuration; measures are not shared across worksheets.
+Calculated measures cannot become dimensions or row filters.
+If a measure name conflicts with a field or another result column, the generated query adds a numeric suffix to its column name. The worksheet keeps the name you entered on the measure pill and sort menu.
+
+## Filters in BI mode
+
+Drop a field onto the compact Filters shelf beside or below the data pane. Quick filters on the right
+show the current selection; click a value to edit it, or use the checkbox beside its name to toggle it.
+Wider worksheets show quick filters in two columns. In tight scenes, click a filter pill on the left
+to edit its values and settings. String fields start with
+**Is any of**: select several values, or type a value and press Enter. **Is none of** excludes the
+selected values. An empty selection leaves all values included. Suggestions load when the picker
+opens, respect the other applied filters, and show up to 100 distinct values; additional values can
+always be entered manually.
+
+Use **Between** for numeric or date fields. Both bounds are inclusive, and either can be left empty
+for an open-ended range. Date-time fields include the time. Uncheck **Apply filter** in the editor to temporarily
+ignore a filter without losing its settings. Click the field pill to edit the field expression, date
+part, or custom SQL condition, or to remove the filter. Filter changes respect the worksheet's
+auto-update setting and are preserved with its saved configuration.
+Numeric filters preserve the precision of entered values. Invalid numbers show an error and prevent the worksheet from running until corrected or disabled.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
@@ -192,3 +236,18 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+## Connected fields in BI mode
+
+Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
+Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
+fields and further links appear without section headings.
+
+Drag connected fields onto a shelf, double-click them, or press Enter or Space to add dimensions to Rows and measures to Values.
+Measures are aggregated automatically. The worksheet keeps its original source table and uses the full
+connection path in queries and shelf labels, such as `person.company.name`.
+Connections expand on demand, including repeated links to the same table. Search filters the fields
+inside expanded connections, and a failed field load has a Retry button.
+Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
+Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
+not include their field types or nested link definitions, so these connections do not infer measures or further links.

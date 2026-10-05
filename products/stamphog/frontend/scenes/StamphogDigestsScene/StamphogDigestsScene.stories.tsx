@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { expect, userEvent, waitFor } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import type { DigestRunApi } from '../../generated/api.schemas'
 

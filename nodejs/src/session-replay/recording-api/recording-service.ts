@@ -457,6 +457,9 @@ export class RecordingService {
                  ), deleted_matches AS (
                      DELETE FROM replay_vision_visionalertmatch
                      WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_media AS (
+                     DELETE FROM replay_vision_replayobservationmedia
+                     WHERE observation_id IN (SELECT id FROM observations)
                  )
                  DELETE FROM replay_vision_replayobservation
                  WHERE id IN (SELECT id FROM observations)`,

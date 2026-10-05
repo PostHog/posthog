@@ -5,6 +5,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import ListingProof
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -16,7 +17,7 @@ _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.post
 _SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
 
 
-def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
+def _schema(**overrides) -> MagicMock:
     schema = MagicMock()
     schema.name = "users"
     schema.is_cdc = overrides.get("is_cdc", True)
@@ -31,7 +32,7 @@ def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
     schema.resolved_s3_folder_name = None
     schema.primary_key_columns = ["id"]
     schema.last_synced_at = None
-    schema.source.job_inputs = {"cdc_enabled": True, "cdc_ingest_mode": ingest_mode}
+    schema.source.job_inputs = {"cdc_enabled": True}
     return schema
 
 
@@ -52,8 +53,10 @@ def _inputs(reset_pipeline: bool = False) -> SourceInputs:
     )
 
 
-def _days_ago(days: int | None) -> dt.datetime | None:
-    return None if days is None else dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days)
+def _proof_days_ago(days: int | None) -> ListingProof | None:
+    if days is None:
+        return None
+    return ListingProof(listed_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days), tail={})
 
 
 def _delta_ref() -> MagicMock:
@@ -69,7 +72,7 @@ def _dispatch(
     job_version: str | None = ExternalDataJob.PipelineVersion.V3,
     clear_listing: MagicMock | None = None,
     retire_orphans: MagicMock | None = None,
-    proof_time: dt.datetime | None = None,
+    proof: ListingProof | None = None,
     hand_reset: MagicMock | None = None,
     expired: AsyncMock | None = None,
 ):
@@ -83,7 +86,7 @@ def _dispatch(
         patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
         patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
         patch(f"{_MANAGER}.ensure_position_stats", AsyncMock()),
-        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof_time)),
+        patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
         patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
@@ -141,9 +144,8 @@ class TestBufferedDispatch:
         with pytest.raises(ValueError, match="no job row"):
             _dispatch(_schema(), _inputs(), job_version=None)
 
-    @pytest.mark.parametrize("ingest_mode, in_flight", [("buffered", True), ("legacy", False)])
-    def test_a_delivery_still_in_flight_or_an_unconverted_source_no_ops_the_tick(self, ingest_mode, in_flight):
-        response = _dispatch(_schema(ingest_mode, cdc_table_mode="both"), _inputs(), in_flight=in_flight)
+    def test_a_delivery_still_in_flight_no_ops_the_tick(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs(), in_flight=True)
 
         assert list(response.items()) == []
         assert response.lanes is None
@@ -187,7 +189,7 @@ class TestBufferedDispatch:
         schema = _schema(cdc_table_mode="both")
 
         response = _dispatch(
-            schema, _inputs(), proof_time=_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
+            schema, _inputs(), proof=_proof_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
         )
 
         assert hand_reset.call_args_list == ([call(schema, ANY, start_capture=False)] if reset else [])

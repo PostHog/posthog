@@ -441,11 +441,11 @@ def add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> No
 
 
 def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    """Strip ``team_id`` from every access/refresh token for this app+user combo.
+    """Strip ``team_id`` from every access/refresh token this partner holds, for every user.
 
     Removing a resource has to revoke access for any *other* live token the same
-    partner installation might be holding for the same user (e.g. a separate
-    bearer issued via a prior OAuth grant that still has the team in scope).
+    partner holds for the team, for this user or another member of the org (e.g. a
+    separate bearer issued via a prior OAuth grant that still has the team in scope).
     Touching only the calling ``access_token`` would let the partner continue
     operating on the team via a sibling token after `remove` returned, since
     operational endpoints accept any team currently in ``scoped_teams``.
@@ -460,10 +460,10 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
         # Defensive: a provisioning bearer token without an app/user shouldn't
         # exist in practice, but fall back to the single-token strip if it does.
         application_filter: dict[str, object] = {"pk": access_token.pk}
-        user_filter: dict[str, object] = {}
+        orphan_filter: dict[str, object] = {}
     else:
-        application_filter = {"application": application, "user": user}
-        user_filter = {"application": application, "user": user}
+        application_filter = {"application": application}
+        orphan_filter = {"application": application}
 
     with transaction.atomic():
         access_tokens = list(
@@ -484,14 +484,14 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
                 rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
                 rt.save(update_fields=["scoped_teams"])
 
-        if user_filter:
+        if orphan_filter:
             # Orphan refresh tokens (where the access token was already rotated
             # or deleted) still carry scope. Strip the team from those too.
             orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
                 scoped_teams__contains=[team_id],
                 access_token__isnull=True,
                 revoked__isnull=True,
-                **user_filter,
+                **orphan_filter,
             )
             for rt in orphan_refresh:
                 rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]

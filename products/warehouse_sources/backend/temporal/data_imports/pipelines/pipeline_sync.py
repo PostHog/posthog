@@ -31,8 +31,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_initial_sync_complete,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -246,7 +248,15 @@ async def set_initial_sync_complete(schema_id: str, team_id: int, logger: Filter
     )
 
 
-def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBoundLogger, context: str) -> None:
+def _refresh_cumulative_row_count(
+    table: DataWarehouseTable, logger: FilteringBoundLogger, context: str, live_row_count: Optional[int] = None
+) -> None:
+    # The Delta log gives the same number as a count of the published files, without the chdb
+    # subprocess or the ClickHouse cluster read of every file that get_count() needs.
+    if live_row_count is not None:
+        table.row_count = live_row_count
+        return
+
     # Counting the full S3 dataset can exceed both the chdb and ClickHouse-cluster timeouts on a
     # large table (get_count() then raises). That's only a display stat, not the synced data itself
     # (already written successfully by this point) — keep the previous row_count rather than let it
@@ -255,6 +265,23 @@ def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBo
         table.row_count = table.get_count()
     except Exception:
         logger.warning(f"Could not refresh cumulative row count for {context}, keeping previous value", exc_info=True)
+
+
+def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -> DataWarehouseTable | None:
+    """The schema's linked table, unless the link is its `_cdc` companion.
+
+    cdc_only links the schema to its companion table. Reusing that link after a switch to a mode that
+    writes the consolidated table would publish the consolidated data under the companion's record,
+    and the consolidated table would never get a record of its own. A pinned folder can give the
+    schema's own table the companion's name, and then the link is right.
+    """
+    table = schema.table
+    if table is None:
+        return None
+    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+    table_name = build_table_name(pipeline, names.table_storage_name)
+    companion_name = build_table_name(pipeline, companion_resource_name(schema.name))
+    return None if table.name == companion_name != table_name else table
 
 
 async def validate_schema_and_update_table(
@@ -267,6 +294,7 @@ async def validate_schema_and_update_table(
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
     delta_schema_json: Optional[str] = None,
+    live_row_count: Optional[int] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -284,6 +312,8 @@ async def validate_schema_and_update_table(
         delta_schema_json: The Delta table's schema. When given and unchanged since the columns were
             last registered (together with the projection inputs), the ClickHouse introspection and
             the column write are skipped; the pointer flip and the row count still happen.
+        live_row_count: The row count of the published files, read from the Delta log. When given,
+            it replaces the count of those files that a table needs when `row_count` is not its size.
     """
     logger = LOGGER.bind(team_id=team_id)
 
@@ -326,7 +356,7 @@ async def validate_schema_and_update_table(
             # held the Postgres transaction (and the select_for_update row lock below) open for
             # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
             # exhausted the connection pool.
-            table_created: DataWarehouseTable | None = external_data_schema.table
+            table_created: DataWarehouseTable | None = own_linked_table(external_data_schema, job.pipeline)
 
             if table_created is None:
                 # The ServerException handler below can leave a created table unlinked, so look for
@@ -358,7 +388,7 @@ async def validate_schema_and_update_table(
                 if external_data_schema.table_row_count_is_cumulative or row_count == 0:
                     # A reported 0 can under-count a real write (see above), so read the true count
                     # from the just-published files rather than zero a table we are republishing.
-                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})", live_row_count)
                 else:
                     table.row_count = row_count
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
@@ -387,7 +417,7 @@ async def validate_schema_and_update_table(
                 if row_count == 0:
                     # table_params holds 0 for a table an earlier attempt already filled. get_count()
                     # can block long enough for the pooled connection to go stale, as above.
-                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})", live_row_count)
                     retry_on_db_connection_drop(lambda: table.save(update_fields=["row_count"]))
                 table_created = table
 
@@ -497,6 +527,7 @@ async def register_cdc_companion_table(
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     set_as_schema_table: bool = False,
+    live_row_count: Optional[int] = None,
 ) -> None:
     """Create or update a standalone DataWarehouseTable for a CDC companion resource (e.g. `{schema_name}_cdc`).
 
@@ -548,7 +579,7 @@ async def register_cdc_companion_table(
                 table.format = table_format
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                _refresh_cumulative_row_count(table, logger, companion_table_name)
+                _refresh_cumulative_row_count(table, logger, companion_table_name, live_row_count)
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
