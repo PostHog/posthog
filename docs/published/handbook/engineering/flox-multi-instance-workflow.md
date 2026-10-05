@@ -29,11 +29,6 @@ You only need the full setup below when you want to run the app in a worktree. F
 - If a lockfile differs, the hooks tell you what to install locally instead.
 - Use `phw` (below) only when you need to run the app in that worktree.
 
-Flox activation also caches the Semgrep version pinned by CI. Preflight uses that cached tool offline,
-with one 15-second budget for the changed-file and baseline scans. If preparation fails, activation
-continues and preflight reports why it skipped Semgrep. Run `hogli ci:preflight --prepare-semgrep`
-with network access to prepare it again, or to set it up outside Flox.
-
 ## Prerequisites
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/
