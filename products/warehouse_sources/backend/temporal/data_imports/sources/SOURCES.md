@@ -293,6 +293,7 @@ the row lists both.
 | ecb_data_portal                  | HTTP                        | requests                                                        | ✅                          |
 | electricity_maps                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
+| embrace                          | HTTP                        | requests                                                        | ✅                          |
 | eppo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | etsy                             | HTTP                        | requests                                                        | ✅                          |
 | expo                             | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -1073,7 +1074,6 @@ doesn't conflict with concurrent PRs.
 - ebay
 - eloqua
 - emarsys
-- embrace
 - employment_hero
 - encharge
 - entsoe
