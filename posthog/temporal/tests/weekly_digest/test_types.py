@@ -199,7 +199,9 @@ def test_team_digest_render_payload():
     report = payload["report"]
     assert isinstance(report, dict)
     assert len(report["new_dashboards"]) == 1
-    assert len(report["new_event_definitions"]) == 1
+    assert report["new_event_definitions"] == [
+        {"name": "pageview", "id": str(event.id), "url_path": f"/data-management/events/{event.id}"}
+    ]
     assert len(report["new_feature_flags"]) == 1
     assert len(report["interesting_saved_filters"]) == 1
     assert "expiring_recordings" in report
