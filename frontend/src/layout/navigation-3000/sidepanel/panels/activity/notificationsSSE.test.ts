@@ -41,17 +41,38 @@ describe('connectToNotificationsSSE', () => {
         mockStream.mockReset()
     })
 
-    it('calls api.stream with correct URL and auth header', async () => {
+    it.each([
+        ['livestream bearer token', token, { Authorization: `Bearer ${token}` }],
+        ['django session cookie', undefined, undefined],
+    ])('calls api.stream with correct URL and auth header (%s)', async (_name, streamToken, expectedHeaders) => {
         mockStream.mockResolvedValue()
-        await connectToNotificationsSSE(url, token, abortController.signal, jest.fn())
+        await connectToNotificationsSSE(url, streamToken, abortController.signal, jest.fn())
 
         expect(mockStream).toHaveBeenCalledWith(
             url,
             expect.objectContaining({
-                headers: { Authorization: `Bearer ${token}` },
+                headers: expectedHeaders,
                 signal: abortController.signal,
             })
         )
+    })
+
+    it('reports the end event instead of treating it as a notification', async () => {
+        const onNotification = jest.fn()
+        const onEnd = jest.fn()
+        const onFirstMessage = jest.fn()
+
+        mockStream.mockImplementation(async (_url, opts) => {
+            opts.onMessage({ event: 'end', data: 'reconnect' } as any)
+        })
+
+        await connectToNotificationsSSE(url, undefined, abortController.signal, onNotification, {
+            onEnd,
+            onFirstMessage,
+        })
+        expect(onEnd).toHaveBeenCalledTimes(1)
+        expect(onNotification).not.toHaveBeenCalled()
+        expect(onFirstMessage).not.toHaveBeenCalled()
     })
 
     it('parses SSE messages and calls onNotification', async () => {

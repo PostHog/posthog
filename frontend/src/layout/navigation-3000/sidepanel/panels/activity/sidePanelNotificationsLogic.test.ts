@@ -1,10 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InAppNotification } from '~/types'
 
+import { connectToNotificationsSSE } from './notificationsSSE'
 import { groupKey, NotificationGroup, sidePanelNotificationsLogic } from './sidePanelNotificationsLogic'
+
+jest.mock('./notificationsSSE', () => ({ connectToNotificationsSSE: jest.fn(() => new Promise(() => {})) }))
 
 function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNotification {
     return {
@@ -310,5 +316,41 @@ describe('sidePanelNotificationsLogic.manuallyToggledIds', () => {
         logic.actions.toggleRead('a')
         logic.actions.markAllAsRead()
         expect(logic.values.manuallyToggledIds.size).toBe(0)
+    })
+})
+
+describe('sidePanelNotificationsLogic SSE transport', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    const setDjangoSSEFlag = (enabled: boolean): void => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: true,
+            [FEATURE_FLAGS.NOTIFICATIONS_DJANGO_SSE]: enabled,
+        })
+    }
+    const djangoCalls = (): Parameters<typeof connectToNotificationsSSE>[] =>
+        jest.mocked(connectToNotificationsSSE).mock.calls.filter(([url]) => url.endsWith('/notifications/stream/'))
+
+    beforeEach(() => {
+        jest.mocked(connectToNotificationsSSE).mockClear()
+        initKeaTests()
+        featureFlagLogic.mount()
+        logic = sidePanelNotificationsLogic()
+    })
+
+    afterEach(() => logic.unmount())
+
+    it('opens one tokenless django stream on mount and reconnects when the flag flips', () => {
+        setDjangoSSEFlag(true)
+        logic.mount()
+        expect(djangoCalls()).toHaveLength(1)
+        const [, token, firstSignal] = djangoCalls()[0]
+        expect(token).toBeUndefined()
+
+        setDjangoSSEFlag(false)
+        expect(firstSignal.aborted).toBe(true)
+
+        setDjangoSSEFlag(true)
+        expect(djangoCalls()).toHaveLength(2)
     })
 })

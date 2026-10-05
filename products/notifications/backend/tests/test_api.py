@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -71,6 +72,17 @@ class TestNotificationsAPI(BaseTest):
         cache.clear()
         assert self.client.get(url).json()["results"] == []
         assert self.client.get(url + "unread_count/").json()["count"] == 0
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
+    def test_stream_requires_session_and_returns_event_stream(self):
+        url = f"/api/projects/{self.team.id}/notifications/stream/"
+
+        anonymous = APIClient().get(url, HTTP_ACCEPT="text/event-stream")
+        assert anonymous.status_code == 401
+
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        assert resp.status_code == 200
+        assert resp["Content-Type"] == "text/event-stream"
 
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")

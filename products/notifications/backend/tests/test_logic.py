@@ -4,7 +4,9 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+import orjson
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -472,3 +474,62 @@ class TestPublishResourceEdited(BaseTest):
 
         mock_ac_filter.assert_not_called()
         mock_get_producer.return_value.produce.assert_called_once()
+
+
+class TestRedisPublish(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = Organization.objects.create(name="Redis Org")
+        self.team = Team.objects.create(organization=self.organization, name="Redis Team")
+        self.user = User.objects.create_and_join(self.organization, "redis@test.com", "password")
+
+    def _create_notification(self) -> None:
+        create_notification(
+            NotificationData(
+                team_id=self.team.id,
+                notification_type=NotificationType.COMMENT_MENTION,
+                title="Test notification",
+                body="Test body",
+                target_type=TargetType.USER,
+                target_id=str(self.user.id),
+            )
+        )
+
+    def _publish_resource_edited(self) -> None:
+        publish_resource_edited(
+            team=self.team,
+            resource_type="HogFlow",
+            resource_id="flow-123",
+            updated_at="2026-06-16T00:00:00+00:00",
+        )
+
+    @parameterized.expand(
+        [
+            ("create_notification", "_create_notification", None),
+            ("create_notification_redis_down", "_create_notification", RedisError("down")),
+            ("resource_edited", "_publish_resource_edited", None),
+            ("resource_edited_redis_down", "_publish_resource_edited", RedisError("down")),
+        ]
+    )
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    @patch("products.notifications.backend.pubsub.get_client")
+    def test_publishes_kafka_payload_to_org_channel_after_commit(
+        self, _name, publish_method, redis_error, mock_redis_client, mock_get_producer, mock_ff
+    ):
+        redis_publish = mock_redis_client.return_value.publish
+        redis_publish.side_effect = redis_error
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            getattr(self, publish_method)()
+        redis_publish.assert_not_called()
+
+        for callback in callbacks:
+            callback()
+
+        mock_get_producer.return_value.produce.assert_called_once()
+        kafka_payload = mock_get_producer.return_value.produce.call_args.kwargs["data"]
+        channel, message = redis_publish.call_args.args
+        assert channel == f"notifications:org:{self.organization.id}"
+        assert orjson.loads(message) == kafka_payload
+        assert kafka_payload["resolved_user_ids"] == [self.user.id]
