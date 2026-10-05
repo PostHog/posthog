@@ -14,15 +14,23 @@ from posthog.models.scoping import unscoped
 from posthog.models.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
+    AutoresearchRun,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.query import QueryCost
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, InvalidArtifactContent, PartialBundle
-from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
+from products.autoresearch.backend.training.promotion import (
+    SCORABILITY_TIME_BUDGET_S,
+    PromotionError,
+    complete_training_run,
+)
+from products.autoresearch.backend.training.shadow_set import shadow_set
 from products.autoresearch.backend.training.stub import run_stub_training
 from products.notebooks.backend.facade import api as notebooks_facade
 
@@ -311,6 +319,47 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("two_repeatable_failures", [("2026-09-02", "limit_exceeded"), ("2026-09-03", "query_failed")], True),
+            ("a_single_failure", [("2026-09-03", "limit_exceeded")], False),
+            (
+                "a_success_in_between",
+                [("2026-09-01", "limit_exceeded"), ("2026-09-02", None), ("2026-09-03", "limit_exceeded")],
+                False,
+            ),
+            ("transport_failures", [("2026-09-02", "other"), ("2026-09-03", "other")], False),
+            # An activity retry adds a second failed run for the same prediction date.
+            ("one_day_retried", [("2026-09-03", "limit_exceeded"), ("2026-09-03", "limit_exceeded")], False),
+        ]
+    )
+    def test_a_champion_that_cannot_score_is_replaced_below_the_margin(self, _name, scheduled_runs, replaced):
+        first = self._run()
+        self._iteration(first, number=0, holdout=0.8)
+        complete_training_run(first)
+        champion = self._champion()
+        for prediction_date, failure_kind in scheduled_runs:
+            AutoresearchRun.objects.create(
+                pipeline=self.pipeline,
+                model=champion,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                scheduled=True,
+                status=AutoresearchRun.Status.COMPLETED if failure_kind is None else AutoresearchRun.Status.FAILED,
+                metrics={
+                    "prediction_date": prediction_date,
+                    **({"failure_kind": failure_kind} if failure_kind else {}),
+                },
+            )
+
+        second = self._run()
+        self._iteration(second, number=0, holdout=0.7)
+        result = complete_training_run(second)
+
+        assert result["promoted"] is replaced
+        assert self._champion().holdout_score == (0.7 if replaced else 0.8)
+        if replaced:
+            assert self._champion().metrics["promotion_reason"] == "replaced_unscorable"
+
+    @parameterized.expand(
+        [
             # SQL without {anchors} reads the outcome window whatever the iteration recorded.
             ("no_anchors", "SELECT person_id AS distinct_id, count() AS c FROM events GROUP BY person_id"),
             # Recording accepts a trailing LIMIT, but the fit appends its own and refuses the query,
@@ -374,9 +423,9 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert result["promoted"] is False
         assert result["role"] == AutoresearchModel.Role.CHALLENGER
         assert self._champion().holdout_score == 0.8
-        # Inference reads the champion only, so fitting the rejected bundle would spend a
-        # sandbox run on an artifact nothing loads.
-        fit.assert_not_called()
+        # The bundle-backed challenger enters the shadow set, so it needs a model.pkl to score.
+        assert fit.call_args.kwargs["model_id"] == result["model_id"]
+        assert result["model_id"] in {str(m.pk) for m in shadow_set(self.pipeline)}
         second.refresh_from_db()
         # The next run reads this summary as the champion it has to beat.
         assert second.summary["champion_model_class"] == "xgboost.XGBClassifier"
@@ -386,32 +435,89 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         self._iteration(run, number=0, holdout=0.8)
 
         bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
-        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
-            with patch("products.autoresearch.backend.training.promotion.fit_champion_model") as fit:
-                with self.captureOnCommitCallbacks(execute=True):
-                    complete_training_run(run)
+        cost = QueryCost(elapsed_s=12.5, rows_read=1000)
+        with (
+            patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle),
+            patch("products.autoresearch.backend.training.promotion.fit_champion_model") as fit,
+            patch("products.autoresearch.backend.training.promotion.check_scorability", return_value=cost),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            complete_training_run(run)
 
         assert run.started_at is not None
         assert fit.call_args.kwargs["anchor_ts"] == int(run.started_at.timestamp())
+        metrics = self._champion().metrics
+        assert (
+            metrics["scorability_elapsed_s"],
+            metrics["scorability_rows_read"],
+        ) == (12.5, 1000)
 
-    def test_a_failed_champion_fit_does_not_fail_a_committed_completion(self):
+    @parameterized.expand(
+        [
+            # write_model raises this, and it is not a SandboxInferenceError.
+            ("fit_fails", ObjectStorageError("object storage unavailable"), None, "fit failed"),
+            ("check_fails", None, SandboxInferenceError("Feature query failed: timeout"), "failed against"),
+            (
+                "check_over_budget",
+                None,
+                QueryCost(elapsed_s=SCORABILITY_TIME_BUDGET_S + 1, rows_read=1),
+                "budget",
+            ),
+        ]
+    )
+    def test_an_unscorable_champion_rolls_back_to_the_previous_one(self, _name, fit_error, check_result, reason):
+        first = self._run()
+        self._iteration(first, number=0, holdout=0.7)
+        complete_training_run(first)
+        previous = self._champion()
+
+        second = self._run()
+        self._iteration(second, number=0, holdout=0.9)
+        bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
+        check = {"side_effect": check_result} if isinstance(check_result, Exception) else {"return_value": check_result}
+        with (
+            patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle),
+            patch("products.autoresearch.backend.training.promotion.fit_champion_model", side_effect=fit_error),
+            patch("products.autoresearch.backend.training.promotion.check_scorability", **check),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = complete_training_run(second)
+
+        # The run is already committed, so the rollback must not reach the caller as a failed completion.
+        assert result["promoted"] is True
+        second.refresh_from_db()
+        assert second.status == AutoresearchTrainingRun.Status.COMPLETED
+        assert second.summary["champion_promoted"] is False
+        assert self._champion().pk == previous.pk
+        candidate = AutoresearchModel.objects.for_team(self.team.id).get(pk=result["model_id"])
+        assert candidate.role == AutoresearchModel.Role.CHALLENGER
+        assert reason in candidate.metrics["not_promoted_reason"]
+        # A shadow set member is scored every cadence, so a candidate that cannot score must stay out.
+        assert result["model_id"] not in {str(m.pk) for m in shadow_set(self.pipeline)}
+
+    def test_an_unscorable_first_champion_returns_the_pipeline_to_bootstrapping(self):
+        self.pipeline.status = AutoresearchPipeline.Status.BOOTSTRAPPING
+        self.pipeline.save(update_fields=["status"])
         run = self._run()
         self._iteration(run, number=0, holdout=0.8)
-
         bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
-        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
-            with patch(
-                "products.autoresearch.backend.training.promotion.fit_champion_model",
-                # write_model raises this, and it is not a SandboxInferenceError. The run is
-                # already committed, so it must not reach the caller as a failed completion.
-                side_effect=ObjectStorageError("object storage unavailable"),
-            ):
-                with self.captureOnCommitCallbacks(execute=True):
-                    result = complete_training_run(run)
+        with (
+            patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle),
+            patch("products.autoresearch.backend.training.promotion.fit_champion_model"),
+            patch(
+                "products.autoresearch.backend.training.promotion.check_scorability",
+                side_effect=SandboxInferenceError("Feature query failed"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            complete_training_run(run)
 
-        assert result["promoted"] is True
-        run.refresh_from_db()
-        assert run.status == AutoresearchTrainingRun.Status.COMPLETED
+        # A live pipeline with no champion would fail every daily sweep.
+        self.pipeline.refresh_from_db()
+        assert self.pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING
+        assert not AutoresearchModel.objects.filter(
+            pipeline=self.pipeline, role=AutoresearchModel.Role.CHAMPION
+        ).exists()
 
     def test_model_recipe_hash_identifies_the_stored_recipe(self):
         run = self._run()

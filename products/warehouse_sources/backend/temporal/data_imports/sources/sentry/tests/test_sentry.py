@@ -1879,6 +1879,9 @@ class TestSentryCustomIteratorEndpoints:
         assert seen_params[0] is not None
         assert "statsPeriod" not in seen_params[0]
         assert seen_params[0]["start"] and seen_params[0]["end"]
+        # Left unset, Sentry resolves this endpoint at 1h, which it rejects over a window this
+        # long. Only `totals` is read from the response, so a daily resolution loses nothing.
+        assert seen_params[0]["interval"] == "1d"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_stats_summary_skips_when_token_has_no_project_access(self, mock_request) -> None:

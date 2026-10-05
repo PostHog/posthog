@@ -30,6 +30,7 @@ const SINGLETON_PACKAGES = [
     'kea-subscriptions',
     'kea-waitfor',
     'kea-window-values',
+    '@testing-library/dom',
 ]
 
 const createStoriesPathFor = (storyPath: string): string => `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
