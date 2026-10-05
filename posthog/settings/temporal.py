@@ -299,8 +299,6 @@ ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-tas
 ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
-# Insight checks take minutes where logs checks take seconds, so they get their own fleet.
-ALERTS_PLATFORM_INSIGHT_EVALUATION_TASK_QUEUE = "alerts-platform-insight-evaluation-task-queue"
 # The platform's parallel insight checks allowed to run at once, across every team. A pool of its
 # own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
 ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(

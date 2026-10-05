@@ -389,9 +389,6 @@ EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_probe_postgres_activity,
     alerts_platform_record_outcomes_activity,
 ]
-# A source's evaluation workflow records its outcomes on its own queue, so every queue a binding
-# names registers these as well as the source's own activities.
-SOURCE_QUEUE_ACTIVITIES: list[Callable[..., object]] = [alerts_platform_record_outcomes_activity]
 DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformDeliverWorkflow, AlertsPlatformDeliverPreviewWorkflow]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
     alerts_platform_deliver_activity,
