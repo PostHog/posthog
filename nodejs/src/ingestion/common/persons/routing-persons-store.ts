@@ -872,11 +872,13 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
-        return this.route(
-            'prefetchPersons',
-            () => this.pg.prefetchPersons(teamDistinctIds),
-            () => this.personhog.prefetchPersons(teamDistinctIds)
-        )
+        if (this.mode === 'personhog') {
+            return this.personhog.prefetchPersons(teamDistinctIds)
+        }
+        // Both start now: the pipeline does not await the prefetch, so a shadow prefetch started after the
+        // authoritative one finishes would lose the race with the batch's own reads.
+        const shadow = this.shadowed('prefetchPersons', () => this.personhog.prefetchPersons(teamDistinctIds))
+        return Promise.all([this.pg.prefetchPersons(teamDistinctIds), shadow]).then(() => undefined)
     }
 
     getFlushStats(): BatchWritingStoreFlushStats {

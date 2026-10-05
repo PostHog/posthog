@@ -1159,12 +1159,17 @@ describe('RoutingPersonsStore', () => {
             }
         })
 
-        it('prefetch warms both worlds', async () => {
+        it('prefetch warms both worlds, starting the shadow one before the authoritative one finishes', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'shadow')
-            await store.prefetchPersons([{ teamId: 1, distinctId: 'd', batchId: 0 }])
+            let finishPg: () => void = () => {}
+            stores.pg.prefetchPersons.mockReturnValueOnce(new Promise<void>((resolve) => (finishPg = resolve)))
+
+            const prefetching = store.prefetchPersons([{ teamId: 1, distinctId: 'd', batchId: 0 }])
             expect(stores.pg.prefetchPersons).toHaveBeenCalled()
             expect(stores.personhogMock.prefetchPersons).toHaveBeenCalled()
+            finishPg()
+            await prefetching
         })
 
         it('getFlushStats counts a batch once when both worlds reference it', () => {

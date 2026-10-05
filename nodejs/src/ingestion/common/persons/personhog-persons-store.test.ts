@@ -346,6 +346,32 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.resolvePersonsByDistinctIds.mock.calls[0][0]).toHaveLength(ids.length)
     })
 
+    it.each([['fetchForUpdate' as const], ['fetchForChecking' as const]])(
+        '%s issued while the prefetch is out waits for it instead of resolving the id alone',
+        async (read) => {
+            let answer: () => void = () => {}
+            repository.resolvePersonsByDistinctIds
+                .mockImplementationOnce(
+                    (() =>
+                        new Promise((resolve) => {
+                            answer = () => resolve([{ teamId: 1, distinctId: 'd1', person: { ...person } }])
+                        })) as never
+                )
+                .mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: { ...person } }] as never)
+            repository.fetchPersonById.mockResolvedValue({ ...person } as never)
+            const bound = store.forBatch(0)
+
+            // The pipeline fires the prefetch without awaiting it.
+            const prefetching = store.prefetchPersons([{ teamId: 1, distinctId: 'd1', batchId: 0 }])
+            const reading = bound[read](1, 'd1')
+            answer()
+            await prefetching
+
+            expect((await reading)?.id).toBe('7')
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        }
+    )
+
     it('a stale null result cannot downgrade a live mapping', async () => {
         repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
         repository.fetchPersonById.mockResolvedValue({ ...person })

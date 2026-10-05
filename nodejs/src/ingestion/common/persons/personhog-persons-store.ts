@@ -191,6 +191,8 @@ export class PersonhogPersonsStore implements PersonsStore {
      * batch released must not record for a batch nothing can release again.
      */
     private prefetchingBatches: Set<number> = new Set()
+    /** Prefetches still resolving, by distinct key. */
+    private pendingPrefetches: Map<string, Promise<void>> = new Map()
 
     // The cache mirrors BatchWritingPersonsCache structure for structure,
     // with two differences the names carry: `projections` holds a whole
@@ -469,6 +471,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (cached !== undefined) {
             return cached
         }
+        // A prefetch still resolving this id answers it; resolving alone would duplicate that call.
+        const pending = this.pendingPrefetches.get(`${teamId}:${distinctId}`)
+        if (pending) {
+            await pending
+            const prefetched = this.getCachedPerson(teamId, distinctId, 'check')
+            if (prefetched !== undefined) {
+                return prefetched
+            }
+        }
         const generation = this.generationOf(teamId)
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         const document = resolved?.person ? this.identityDocument(resolved.person) : null
@@ -483,6 +494,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         const cached = this.getCachedPerson(teamId, distinctId, 'update')
         if (cached !== undefined) {
             return cached
+        }
+        // As in fetchForChecking: the prefetch caches an update-grade answer.
+        const pending = this.pendingPrefetches.get(`${teamId}:${distinctId}`)
+        if (pending) {
+            await pending
+            const prefetched = this.getCachedPerson(teamId, distinctId, 'update')
+            if (prefetched !== undefined) {
+                return prefetched
+            }
         }
         const generation = this.generationOf(teamId)
         const distinctKey = `${teamId}:${distinctId}`
@@ -1012,23 +1032,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         return [this.snapshot(updated), [], false]
     }
 
-    /**
-     * The update fetch's two-step done once for the whole batch, so
-     * per-event processing hits the cache. Best-effort.
-     */
-    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
-        const seen = new Set<string>()
-        const unresolved = teamDistinctIds.filter((entry) => {
-            const key = `${entry.teamId}:${entry.distinctId}:${entry.batchId}`
-            if (seen.has(key)) {
-                return false
-            }
-            seen.add(key)
-            return this.getCachedPerson(entry.teamId, entry.distinctId, 'check') === undefined
-        })
-        if (unresolved.length === 0) {
-            return
-        }
+    /** Resolves and reads the batch's unresolved ids, caching what it finds. Never rejects. */
+    private async prefetchUnresolved(
+        unresolved: { teamId: number; distinctId: string; batchId: number }[]
+    ): Promise<void> {
         const generations = new Map<number, number>()
         for (const entry of unresolved) {
             this.prefetchingBatches.add(entry.batchId)
@@ -1078,6 +1085,41 @@ export class PersonhogPersonsStore implements PersonsStore {
             // Counted because the degradation reads as latency.
             personhogStorePrefetchFailedCounter.inc()
             logger.warn('personhog prefetch failed; resolution falls back to first touch', { error })
+        }
+    }
+
+    /**
+     * The update fetch's two-step done once for the whole batch, so
+     * per-event processing hits the cache. Best-effort. The pipeline does
+     * not await it, so reads of an id it covers wait for it instead of
+     * resolving the id alone.
+     */
+    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
+        const seen = new Set<string>()
+        const unresolved = teamDistinctIds.filter((entry) => {
+            const key = `${entry.teamId}:${entry.distinctId}:${entry.batchId}`
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return this.getCachedPerson(entry.teamId, entry.distinctId, 'check') === undefined
+        })
+        if (unresolved.length === 0) {
+            return
+        }
+        const fetched = this.prefetchUnresolved(unresolved)
+        const distinctKeys = unresolved.map((entry) => `${entry.teamId}:${entry.distinctId}`)
+        for (const distinctKey of distinctKeys) {
+            this.pendingPrefetches.set(distinctKey, fetched)
+        }
+        try {
+            await fetched
+        } finally {
+            for (const distinctKey of distinctKeys) {
+                if (this.pendingPrefetches.get(distinctKey) === fetched) {
+                    this.pendingPrefetches.delete(distinctKey)
+                }
+            }
         }
     }
 
