@@ -1,11 +1,5 @@
-//! Per-key FIFO queues with at most one claimed run per key.
-//!
-//! A key is in one of four states. Idle keys are absent. A ready key has
-//! queued messages and nothing claimed. A claimed key has one run out: in the
-//! packer, waiting for a worker, or on the wire. A waiting key holds returned
-//! messages until their retry time. Arrivals for a claimed or waiting key
-//! queue behind it, so at most one run per key is ever out, which preserves
-//! per-key order.
+//! Per-key FIFO queues with at most one claimed run per key, which
+//! preserves per-key order.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::Instant;
@@ -58,6 +52,11 @@ struct Claim {
     revoked: Vec<(String, i32)>,
 }
 
+/// A key is in one of four states. An idle key is absent from the table. A
+/// ready key has queued messages and no claim. A claimed key has one run
+/// out: in the packer, waiting for a worker, or on the wire. A waiting key
+/// holds returned messages until `retry_at`. Arrivals for a claimed or
+/// waiting key queue behind it.
 #[derive(Default)]
 struct KeyState {
     queue: VecDeque<QueuedMessage>,

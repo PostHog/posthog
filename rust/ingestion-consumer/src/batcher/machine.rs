@@ -2,15 +2,6 @@
 //! request on the wire. A request that comes back with returned messages, or
 //! fails on the transport, puts them back at the front of the key's queue
 //! with a retry time. Retried messages go through the packer like fresh ones.
-//!
-//! Every action consumes the state and returns the next state with one
-//! [`Step`], so a caller cannot act on a state the machine has left. An
-//! action does no I/O.
-//!
-//! A partially processed request is a success: its returned messages are a
-//! per-key suffix that waits for the timeout retry delay, then goes through
-//! the packer again as replay. A transport failure returns every message of
-//! the request.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -56,7 +47,6 @@ pub enum FailureCause {
     Busy,
 }
 
-/// Sends must begin in step order, which is the per-key send order.
 #[derive(Debug)]
 pub struct Send {
     pub request: RequestId,
@@ -79,6 +69,7 @@ pub struct WorkerOutcome {
 
 #[derive(Debug, Default)]
 pub struct Step {
+    /// Sends must begin in this order, which is the per-key send order.
     pub sends: Vec<Send>,
     /// One completion per partition, so each poll is credited per offset.
     pub completions: Vec<GroupCompletion>,
@@ -96,6 +87,9 @@ pub struct Step {
     pub next_wakeup: Option<Instant>,
 }
 
+/// Every action consumes the state and returns the next state with one
+/// [`Step`], so a caller cannot act on a state the machine has left. An
+/// action does no I/O.
 pub enum BatcherState {
     Running(Work),
     /// Shutdown started: no new groups, every open batch seals at once, and
@@ -130,8 +124,10 @@ impl BatcherState {
         }
     }
 
-    /// A request got a response. `returned` holds the messages the worker did
-    /// not process; `accepted` is the worker's own count of the rest.
+    /// A request got a response, which may be partial. `returned` holds the
+    /// messages the worker did not process; they wait for the timeout delay,
+    /// then go through the packer again as replay. `accepted` is the
+    /// worker's own count of the rest.
     pub fn on_request_succeeded(
         self,
         now: Instant,
@@ -461,9 +457,6 @@ impl Work {
     }
 
     fn place(&mut self, now: Instant, pool: &WorkerPool, step: &mut Step) {
-        // Requests carry disjoint keys, so their send order does not matter
-        // for per-key order. A request that no candidate can take must not
-        // hold back the requests behind it.
         let mut retry = std::mem::take(&mut self.unplaced);
         let mut still_unplaced = VecDeque::new();
         loop {
@@ -487,6 +480,9 @@ impl Work {
                 &pool.candidates
             };
             let Some(worker) = self.assigner.assign(candidates, request.message_count) else {
+                // Requests carry disjoint keys, so their send order does not
+                // matter for per-key order. A request that no candidate can
+                // take must not hold back the requests behind it.
                 still_unplaced.push_back(request);
                 continue;
             };
@@ -568,8 +564,6 @@ fn completions(assignment_epoch: u64, outcomes: &[KeyOutcome]) -> Vec<GroupCompl
     completions
 }
 
-/// Only keyed messages advance a key's ACK high-water mark: an unkeyed
-/// message lives on an arbitrary partition under a synthetic key.
 fn key_acks(outcomes: &[KeyOutcome]) -> Vec<KeyAck> {
     outcomes
         .iter()
@@ -577,6 +571,8 @@ fn key_acks(outcomes: &[KeyOutcome]) -> Vec<KeyAck> {
             let max_offset = outcome
                 .accepted
                 .iter()
+                // An unkeyed message lives on an arbitrary partition under a
+                // synthetic key, so it does not advance an ACK high-water mark.
                 .filter(|message| message.keyed)
                 .map(|message| message.offset)
                 .max()?;

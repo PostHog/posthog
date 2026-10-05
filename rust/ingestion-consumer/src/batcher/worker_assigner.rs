@@ -1,6 +1,3 @@
-//! A worker at the per-worker request cap is not a candidate, so one slow
-//! worker cannot take every send slot.
-
 use std::collections::HashMap;
 
 use crate::routing::{Router, WorkerLoad};
@@ -50,6 +47,8 @@ impl WorkerAssigner {
     }
 
     pub fn assign(&mut self, pool: &[WorkerId], message_count: usize) -> Option<WorkerId> {
+        // A worker at the request cap is not a candidate, so one slow worker
+        // cannot take every send slot.
         let open: Vec<WorkerId> = pool
             .iter()
             .filter(|worker| self.requests_on(worker) < self.max_requests_per_worker)

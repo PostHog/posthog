@@ -1,9 +1,4 @@
-//! The packer groups claimed runs into requests near a target size. Sealed
-//! requests wait until [`Packer::take_ready`] pulls them, so the caller pulls
-//! only as many as it has capacity to send.
-//!
-//! The packer holds each key at most once, because the key queues claim a
-//! key until its run settles.
+//! The packer groups claimed runs into requests near a target size.
 
 use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -13,13 +8,14 @@ use metrics::counter;
 use super::key_queues::{payload_bytes, KeyRun, ReadyRun};
 use super::request_class::RequestClass;
 
-/// The target request size and the pack latency budget. A zero target
-/// disables that dimension. A zero budget seals every open batch at the next
-/// pull, so requests carry only what arrived in one action.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PackTargets {
+    /// `0` disables the event target.
     pub events: usize,
+    /// `0` disables the byte target.
     pub bytes: usize,
+    /// `0` seals every open batch at the next pull, so a request carries only
+    /// what arrived in one action.
     pub latency_budget: Duration,
 }
 
@@ -61,6 +57,7 @@ struct OpenBatch {
 
 pub struct Packer {
     targets: PackTargets,
+    /// One open batch per class, because a request never mixes classes.
     open: Vec<OpenBatch>,
     sealed: VecDeque<PackedRequest>,
 }
@@ -104,6 +101,8 @@ impl Packer {
             .chain(self.sealed.iter())
     }
 
+    /// The batch takes the run without checking for its key, because the key
+    /// queues claim a key until its run settles.
     pub fn push(&mut self, ready: ReadyRun, now: Instant) {
         let ReadyRun {
             class, run, bytes, ..
@@ -136,6 +135,8 @@ impl Packer {
         }
     }
 
+    /// Sealed requests wait here until pulled, so the caller pulls only as
+    /// many as it has capacity to send.
     pub fn take_ready(&mut self, now: Instant, limit: usize) -> Vec<PackedRequest> {
         self.seal_expired(now);
         let count = limit.min(self.sealed.len());

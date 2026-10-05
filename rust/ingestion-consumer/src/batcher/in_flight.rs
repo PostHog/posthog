@@ -1,9 +1,3 @@
-//! A response references its request by id only. Resolving it maps the
-//! returned messages back to their keys and checks the per-key contract: a
-//! key's returned messages are a suffix of the run it sent, because the
-//! worker processes a key's messages in order. A response that breaks the
-//! contract is a protocol error.
-
 use std::collections::{HashMap, HashSet};
 
 use super::key_queues::KeyRun;
@@ -69,6 +63,8 @@ pub enum ResolveError {
     NotASuffix { routing_key: String },
 }
 
+/// A response references its request by id only, so this keeps what each
+/// request carried.
 #[derive(Default)]
 pub struct InFlightRequests {
     next_id: u64,
@@ -122,7 +118,10 @@ impl InFlightRequests {
 }
 
 impl InFlightRequest {
-    /// Every key of the request gets an outcome, in send order.
+    /// Every key of the request gets an outcome, in send order. A key's
+    /// returned messages must be a suffix of the run it sent, because the
+    /// worker processes a key's messages in order. A response that breaks
+    /// this is a protocol error.
     pub fn resolve(
         &self,
         returned: Vec<SerializedKafkaMessage>,
