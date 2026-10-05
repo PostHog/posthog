@@ -11,6 +11,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
+from products.batch_exports.backend.api.batch_export import RunsCursorPagination
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.tests.api.fixtures import (
     create_batch_export,
@@ -24,6 +25,7 @@ from products.batch_exports.backend.tests.api.operations import (
     backfill_batch_export_ok,
     cancel_batch_export_run,
     cancel_batch_export_run_ok,
+    collect_all_pages,
     create_batch_export_ok,
     get_batch_export,
     get_batch_export_runs,
@@ -280,3 +282,37 @@ def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user
 
     run.refresh_from_db()
     assert run.status == BatchExportRun.Status.COMPLETED
+
+
+@pytest.mark.parametrize("ordering", [None, "created_at", "-created_at", "data_interval_start", "-data_interval_start"])
+def test_get_batch_export_runs_pages_over_tied_timestamps(
+    client: HttpClient, team, user, ordering, monkeypatch: pytest.MonkeyPatch
+):
+    """Runs that share a timestamp must each appear once across page boundaries."""
+    monkeypatch.setattr(RunsCursorPagination, "page_size", 2)
+
+    batch_export = create_batch_export(team, create_destination())
+    data_interval_end = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
+    created_at = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30)
+
+    runs = [
+        create_run(
+            batch_export,
+            status=BatchExportRun.Status.COMPLETED,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+        )
+        for _ in range(5)
+    ]
+    BatchExportRun.objects.filter(id__in=[run.id for run in runs]).update(created_at=created_at)
+
+    client.force_login(user)
+    query_params = {"ordering": ordering} if ordering else {}
+    first_page = get_batch_export_runs_ok(client, team.pk, batch_export.id, **query_params)
+    results = collect_all_pages(client, first_page)
+
+    # Every timestamp is tied, so the run id alone decides the order.
+    descending = ordering is None or ordering.startswith("-")
+    expected = sorted((str(run.id) for run in runs), reverse=descending)
+    assert [run["id"] for run in results] == expected
