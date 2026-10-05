@@ -36,6 +36,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    GetDistinctIdVersionHeadsRequest, GetDistinctIdVersionHeadsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
@@ -44,7 +45,8 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonVersionHeadsRequest,
+    GetPersonVersionHeadsResponse, GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest,
     GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
@@ -536,6 +538,20 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(SetPersonVersionFloorResponse {
             updated: false,
         }))
+    }
+
+    async fn get_person_version_heads(
+        &self,
+        _request: Request<GetPersonVersionHeadsRequest>,
+    ) -> Result<Response<GetPersonVersionHeadsResponse>, Status> {
+        Ok(Response::new(GetPersonVersionHeadsResponse::default()))
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        _request: Request<GetDistinctIdVersionHeadsRequest>,
+    ) -> Result<Response<GetDistinctIdVersionHeadsResponse>, Status> {
+        Ok(Response::new(GetDistinctIdVersionHeadsResponse::default()))
     }
 }
 

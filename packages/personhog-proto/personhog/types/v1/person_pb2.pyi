@@ -655,6 +655,64 @@ class SetPersonVersionFloorResponse(_message.Message):
     updated: bool
     def __init__(self, updated: bool = ...) -> None: ...
 
+class GetPersonVersionHeadsRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class PersonVersionHead(_message.Message):
+    __slots__ = ("person_uuid", "version", "is_deleted")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    IS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    version: int
+    is_deleted: bool
+    def __init__(
+        self, person_uuid: _Optional[str] = ..., version: _Optional[int] = ..., is_deleted: bool = ...
+    ) -> None: ...
+
+class GetPersonVersionHeadsResponse(_message.Message):
+    __slots__ = ("heads",)
+    HEADS_FIELD_NUMBER: _ClassVar[int]
+    heads: _containers.RepeatedCompositeFieldContainer[PersonVersionHead]
+    def __init__(self, heads: _Optional[_Iterable[_Union[PersonVersionHead, _Mapping]]] = ...) -> None: ...
+
+class GetDistinctIdVersionHeadsRequest(_message.Message):
+    __slots__ = ("team_id", "distinct_ids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    distinct_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, team_id: _Optional[int] = ..., distinct_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class DistinctIdVersionHead(_message.Message):
+    __slots__ = ("distinct_id", "version", "is_deleted", "person_uuid")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    IS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    version: int
+    is_deleted: bool
+    person_uuid: str
+    def __init__(
+        self,
+        distinct_id: _Optional[str] = ...,
+        version: _Optional[int] = ...,
+        is_deleted: bool = ...,
+        person_uuid: _Optional[str] = ...,
+    ) -> None: ...
+
+class GetDistinctIdVersionHeadsResponse(_message.Message):
+    __slots__ = ("heads",)
+    HEADS_FIELD_NUMBER: _ClassVar[int]
+    heads: _containers.RepeatedCompositeFieldContainer[DistinctIdVersionHead]
+    def __init__(self, heads: _Optional[_Iterable[_Union[DistinctIdVersionHead, _Mapping]]] = ...) -> None: ...
+
 class FencePersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "op_id", "op_type")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

@@ -443,6 +443,20 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn get_person_version_heads(
+        &self,
+        _: Request<GetPersonVersionHeadsRequest>,
+    ) -> Result<Response<GetPersonVersionHeadsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        _: Request<GetDistinctIdVersionHeadsRequest>,
+    ) -> Result<Response<GetDistinctIdVersionHeadsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------
