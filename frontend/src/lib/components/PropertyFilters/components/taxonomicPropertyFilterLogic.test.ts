@@ -114,6 +114,7 @@ describe('taxonomicPropertyFilterLogic', () => {
                     TaxonomicFilterGroupType.HogQLExpression,
                     TaxonomicFilterGroupType.FeatureFlags,
                     TaxonomicFilterGroupType.EventMetadata,
+                    TaxonomicFilterGroupType.BehavioralEvents,
                 ],
                 filterIndex: 0,
                 pageKey: 'test-conversion',
@@ -190,6 +191,17 @@ describe('taxonomicPropertyFilterLogic', () => {
                 PropertyFilterType.EventMetadata,
                 { type: PropertyFilterType.EventMetadata, key: '$group_0', label: 'Organization' },
                 { id: '$group_0', name: 'Organization' }
+            )
+        })
+
+        it('creates a behavioral filter from the performed event group', () => {
+            const group = logic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.BehavioralEvents
+            )!
+            logic.actions.selectItem(group, 'signed_up', undefined, { name: 'signed_up' })
+            expect(setFilterSpy).toHaveBeenCalledWith(
+                0,
+                expect.objectContaining({ type: PropertyFilterType.Behavioral, key: 'signed_up', event_type: 'events' })
             )
         })
 

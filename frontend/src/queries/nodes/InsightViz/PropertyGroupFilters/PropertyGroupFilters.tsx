@@ -7,7 +7,7 @@ import React, { useMemo } from 'react'
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
+import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { inlineEquivalentPropertyGroups, isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -172,23 +172,21 @@ export function PropertyGroupFilters({
                                                         pageKey={`${keyForInsightLogicProps('new')(
                                                             insightProps
                                                         )}-PropertyGroupFilters-${propertyGroupIndex}`}
-                                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                                        taxonomicGroupTypes={
+                                                            behavioralFiltersEnabled
+                                                                ? [
+                                                                      ...(taxonomicGroupTypes ??
+                                                                          DEFAULT_TAXONOMIC_GROUP_TYPES),
+                                                                      TaxonomicFilterGroupType.BehavioralEvents,
+                                                                  ]
+                                                                : taxonomicGroupTypes
+                                                        }
                                                         eventNames={eventNames}
                                                         propertyGroupType={group.type}
                                                         orFiltering
                                                         logicalRowDivider={behavioralFiltersEnabled}
                                                         hasRowOperator={!behavioralFiltersEnabled}
                                                         addFilterDivider={behavioralFiltersEnabled}
-                                                        addFilterSuffix={
-                                                            behavioralFiltersEnabled
-                                                                ? (addFilter) => (
-                                                                      <AddBehavioralFilterButton
-                                                                          data-attr={`${pageKey}-add-behavioral-filter`}
-                                                                          onAdd={addFilter}
-                                                                      />
-                                                                  )
-                                                                : null
-                                                        }
                                                     />
                                                 </div>
                                             </div>
