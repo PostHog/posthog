@@ -58,11 +58,13 @@ class PropertyDefinition(Taggable, UUIDTModel):
         GROUP = 3, "group"
         SESSION = 4, "session"
 
+    # No index of its own: posthog_pro_team_id_eac36d_idx (team_id, type, is_numerical) leads with team_id.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="property_definitions",
         related_query_name="team",
+        db_index=False,
     )
     project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     name = models.CharField(max_length=400)
