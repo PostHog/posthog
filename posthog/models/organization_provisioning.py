@@ -33,6 +33,8 @@ class OrganizationProvisioning(models.Model):
         blank=True,
         related_name="provisioned_organizations",
     )
+    # Reported by the partner that created the organization, not observed by PostHog.
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

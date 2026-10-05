@@ -18,7 +18,11 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
-from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import (
+    AUTH_CODE_CACHE_PREFIX,
+    PENDING_AUTH_CACHE_PREFIX,
+    TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW,
+)
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
@@ -56,14 +60,29 @@ class TestAccountRequests(ProvisioningTestBase):
         assert len(data["oauth"]["code"]) > 0
         assert User.objects.filter(email="newuser@example.com").exists()
 
-    def test_new_user_creates_org_and_team_attributed_to_partner(self):
-        self._post_account_request(self._account_request_payload())
+    @parameterized.expand(
+        [
+            ("terms_accepted", timedelta(days=-1)),
+            ("terms_accepted_within_clock_skew", TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW / 2),
+            ("terms_not_sent", None),
+        ]
+    )
+    def test_new_user_creates_org_and_team_attributed_to_partner(
+        self, _name: str, terms_accepted_offset: timedelta | None
+    ) -> None:
+        terms_accepted_at = None if terms_accepted_offset is None else timezone.now() + terms_accepted_offset
+        overrides = {} if terms_accepted_at is None else {"terms_accepted_at": terms_accepted_at.isoformat()}
+        self._post_account_request(self._account_request_payload(**overrides))
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
         assert TeamProvisioningConfig.objects.get(team=user.team).application_id == self.partner.id
         record = OrganizationProvisioning.objects.get(organization=user.organization)
-        assert (record.partner, record.application_id) == ("provisioning_api", self.partner.id)
+        assert (record.partner, record.application_id, record.terms_accepted_at) == (
+            "provisioning_api",
+            self.partner.id,
+            terms_accepted_at,
+        )
 
     def test_new_user_starts_unverified(self):
         # Partner-asserted email ownership is not trusted: the user must prove they own
@@ -93,11 +112,26 @@ class TestAccountRequests(ProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["type"] == "requires_auth"
 
-    def test_expired_request_returns_400(self):
-        payload = self._account_request_payload(expires_at=(timezone.now() - timedelta(minutes=1)).isoformat())
+    @parameterized.expand(
+        [
+            ("expired_request", "expires_at", timedelta(minutes=-1), "expired"),
+            (
+                "terms_accepted_in_future",
+                "terms_accepted_at",
+                TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW + timedelta(minutes=1),
+                "invalid_request",
+            ),
+        ]
+    )
+    def test_out_of_range_timestamp_returns_400(
+        self, _name: str, field: str, offset: timedelta, expected_code: str
+    ) -> None:
+        payload = self._account_request_payload(**{field: (timezone.now() + offset).isoformat()})
         res = self._post_account_request(payload)
         assert res.status_code == 400
         assert res.json()["type"] == "error"
+        assert res.json()["error"]["code"] == expected_code
+        assert not User.objects.filter(email="newuser@example.com").exists()
 
     def test_missing_email_returns_400(self):
         payload = self._account_request_payload()

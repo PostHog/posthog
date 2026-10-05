@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 
 AUTH_CODE_CACHE_PREFIX = "provisioning_auth_code:"
 PENDING_AUTH_CACHE_PREFIX = "provisioning_pending_auth:"
@@ -19,6 +20,8 @@ DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 
 # Pinned: the verify-email scene matches this exact value to pick the copy it shows.
 VERIFY_EMAIL_REASON = "partner_deep_link"
+
+TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW = timedelta(minutes=5)
 
 CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
 CIMD_DOMAIN_RATE_LIMIT_MAX = 5

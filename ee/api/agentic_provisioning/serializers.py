@@ -18,6 +18,7 @@ from rest_framework import serializers
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
+from ee.api.agentic_provisioning.constants import TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW
 from ee.api.agentic_provisioning.credentials import validate_label_prefix
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 
@@ -90,6 +91,16 @@ class AccountRequestSerializer(serializers.Serializer):
         default="S256",
         help_text="PKCE challenge method; only S256 is supported.",
     )
+    terms_accepted_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "ISO 8601 time when the end user accepted PostHog's terms of service (https://posthog.com/terms). "
+            "A time without a UTC offset is read as UTC. Recorded only when the request creates a new account. "
+            "Must not be in the future."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Treat explicit null on optional fields as absent, so downstream code
@@ -116,6 +127,14 @@ class AccountRequestSerializer(serializers.Serializer):
             if expires_at and expires_at < timezone.now():
                 capture_provisioning_event("account_request", "error", error_code="expired")
                 raise ProvisioningError("expired", "Account request has expired")
+
+        terms_accepted_at = attrs.get("terms_accepted_at")
+        if terms_accepted_at is not None and terms_accepted_at > timezone.now() + TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW:
+            capture_provisioning_event("account_request", "error", error_code="terms_accepted_at_in_future")
+            raise ProvisioningError(
+                "invalid_request",
+                "terms_accepted_at is in the future. Send the time the end user accepted PostHog's terms of service.",
+            )
 
         if not isinstance(attrs.get("configuration"), dict):
             attrs["configuration"] = {}

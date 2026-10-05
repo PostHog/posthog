@@ -249,6 +249,7 @@ def handle_new_user(
                 organization=organization,
                 partner=OrganizationProvisioning.Partner.PROVISIONING_API,
                 application=partner,
+                terms_accepted_at=data.get("terms_accepted_at"),
             )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
