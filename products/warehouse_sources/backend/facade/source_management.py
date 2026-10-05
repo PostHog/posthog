@@ -23,6 +23,7 @@ _LAZY = {
     "CDCRepairError": "cdc.repair",
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",
+    "repair_is_running": "cdc.repair",
     "SELF_MANAGED_LAG_REASON": "cdc.broken",
     "tables_wait_for_repair": "cdc.broken",
     "purge_buffer_prefix": "cdc.buffer",

@@ -12090,47 +12090,6 @@ class TestRepairCDC(APIBaseTest):
         mock_sync_extraction.assert_called_once()
         mock_unpause_extraction.assert_called_once_with(str(source.pk))
 
-    @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
-    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
-    @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
-    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
-    )
-    def test_repair_cdc_resumes_a_table_turned_on_while_it_ran(
-        self, mock_recreate, mock_unpause_schema, _mock_trigger, _mock_unpause_extraction, _mock_sync_extraction
-    ) -> None:
-        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
-        ExternalDataSchema.objects.create(
-            name="orders",
-            team_id=self.team.pk,
-            source_id=source.pk,
-            sync_type=ExternalDataSchema.SyncType.CDC,
-            should_sync=True,
-            initial_sync_complete=True,
-            sync_type_config={"cdc_mode": "streaming", "cdc_broken": BROKEN_MARKER},
-        )
-        turned_on_meanwhile = ExternalDataSchema.objects.create(
-            name="users",
-            team_id=self.team.pk,
-            source_id=source.pk,
-            sync_type=ExternalDataSchema.SyncType.CDC,
-            should_sync=False,
-            initial_sync_complete=True,
-            sync_type_config={"cdc_mode": "streaming"},
-        )
-
-        def turn_the_table_on(*_args: Any, **_kwargs: Any) -> dict[str, str]:
-            ExternalDataSchema.objects.filter(id=turned_on_meanwhile.id).update(should_sync=True)
-            return {"cdc_consistent_point": "0/AABBCC"}
-
-        mock_recreate.side_effect = turn_the_table_on
-
-        response = self._repair(source)
-
-        assert response.status_code == 200, response.content
-        assert call(str(turned_on_meanwhile.id)) in mock_unpause_schema.call_args_list
-
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")

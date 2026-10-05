@@ -64,6 +64,11 @@ def _repair_lock_key(source_id: str) -> str:
     return f"cdc_repair_lock:{source_id}"
 
 
+def repair_is_running(source: ExternalDataSource) -> bool:
+    """Whether a repair of this source holds its lock."""
+    return bool(get_client().exists(_repair_lock_key(str(source.id))))
+
+
 def repair_cdc_source(source: ExternalDataSource) -> int:
     """Repair CDC on a source whose change-stream resources were lost.
 
@@ -181,10 +186,6 @@ def _repair_locked(source: ExternalDataSource) -> int:
             extra_model_fields={"latest_error": None},
         )
 
-    # A table edit that read the markers just before this point paused its schedule after the resume
-    # above, and a table turned on during the repair was not in `reset_now`. Nothing else resumes them.
-    _resume_table_schedules_again(source, log)
-
     _trigger_resnapshots(reset_now, log)
 
     log.info("cdc_repair_complete", schemas_reset=len(cdc_schemas))
@@ -269,29 +270,6 @@ def _resume_schedules(source: ExternalDataSource, cdc_schemas: list[ExternalData
     # a missing schedule is a no-op and would leave CDC repaired but never extracting.
     sync_cdc_extraction_schedule(source)
     unpause_cdc_extraction_schedule(str(source.id))
-
-
-def _resume_table_schedules_again(source: ExternalDataSource, log: typing.Any) -> None:
-    """Unpause every active CDC table, except one whose reset is left to capture.
-
-    Best-effort: the repair has already succeeded, and its own resume covered the tables it reset.
-    """
-    # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
-    from products.data_warehouse.backend.facade.api import unpause_external_data_schedule
-
-    schema_ids = (
-        ExternalDataSchema.objects.filter(
-            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
-        )
-        .exclude(deleted=True)
-        .exclude(sync_type_config__has_key=CDC_RESET_PENDING_KEY)
-        .values_list("id", flat=True)
-    )
-    for schema_id in schema_ids:
-        try:
-            unpause_external_data_schedule(str(schema_id))
-        except Exception:
-            log.warning("cdc_repair_second_resume_failed", schema_id=str(schema_id), exc_info=True)
 
 
 def _trigger_resnapshots(cdc_schemas: list[ExternalDataSchema], log: typing.Any) -> None:

@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
     purge_buffer_prefix,
+    repair_is_running,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
     tables_wait_for_repair,
@@ -1396,8 +1397,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 should_sync_value = should_sync if should_sync is not None else updated_instance.should_sync
                 # A reset left to capture keeps the schedule paused, and capture unpauses it once the reset is done.
                 reset_pending = bool((updated_instance.sync_type_config or {}).get(CDC_RESET_PENDING_KEY))
-                # Repair CDC unpauses the tables of a broken source, so an edit must leave them paused.
-                waits_for_repair = updated_instance.is_cdc and tables_wait_for_repair(source)
+                # Repair CDC unpauses the tables of a broken source, so an edit must not. A repair that
+                # is already running has listed its tables, so a table turned on now gets no hold.
+                waits_for_repair = (
+                    updated_instance.is_cdc and tables_wait_for_repair(source) and not repair_is_running(source)
+                )
                 held = reset_pending or waits_for_repair
                 schedule_exists = external_data_workflow_exists(str(updated_instance.id))
 
@@ -1424,14 +1428,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # schedule has nothing to update — updating a missing schedule raises "workflow not
                 # found" — so its new cadence is just saved and applies if/when it is enabled.
                 if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
-                    sync_external_data_job_workflow(
-                        updated_instance, create=False, should_sync=should_sync_value and not held
-                    )
-
-                # A repair that cleared the markers after the check above has already resumed the
-                # tables, so the pause this edit just kept or wrote would outlast it.
-                if waits_for_repair and should_sync_value and not reset_pending and not tables_wait_for_repair(source):
-                    unpause_external_data_schedule(str(updated_instance.id))
+                    if waits_for_repair:
+                        # The pause stays as it is, because a repair may have resumed the table
+                        # since the check above.
+                        sync_external_data_job_workflow(
+                            updated_instance, create=False, should_sync=should_sync_value, keep_paused=True
+                        )
+                    else:
+                        sync_external_data_job_workflow(
+                            updated_instance, create=False, should_sync=should_sync_value and not reset_pending
+                        )
 
             self._run_temporal_side_effect(update_schedule)
 

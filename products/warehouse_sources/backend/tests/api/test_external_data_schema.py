@@ -25,6 +25,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.redis import get_client
 from posthog.temporal.common.schedule import create_schedule, describe_schedule
 
 from products.data_modeling.backend.facade.models import Edge, Node
@@ -42,6 +43,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
+from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     WebhookCreationResult,
@@ -3225,12 +3227,11 @@ class TestUpdateExternalDataSchema:
         assert schedule_desc.schedule.spec.intervals[0].every == timedelta(days=7)
 
     @pytest.mark.parametrize(
-        "marker, marked_table_sync_type, synced_before, has_schedule, payload, runs_after",
+        "marker, marked_table_sync_type, synced_before, payload, runs",
         [
             pytest.param(
                 {"reason": "auto_dropped_critical_lag"},
                 "cdc",
-                True,
                 True,
                 {"sync_frequency": "1hour"},
                 False,
@@ -3240,15 +3241,21 @@ class TestUpdateExternalDataSchema:
                 {"reason": "auto_dropped_critical_lag"},
                 "cdc",
                 False,
-                True,
                 {"should_sync": True},
                 False,
                 id="sync_turned_on_on_a_broken_source",
             ),
             pytest.param(
-                {"reason": "critical_lag_self_managed"},
+                {"reason": "auto_dropped_critical_lag"},
                 "cdc",
                 True,
+                {"sync_frequency": "1hour"},
+                True,
+                id="frequency_change_after_a_repair_resumed_the_table",
+            ),
+            pytest.param(
+                {"reason": "critical_lag_self_managed"},
+                "cdc",
                 True,
                 {"sync_frequency": "1hour"},
                 True,
@@ -3258,7 +3265,6 @@ class TestUpdateExternalDataSchema:
                 {"reason": "billing_limit_expired", "slot_kept": True},
                 "cdc",
                 True,
-                True,
                 {"sync_frequency": "1hour"},
                 True,
                 id="frequency_change_after_a_billing_stop_that_kept_the_slot",
@@ -3267,45 +3273,20 @@ class TestUpdateExternalDataSchema:
                 {"reason": "auto_dropped_critical_lag"},
                 "incremental",
                 True,
-                True,
                 {"sync_frequency": "1hour"},
                 True,
                 id="frequency_change_beside_a_marker_left_on_a_table_that_left_cdc",
             ),
-            pytest.param(
-                {"reason": "auto_dropped_critical_lag"},
-                "cdc",
-                False,
-                False,
-                {"should_sync": True},
-                False,
-                id="sync_turned_on_without_a_schedule_on_a_broken_source",
-            ),
         ],
     )
     def test_an_edit_leaves_a_cdc_tables_schedule_as_the_broken_marker_left_it(
-        self,
-        team,
-        user,
-        client: HttpClient,
-        temporal,
-        marker,
-        marked_table_sync_type,
-        synced_before,
-        has_schedule,
-        payload,
-        runs_after,
+        self, team, user, client: HttpClient, temporal, marker, marked_table_sync_type, synced_before, payload, runs
     ):
         client.force_login(user)
         schema = self._cdc_table_beside_a_marked_one(team, marker, marked_table_sync_type, synced_before)
-        if has_schedule:
-            sync_external_data_job_workflow(schema, create=True, should_sync=runs_after, trigger_immediately=False)
+        sync_external_data_job_workflow(schema, create=True, should_sync=runs, trigger_immediately=False)
 
-        service = "products.data_warehouse.backend.logic.data_load.service"
-        with (
-            self._patch_cdc_edit(),
-            mock.patch(f"{service}.create_schedule", wraps=create_schedule) as create,
-        ):
+        with self._patch_cdc_edit():
             response = client.patch(
                 f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
                 data=payload,
@@ -3316,27 +3297,47 @@ class TestUpdateExternalDataSchema:
         schema.refresh_from_db()
         assert schema.should_sync is True
         schedule = describe_schedule(temporal, str(schema.id)).schedule
-        assert schedule.state.paused is (not runs_after)
+        assert schedule.state.paused is (not runs)
         if "sync_frequency" in payload:
             assert schedule.spec.intervals[0].every == timedelta(hours=1)
-        if not has_schedule:
-            assert create.call_args.kwargs["trigger_immediately"] is False
 
-    def test_an_edit_resumes_a_table_whose_repair_finished_meanwhile(self, team, user, client: HttpClient, temporal):
+    def test_sync_turned_on_without_a_schedule_on_a_broken_source_creates_it_paused(
+        self, team, user, client: HttpClient, temporal
+    ):
         client.force_login(user)
-        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", True)
-        sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
 
-        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        service = "products.data_warehouse.backend.logic.data_load.service"
         with (
             self._patch_cdc_edit(),
-            mock.patch(f"{views}.tables_wait_for_repair", side_effect=[True, False]),
+            mock.patch(f"{service}.create_schedule", wraps=create_schedule) as create,
         ):
             response = client.patch(
                 f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_frequency": "1hour"},
+                data={"should_sync": True},
                 content_type="application/json",
             )
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is True
+        assert create.call_args.kwargs["trigger_immediately"] is False
+
+    def test_sync_turned_on_while_a_repair_runs_resumes_the_table(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
+        sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
+        repair_lock = _repair_lock_key(str(schema.source_id))
+        get_client().set(repair_lock, "1", ex=60)
+
+        try:
+            with self._patch_cdc_edit():
+                response = client.patch(
+                    f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                    data={"should_sync": True},
+                    content_type="application/json",
+                )
+        finally:
+            get_client().delete(repair_lock)
 
         assert response.status_code == 200, response.content
         assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
