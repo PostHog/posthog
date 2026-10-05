@@ -6,12 +6,21 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
-import { isDate } from 'lib/utils/datetime'
+import { formatDateRange, isDate } from 'lib/utils/datetime'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+
+// Matches the shared date filter labels, but parses the start in the project time zone, not the browser's.
+function openDateRangeText(dateFrom: dayjs.Dayjs, now: dayjs.Dayjs): string {
+    const days = now.diff(dateFrom, 'days')
+    if (days > 366) {
+        return formatDateRange(dateFrom, now)
+    }
+    return days > 0 ? `Last ${days} days` : 'Today'
+}
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
@@ -27,10 +36,9 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const dateFrom = dateStringToDayJs(filters.date_from ?? null, timezone)
     const startsInFuture = !!dateFrom && dateFrom.isAfter(dayjs())
     const timeZoneLabel = shortTimeZone(timezone) ?? timezone
-    // The shared formatter counts days from the browser's date, which can differ from the project's.
     const dateRangeText =
         dateFrom && !filters.date_to && isDate.test(filters.date_from ?? '')
-            ? dateFilterToText(dateFrom, dayjs().tz(timezone), null)
+            ? openDateRangeText(dateFrom, dayjs().tz(timezone))
             : dateFilterToText(filters.date_from, filters.date_to, null)
 
     useEffect(() => {

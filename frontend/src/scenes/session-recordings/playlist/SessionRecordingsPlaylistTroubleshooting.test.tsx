@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { dayjs } from 'lib/dayjs'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -71,6 +73,12 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
 
     it.each([
         ['a relative range', '-30d', 'No recordings match your filters', 'Date range: Last 30 days (UTC)'],
+        [
+            'a custom start date',
+            dayjs().tz('UTC').subtract(5, 'day').format('YYYY-MM-DD'),
+            'No recordings match your filters',
+            'Date range: Last 5 days (UTC)',
+        ],
         [
             'a custom start time that has not come yet',
             '2999-01-01T11:00:00',
