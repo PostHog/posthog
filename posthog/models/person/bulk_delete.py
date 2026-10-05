@@ -197,6 +197,31 @@ def delete_persons_profile(
     return result
 
 
+class PersonTombstoneFailed(Exception):
+    """The Postgres tombstone failed for some persons, so they are still live and a retry must resolve them again."""
+
+
+def tombstone_and_publish_persons(team_id: int, persons: builtins.list[Person]) -> int:
+    """Tombstone persons for a maintenance job and publish their ClickHouse tombstones; returns how many were tombstoned.
+
+    Raises PersonTombstoneFailed when a Postgres tombstone fails, because that person is still live.
+    A failed ClickHouse publish does not raise, because the weekly deletion sweep republishes from the tombstone queue.
+    """
+    result = delete_persons_profile(
+        team_id,
+        persons,
+        actor=None,
+        queue_ai_training_deletion=False,
+    )
+    if result.retryable_errors:
+        first = next(f for f in result.failures if f.step not in STEPS_AFTER_DELETION)
+        raise PersonTombstoneFailed(
+            f"Postgres tombstone failed for {len(result.retryable_errors)} of {len(persons)} persons in team "
+            f"{team_id}: {first.error}"
+        )
+    return result.deleted_count
+
+
 # Page size for the keyset walk over a person's distinct IDs. Each page is one bounded RPC, so a
 # person with hundreds of thousands of distinct IDs no longer hits the personhog request timeout.
 QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
@@ -205,6 +230,35 @@ QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
 # The deletion steps run once this many distinct IDs are in memory, so several wide persons in one
 # chunk cannot pile up on a worker; the bound is this cap plus one person's worth of IDs.
 QUEUED_DELETION_DISTINCT_IDS_PER_BATCH = 20_000
+
+
+def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.list[str]) -> int:
+    """Tombstone persons by uuid like tombstone_and_publish_persons, paging each person's distinct IDs; returns how many were tombstoned."""
+    from posthog.personhog_client.client import personhog_call
+
+    def _fetch_distinct_ids(person_id: int) -> builtins.list[DistinctIdForPerson]:
+        return personhog_call(
+            "get_distinct_ids_for_tombstone",
+            lambda: _paginated_get_distinct_ids_for_person(
+                team_id, person_id, page_size=QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE
+            ),
+            caller_tag="persons/deletion-distinct-ids",
+        )
+
+    tombstoned = 0
+    batch: builtins.list[Person] = []
+    batch_distinct_id_count = 0
+    for person in resolve_persons_for_deletion(team_id, person_uuids, None, with_distinct_ids=False):
+        distinct_ids = _fetch_distinct_ids(person.pk)
+        person._distinct_ids = [d.id for d in distinct_ids]
+        batch.append(person)
+        batch_distinct_id_count += len(distinct_ids)
+        if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
+            tombstoned += tombstone_and_publish_persons(team_id, batch)
+            batch, batch_distinct_id_count = [], 0
+    if batch:
+        tombstoned += tombstone_and_publish_persons(team_id, batch)
+    return tombstoned
 
 
 @frozen

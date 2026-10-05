@@ -1,4 +1,7 @@
-"""Dagster job for deleting posthog_persondistinctid rows that have no associated posthog_person_new rows."""
+"""Dagster job that counts live posthog_persondistinctid rows with no associated posthog_person_new row.
+
+It deletes nothing, because only the Postgres drain may hard-delete a distinct id mapping.
+"""
 
 import os
 import time
@@ -142,8 +145,7 @@ def scan_delete_chunk_for_pdwp(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
-    Scan posthog_person_new table for records that have no associated posthog_persondistinctid row,
-    and deletes the corresponding posthog_person_new row.
+    Count live posthog_persondistinctid rows in the chunk that have no associated person row.
     Processes in batches of batch_size records.
     """
     chunk_min, chunk_max = chunk
@@ -156,7 +158,7 @@ def scan_delete_chunk_for_pdwp(
 
     context.log.info(f"Starting chunk scan and delete for ID range: {chunk_min} to {chunk_max}")
 
-    total_records_deleted = 0
+    total_records_found = 0
     batch_start_id = chunk_min
     failed_batch_start_id: int | None = None
 
@@ -198,23 +200,21 @@ def scan_delete_chunk_for_pdwp(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Delete orphaned posthog_persondistinctid rows and return their IDs
-                    # Using DELETE...RETURNING for efficiency (single query instead of scan + delete)
-                    delete_query = f"""
-DELETE FROM posthog_persondistinctid pd
+                    # Only counted: a hard delete leaves the ClickHouse row live, so a re-created distinct id lands below it.
+                    scan_query = f"""
+SELECT count(*) AS orphan_count FROM posthog_persondistinctid pd
 WHERE pd.id >= %s AND pd.id <= %s
+  AND NOT pd.is_deleted
   AND NOT EXISTS (
     SELECT 1
     FROM {config.persons_table} AS p
     WHERE p.team_id = pd.team_id
       AND p.id = pd.person_id
   )
-RETURNING pd.id
 """
-                    cursor.execute(delete_query, (batch_start_id, batch_end_id))
-                    deleted_rows = cursor.fetchall()
-                    records_deleted = len(deleted_rows)
-                    records_found = records_deleted  # With DELETE...RETURNING, found == deleted
+                    cursor.execute(scan_query, (batch_start_id, batch_end_id))
+                    records_found = int(cursor.fetchone()["orphan_count"])
+                    records_deleted = 0
 
                     # Commit the transaction
                     cursor.execute("COMMIT")
@@ -229,7 +229,7 @@ RETURNING pd.id
                     accumulated_batches_scanned += 1
                     accumulated_batch_duration += batch_duration_seconds
                     batch_counter += 1
-                    total_records_deleted += records_deleted
+                    total_records_found += records_found
 
                     # Publish accumulated metrics every METRIC_PUBLISH_INTERVAL batches
                     if batch_counter >= METRIC_PUBLISH_INTERVAL:
@@ -287,7 +287,7 @@ RETURNING pd.id
                         batch_counter = 0
 
                     context.log.info(
-                        f"Deleted batch: {records_deleted} of {records_found} records "
+                        f"Scanned batch: {records_found} live orphan mappings found, none deleted "
                         f"(chunk {chunk_min}-{chunk_max}, batch ID range {batch_start_id} to {batch_end_id})"
                     )
 
@@ -345,7 +345,7 @@ RETURNING pd.id
                     # Handle unexpected errors by bubbling up to dagster.Failure
                     failed_batch_start_id = batch_start_id
                     error_msg = (
-                        f"Failed to scan and delete rows in batch starting at ID {batch_start_id} "
+                        f"Failed to scan rows in batch starting at ID {batch_start_id} "
                         f"in chunk {chunk_min}-{chunk_max}: {str(batch_error)}"
                     )
                     context.log.exception(error_msg)
@@ -368,7 +368,7 @@ RETURNING pd.id
                             if failed_batch_start_id
                             else dagster.MetadataValue.text("N/A"),
                             "error_message": dagster.MetadataValue.text(str(batch_error)),
-                            "records_deleted_before_failure": dagster.MetadataValue.int(total_records_deleted),
+                            "records_found_before_failure": dagster.MetadataValue.int(total_records_found),
                         },
                     ) from batch_error
 
@@ -408,7 +408,7 @@ RETURNING pd.id
                 pass
 
         # Catch any other unexpected errors
-        error_msg = f"Unexpected error scanning and deleting from chunk {chunk_min}-{chunk_max}: {str(e)}"
+        error_msg = f"Unexpected error scanning chunk {chunk_min}-{chunk_max}: {str(e)}"
         context.log.exception(error_msg)
         # Report fatal error metric before raising
         try:
@@ -428,11 +428,13 @@ RETURNING pd.id
                 if failed_batch_start_id
                 else dagster.MetadataValue.int(batch_start_id),
                 "error_message": dagster.MetadataValue.text(str(e)),
-                "records_deleted_before_failure": dagster.MetadataValue.int(total_records_deleted),
+                "records_found_before_failure": dagster.MetadataValue.int(total_records_found),
             },
         ) from e
 
-    context.log.info(f"Completed chunk {chunk_min}-{chunk_max}: deleted {total_records_deleted} records")
+    context.log.info(
+        f"Completed chunk {chunk_min}-{chunk_max}: found {total_records_found} live orphan mappings, deleted none"
+    )
 
     # Flush any remaining accumulated metrics at end of chunk
     if batch_counter > 0:
@@ -480,14 +482,14 @@ RETURNING pd.id
         {
             "chunk_min": dagster.MetadataValue.int(chunk_min),
             "chunk_max": dagster.MetadataValue.int(chunk_max),
-            "records_deleted": dagster.MetadataValue.int(total_records_deleted),
+            "records_found": dagster.MetadataValue.int(total_records_found),
         }
     )
 
     return {
         "chunk_min": chunk_min,
         "chunk_max": chunk_max,
-        "records_deleted": total_records_deleted,
+        "records_found": total_records_found,
     }
 
 
@@ -516,8 +518,8 @@ def postgres_env_check(context: dagster.AssetExecutionContext) -> None:
 )
 def persondistinctids_without_person_cleanup_job():
     """
-    Scan posthog_persondistinctid table for records that have no associated posthog_person_new row,
-    and deletes the corresponding posthog_persondistinctid rows that carry the missing person_id.
+    Scan posthog_persondistinctid table for live records that have no associated posthog_person_new row,
+    and count them without deleting them.
     Divides the ID space into chunks and processes them in parallel.
     """
     id_range = get_id_range_for_pdwp()
