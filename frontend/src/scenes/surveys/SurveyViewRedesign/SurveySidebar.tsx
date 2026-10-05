@@ -14,6 +14,7 @@ import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
+    didRecurringSurveyCloseOnSchedule,
     getRecurringSurveyScheduleInfo,
     getSurveyCollectionLimitSummary,
     getSurveyDisplayConditionsSummary,
@@ -83,6 +84,7 @@ export function SurveyDetailsPanel(): JSX.Element {
     const conditionsSummary = hasTargetingSet ? getSurveyDisplayConditionsSummary(survey as Survey) : []
     const collectionLimitSummary = getSurveyCollectionLimitSummary(survey)
     const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+    const closedOnSchedule = didRecurringSurveyCloseOnSchedule(survey)
 
     return (
         <div className="flex flex-col gap-6">
@@ -134,7 +136,12 @@ export function SurveyDetailsPanel(): JSX.Element {
                 <div className="flex flex-col gap-1.5 text-sm">
                     <div className="flex justify-between">
                         <span className="text-muted">Status</span>
-                        <span>{statusLabel}</span>
+                        <span className="flex flex-col items-end">
+                            <span>{statusLabel}</span>
+                            {closedOnSchedule && (
+                                <span className="text-xs text-muted">Closed at the end of its schedule</span>
+                            )}
+                        </span>
                     </div>
                     <div className="flex justify-between">
                         <span className="text-muted">Type</span>

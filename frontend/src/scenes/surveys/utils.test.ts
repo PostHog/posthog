@@ -28,6 +28,7 @@ import {
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
+    didRecurringSurveyCloseOnSchedule,
     doesSurveyRepeatOnEveryEvent,
     getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
@@ -1826,6 +1827,18 @@ describe('getRecurringSurveyScheduleInfo', () => {
         expect(info?.autoCloseDate?.format('YYYY-MM-DD')).toBe('2026-03-02')
     })
 
+    it('computes the auto-close date from the anchor once a resume has re-anchored the repeats', () => {
+        const info = getRecurringSurveyScheduleInfo({
+            schedule: SurveySchedule.Recurring,
+            iteration_count: 2,
+            iteration_frequency_days: 30,
+            start_date: '2026-01-01T00:00:00Z',
+            end_date: null,
+            iteration_anchor_date: '2026-06-01T00:00:00Z',
+        })
+        expect(info?.autoCloseDate?.format('YYYY-MM-DD')).toBe('2026-07-31')
+    })
+
     it('returns null once the survey has already ended', () => {
         const info = getRecurringSurveyScheduleInfo({
             schedule: SurveySchedule.Recurring,
@@ -1903,5 +1916,44 @@ describe('getRecurringSurveyScheduleInfo', () => {
         ],
     ])('returns null for %s', (_name, survey) => {
         expect(getRecurringSurveyScheduleInfo(survey)).toBeNull()
+    })
+})
+
+describe('didRecurringSurveyCloseOnSchedule', () => {
+    it.each([
+        ['closed after the schedule ran out', '2026-03-02T06:00:00Z', null, true],
+        ['stopped by hand before the schedule ran out', '2026-01-15T00:00:00Z', null, false],
+        ['still running', null, null, false],
+        [
+            'resumed, then closed at the end of the re-anchored schedule',
+            '2026-08-01T00:00:00Z',
+            '2026-06-01T00:00:00Z',
+            true,
+        ],
+        ['resumed, then stopped by hand', '2026-06-10T00:00:00Z', '2026-06-01T00:00:00Z', false],
+    ])('%s -> %s', (_name, endDate, anchorDate, expected) => {
+        expect(
+            didRecurringSurveyCloseOnSchedule({
+                schedule: SurveySchedule.Recurring,
+                iteration_count: 2,
+                iteration_frequency_days: 30,
+                start_date: '2026-01-01T00:00:00Z',
+                end_date: endDate,
+                iteration_anchor_date: anchorDate,
+            })
+        ).toBe(expected)
+    })
+
+    it('is false for a non-recurring survey with leftover iteration fields', () => {
+        expect(
+            didRecurringSurveyCloseOnSchedule({
+                schedule: SurveySchedule.Once,
+                iteration_count: 2,
+                iteration_frequency_days: 30,
+                start_date: '2026-01-01T00:00:00Z',
+                end_date: '2026-06-01T00:00:00Z',
+                iteration_anchor_date: null,
+            })
+        ).toBe(false)
     })
 })
