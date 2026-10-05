@@ -1729,6 +1729,20 @@ class HogCompileResponse(BaseModel):
     locals: list
 
 
+class HogQLMetadataColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str = Field(..., description="Output column name, in the same order as the SELECT list.")
+    type: str = Field(
+        ...,
+        description=(
+            "Inferred runtime type, including nullability. Unknown means inference"
+            " could not determine the type; execution remains authoritative."
+        ),
+    )
+
+
 class HogQLVariable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20488,6 +20502,13 @@ class QueryResponseAlternative9(BaseModel):
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
+    output_columns: list[HogQLMetadataColumn] | None = Field(
+        default=None,
+        description=(
+            "Best-effort output schema, without executing the query. Only included when"
+            " includeOutputTypes is requested and inference succeeds."
+        ),
+    )
     query: str | None = None
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
@@ -27631,6 +27652,13 @@ class HogQLMetadataResponse(BaseModel):
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
+    output_columns: list[HogQLMetadataColumn] | None = Field(
+        default=None,
+        description=(
+            "Best-effort output schema, without executing the query. Only included when"
+            " includeOutputTypes is requested and inference succeeds."
+        ),
+    )
     query: str | None = None
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
@@ -32971,6 +32999,13 @@ class HogQLMetadata(BaseModel):
         ),
     )
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
+    includeOutputTypes: bool | None = Field(
+        default=None,
+        description=(
+            "Infer output column names and types without executing the query. Adds a"
+            " type-resolution pass, so callers must opt in."
+        ),
+    )
     indexUsage: bool | None = Field(
         default=None,
         description=(
