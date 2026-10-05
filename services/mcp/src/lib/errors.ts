@@ -481,6 +481,22 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
     return undefined
 }
 
+// 501 codes the API returns on purpose when a deployment does not have a capability.
+// No retry fixes them and nothing is broken, so the agent gets the message and
+// changes its plan.
+const CAPABILITY_ABSENT_CODES = new Set(['lighthouse_not_configured'])
+
+function isCapabilityAbsent(error: PostHogApiError): boolean {
+    if (error.status !== 501) {
+        return false
+    }
+    try {
+        return CAPABILITY_ABSENT_CODES.has(JSON.parse(error.body)?.code)
+    } catch {
+        return false
+    }
+}
+
 /**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
@@ -535,10 +551,11 @@ export function handleToolError(
     // unexpected non-HTTP errors, which are genuinely actionable for engineers.
     const recoverableApiError = findRecoverableApiError(error)
     if (recoverableApiError) {
-        const isFourXx =
+        const isRecoverable =
             recoverableApiError instanceof PostHogValidationError ||
-            (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
-        if (isFourXx) {
+            (recoverableApiError.status >= 400 && recoverableApiError.status < 500) ||
+            isCapabilityAbsent(recoverableApiError)
+        if (isRecoverable) {
             return {
                 content: [
                     {

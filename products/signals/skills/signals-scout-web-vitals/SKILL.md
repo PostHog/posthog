@@ -613,6 +613,8 @@ Harness-level:
   allowlist of public pages — anything behind a login is rejected, because the browser signs
   in to nothing and would measure the login screen. A 400 naming the host means this page
   isn't auditable: fall back to capture attribution or source reading, and don't retry.
+  A 501 `lighthouse_not_configured` means this deployment has no audits at all: make no more
+  audit calls this run, and work from the field data, capture attribution, and source reading.
   Five per run. A rejected call costs nothing, but once the page loads the slot is spent
   whatever the result; every error message ends with how many you have left, so you can tell the two apart.
   A null `lcp_element` means Lighthouse didn't name one — say so and cite the
