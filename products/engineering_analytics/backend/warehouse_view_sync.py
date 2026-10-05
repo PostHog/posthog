@@ -1,4 +1,5 @@
-"""Re-sync the engineering-analytics per-job CI cost view after a warehouse data load completes.
+"""Re-sync the engineering-analytics warehouse views after a warehouse data load completes, and
+start a refresh of the stored CI rows.
 
 Registered into the data-import pipeline via warehouse_sources' external_product_hooks at
 app-ready (see apps.py), so the pipeline can trigger it without importing this product
@@ -22,6 +23,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
+from products.engineering_analytics.backend.tasks.tasks import refresh_ci_precompute
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -77,6 +79,8 @@ def sync_engineering_analytics_views(schema: ExternalDataSchema, source: Externa
             team_id=schema.team_id,
             source_id=str(source.id),
         )
+        # A refresh waits on ClickHouse inserts, so it runs outside the import pipeline.
+        refresh_ci_precompute.delay(team_id=schema.team_id, schema_name=schema.name)
     except (OperationalError, InterfaceError) as e:
         # Transient pooler connection drop — swallowed, so the view stays stale until the next
         # runs/jobs load re-runs this hook on a fresh connection. Log for visibility but don't

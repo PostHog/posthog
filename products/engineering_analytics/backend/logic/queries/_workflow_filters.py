@@ -99,6 +99,10 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     return ast.Constant(value=(window_start - timedelta(days=1)).strftime("%Y-%m-%d"))
 
 
+# How far before the window a merged PR's CI is still counted. A PR merged in the window usually
+# ran its CI days before; older runs are left out so the runs and jobs scans stay bounded.
+CI_LOOKBACK = timedelta(days=30)
+
 # How far below a window start the jobs-scan floor sits, by what the window actually filters.
 #
 # ON_JOB_CREATED: the query bounds the job's own created_at, so the floor only has to absorb the
@@ -119,7 +123,7 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
 # late re-run would turn the copy back into an execution. Queries that keep copies (red/green reads)
 # can use the tight floor.
 _JOB_FLOOR_SLACK_ON_JOB_CREATED = timedelta(days=1)
-_JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
+JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
 
 
 def _date_floor(window_start: datetime, slack: timedelta) -> ast.Constant:
@@ -138,8 +142,8 @@ def run_windowed_job_created_floor_constant(window_start: datetime) -> ast.Const
     """Raw-string scan floor for the jobs builder's {job_created_floor} placeholder, for a query that
     windows the RUN's start (every cost surface does). Wider than the job-created floor because a
     re-run's earlier attempts were created before its run_started_at — see
-    ``_JOB_FLOOR_SLACK_ON_RUN_STARTED``."""
-    return _date_floor(window_start, _JOB_FLOOR_SLACK_ON_RUN_STARTED)
+    ``JOB_FLOOR_SLACK_ON_RUN_STARTED``."""
+    return _date_floor(window_start, JOB_FLOOR_SLACK_ON_RUN_STARTED)
 
 
 def branch_filter_clause(

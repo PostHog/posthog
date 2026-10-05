@@ -567,6 +567,8 @@ class LazyComputationTable(StrEnum):
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
     WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
+    ENGINEERING_ANALYTICS_CI_RUNS_PRECOMPUTED = "engineering_analytics_ci_runs_precomputed"
+    ENGINEERING_ANALYTICS_CI_JOBS_PRECOMPUTED = "engineering_analytics_ci_jobs_precomputed"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -578,6 +580,8 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
     LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
     LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
+    LazyComputationTable.ENGINEERING_ANALYTICS_CI_RUNS_PRECOMPUTED,
+    LazyComputationTable.ENGINEERING_ANALYTICS_CI_JOBS_PRECOMPUTED,
 }
 
 

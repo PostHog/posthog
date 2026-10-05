@@ -217,6 +217,7 @@ class JobSourceTables:
     issue_events: str | None = None
     reviews: str | None = None
     source_id: str = ""
+    repository: str = ""
     depot_job_attempts: depot_ci.DepotJobAttempts | None = None
 
     @property
@@ -232,6 +233,29 @@ class JobSourceTables:
         return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, self.github_workflow_runs)
 
 
+def _repositories_with_jobs(team: Team) -> list[JobSourceTables]:
+    """Every synced repository with both the jobs and the runs endpoints, without its Depot CI."""
+    repositories: list[JobSourceTables] = []
+    for source in _github_sources(team):
+        for repository, repo_tables in _synced_tables_by_repo(team=team, source=source).items():
+            tables = repo_tables.names
+            runs = tables.get(WORKFLOW_RUNS_SCHEMA)
+            jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
+            if runs and jobs:
+                repositories.append(
+                    JobSourceTables(
+                        github_workflow_jobs=jobs,
+                        github_workflow_runs=runs,
+                        pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
+                        issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
+                        reviews=tables.get(REVIEWS_SCHEMA),
+                        source_id=str(source.id),
+                        repository=repository,
+                    )
+                )
+    return repositories
+
+
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     """Job-level tables for every synced repo with BOTH the jobs and runs endpoints.
 
@@ -243,28 +267,25 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     one source syncs several repos. Userless (the view sync runs in a system/Temporal context);
     team scoping is the boundary.
     """
-    entries: list[tuple[str, JobSourceTables]] = []
-    for source in _github_sources(team):
-        for repository, repo_tables in _synced_tables_by_repo(team=team, source=source).items():
-            tables = repo_tables.names
-            runs = tables.get(WORKFLOW_RUNS_SCHEMA)
-            jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
-            if runs and jobs:
-                entry = JobSourceTables(
-                    github_workflow_jobs=jobs,
-                    github_workflow_runs=runs,
-                    pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
-                    issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
-                    reviews=tables.get(REVIEWS_SCHEMA),
-                    source_id=str(source.id),
-                )
-                entries.append((repository, entry))
     # The views union every entry, so a repository that two GitHub sources sync takes its Depot table on
     # one entry only, or every Depot job and its cost would count twice. Entries with the PR snapshot go
     # first, because the friction view reads only those entries.
-    entries.sort(key=lambda repository_entry: repository_entry[1].pull_requests is None)
+    entries = sorted(_repositories_with_jobs(team), key=lambda entry: entry.pull_requests is None)
     depot_tables = resolve_depot_job_attempts_tables(team)
-    return [replace(entry, depot_job_attempts=depot_tables.pop(repository, None)) for repository, entry in entries]
+    return [replace(entry, depot_job_attempts=depot_tables.pop(entry.repository, None)) for entry in entries]
+
+
+def resolve_precompute_sources(team: Team) -> list[JobSourceTables]:
+    """The same repositories as ``resolve_job_source_tables``, for the stored CI rows.
+
+    Every source of a repository carries the repository's Depot CI here. Each stored row names its
+    source, so a read that filters on one source counts the Depot rows once.
+    """
+    depot_tables = resolve_depot_job_attempts_tables(team)
+    return [
+        replace(repository, depot_job_attempts=depot_tables.get(repository.repository))
+        for repository in _repositories_with_jobs(team)
+    ]
 
 
 @dataclass(frozen=True)

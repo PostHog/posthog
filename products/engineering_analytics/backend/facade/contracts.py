@@ -60,6 +60,8 @@ ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 # Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
 # spends the team's warehouse compute, so no team gets one without opting in.
 FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
+# A refresh of the stored CI rows runs with no user, so it needs a release to the organization or project.
+STORED_READS_FEATURE_FLAG = "engineering-analytics-stored-reads"
 
 
 class CISignalsSyncStatus(StrEnum):
