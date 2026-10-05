@@ -398,6 +398,26 @@ else
     pass "shebang ignores a PATH-planted bash"
 fi
 
+# 16. uv-managed interpreters resolve by bare name. The repo venv's python is a
+#     symlink into one of these dirs, and bash's PATH lookup stats through it, so a
+#     dir missing from the profile fails every service with `python: command not
+#     found` while an absolute-path exec still works. Only dirs that already exist.
+for uv_python in ".local/share/uv/python" "Library/Application Support/uv/python"; do
+    interp=""
+    for candidate in "$HOME/$uv_python"/cpython-*/bin/python3; do
+        [[ -x "$candidate" ]] && interp="$candidate" && break
+    done
+    if [[ -z "$interp" ]]; then
+        echo "  --   \$HOME/$uv_python holds no interpreter, skipping"
+        continue
+    fi
+    if $SANDBOX "PATH='$(dirname "$interp")' && command -v python3 >/dev/null && python3 -c pass" 2>/dev/null; then
+        pass "uv interpreter resolves: \$HOME/$uv_python"
+    else
+        die "uv interpreter not resolvable by name: \$HOME/$uv_python"
+    fi
+done
+
 echo
 if [[ $fail -eq 0 ]]; then
     echo "PASS — all dev-sandbox self-tests passed"

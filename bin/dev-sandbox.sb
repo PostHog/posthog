@@ -58,6 +58,10 @@
     (subpath (string-append (param "HOME") "/.npm"))              ; npm cache
     (subpath (string-append (param "HOME") "/Library/Caches/node-gyp")) ; node headers for native builds
     (subpath (string-append (param "HOME") "/.local/share/uv"))   ; uv-managed Python interpreters (venv links here)
+    ;; uv can also install managed interpreters here on macOS (see `uv python dir`),
+    ;; and a venv built from one links here. Only the interpreter dir is allowed, so
+    ;; the rest of uv's data dir stays denied.
+    (subpath (string-append (param "HOME") "/Library/Application Support/uv/python"))
     (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
     (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
     (subpath (string-append (param "HOME") "/.local/share/pnpm"))  ; pnpm content-addressed store (PNPM_HOME)
@@ -79,10 +83,14 @@
 
 ;; Canonicalization (realpath) lstats every path component, so uv resolving its
 ;; managed-interpreter symlinks needs metadata on the dir nodes between $HOME and
-;; ~/.local/share/uv. Metadata only — contents of ~/.local{,/share} stay denied.
+;; each interpreter dir. This grants metadata only, so the contents of these dirs
+;; stay denied.
 (allow file-read-metadata
     (literal (string-append (param "HOME") "/.local"))
-    (literal (string-append (param "HOME") "/.local/share")))
+    (literal (string-append (param "HOME") "/.local/share"))
+    (literal (string-append (param "HOME") "/Library"))
+    (literal (string-append (param "HOME") "/Library/Application Support"))
+    (literal (string-append (param "HOME") "/Library/Application Support/uv")))
 
 ;; Keep the crates.io publish token blocked even though ~/.cargo is allowed above.
 (deny file-read*
