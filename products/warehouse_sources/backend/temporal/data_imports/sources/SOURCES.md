@@ -626,6 +626,7 @@ the row lists both.
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
 | qdrant                           | HTTP                        | requests                                                        | ✅                          |
+| qonto                            | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
@@ -1333,7 +1334,6 @@ doesn't conflict with concurrent PRs.
 - promptwatch
 - proofpoint_tap
 - pubnub
-- qonto
 - quay
 - quickbooks
 - railz
