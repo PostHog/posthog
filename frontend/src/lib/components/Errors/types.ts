@@ -83,6 +83,8 @@ export interface ErrorTrackingStackFrame {
     module: string | null
     code_variables?: Record<string, unknown>
     junk_drawer?: ErrorTrackingStackFrameJunkDrawer
+    // The file's path in the release repository, when ingestion could match the frame to one file.
+    repo_path?: string | null
 }
 
 export interface ErrorTrackingFingerprint {
