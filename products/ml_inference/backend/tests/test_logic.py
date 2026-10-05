@@ -150,7 +150,7 @@ class TestDecide:
         else:
             assert "X-PostHog-Privacy-Mode" not in request.headers
         body = json.loads(request.content)
-        assert body["model"] == "posthog/hogference/jevk5-fp8-0.2"
+        assert body["model"] == "posthog/hogference/jevk5-bf16-0.3"
         assert body["state"] == state
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
