@@ -1,12 +1,8 @@
-import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { MakeLogicType, actions, kea, path, props, reducers, selectors, useValues } from 'kea'
 import { urlToAction } from 'kea-router'
 
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -14,14 +10,14 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
 
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingTabActions } from './MessagingTabActions'
 import { messagingNavTabs } from './messagingTabs'
-import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
+import { NewWorkflowButton } from './Workflows/NewWorkflowButton'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 
@@ -124,7 +120,6 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { startNewWorkflow } = useActions(newWorkflowLogic)
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
             label: 'Workflows',
@@ -145,27 +140,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
-                        {currentTab === 'workflows' && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Workflow}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    data-attr="new-workflow"
-                                    onClick={() => {
-                                        void addProductIntent({
-                                            product_type: ProductKey.WORKFLOWS,
-                                            intent_context: ProductIntentContext.WORKFLOW_CREATED,
-                                        })
-                                        startNewWorkflow()
-                                    }}
-                                    type="primary"
-                                    size="small"
-                                >
-                                    New workflow
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
+                        {currentTab === 'workflows' && <NewWorkflowButton size="small" />}
                         {currentTab !== 'workflows' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}
