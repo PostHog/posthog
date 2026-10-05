@@ -38219,6 +38219,13 @@ export namespace Schemas {
       readonly warehouse_origin: unknown;
     }
 
+    export interface ErrorDetail {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
+    }
+
     export interface ErrorResponse {
       /** Error message */
       error: string;
@@ -44784,6 +44791,7 @@ export namespace Schemas {
        * * `application/x-ndjson` - application/x-ndjson */
       readonly export_format: ExportedAssetExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -44843,6 +44851,7 @@ export namespace Schemas {
        * * `application/json` - application/json */
       export_format: ExportedAssetCreateExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -101617,6 +101626,8 @@ export namespace Schemas {
       data?: unknown;
       /** Force regenerate summary, bypassing cache */
       force_refresh?: boolean;
+      /** Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title. */
+      compact_context?: boolean;
       /**
          * LLM model to use (defaults based on provider)
          * @nullable
