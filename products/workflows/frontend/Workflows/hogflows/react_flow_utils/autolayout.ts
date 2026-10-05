@@ -63,7 +63,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
                 sourcePosition: 'bottom',
                 properties: {
                     'org.eclipse.elk.portConstraints': 'FIXED_ORDER',
-                    // Email steps are taller, so centring within a layer would push their sibling branches down.
+                    // Email steps are taller, so centering within a layer would push their sibling branches down.
                     'org.eclipse.elk.alignment': 'TOP',
                 },
                 ports: [...handles],
