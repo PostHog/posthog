@@ -14,6 +14,7 @@
 //! on an error channel; the consumer turns them into a process failure, so
 //! the failure decision stays in the consumer loop.
 
+pub mod in_flight;
 pub mod key_queues;
 pub mod packer;
 pub mod request_class;
