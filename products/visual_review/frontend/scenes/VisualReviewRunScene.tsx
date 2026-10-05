@@ -16,6 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -227,10 +228,17 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
+        cleanQuarantinedSnapshots,
+        quarantinedRunSnapshotsLoading,
+        quarantinedRunSnapshotsLoadFailed,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
+        isRequestingLift,
+        isCancellingLift,
+        selectedLiftRequest,
+        selectedLiftOnMergeDisabledReason,
         isRunInProgress,
         isRunProcessing,
         isReportingOnly,
@@ -245,6 +253,8 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        requestLiftOnMerge,
+        cancelLiftOnMerge,
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
@@ -585,6 +595,16 @@ export function VisualReviewRunScene(): JSX.Element {
                             )}
                         </div>
                     )}
+
+                    {!isReportingOnly && (
+                        <CleanQuarantinedSnapshots
+                            snapshots={cleanQuarantinedSnapshots}
+                            loading={quarantinedRunSnapshotsLoading}
+                            loadFailed={quarantinedRunSnapshotsLoadFailed}
+                            selectedSnapshotId={selectedSnapshotId}
+                            onSelect={setSelectedSnapshotId}
+                        />
+                    )}
                 </div>
 
                 {/* Body: diff viewer */}
@@ -610,6 +630,14 @@ export function VisualReviewRunScene(): JSX.Element {
                                 quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId, notifyOwners)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
+                            liftRequest={selectedLiftRequest}
+                            liftOnMergeDisabledReason={selectedLiftOnMergeDisabledReason}
+                            isRequestingLift={isRequestingLift}
+                            isCancellingLift={isCancellingLift}
+                            onRequestLiftOnMerge={
+                                isReportingOnly ? undefined : () => requestLiftOnMerge(selectedSnapshot)
+                            }
+                            onCancelLiftOnMerge={cancelLiftOnMerge}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoId={run.repo_id}

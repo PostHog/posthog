@@ -65,6 +65,9 @@ tools:
     ai-observability-offline-scorers-history-list:
         operation: ai_observability_offline_scorers_history_list
         enabled: false
+    ai-observability-traces-retrieve:
+        operation: ai_observability_traces_retrieve
+        enabled: false
     datasets-exports-content-retrieve:
         operation: datasets_exports_content_retrieve
         enabled: false
@@ -620,7 +623,7 @@ tools:
         operation: llm_analytics_evaluation_config_retrieve
         enabled: true
         scopes:
-            - evaluation:read
+            - llm_analytics:read
         annotations:
             readOnly: true
             destructive: false
@@ -665,7 +668,8 @@ tools:
             'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events
             immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by
             llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are
-            '$ai_evaluation' events.
+            '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is
+            enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -769,7 +773,7 @@ tools:
         operation: llm_analytics_models_retrieve
         enabled: true
         scopes:
-            - evaluation:read
+            - llm_analytics:read
         annotations:
             readOnly: true
             destructive: false
@@ -976,7 +980,8 @@ tools:
             sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable.
             provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'.
             Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or
-            pass null to move it to the top level.
+            pass null to move it to the top level. After you enable an evaluation for the first time, offer the user a
+            backfill over past data with llma-evaluation-backfill-estimate.
         param_overrides:
             id:
                 aliases:
@@ -1067,8 +1072,6 @@ tools:
             the assembled content with each reference replaced by the referenced prompt's content, and
             `resolved_references` lists the exact versions spliced in. Pass `resolve=false` to get the raw text
             with the tags intact — always do this before editing the prompt (see llma-prompt-update).
-            References are rolling out gradually: when not enabled for the team, responses return the raw tags
-            and no `resolved_references`, so treat content containing `@@@prompt:` as unresolved.
         category: Experiments
         param_overrides:
             prompt_name:
@@ -1132,8 +1135,7 @@ tools:
             prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.
             With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references resolved and
             `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference
-            tags intact. Reference resolution is rolling out gradually and returns raw tags when not enabled for the
-            team.
+            tags intact.
         category: Experiments
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
@@ -1377,8 +1379,11 @@ tools:
             `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical
             scorers need an `options` array with unique keys and optional
             `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`,
-            `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived)
-            and at version 1.
+            `step`, and an optional `passing_rule` with `operator` (`gte`/`lte`) and a finite `threshold` within those
+            bounds. Boolean scorers can override `true_label`/`false_label` and set `true_is_failure` (`false`: true
+            passes; `true`: false passes). Omitted or null boolean polarity defaults to true passing in offline
+            evaluations. Numeric scores without a passing rule remain neutral. Scorers always start active (not
+            archived) and at version 1.
         param_overrides:
             config:
                 input_schema: ScoreDefinitionConfigSchema
@@ -1422,11 +1427,12 @@ tools:
         title: Bump scorer to a new version
         description: >
             Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change
-            (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep
-            their snapshot of the previous version, so historical scores remain stable. The `config` shape must match
-            the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number
-            you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already
-            advanced the scorer.
+            (add/remove categorical options, tweak numeric bounds or passing rules, change boolean polarity or labels).
+            Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The
+            `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass
+            `base_version` (the version number you observed before bumping) for optimistic concurrency — the request
+            returns 409 if another writer already advanced the scorer. Optional `name` and `description` updates are
+            saved atomically with the version.
         param_overrides:
             config:
                 input_schema: ScoreDefinitionConfigSchema

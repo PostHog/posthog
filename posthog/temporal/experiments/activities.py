@@ -36,6 +36,7 @@ from products.experiments.backend.facade.timeseries import (
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
+    is_scheduled_metric,
     resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
@@ -95,6 +96,8 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                     "Metric has no UUID, skipping",
                     experiment_id=experiment.id,
                 )
+                continue
+            if not is_scheduled_metric(metric):
                 continue
 
             fingerprint = compute_metric_fingerprint(
@@ -396,6 +399,8 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                     experiment_id=experiment.id,
                     saved_metric_id=saved_metric.id,
                 )
+                continue
+            if not is_scheduled_metric(saved_metric.query):
                 continue
 
             # Fingerprint the effective definition (with the link overrides), the same dict the calc

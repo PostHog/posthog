@@ -5,7 +5,6 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.conf import settings
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -336,7 +335,7 @@ class TestWatchRankCache(SimpleTestCase):
         # with their scores lost forever.
         team_id = 990_002
         scanner_id = uuid4()
-        inner = get_client(settings.REPLAY_VISION_REDIS_URL)
+        inner = get_client()
 
         class _JudgedWritesFail:
             def setex(self, key: str, ttl: Any, value: str) -> None:
@@ -432,7 +431,7 @@ class TestJevWatchRankSweep(BaseTest):
             patch(flag, side_effect=self._flag_arm("jev-shadow")),
             patch(region, return_value=True),
             patch(_API) as api,
-            patch("posthoganalytics.capture"),
+            patch("posthoganalytics.capture") as captured,
         ):
             api.decide_when_available.side_effect = _answer_every_question(0.7)
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
@@ -440,6 +439,16 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.scanners_judged == 1
         assert result.observations_judged == 2
         assert load_watch_ranks(self.team.id, [scanner.id]) == {str(first.id): 0.7, str(second.id): 0.7}
+        # Sub-threshold scores are cached nowhere, so the judged event must carry the score sample
+        # the threshold is calibrated from.
+        judged = [
+            call for call in captured.call_args_list if call.kwargs["event"] == "replay_vision_jev_watch_rank_judged"
+        ]
+        payload = judged[0].kwargs["properties"]
+        assert payload["watchable_count"] == 2
+        assert payload["watchability_max"] == 0.7
+        assert sorted(entry["id"] for entry in payload["top_scored"]) == sorted([str(first.id), str(second.id)])
+        assert all(entry["p"] == 0.7 for entry in payload["top_scored"])
 
         with (
             patch(flag, side_effect=self._flag_arm("jev-shadow")),

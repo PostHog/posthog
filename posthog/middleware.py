@@ -590,6 +590,8 @@ class CHQueries:
         try:
             response: HttpResponse = self.get_response(request)
             status_class = f"{response.status_code // 100}xx"
+            if get_query_tag_value("is_scout_experiment") is True:
+                response["X-PostHog-Suppress-Analytics"] = "true"
 
             if is_api_request:
                 statsd.incr(
