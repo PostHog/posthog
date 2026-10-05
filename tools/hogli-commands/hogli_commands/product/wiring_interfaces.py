@@ -80,8 +80,8 @@ def _rebound_names(tree: ast.Module) -> frozenset[str]:
 
 
 def _assigned_value(tree: ast.Module, name: str) -> ast.expr | None:
-    """The expression a top-level statement assigns to the name."""
-    for statement in tree.body:
+    """The expression the last top-level assignment binds to the name, which is the one Python keeps."""
+    for statement in reversed(tree.body):
         if isinstance(statement, ast.Assign) and any(
             isinstance(target, ast.Name) and target.id == name for target in statement.targets
         ):
@@ -249,10 +249,17 @@ class WiringInterfaceResolver:
             return self._members(scope.bindings[name], seen | {qualified})
         return []
 
+    def _element_members(self, element: ast.expr, scope: _ModuleScope, seen: frozenset[str]) -> list[str]:
+        """One entry of a collection literal: a class name, or a `*OTHER_FLOWS` that unpacks another collection."""
+        if isinstance(element, ast.Starred):
+            return self._expression_members(element.value, scope, seen)
+        member = self._qualify(element, scope)
+        return [member] if member is not None else []
+
     def _expression_members(self, node: ast.expr, scope: _ModuleScope, seen: frozenset[str]) -> list[str]:
         """The class names a collection expression holds, such as `[A, B]` or `FLOWS + OTHER_FLOWS`."""
         if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-            return [member for element in node.elts if (member := self._qualify(element, scope)) is not None]
+            return [member for element in node.elts for member in self._element_members(element, scope, seen)]
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
             return self._expression_members(node.left, scope, seen) + self._expression_members(node.right, scope, seen)
         if isinstance(node, (ast.Name, ast.Attribute)) and (operand := self._qualify(node, scope)) is not None:

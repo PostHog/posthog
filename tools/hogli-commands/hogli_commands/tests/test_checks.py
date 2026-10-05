@@ -489,6 +489,13 @@ _WIRING_SOURCES: dict[str, dict[str, str]] = {
         "temporal/flows.py": "from .impl import FLOWS as IMPL_FLOWS\n\n\nclass Plain:\n    pass\n\n\nHanded = [Plain] + IMPL_FLOWS\n",
         "temporal/impl.py": "class Other:\n    pass\n\n\nFLOWS = [Other]\n",
     },
+    "starred_collection": {
+        "temporal/flows.py": "from .impl import FLOWS\n\n\nHanded = [*FLOWS]\n",
+        "temporal/impl.py": "class Other:\n    pass\n\n\nFLOWS = [Other]\n",
+    },
+    "reassigned_collection": {
+        "temporal/flows.py": "class Plain:\n    pass\n\n\nHanded = []\nHanded = [Plain]\n",
+    },
     "absolute_reexport": {
         "temporal/flows.py": "from products.my_product.backend.temporal.impl import Handed\n",
         "temporal/impl.py": "class Handed:\n    pass\n",
@@ -510,6 +517,8 @@ class TestWiringInterfaces:
             ("import_rebound_by_an_assignment", {("Handed", "unresolved")}),
             ("collection_of_classes", {("Plain", "unapproved")}),
             ("concatenated_collections", {("Plain", "unapproved"), ("Other", "unapproved")}),
+            ("starred_collection", {("Other", "unapproved")}),
+            ("reassigned_collection", {("Plain", "unapproved")}),
             ("absolute_reexport", {("Handed", "unapproved")}),
         ],
     )
