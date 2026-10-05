@@ -1963,6 +1963,8 @@ export interface ScannerScoutCreateApi {
     body: string
     /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
     config?: SignalScoutConfigOptionsApi
+    /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
+    variant_analysis?: boolean
 }
 
 /**
@@ -2247,6 +2249,17 @@ export interface VariantsWindowApi {
     last_observation_at: string | null
 }
 
+export interface VariantAnalysisLineApi {
+    /** A short label for the theme, shared across variants. */
+    theme: string
+    /** How the theme shows up for this variant. */
+    statement: string
+    /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
+    count: number
+    /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
+    example_observation_ids: string[]
+}
+
 export interface VariantReadoutApi {
     /** The variant key. */
     key: string
@@ -2264,8 +2277,51 @@ export interface VariantReadoutApi {
      * @nullable
      */
     sampling_rate: number | null
+    /**
+     * Summaries of this variant the analysis read: the denominator of its digest and difference counts. Null without a current analysis.
+     * @nullable
+     */
+    analysis_observations: number | null
+    /**
+     * This variant's most notable themes from the variant analysis. Null without a current analysis.
+     * @nullable
+     */
+    digest: VariantAnalysisLineApi[] | null
     /** This variant's most recent observations, newest first. */
     latest_observations: ReplayObservationApi[]
+}
+
+/**
+ * Summaries the analysis read that show the theme, per variant key, as the scout counted them.
+ */
+export type VariantAnalysisDifferenceApiCounts = { [key: string]: number }
+
+export interface VariantAnalysisDifferenceApi {
+    /** The theme the difference rests on. */
+    theme: string
+    /** What differs between the variants. */
+    statement: string
+    /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
+    counts: VariantAnalysisDifferenceApiCounts
+}
+
+export interface VariantsAnalysisStateApi {
+    /** The variant analysis scout's config id. */
+    scout_config_id: string
+    /** Whether the scout runs on its schedule. */
+    scout_enabled: boolean
+    /**
+     * When the run behind the newest analysis started; null before its first run.
+     * @nullable
+     */
+    recorded_at: string | null
+    /**
+     * The scanner version the newest analysis covered.
+     * @nullable
+     */
+    scanner_version: number | null
+    /** Whether the newest analysis covers the scanner's current version. When false, digests and differences are null until the scout's next run. */
+    current: boolean
 }
 
 export interface ExperimentVariantsReadoutApi {
@@ -2275,8 +2331,15 @@ export interface ExperimentVariantsReadoutApi {
     window: VariantsWindowApi
     /** One entry per watched variant, plus any variant still holding observations. */
     variants: VariantReadoutApi[]
+    /**
+     * What differs between variants, from the variant analysis. Null without a current analysis.
+     * @nullable
+     */
+    differences: VariantAnalysisDifferenceApi[] | null
     /** Succeeded observations with no attributed variant. */
     unattributed_count: number
+    /** The scanner's variant analysis scout and its newest run; null when none is set up. */
+    analysis: VariantsAnalysisStateApi | null
 }
 
 /**
