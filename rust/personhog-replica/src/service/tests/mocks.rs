@@ -168,6 +168,14 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<bool> {
         Err(self.error.clone())
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -581,6 +589,14 @@ impl storage::PersonLookup for SuccessStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
     }
 }
 
@@ -1055,6 +1071,14 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<bool> {
         Ok(false)
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1503,6 +1527,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _min_version: i64,
     ) -> storage::StorageResult<bool> {
         Ok(false)
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
     }
 }
 
