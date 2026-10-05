@@ -67,6 +67,8 @@ class CohortSettings:
     min_emailable_daily_people: int
     max_billable_invocations_30d: int
     min_active_members_14d: int
+    # Pins the scout's model for every enrolled project, so a cohort's cost does not depend on the fleet's model mix.
+    model: str | None = None
 
 
 DEFAULT_SETTINGS = CohortSettings(
@@ -125,6 +127,7 @@ def read_cohort_settings() -> CohortSettings:
             "max_billable_invocations_30d", DEFAULT_SETTINGS.max_billable_invocations_30d
         ),
         min_active_members_14d=positive_int("min_active_members_14d", DEFAULT_SETTINGS.min_active_members_14d),
+        model=payload.get("model") if isinstance(payload.get("model"), str) and payload.get("model") else None,
     )
 
 
@@ -163,6 +166,7 @@ def start_trial(candidate: Candidate, *, cohort: int, settings: CohortSettings, 
         source_product=SOURCE_PRODUCT,
         source_id=f"cohort:{cohort}",
         run_interval_minutes=settings.run_interval_minutes,
+        model=settings.model,
     )
     trial = WorkflowIdeaTrial.objects.unscoped().create(
         team_id=team.id,

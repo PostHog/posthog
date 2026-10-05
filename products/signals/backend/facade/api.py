@@ -1359,6 +1359,7 @@ def enroll_scout_for_source(
     source_product: str,
     source_id: str,
     run_interval_minutes: int | None = None,
+    model: str | None = None,
 ) -> bool:
     """Turn on a canonical scout that only runs where its source product enrolls it.
 
@@ -1391,6 +1392,8 @@ def enroll_scout_for_source(
         defaults["structured_output_schema"] = schema
     if run_interval_minutes is not None:
         defaults["run_interval_minutes"] = run_interval_minutes
+    if model:
+        defaults["model"] = model
     config, _ = SignalScoutConfig.objects.for_team(team.id).get_or_create(
         team_id=team.id, skill_name=skill_name, defaults=defaults
     )

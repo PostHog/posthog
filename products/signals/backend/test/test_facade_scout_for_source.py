@@ -17,6 +17,7 @@ class TestScoutForSource(BaseTest):
             source_product="workflows",
             source_id="cohort:1",
             run_interval_minutes=4320,
+            model="gpt-6-luna",
         )
 
     def test_enroll_seeds_only_the_one_scout_with_a_config_its_source_owns(self) -> None:
@@ -26,11 +27,12 @@ class TestScoutForSource(BaseTest):
         skills = set(LLMSkill.objects.filter(team=self.team, deleted=False).values_list("name", flat=True))
         assert skills == {SKILL}
         config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=SKILL)
-        assert (config.enabled, config.source_product, config.source_id, config.run_interval_minutes) == (
+        assert (config.enabled, config.source_product, config.source_id, config.run_interval_minutes, config.model) == (
             True,
             "workflows",
             "cohort:1",
             4320,
+            "gpt-6-luna",
         )
         assert config.structured_output_schema is not None
 
