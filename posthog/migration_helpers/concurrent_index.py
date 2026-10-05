@@ -53,7 +53,7 @@ can't model):
         )],
     )
 
-`DropForeignKeyIndexConcurrently` drops the index Django creates for a `ForeignKey`.
+`DropForeignKeyIndexConcurrently` drops the indexes Django creates for a `ForeignKey`.
 
 The Migration class still needs `atomic = False`.
 """
@@ -65,6 +65,8 @@ from django.db.migrations.operations.fields import FieldOperation
 from django.db.models import DO_NOTHING, Index
 
 import structlog
+
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -422,13 +424,19 @@ _LEADING_INDEXES_SQL = """
 """
 
 
+@frozen
+class _AutomaticIndex:
+    name: str
+    columns: str
+
+
 class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
-    """Drop the index Django creates for a ForeignKey, and set `db_index=False` on the field.
+    """Drop the indexes Django creates for a ForeignKey, and set `db_index=False` on the field.
 
     Use it in place of the `AlterField` that `makemigrations` writes, which runs a plain
-    `DROP INDEX` under ACCESS EXCLUSIVE on the table. The index comes from the field's
-    `db_index`, not from `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot resolve it.
-    The op derives the name the same way Django did when it created the index, so no
+    `DROP INDEX` under ACCESS EXCLUSIVE on the table. The indexes come from the field's
+    `db_index`, not from `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot resolve them.
+    The op derives the names the same way Django did when it created the indexes, so no
     hash-suffixed name is typed at the call site. The Migration class still needs
     `atomic = False`.
 
@@ -453,9 +461,26 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
         field.db_index = False
         state.alter_field(app_label, self.model_name_lower, self.name, field, preserve_default=True)
 
-    def _django_index_name(self, schema_editor, model, field) -> str:
-        # The name BaseDatabaseSchemaEditor._field_indexes_sql gives the index when it creates it.
-        return schema_editor._create_index_name(model._meta.db_table, [field.column])
+    def _automatic_indexes(self, schema_editor, model, field) -> list[_AutomaticIndex]:
+        # The names and columns BaseDatabaseSchemaEditor._field_indexes_sql uses when it creates them.
+        table = model._meta.db_table
+        indexes = [
+            _AutomaticIndex(
+                name=schema_editor._create_index_name(table, [field.column]),
+                columns=f"({schema_editor.quote_name(field.column)})",
+            )
+        ]
+        # On a varchar or text key, Postgres also gets a pattern-ops companion that serves LIKE
+        # outside the C locale.
+        like = schema_editor._create_like_index_sql(model, field)
+        if like is not None:
+            indexes.append(
+                _AutomaticIndex(
+                    name=schema_editor._create_index_name(table, [field.column], suffix="_like"),
+                    columns=f"({like.parts['columns']})",
+                )
+            )
+        return indexes
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._ensure_not_in_transaction(schema_editor)
@@ -464,34 +489,38 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
             return
         table = model._meta.db_table
         field = model._meta.get_field(self.name)
-        index_name = self._django_index_name(schema_editor, model, field)
-        # The lookup Django's own AlterField runs to find this index when db_index turns off.
-        candidates = schema_editor._constraint_names(
-            model,
-            [field.column],
-            index=True,
-            type_=Index.suffix,
-            exclude={index.name for index in model._meta.indexes},
+        automatic = {index.name for index in self._automatic_indexes(schema_editor, model, field)}
+        # The lookup Django's own AlterField runs to find these indexes when db_index turns off.
+        candidates = set(
+            schema_editor._constraint_names(
+                model,
+                [field.column],
+                index=True,
+                type_=Index.suffix,
+                exclude={index.name for index in model._meta.indexes},
+            )
         )
-        unexpected = sorted(set(candidates) - {index_name})
+        unexpected = sorted(candidates - automatic)
         if unexpected:
             raise ValueError(
-                f"{table} holds {', '.join(unexpected)} on only {field.column}. It is not {index_name}, the "
-                "index Django creates for the key, and no Meta index names it. Find out what created it first."
+                f"{table} holds {', '.join(unexpected)} on only {field.column}. Django did not create it for "
+                f"the key ({', '.join(sorted(automatic))}), and no Meta index names it. Find out what created it first."
             )
-        if index_name not in candidates:
-            return  # already dropped, or never created on this database
+        # Checked even when the indexes are already gone, so a database that lost them earlier
+        # does not record db_index=False without a covering index.
         if field.db_constraint or field.remote_field.on_delete is not DO_NOTHING:
             with schema_editor.connection.cursor() as cursor:
                 cursor.execute(_LEADING_INDEXES_SQL, {"table": table, "column": field.column})
-                covering = {name for (name,) in cursor.fetchall()} - {index_name}
+                covering = {name for (name,) in cursor.fetchall()} - automatic
             if not covering:
                 raise ValueError(
                     f"No other btree index on {table} leads with {field.column}. Without one, a delete of the "
                     f"parent row scans {table} for child rows. Add a btree index that leads with {field.column} first."
                 )
         _disable_timeouts(schema_editor)
-        schema_editor.execute(_build_drop_sql(index_name))
+        # A retry, or a database whose history never created them, finds nothing to drop.
+        for name in sorted(candidates & automatic):
+            schema_editor.execute(_build_drop_sql(name))
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._ensure_not_in_transaction(schema_editor)
@@ -499,24 +528,24 @@ class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         field = model._meta.get_field(self.name)
-        index_name = self._django_index_name(schema_editor, model, field)
         _disable_timeouts(schema_editor)
-        if _index_validity(schema_editor, index_name) == "invalid":
-            _log_and_drop_invalid_index(schema_editor, index_name, type(self).__name__)
-        schema_editor.execute(
-            _build_create_sql(
-                index_name=index_name,
-                table_name=model._meta.db_table,
-                columns=f"({schema_editor.quote_name(field.column)})",
-                unique=False,
-                using="",
-                where="",
+        for index in self._automatic_indexes(schema_editor, model, field):
+            if _index_validity(schema_editor, index.name) == "invalid":
+                _log_and_drop_invalid_index(schema_editor, index.name, type(self).__name__)
+            schema_editor.execute(
+                _build_create_sql(
+                    index_name=index.name,
+                    table_name=model._meta.db_table,
+                    columns=index.columns,
+                    unique=False,
+                    using="",
+                    where="",
+                )
             )
-        )
 
     def describe(self) -> str:
-        return f"Concurrently drop the foreign key index on {self.model_name}.{self.name}"
+        return f"Concurrently drop the foreign key indexes on {self.model_name}.{self.name}"
 
     @property
     def migration_name_fragment(self) -> str:
-        return f"drop_{self.model_name_lower}_{self.name_lower}_index"
+        return f"drop_{self.model_name_lower}_{self.name_lower}_indexes"
