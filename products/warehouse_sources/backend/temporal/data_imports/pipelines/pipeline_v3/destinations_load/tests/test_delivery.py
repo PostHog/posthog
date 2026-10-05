@@ -35,7 +35,7 @@ class RecordingWriter:
         self._ctx = ctx
 
     async def prepare_run(self, ctx) -> None:
-        return None
+        RecordingWriter.calls.append(("prepare", self._ctx.destination_name, -1))
 
     async def write_batch(self, batches, batch_ctx) -> BatchWriteOutcome:
         if self._ctx.destination_name in RecordingWriter.fail_for:
@@ -209,6 +209,42 @@ class TestDelivery(DeliveryTestCase):
         delivery.deliver_batch_to_destinations(self._signal([str(a.id)], batch_index=3, is_final=True))
 
         assert ("finalize", "warehouse a", -1) in RecordingWriter.calls
+
+    def test_an_empty_run_is_prepared_and_published_without_writing_a_batch(self) -> None:
+        a = self._destination("warehouse a")
+        signal = self._signal([str(a.id)], is_final=True)
+
+        assert delivery.finalize_empty_run_to_destinations(signal) == 1
+        assert delivery.finalize_empty_run_to_destinations(signal) == 0
+
+        assert RecordingWriter.calls == [
+            ("prepare", "warehouse a", -1),
+            ("finalize", "warehouse a", -1),
+        ]
+
+    def test_an_empty_run_checks_ownership_before_preparing_and_finalizing(self) -> None:
+        a = self._destination("warehouse a")
+        ownership_checks: list[list[tuple[str, str, int]]] = []
+
+        def verify_ownership() -> None:
+            ownership_checks.append(list(RecordingWriter.calls))
+
+        delivery.finalize_empty_run_to_destinations(
+            self._signal([str(a.id)], is_final=True), verify_ownership=verify_ownership
+        )
+
+        assert ownership_checks == [[], [("prepare", "warehouse a", -1)]]
+
+    def test_a_deleted_destination_fails_an_empty_run_before_any_destination_is_finalized(self) -> None:
+        a = self._destination("warehouse a")
+        b = self._destination("warehouse b", ExternalDataDestination.Type.SNOWFLAKE)
+        a.deleted = True
+        a.save(update_fields=["deleted"])
+
+        with self.assertRaises(delivery.DestinationDeliveryError):
+            delivery.finalize_empty_run_to_destinations(self._signal([str(a.id), str(b.id)], is_final=True))
+
+        assert not RecordingWriter.calls
 
     def test_a_batch_that_is_not_final_publishes_nothing(self) -> None:
         a = self._destination("warehouse a")

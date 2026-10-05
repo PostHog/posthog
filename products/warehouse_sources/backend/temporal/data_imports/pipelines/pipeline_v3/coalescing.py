@@ -60,6 +60,8 @@ class CoalesceMember:
     row_count: int
     byte_size: int
     shape: LoadShape
+    # A final marker has no file to read, so it never joins a set.
+    marker_only: bool = False
 
     @classmethod
     def from_batch(cls, batch: PendingBatch) -> CoalesceMember:
@@ -86,6 +88,7 @@ class CoalesceMember:
                 cdc_write_mode=metadata.get("cdc_write_mode"),
                 has_destinations=bool(batch.destination_ids),
             ),
+            marker_only=bool(metadata.get("marker_only", False)),
         )
 
     @classmethod
@@ -112,6 +115,7 @@ class CoalesceMember:
                 cdc_write_mode=signal.cdc_write_mode,
                 has_destinations=bool(signal.destination_ids),
             ),
+            marker_only=signal.marker_only,
         )
 
 
@@ -149,6 +153,8 @@ def join_violation(current: Sequence[CoalesceMember], candidate: CoalesceMember)
     members are written in exactly the order the loader would have taken them one at a time.
     """
     tail = current[-1]
+    if tail.marker_only or candidate.marker_only:
+        return "a final marker is loaded alone"
     if not (loadable_in_set(tail.shape) and loadable_in_set(candidate.shape)):
         return "sync type, CDC mode or destinations are loaded one batch at a time"
     if (candidate.team_id, candidate.schema_id) != (tail.team_id, tail.schema_id):

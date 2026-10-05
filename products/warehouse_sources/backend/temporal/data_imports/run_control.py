@@ -35,6 +35,9 @@ class RunControl:
     # Called with the row count of each batch the run stages. The Temporal path records the same
     # count as an activity metric, which does not exist outside an activity.
     on_rows_extracted: Callable[[int], None] | None = None
+    # True when the loader must finalize every run, also a run without batches. Only a queue run
+    # sets it: on the Temporal path the workflow finalizes a run without batches.
+    always_final_marker: bool = False
 
 
 @contextlib.asynccontextmanager

@@ -124,12 +124,11 @@ class JobHandler(Protocol):
 
 @runtime_checkable
 class EngineFailureHandler(Protocol):
-    """Optional handler hook: the engine failed a job, and the handler did not return ``Fail`` for it.
+    """Optional handler hook: the engine is failing a job that did not return ``Fail`` itself.
 
-    The engine fails a job without its handler when the job reaches the attempt cap: at the claim,
-    or in the recovery sweep after a pod died. A handler that keeps an external state for the job
-    implements this to finish that state. The engine calls it after the queue-side failed write,
-    and logs and ignores its errors.
+    A handler that keeps external state implements this to finish that state. The queue-side
+    terminal write happens only after this hook succeeds, so a transient hook failure leaves the
+    job recoverable and a later claim or recovery sweep retries the idempotent finalizer.
     """
 
     async def on_engine_failed(self, job: Job, reason: str) -> None: ...
@@ -334,15 +333,27 @@ class GenericJobAdapter:
         # run gate parks any followers behind the failed sequence.
         handler_failed = self._handler_failed_job.get() == batch.id
         self._handler_failed_job.set(None)
-        wrote = False
+        self._pending_followers.set(None)
+        current = self._executing_attempt.get()
+        if current is not None and current[0] == batch.id:
+            expected_state, expected_attempt = self.executing_state, current[1]
+        else:
+            expected_state, expected_attempt = batch.latest_state, batch.latest_attempt
+
+        # External finalization must be durable. Keep the queue row non-terminal until the hook
+        # succeeds; the claim-at-cap path or stale-executing sweep will then call us again after a
+        # transient app-database failure or timeout.
+        if not handler_failed and self._on_engine_failed is not None:
+            try:
+                await asyncio.wait_for(
+                    self._on_engine_failed(batch, reason), timeout=ENGINE_FAILED_HOOK_TIMEOUT_SECONDS
+                )
+            except Exception:
+                logger.exception("generic_jobs_engine_failed_hook_raised", extra={"job_id": batch.id})
+                return
+
         try:
-            self._pending_followers.set(None)
-            current = self._executing_attempt.get()
-            if current is not None and current[0] == batch.id:
-                expected_state, expected_attempt = self.executing_state, current[1]
-            else:
-                expected_state, expected_attempt = batch.latest_state, batch.latest_attempt
-            wrote = await JobsTable.update_status_unless_failed(
+            await JobsTable.update_status_unless_failed(
                 conn,
                 job_id=batch.id,
                 job_state="failed",
@@ -355,15 +366,6 @@ class GenericJobAdapter:
             self._executing_attempt.set(None)
         except Exception:
             logger.exception("generic_jobs_fail_run_write_failed", extra={"job_id": batch.id})
-        # Only a write that landed ends the job. Otherwise the job is terminal already, or the
-        # next sweep fails it and calls the hook then.
-        if wrote and not handler_failed and self._on_engine_failed is not None:
-            try:
-                await asyncio.wait_for(
-                    self._on_engine_failed(batch, reason), timeout=ENGINE_FAILED_HOOK_TIMEOUT_SECONDS
-                )
-            except Exception:
-                logger.exception("generic_jobs_engine_failed_hook_raised", extra={"job_id": batch.id})
 
     async def verify_advisory_lock(
         self,

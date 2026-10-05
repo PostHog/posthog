@@ -280,8 +280,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     def _consumer_finalizes_this_run(self) -> bool:
         # Only the primary lane's batches carry the schema's own job, and that job is the one the
         # workflow hands over. A companion's final batch completes a different job and releases no
-        # lock, so counting it here would leave the schema's job Running and its lock held.
-        return len(self._batch_results) > 0
+        # lock, so counting it here would leave the schema's job Running and its lock held. The
+        # primary lane stages every batch 0, so a run with batches always has one on this lane,
+        # and a run without batches sends the marker on this lane (see `_finalize`).
+        return self._always_final_marker or len(self._batch_results) > 0
 
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
         schema_path = None

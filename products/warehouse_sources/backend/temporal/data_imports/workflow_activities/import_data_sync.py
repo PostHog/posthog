@@ -1008,6 +1008,7 @@ async def _run(
                 workflow_id=control.workflow_id,
                 workflow_run_id=control.workflow_run_id,
                 on_rows_extracted=control.on_rows_extracted,
+                always_final_marker=control.always_final_marker,
             )
         else:
             pipeline = PipelineNonDLT(
