@@ -34,6 +34,12 @@ const TOOL_MARKS: Record<string, string> = {
   failed: "\u001b[31m●\u001b[39m",
   in_progress: "\u001b[33m●\u001b[39m",
 };
+// A running call's dot pulses between full and faint amber, so it reads as busy; the pane repaints while the turn is open.
+const PULSE_MS = 500;
+const runningMark = (now = Date.now()): string =>
+  Math.floor(now / PULSE_MS) % 2 === 0
+    ? (TOOL_MARKS.in_progress ?? "●")
+    : "\u001b[2;33m●\u001b[22;39m";
 const RED = (text: string): string => `\u001b[31m${text}\u001b[39m`;
 // Commands the user ran share the composer's shell-mode colour.
 const SHELL_COLOUR = orange;
@@ -165,7 +171,10 @@ class ToolGroup implements Component {
     const lines = [truncateToWidth(` ${summary}`, width)];
     if (!open) return lines;
     for (const tool of this.tools) {
-      const mark = TOOL_MARKS[tool.status] ?? DIM("●");
+      const mark =
+        tool.status === "in_progress"
+          ? runningMark()
+          : (TOOL_MARKS[tool.status] ?? DIM("●"));
       lines.push(
         truncateToWidth(`   ${mark} ${tool.title} ${DIM(tool.detail)}`, width),
       );
