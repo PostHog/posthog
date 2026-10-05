@@ -732,6 +732,7 @@ the row lists both.
 | snowflake                        | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | snowplow                         | HTTP                        | requests                                                        | ✅                          |
 | snyk                             | HTTP                        | requests                                                        | ✅                          |
+| soda_cloud                       | HTTP                        | requests                                                        | ✅                          |
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
 | sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
@@ -1413,7 +1414,6 @@ doesn't conflict with concurrent PRs.
 - smokeball
 - snovio
 - socialpilot
-- soda_cloud
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
