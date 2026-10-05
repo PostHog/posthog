@@ -161,6 +161,7 @@ the row lists both.
 | bugherd                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bugsnag                          | HTTP                        | requests                                                        | ✅                          |
 | buildbetter                      | HTTP                        | requests                                                        | ✅                          |
+| buildium                         | HTTP                        | requests                                                        | ✅                          |
 | buildkite                        | HTTP                        | requests                                                        | ✅                          |
 | bunny                            | HTTP                        | requests                                                        | ✅                          |
 | buttondown                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -677,6 +678,7 @@ the row lists both.
 | select_star                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | semantic_scholar                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | semgrep                          | HTTP                        | requests                                                        | ✅                          |
+| semrush                          | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                         | HTTP                        | requests                                                        | ✅                          |
 | sendowl                          | HTTP                        | requests                                                        | ✅                          |
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
@@ -985,7 +987,6 @@ doesn't conflict with concurrent PRs.
 - branch
 - breezy_hr
 - buffer
-- buildium
 - cal_com
 - calendarific
 - calibre
@@ -1378,7 +1379,6 @@ doesn't conflict with concurrent PRs.
 - sec_edgar
 - secureframe
 - semaphore
-- semrush
 - sendpulse
 - senseforce
 - service_fusion

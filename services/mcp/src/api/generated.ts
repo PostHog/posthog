@@ -57292,6 +57292,11 @@ export namespace Schemas {
       line_refs: string;
     }
 
+    export interface InternalFeedbackResponse {
+      /** True when the feedback reached Slack. */
+      success: boolean;
+    }
+
     /**
      * * `5` - 5
      * * `15` - 15
@@ -111095,6 +111100,26 @@ export namespace Schemas {
       Json: 'json',
       Ndjson: 'ndjson',
     } as const;
+
+    export type InternalFeedbackCreateBody = {
+      /**
+         * What the person wants to tell the developers.
+         * @maxLength 4000
+         */
+      comment: string;
+      /**
+         * URL of the page the feedback is about.
+         * @maxLength 2000
+         */
+      page_url: string;
+      /**
+         * CSS selector of the element the person selected. Empty for feedback about the whole page.
+         * @maxLength 1000
+         */
+      element_identifier?: string;
+      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+      screenshot?: Blob;
+    };
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
