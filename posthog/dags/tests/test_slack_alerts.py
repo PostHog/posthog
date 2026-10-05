@@ -33,7 +33,7 @@ class TestSlackAlertsRouting:
 
         assert blocks[1]["text"] == {
             "type": "mrkdwn",
-            "text": "*Runbook*: <https://github.com/PostHog/posthog/blob/master/posthog/dags/README.md#query-log-archive-export-failure-runbook|Recover the query log archive export>",
+            "text": "*Runbook*: <https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export|Recover the query log archive export>",
         }
 
     def test_regular_job_uses_owner_tag(self):

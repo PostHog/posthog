@@ -36,7 +36,7 @@ JOB_ALERT_CHANNELS = {
 }
 
 JOB_ALERT_RUNBOOK_URLS = {
-    "export_query_log_archive_to_s3": "https://github.com/PostHog/posthog/blob/master/posthog/dags/README.md#query-log-archive-export-failure-runbook",
+    "export_query_log_archive_to_s3": "https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export",
 }
 
 CONSECUTIVE_FAILURE_THRESHOLDS = {
