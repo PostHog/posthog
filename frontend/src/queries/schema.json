@@ -5047,8 +5047,6 @@
                 "search_session_recordings",
                 "create_ai_trace_parser",
                 "fix_hogql_query",
-                "analyze_user_interviews",
-                "create_user_interview_topic",
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
@@ -27092,7 +27090,6 @@
                 "session_profile",
                 "survey",
                 "product_tour",
-                "user_interview",
                 "early_access_feature",
                 "experiment",
                 "feature_flag",
@@ -27102,8 +27099,6 @@
                 "data_pipeline_metadata",
                 "data_warehouse",
                 "task",
-                "link",
-                "live_debugger",
                 "logs",
                 "tracing",
                 "metrics",
@@ -27245,6 +27240,13 @@
                 },
                 "sceneKeys": {
                     "description": "List of all scenes exported by the app",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "searchKeywords": {
+                    "description": "Other terms that find this item in search, for example the names of its tabs or common synonyms",
                     "items": {
                         "type": "string"
                     },
@@ -29054,6 +29056,10 @@
                     "description": "Extra globals for the query",
                     "type": "object"
                 },
+                "includeOutputTypes": {
+                    "description": "Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in.",
+                    "type": "boolean"
+                },
                 "indexUsage": {
                     "description": "Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it.",
                     "type": "boolean"
@@ -29099,6 +29105,21 @@
             "required": ["kind", "language", "query"],
             "type": "object"
         },
+        "HogQLMetadataColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "description": "Output column name, in the same order as the SELECT list.",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "type"],
+            "type": "object"
+        },
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
@@ -29130,6 +29151,13 @@
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "output_columns": {
+                    "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLMetadataColumn"
                     },
                     "type": "array"
                 },
@@ -38409,11 +38437,15 @@
                     "type": "string"
                 },
                 "interval": {
-                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted",
+                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
                     "type": "string"
                 },
                 "kind": {
                     "const": "MetricsQuery",
+                    "type": "string"
+                },
+                "minInterval": {
+                    "description": "Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick",
                     "type": "string"
                 },
                 "modifiers": {
@@ -40569,8 +40601,6 @@
                 "history",
                 "ingestion_warnings",
                 "integrations",
-                "links",
-                "live_debugger",
                 "llm_clusters",
                 "llm_datasets",
                 "llm_evaluations",
@@ -40609,7 +40639,6 @@
                 "toolbar",
                 "tracing",
                 "metrics",
-                "user_interviews",
                 "visual_review",
                 "web_analytics",
                 "workflows"
@@ -41705,6 +41734,13 @@
                         "notices": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
+                            },
+                            "type": "array"
+                        },
+                        "output_columns": {
+                            "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                            "items": {
+                                "$ref": "#/definitions/HogQLMetadataColumn"
                             },
                             "type": "array"
                         },

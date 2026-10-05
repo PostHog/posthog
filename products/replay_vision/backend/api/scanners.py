@@ -90,7 +90,6 @@ from products.replay_vision.backend.billing import (
     projected_monthly_credits,
 )
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
-from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
     compute_scanner_impact,
@@ -387,35 +386,6 @@ def _scanner_copy_name(team_id: int, source_name: str) -> str:
     return source_name
 
 
-class FeedbackThemeSessionSerializer(serializers.Serializer):
-    observation_id = serializers.CharField(help_text="Observation whose feedback comment backs this theme.")
-    session_id = serializers.CharField(help_text="Session recording the feedback comment was about.")
-
-
-class FeedbackThemeSerializer(serializers.Serializer):
-    theme = serializers.CharField(
-        help_text='Short failure mode in sentence case, for example "Review page mistaken for confirmation".'
-    )
-    count = serializers.IntegerField(help_text="How many feedback comments describe this failure mode.")
-    examples = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Up to two short representative quotes from the feedback comments.",
-    )
-    sessions = FeedbackThemeSessionSerializer(
-        many=True,
-        help_text="The rated sessions whose feedback comments back this theme. Empty for summaries generated "
-        "before session tracking.",
-    )
-
-
-class FeedbackThemesSerializer(serializers.Serializer):
-    themes = FeedbackThemeSerializer(many=True, help_text="Recurring failure modes, most frequent first.")
-    feedback_count = serializers.IntegerField(
-        help_text="Number of thumbs-down feedback comments the summary was generated from."
-    )
-    generated_at = serializers.DateTimeField(help_text="When the summary was generated.")
-
-
 class ScannerExperimentTargetingSerializer(serializers.Serializer):
     """The experiment a scanner watches. Scans derive their person-scoped exposure filter from
     this blob at query time, so it is the only place an experiment can enter a scanner's
@@ -616,7 +586,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     credits_used_against_limit = serializers.SerializerMethodField(
         help_text=(
             "Credits counted against `credit_limit` for the current billing period: settled receipts plus "
-            "in-flight observations and running prompt tests, priced from their frozen snapshot model. This "
+            "in-flight observations, priced from their frozen snapshot model. This "
             "is what the limit gate measures, so it includes work still in progress. It is not the same as "
             "`credits_this_month`, which counts only succeeded observations."
         ),
@@ -644,23 +614,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         help_text="User who created the scanner.",
     )
-    feedback_themes = serializers.SerializerMethodField(
-        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes. "
-        "Refreshed with prompt recommendations; null until enough feedback accumulates."
-    )
-
-    @extend_schema_field(FeedbackThemesSerializer(allow_null=True))
-    def get_feedback_themes(self, scanner: ReplayScanner) -> dict[str, Any] | None:
-        cached = cached_feedback_themes(scanner)
-        if not cached:
-            return None
-        # The staleness fingerprint is internal bookkeeping, not API surface.
-        return {
-            # Summaries cached before session tracking lack the key, so default it to keep the shape stable.
-            "themes": [{**theme, "sessions": theme.get("sessions") or []} for theme in cached.get("themes") or []],
-            "feedback_count": cached.get("feedback_count", 0),
-            "generated_at": cached.get("generated_at"),
-        }
 
     class Meta:
         model = ReplayScanner
@@ -697,7 +650,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "created_at",
             "created_by",
             "updated_at",
-            "feedback_themes",
             "user_access_level",
         ]
         read_only_fields = [
@@ -717,7 +669,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "created_at",
             "created_by",
             "updated_at",
-            "feedback_themes",
             "user_access_level",
         ]
 
@@ -1763,6 +1714,14 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "so a quiet window answers with a handful of rows rather than a full page of newest clips."
         ),
     )
+    ranker = serializers.ChoiceField(
+        choices=["weighted-score", "jev"],
+        help_text=(
+            "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, "
+            "`weighted-score` on the deterministic blend. The arm is decided server-side per team, so "
+            "clients read it from here rather than evaluating the flag themselves."
+        ),
+    )
 
 
 class ScannerCreatorsResponseSerializer(serializers.Serializer):
@@ -2461,8 +2420,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         # The flag selects one of two independent rankers; nothing is blended between them. Shadow
         # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
-        # the hourly sweep cached. Neither arm makes a model call here.
-        if watch_feed_ranker(self.team_id) == "jev":
+        # the hourly sweep cached. Neither arm makes a model call here. The response names the
+        # ranker that ordered it, so the shadow arm reads as weighted-score to the client.
+        ranker = "jev" if watch_feed_ranker(self.team_id) == "jev" else "weighted-score"
+        if ranker == "jev":
             probabilities = load_watch_ranks(self.team_id, allowed_ids)
             jev_rows = list(candidate_rows)
             # The recency slice above holds only each scanner's newest rows, which on a high-volume
@@ -2518,7 +2479,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results})
+        return Response({"results": results, "ranker": ranker})
 
     @extend_schema(
         request=ObserveRequestSerializer,
@@ -3068,7 +3029,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The draft couldn't be generated."),
         },
     )
-    # Each call is an inline LLM request, so it gets the shared AI rate limits like prompt suggestions.
+    # Each call is an inline LLM request, so it gets the shared AI rate limits like the other inline AI endpoints.
     @action(
         detail=False,
         methods=["post"],

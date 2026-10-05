@@ -70,6 +70,7 @@ class PostgresProducer:
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
         destination_ids: list[str] | None = None,
+        external_destination_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -92,6 +93,12 @@ class PostgresProducer:
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
         self._destination_ids: list[str] = list(destination_ids or [])
+        # Kept beside the whole set rather than derived from it: telling the warehouse from
+        # an external destination needs the destination rows, and the consumer reads this
+        # once per batch while deciding what may share a write.
+        self._external_destination_ids: list[str] | None = (
+            None if external_destination_ids is None else list(external_destination_ids)
+        )
 
         self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
@@ -252,6 +259,8 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
+        if self._external_destination_ids is not None:
+            metadata["external_destination_ids"] = self._external_destination_ids
 
         self._conn.execute(
             f"""

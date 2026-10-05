@@ -4539,38 +4539,6 @@ export namespace Schemas {
     }
 
     /**
-     * Schema for a single active breakpoint
-     */
-    export interface ActiveBreakpoint {
-      /** Unique identifier for the breakpoint */
-      id: string;
-      /**
-         * Repository identifier (e.g., 'PostHog/posthog')
-         * @nullable
-         */
-      repository?: string | null;
-      /** File path where the breakpoint is set */
-      filename: string;
-      /** Line number of the breakpoint */
-      line_number: number;
-      /** Whether the breakpoint is enabled */
-      enabled: boolean;
-      /**
-         * Optional condition for the breakpoint
-         * @nullable
-         */
-      condition?: string | null;
-    }
-
-    /**
-     * Response schema for active breakpoints endpoint
-     */
-    export interface ActiveBreakpointsResponse {
-      /** List of active breakpoints */
-      breakpoints: ActiveBreakpoint[];
-    }
-
-    /**
      * * `not_started` - not_started
      * * `queued` - queued
      * * `in_progress` - in_progress
@@ -7283,6 +7251,13 @@ export namespace Schemas {
       Yes: 'yes',
     } as const;
 
+    export interface HogQLMetadataColumn {
+      /** Output column name, in the same order as the SELECT list. */
+      name: string;
+      /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+      type: string;
+    }
+
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
@@ -7291,6 +7266,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -12462,11 +12439,6 @@ export namespace Schemas {
       preset: MCPPolicyPresetEnum;
     }
 
-    export interface ApplyPromptSuggestionRequest {
-      /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
-      config?: unknown;
-    }
-
     /**
      * * `setup_tab` - setup_tab
      * * `apply_all_safe` - apply_all_safe
@@ -13268,6 +13240,8 @@ export namespace Schemas {
       archived_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+      /** True if this model is in the pipeline's shadow set: the champion, the previous champion, and up to 3 recent fitted challengers with distinct recipes. */
+      readonly in_shadow_set: boolean;
     }
 
     /**
@@ -13494,7 +13468,7 @@ export namespace Schemas {
     }
 
     /**
-     * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+     * Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest.
      */
     export type AutoresearchRunMetrics = { [key: string]: unknown };
 
@@ -13555,7 +13529,7 @@ export namespace Schemas {
          * @nullable
          */
       rows_scored?: number | null;
-      /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+      /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
       metrics: AutoresearchRunMetrics;
       /** Error message if the run failed. */
       error?: string;
@@ -17838,45 +17812,6 @@ export namespace Schemas {
       value: string;
     }
 
-    /**
-     * Local variables at the time of the hit
-     */
-    export type BreakpointHitVariables = { [key: string]: unknown };
-
-    /**
-     * Schema for a single breakpoint hit event
-     */
-    export interface BreakpointHit {
-      /** Unique identifier for the hit event */
-      id: string;
-      /** Line number where the breakpoint was hit */
-      lineNumber: number;
-      /** Name of the function where breakpoint was hit */
-      functionName: string;
-      /** When the breakpoint was hit */
-      timestamp: string;
-      /** Local variables at the time of the hit */
-      variables: BreakpointHitVariables;
-      /** Stack trace at the time of the hit */
-      stackTrace: unknown[];
-      /** ID of the breakpoint that was hit */
-      breakpoint_id: string;
-      /** Filename where the breakpoint was hit */
-      filename: string;
-    }
-
-    /**
-     * Response schema for breakpoint hits endpoint
-     */
-    export interface BreakpointHitsResponse {
-      /** List of breakpoint hit events */
-      results: BreakpointHit[];
-      /** Number of results returned */
-      count: number;
-      /** Whether there are more results available */
-      has_more: boolean;
-    }
-
     export interface BriefAnchors {
       /** IDs of the dashboards this brief is anchored on. */
       dashboards?: number[];
@@ -18597,33 +18532,6 @@ export namespace Schemas {
       errors: BulkDeleteErrorItem[];
     }
 
-    export interface BulkIntervieweeContextItem {
-      /**
-         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
-         * @maxLength 400
-         */
-      interviewee_identifier: string;
-      /**
-         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
-         * @maxLength 10000
-         */
-      agent_context: string;
-    }
-
-    export interface BulkIntervieweeContextRequest {
-      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
-      items: BulkIntervieweeContextItem[];
-    }
-
-    export interface BulkIntervieweeContextResponse {
-      /** Number of rows inserted by this request. */
-      inserted_count: number;
-      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
-      skipped_count: number;
-      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
-      skipped_identifiers: string[];
-    }
-
     export interface BulkKeysRequest {
       /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
       ids?: unknown[];
@@ -19200,6 +19108,15 @@ export namespace Schemas {
       Week: 'week',
       Month: 'month',
     } as const;
+
+    export interface CalibrationBin {
+      /** Number of scored users in this bin. */
+      n: number;
+      /** Mean predicted probability of the users in this bin. */
+      mean_p_y: number;
+      /** Fraction of the users in this bin who did the target event within the horizon. */
+      positive_rate: number;
+    }
 
     /**
      * * `needs_approval` - needs_approval
@@ -24833,6 +24750,44 @@ export namespace Schemas {
       Automatic: 'automatic',
     } as const;
 
+    export interface ConversionRecordingsRequest {
+      /** A unique query ID for tracing this request in query logs. */
+      client_query_id?: string;
+      /** The table query whose conversion cell was selected. */
+      source: MarketingAnalyticsTableQuery;
+      /** The selected conversion goal ID. */
+      goal_id: string;
+      /** The displayed row grouping value. */
+      group: string;
+      /** The displayed row source. */
+      source_name?: string;
+      /**
+         * The displayed campaign ID, omitted for comparison rows.
+         * @nullable
+         */
+      campaign_id?: string | null;
+      /**
+         * The last session ID returned by the previous page. Omit for the first page.
+         * @maxLength 200
+         */
+      after?: string;
+      /**
+         * The maximum number of conversion session IDs to return.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+    }
+
+    export interface ConversionRecordingsResponse {
+      /** Sessions in which the attributed conversions occurred. A session might not have a recording. */
+      session_ids: string[];
+      /** Whether another page of conversion sessions is available. */
+      has_more: boolean;
+      /** Whether the conversion data is still being prepared. */
+      preparing: boolean;
+    }
+
     /**
      * * `0` - Disabled
      * * `1` - Stateless
@@ -25232,10 +25187,10 @@ export namespace Schemas {
      * * `BAA` - BAA
      * * `DPA` - DPA
      */
-    export type CreateLegalDocumentDocumentTypeEnum = typeof CreateLegalDocumentDocumentTypeEnum[keyof typeof CreateLegalDocumentDocumentTypeEnum];
+    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
 
 
-    export const CreateLegalDocumentDocumentTypeEnum = {
+    export const DocumentTypeEnum = {
       Baa: 'BAA',
       Dpa: 'DPA',
     } as const;
@@ -25250,7 +25205,7 @@ export namespace Schemas {
        *
        * * `BAA` - BAA
        * * `DPA` - DPA */
-      document_type: CreateLegalDocumentDocumentTypeEnum;
+      document_type: DocumentTypeEnum;
       /**
          * The customer legal entity entering the agreement (PandaDoc's Client.Company).
          * @maxLength 255
@@ -25669,133 +25624,6 @@ export namespace Schemas {
       target_display_name: string;
       /** canonical or team_custom */
       source: string;
-    }
-
-    /**
-     * * `pending` - Pending
-     * * `applied` - Applied
-     * * `dismissed` - Dismissed
-     * * `superseded` - Superseded
-     * * `no_change` - No change
-     */
-    export type PromptSuggestionStatusEnum = typeof PromptSuggestionStatusEnum[keyof typeof PromptSuggestionStatusEnum];
-
-
-    export const PromptSuggestionStatusEnum = {
-      Pending: 'pending',
-      Applied: 'applied',
-      Dismissed: 'dismissed',
-      Superseded: 'superseded',
-      NoChange: 'no_change',
-    } as const;
-
-    export interface PromptEvaluationResult {
-      /** The rated session that was re-run with the suggested prompt. */
-      session_id: string;
-      /** The original rated observation the comparison is against. */
-      observation_id: string;
-      /** The team's rating of the original output (thumbs up = true). */
-      rated_correct: boolean;
-      /**
-         * The original output's primary outcome.
-         * @nullable
-         */
-      before: string | null;
-      /**
-         * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
-         * @nullable
-         */
-      after: string | null;
-      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
-      outcome: string;
-      /**
-         * Why this session's re-run failed, when it did.
-         * @nullable
-         */
-      error: string | null;
-    }
-
-    export interface PromptEvaluationSummary {
-      /** Thumbs-up sessions whose output is unchanged. */
-      kept: number;
-      /** Thumbs-up sessions whose output changed. */
-      regressed: number;
-      /** Thumbs-down sessions whose output changed. */
-      fixed: number;
-      /** Thumbs-down sessions whose output is unchanged. */
-      still_wrong: number;
-      /** Sessions whose re-run failed. */
-      errors: number;
-    }
-
-    export interface PromptSuggestionEvaluation {
-      /** running, succeeded, or failed. */
-      status: string;
-      /** When the evaluation started. */
-      started_at: string;
-      /**
-         * When the evaluation finished, if it has.
-         * @nullable
-         */
-      finished_at: string | null;
-      /** How many rated sessions are being re-run. */
-      total: number;
-      /** The rated set the evaluation ran against. */
-      labels_fingerprint: string;
-      /** Per-session outcomes, in completion order. */
-      results: PromptEvaluationResult[];
-      /** Outcome counts. Null while the evaluation is running. */
-      summary: PromptEvaluationSummary | null;
-    }
-
-    export interface ReplayScannerPromptSuggestion {
-      readonly id: string;
-      /** pending (current), applied, dismissed, or superseded by a newer suggestion.
-       *
-       * * `pending` - Pending
-       * * `applied` - Applied
-       * * `dismissed` - Dismissed
-       * * `superseded` - Superseded
-       * * `no_change` - No change */
-      readonly status: PromptSuggestionStatusEnum;
-      /** The full rewritten prompt, ready to apply to the scanner. */
-      readonly suggested_prompt: string;
-      /** The scanner prompt this suggestion was generated against, for diffing. */
-      readonly base_prompt: string;
-      /** The scanner config this suggestion was generated against. */
-      readonly base_config: unknown;
-      /** The full proposed scanner config, ready to apply. */
-      readonly suggested_config: unknown;
-      /** Typed per-field diff entries driving the change cards. */
-      readonly changes: unknown;
-      /** What the rewrite changed and why, grounded in the ratings. */
-      readonly rationale: string;
-      /** Thumbs-up ratings the suggestion was based on. */
-      readonly based_on_up: number;
-      /** Thumbs-down ratings the suggestion was based on. */
-      readonly based_on_down: number;
-      /** The scanner version whose prompt this suggestion was generated against. */
-      readonly scanner_version: number;
-      readonly created_at: string;
-      /** User who requested this suggestion; null for automatic refreshes. */
-      readonly created_by: UserBasic | null;
-      /** @nullable */
-      readonly applied_at: string | null;
-      /** User who applied this suggestion to the scanner; null unless applied. */
-      readonly applied_by: UserBasic | null;
-      /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
-      readonly evaluation: PromptSuggestionEvaluation | null;
-    }
-
-    export interface CurrentPromptSuggestion {
-      /** The newest suggestion for this scanner, or null when none has been generated yet. */
-      suggestion: ReplayScannerPromptSuggestion | null;
-      /** True when the team's ratings changed since the newest suggestion was generated. */
-      stale: boolean;
-      /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
-      rated_count: number;
-      /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
-      evaluation_session_cap: number;
     }
 
     /**
@@ -27951,8 +27779,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly observed_value: number | null;
-      /** The HogQL that ran. Re-run it to see the offending rows. */
+      /** HogQL selecting the failing rows. Re-run it to see them. For a run that audited a staged refresh it inlines the view's definition, so it reads the source tables rather than the published table. Empty when there is nothing to replay: retention cleared it, or a staged run could not build its replay query. */
       readonly compiled_query: string;
+      /** True when the run audited a refresh that was staged but not yet published, under the materialization gate. */
+      readonly audited_staged_refresh: boolean;
       /** Compilation or execution failure, when status is 'errored'. */
       readonly error: string;
       /** @nullable */
@@ -36843,7 +36673,9 @@ export namespace Schemas {
 
     export interface Edge {
       readonly id: string;
+      /** ID of the upstream node. */
       readonly source_id: string;
+      /** ID of the downstream node. */
       readonly target_id: string;
       dag: string;
       readonly dag_name: string;
@@ -37121,8 +36953,44 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
-      /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
+      /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
       supersedes_implementation?: boolean;
+      /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
+       *
+       * * `immediately_actionable` - immediately_actionable
+       * * `requires_human_input` - requires_human_input
+       * * `not_actionable` - not_actionable */
+      actionability?: ActionabilityEnum | null;
+      /**
+         * 2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.
+         * @nullable
+         */
+      actionability_explanation?: string | null;
+      /**
+         * Whether the issue is already handled: fixed, or with a fix in flight. Part of the actionability decision, so it requires `actionability` and `actionability_explanation` too; omitted means false. Set it when a fix lands or starts, so autostart does not open a duplicate PR.
+         * @nullable
+         */
+      already_addressed?: boolean | null;
+      /** Optional new priority (`P0`-`P4`), for when the issue escalated or eased. Replaces the report's priority and re-runs autostart, which needs a priority to open a draft PR. Requires `priority_explanation`.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority?: AutonomyPriorityEnum | null;
+      /**
+         * 2-3 sentence justification for `priority`. Required when `priority` is set.
+         * @nullable
+         */
+      priority_explanation?: string | null;
+    }
+
+    export interface EditReportWarning {
+      /** The request field the edit did not apply. */
+      field: string;
+      /** Why the field was not applied. The rest of the edit landed. */
+      message: string;
     }
 
     export interface EditReportResponse {
@@ -37166,6 +37034,10 @@ export namespace Schemas {
       content_revision_count: number;
       /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
       supersedes_implementation: boolean;
+      /** Which work decisions the edit replaced (`actionability`, `priority`). Empty when you set none, or re-sent the decisions the report already held. */
+      decision_fields_set: string[];
+      /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
+      warnings: EditReportWarning[];
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
     }
@@ -38377,6 +38249,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin: unknown;
+    }
+
+    export interface ErrorDetail {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
     }
 
     export interface ErrorResponse {
@@ -40257,17 +40136,6 @@ export namespace Schemas {
       active_backfill_credits: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
-    }
-
-    export interface EvaluatePromptSuggestionRequest {
-      /**
-         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
-         * @minimum 1
-         * @maximum 100
-         */
-      session_limit?: number;
-      /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
-      config?: unknown;
     }
 
     /**
@@ -44377,6 +44245,387 @@ export namespace Schemas {
       prompt_version?: string | null;
     }
 
+    export interface VariantsExperiment {
+      /** The experiment's id. */
+      id: number;
+      /** The experiment's name. */
+      name: string;
+      /** draft, running, paused, exposure_frozen, or stopped. */
+      status: string;
+      /**
+         * When the experiment launched.
+         * @nullable
+         */
+      start_date: string | null;
+      /**
+         * When the experiment ended; null while it runs.
+         * @nullable
+         */
+      end_date: string | null;
+      /**
+         * The experiment's recommended running time in days, when one was set.
+         * @nullable
+         */
+      planned_duration_days: number | null;
+      /**
+         * The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.
+         * @nullable
+         */
+      current_day: number | null;
+    }
+
+    export interface VariantsWindow {
+      /** Succeeded observations of this scanner, attributed to a variant or not. */
+      total_observations: number;
+      /**
+         * When the earliest of those observations completed.
+         * @nullable
+         */
+      first_observation_at: string | null;
+      /**
+         * When the latest of those observations completed.
+         * @nullable
+         */
+      last_observation_at: string | null;
+    }
+
+    export interface VariantAnalysisLine {
+      /** A short label for the theme, shared across variants. */
+      theme: string;
+      /** How the theme shows up for this variant. */
+      statement: string;
+      /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
+      count: number;
+      /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
+      example_observation_ids: string[];
+    }
+
+    /**
+     * * `configured` - Configured
+     * * `inline` - Inline
+     */
+    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
+
+
+    export const ScannerOriginEnum = {
+      Configured: 'configured',
+      Inline: 'inline',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     */
+    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
+
+
+    export const ObservationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+    } as const;
+
+    /**
+     * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+     * @nullable
+     */
+    export type ScannerSnapshotVariantSamplingRates = {[key: string]: number} | null;
+
+    /**
+     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
+     */
+    export interface ScannerSnapshot {
+      /** Scanner name at run time. */
+      name: string;
+      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
+      scanner_type: ScannerTypeEnum;
+      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
+      scanner_version: number;
+      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+      model: string;
+      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+      provider: string;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      scanner_config: unknown;
+      /**
+         * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+         * @nullable
+         */
+      variant_sampling_rates?: ScannerSnapshotVariantSamplingRates;
+    }
+
+    /**
+     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
+     */
+    export interface ScannerResult {
+      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+      /**
+         * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+         * @nullable
+         */
+      experiment_variant?: string | null;
+      /**
+         * Experiment scanners only: the scanned session's duration in seconds.
+         * @nullable
+         */
+      session_duration_s?: number | null;
+    }
+
+    /**
+     * * `schedule` - Schedule
+     * * `on_demand` - On demand
+     * * `retry` - Retry
+     * * `backfill` - Backfill
+     */
+    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
+
+
+    export const ObservationTriggerEnum = {
+      Schedule: 'schedule',
+      OnDemand: 'on_demand',
+      Retry: 'retry',
+      Backfill: 'backfill',
+    } as const;
+
+    /**
+     * The team's shared judgement on whether the scanner scored this session correctly.
+     */
+    export interface ReplayObservationLabel {
+      /** True if the scanner scored this session correctly, false if not. */
+      is_correct: boolean;
+      /**
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+         * @maxLength 5000
+         */
+      feedback?: string;
+    }
+
+    /**
+     * * `thumbnail` - Thumbnail
+     * * `clip` - Clip
+     * * `chapter` - Chapter
+     */
+    export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
+
+
+    export const ReplayObservationMediaKindEnum = {
+      Thumbnail: 'thumbnail',
+      Clip: 'clip',
+      Chapter: 'chapter',
+    } as const;
+
+    /**
+     * One thumbnail or clip illustrating an observation.
+     */
+    export interface ReplayObservationMedia {
+      /** Id of this media entry. */
+      readonly id: string;
+      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
+       *
+       * * `thumbnail` - Thumbnail
+       * * `clip` - Clip
+       * * `chapter` - Chapter */
+      readonly kind: ReplayObservationMediaKindEnum;
+      /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
+      readonly position: number;
+      /** Export asset holding the bytes; fetch it from the export content endpoint. */
+      readonly asset_id: number;
+      /**
+         * One sentence saying what the clip shows. Null for thumbnails.
+         * @nullable
+         */
+      readonly description: string | null;
+      /** Where this media starts in the analysis video, in milliseconds. */
+      readonly video_start_ms: number;
+      /**
+         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
+         * @nullable
+         */
+      readonly video_end_ms: number | null;
+    }
+
+    export interface ReplayObservation {
+      readonly id: string;
+      /** The scanner that produced this observation. */
+      readonly scanner_id: string;
+      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+       *
+       * * `configured` - Configured
+       * * `inline` - Inline */
+      readonly scanner_origin: ScannerOriginEnum;
+      /** Session recording id this scanner was applied to. */
+      readonly session_id: string;
+      /** Observation status (pending, running, succeeded, failed, ineligible).
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `ineligible` - Ineligible */
+      readonly status: ObservationStatusEnum;
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected. */
+      readonly error_reason: string;
+      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
+      readonly workflow_id: string;
+      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+      readonly scanner_snapshot: ScannerSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly scanner_result: ScannerResult | null;
+      /**
+         * The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.
+         * @nullable
+         */
+      readonly prompt_question: string | null;
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
+       *
+       * * `schedule` - Schedule
+       * * `on_demand` - On demand
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
+      readonly triggered_by: ObservationTriggerEnum;
+      /** User who triggered an on-demand observation; null for scheduled observations. */
+      readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
+      /**
+         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
+         * @nullable
+         */
+      readonly previous_observation_id: string | null;
+      /**
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
+         * @nullable
+         */
+      readonly next_observation_id: string | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
+      /** Whether the calling user has opened this observation. */
+      readonly viewed: boolean;
+      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+      readonly media: readonly ReplayObservationMedia[];
+      /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
+      readonly summary_line: string;
+      /** @nullable */
+      started_at?: string | null;
+      /** @nullable */
+      completed_at?: string | null;
+      readonly created_at: string;
+    }
+
+    export interface VariantReadout {
+      /** The variant key. */
+      key: string;
+      /** Succeeded observations attributed to this variant. */
+      observations: number;
+      /** Distinct people (by distinct id) behind those observations. */
+      distinct_people: number;
+      /**
+         * Median scanned session length in seconds; null with no observations.
+         * @nullable
+         */
+      median_session_duration_s: number | null;
+      /**
+         * The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /**
+         * Summaries of this variant the analysis read: the denominator of its digest and difference counts. Null without a current analysis.
+         * @nullable
+         */
+      analysis_observations: number | null;
+      /**
+         * This variant's most notable themes from the variant analysis. Null without a current analysis.
+         * @nullable
+         */
+      digest: VariantAnalysisLine[] | null;
+      /** This variant's most recent observations, newest first. */
+      latest_observations: ReplayObservation[];
+    }
+
+    /**
+     * Summaries the analysis read that show the theme, per variant key, as the scout counted them.
+     */
+    export type VariantAnalysisDifferenceCounts = {[key: string]: number};
+
+    export interface VariantAnalysisDifference {
+      /** The theme the difference rests on. */
+      theme: string;
+      /** What differs between the variants. */
+      statement: string;
+      /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
+      counts: VariantAnalysisDifferenceCounts;
+    }
+
+    export interface VariantsAnalysisState {
+      /** The variant analysis scout's config id. */
+      scout_config_id: string;
+      /** Whether the scout runs on its schedule. */
+      scout_enabled: boolean;
+      /**
+         * When the run behind the newest analysis started; null before its first run.
+         * @nullable
+         */
+      recorded_at: string | null;
+      /**
+         * The scanner version the newest analysis covered.
+         * @nullable
+         */
+      scanner_version: number | null;
+      /** Whether the newest analysis covers the scanner's current version. When false, digests and differences are null until the scout's next run. */
+      current: boolean;
+    }
+
+    export interface ExperimentVariantsReadout {
+      /** The watched experiment; null if it was deleted. */
+      experiment: VariantsExperiment | null;
+      /** The span of observations the counts cover. */
+      window: VariantsWindow;
+      /** One entry per watched variant, plus any variant still holding observations. */
+      variants: VariantReadout[];
+      /**
+         * What differs between variants, from the variant analysis. Null without a current analysis.
+         * @nullable
+         */
+      differences: VariantAnalysisDifference[] | null;
+      /** Succeeded observations with no attributed variant. */
+      unattributed_count: number;
+      /** The scanner's variant analysis scout and its newest run; null when none is set up. */
+      analysis: VariantsAnalysisState | null;
+    }
+
     /**
      * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
@@ -44635,6 +44884,7 @@ export namespace Schemas {
        * * `application/x-ndjson` - application/x-ndjson */
       readonly export_format: ExportedAssetExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -44694,6 +44944,7 @@ export namespace Schemas {
        * * `application/json` - application/json */
       export_format: ExportedAssetCreateExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -49595,33 +49846,6 @@ export namespace Schemas {
       createdAt: string | null;
     }
 
-    export interface FeedbackThemeSession {
-      /** Observation whose feedback comment backs this theme. */
-      observation_id: string;
-      /** Session recording the feedback comment was about. */
-      session_id: string;
-    }
-
-    export interface FeedbackTheme {
-      /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
-      theme: string;
-      /** How many feedback comments describe this failure mode. */
-      count: number;
-      /** Up to two short representative quotes from the feedback comments. */
-      examples: string[];
-      /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
-      sessions: FeedbackThemeSession[];
-    }
-
-    export interface FeedbackThemes {
-      /** Recurring failure modes, most frequent first. */
-      themes: FeedbackTheme[];
-      /** Number of thumbs-down feedback comments the summary was generated from. */
-      feedback_count: number;
-      /** When the summary was generated. */
-      generated_at: string;
-    }
-
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -54469,9 +54693,11 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
+      /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
+      minInterval?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsQueryResponse | null;
@@ -56076,6 +56302,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
+      includeOutputTypes?: boolean | null;
       /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
       indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
@@ -57163,6 +57391,11 @@ export namespace Schemas {
       line_refs: string;
     }
 
+    export interface InternalFeedbackResponse {
+      /** True when the feedback reached Slack. */
+      success: boolean;
+    }
+
     /**
      * * `5` - 5
      * * `15` - 15
@@ -57178,60 +57411,6 @@ export namespace Schemas {
       Number30: 30,
       Number60: 60,
     } as const;
-
-    export interface InterviewInviteResult {
-      /** The original identifier (email or distinct ID) from the topic targeting. */
-      interviewee_identifier: string;
-      /**
-         * Email used for delivery. Null when the identifier was not an email (e.g., a distinct ID).
-         * @nullable
-         */
-      email?: string | null;
-      /** The personalized public interview URL embedded in the email body. */
-      interview_url: string;
-      /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
-      sent: boolean;
-      /** Why the email was skipped (e.g., `not_an_email`, `duplicate_recipient`, `already_sent`). Empty when sent=true. */
-      reason?: string;
-    }
-
-    export interface InterviewLink {
-      /**
-         * The original identifier (email or distinct ID) from the topic targeting.
-         * @maxLength 400
-         */
-      interviewee_identifier: string;
-      /** Best-effort display name derived from the identifier, used to greet the interviewee. */
-      user_name: string;
-      /** Public, unauthenticated URL the interviewee opens to start the call. Backed by a SharingConfiguration access token. */
-      interview_url: string;
-      /** The merged topic + per-interviewee context the voice agent will see during the call. */
-      agent_context: string;
-    }
-
-    export interface IntervieweeContext {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /**
-         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
-         * @maxLength 400
-         */
-      interviewee_identifier: string;
-      /**
-         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
-         * @maxLength 10000
-         */
-      agent_context: string;
-    }
-
-    export interface IntervieweeIdentifierRequest {
-      /**
-         * Email address or PostHog distinct ID for the interviewee. Email-shaped values (including the `Display Name <email@host>` form) are routed to `interviewee_emails`; everything else lands in `interviewee_distinct_ids`.
-         * @maxLength 400
-         */
-      identifier: string;
-    }
 
     /**
      * How one mailbox provider treated this project's email, from AWS SES's own delivery data.
@@ -58577,15 +58756,6 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
-    export interface LatestTestInterview {
-      /** When the test interview was completed. */
-      completed_at: string;
-      /** Full transcript of the test call, if Vapi delivered one. May be empty. */
-      transcript: string;
-      /** AI-generated summary of the test call, if Vapi delivered one. May be empty. */
-      summary: string;
-    }
-
     /**
      * * `preserve` - preserve
      * * `two_column` - two_column
@@ -59050,37 +59220,6 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
-    export interface Link {
-      readonly id: string;
-      /**
-         * Destination the short link redirects to.
-         * @maxLength 2048
-         */
-      redirect_url: string;
-      /**
-         * Domain the short link is hosted on. Only phog.gg is accepted.
-         * @maxLength 255
-         */
-      short_link_domain: string;
-      /**
-         * The unique code/path that identifies the short link, e.g. 'abc123'
-         * @maxLength 255
-         */
-      short_code: string;
-      /**
-         * Free-form note about what the link is for.
-         * @nullable
-         */
-      description?: string | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      /** User who created the link. Null when that user was deleted. */
-      readonly created_by: UserBasic | null;
-      /** Folder path to file the link under in the project tree. */
-      _create_in_folder?: string;
-    }
-
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -59127,23 +59266,6 @@ export namespace Schemas {
        * * `Running` - Running
        * * `Starting` - Starting */
       status: BatchExportRunStatusEnum;
-    }
-
-    export interface LiveDebuggerBreakpoint {
-      readonly id: string;
-      /** @nullable */
-      repository?: string | null;
-      filename: string;
-      /**
-         * @minimum 0
-         * @maximum 2147483647
-         */
-      line_number: number;
-      enabled?: boolean;
-      /** @nullable */
-      condition?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     export interface LlmEvalReportSignalExtra {
@@ -62753,6 +62875,12 @@ export namespace Schemas {
       n_features: number;
       /** The numeric feature column names (excludes distinct_id, __label, __fold). */
       feature_cols: string[];
+      /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+      elapsed_s: number;
+      /** Rows ClickHouse read to materialize the matrix. */
+      rows_read: number;
+      /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+      hints: string[];
     }
 
     /**
@@ -64460,262 +64588,6 @@ export namespace Schemas {
       version_markers: ObservationVersionMarker[];
     }
 
-    /**
-     * * `configured` - Configured
-     * * `inline` - Inline
-     */
-    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
-
-
-    export const ScannerOriginEnum = {
-      Configured: 'configured',
-      Inline: 'inline',
-    } as const;
-
-    /**
-     * * `pending` - Pending
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed
-     * * `ineligible` - Ineligible
-     */
-    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
-
-
-    export const ObservationStatusEnum = {
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-    } as const;
-
-    /**
-     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
-     */
-    export interface ScannerSnapshot {
-      /** Scanner name at run time. */
-      name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
-       *
-       * * `monitor` - Monitor
-       * * `classifier` - Classifier
-       * * `scorer` - Scorer
-       * * `summarizer` - Summarizer
-       * * `experiment` - Experiment */
-      scanner_type: ScannerTypeEnum;
-      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
-      scanner_version: number;
-      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
-      model: string;
-      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
-      provider: string;
-      /** Whether the observation was run with Signal emission enabled. */
-      emits_signals: boolean;
-      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
-      scanner_config: unknown;
-      /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
-      verify_positives: string;
-    }
-
-    /**
-     * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
-     */
-    export interface VerificationRecord {
-      /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
-      mode: string;
-      /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
-      draws: string[];
-      /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
-      resolved_verdict: string;
-      /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
-      served_verdict: string;
-      /**
-         * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
-         * @nullable
-         */
-      skipped_reason: string | null;
-    }
-
-    /**
-     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
-     */
-    export interface ScannerResult {
-      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
-      model_output: unknown;
-      /**
-         * Number of PostHog Signals emitted from this observation.
-         * @minimum 0
-         */
-      signals_count: number;
-      /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
-      verification: VerificationRecord | null;
-      /**
-         * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
-         * @nullable
-         */
-      experiment_variant?: string | null;
-      /**
-         * Experiment scanners only: the scanned session's duration in seconds.
-         * @nullable
-         */
-      session_duration_s?: number | null;
-    }
-
-    /**
-     * * `schedule` - Schedule
-     * * `on_demand` - On demand
-     * * `retry` - Retry
-     * * `backfill` - Backfill
-     */
-    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
-
-
-    export const ObservationTriggerEnum = {
-      Schedule: 'schedule',
-      OnDemand: 'on_demand',
-      Retry: 'retry',
-      Backfill: 'backfill',
-    } as const;
-
-    /**
-     * The team's shared judgement on whether the scanner scored this session correctly.
-     */
-    export interface ReplayObservationLabel {
-      /** True if the scanner scored this session correctly, false if not. */
-      is_correct: boolean;
-      /**
-         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
-         * @maxLength 5000
-         */
-      feedback?: string;
-    }
-
-    /**
-     * * `thumbnail` - Thumbnail
-     * * `clip` - Clip
-     * * `chapter` - Chapter
-     */
-    export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
-
-
-    export const ReplayObservationMediaKindEnum = {
-      Thumbnail: 'thumbnail',
-      Clip: 'clip',
-      Chapter: 'chapter',
-    } as const;
-
-    /**
-     * One thumbnail or clip illustrating an observation.
-     */
-    export interface ReplayObservationMedia {
-      /** Id of this media entry. */
-      readonly id: string;
-      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
-       *
-       * * `thumbnail` - Thumbnail
-       * * `clip` - Clip
-       * * `chapter` - Chapter */
-      readonly kind: ReplayObservationMediaKindEnum;
-      /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
-      readonly position: number;
-      /** Export asset holding the bytes; fetch it from the export content endpoint. */
-      readonly asset_id: number;
-      /**
-         * One sentence saying what the clip shows. Null for thumbnails.
-         * @nullable
-         */
-      readonly description: string | null;
-      /** Where this media starts in the analysis video, in milliseconds. */
-      readonly video_start_ms: number;
-      /**
-         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
-         * @nullable
-         */
-      readonly video_end_ms: number | null;
-    }
-
-    export interface ReplayObservation {
-      readonly id: string;
-      /** The scanner that produced this observation. */
-      readonly scanner_id: string;
-      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
-       *
-       * * `configured` - Configured
-       * * `inline` - Inline */
-      readonly scanner_origin: ScannerOriginEnum;
-      /** Session recording id this scanner was applied to. */
-      readonly session_id: string;
-      /** Observation status (pending, running, succeeded, failed, ineligible).
-       *
-       * * `pending` - Pending
-       * * `running` - Running
-       * * `succeeded` - Succeeded
-       * * `failed` - Failed
-       * * `ineligible` - Ineligible */
-      readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
-      readonly error_reason: string;
-      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
-      readonly workflow_id: string;
-      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
-      readonly scanner_snapshot: ScannerSnapshot | null;
-      /** Result data persisted on success; null until the observation succeeds. */
-      readonly scanner_result: ScannerResult | null;
-      /**
-         * The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.
-         * @nullable
-         */
-      readonly prompt_question: string | null;
-      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
-       *
-       * * `schedule` - Schedule
-       * * `on_demand` - On demand
-       * * `retry` - Retry
-       * * `backfill` - Backfill */
-      readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation; null for scheduled observations. */
-      readonly triggered_by_user: UserBasic | null;
-      /**
-         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
-         * @nullable
-         */
-      readonly backfill_id: string | null;
-      /**
-         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
-         * @nullable
-         */
-      readonly recording_subject_email: string | null;
-      /**
-         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
-         * @nullable
-         */
-      readonly previous_observation_id: string | null;
-      /**
-         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
-         * @nullable
-         */
-      readonly next_observation_id: string | null;
-      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
-      readonly label: ReplayObservationLabel | null;
-      /** Whether the calling user has opened this observation. */
-      readonly viewed: boolean;
-      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
-      readonly media: readonly ReplayObservationMedia[];
-      /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
-      readonly summary_line: string;
-      /** @nullable */
-      started_at?: string | null;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
-    }
-
     export interface ObservationSearchResult {
       /** The matching observation. */
       observation: ReplayObservation;
@@ -65553,6 +65425,89 @@ export namespace Schemas {
       Provisioned: 'provisioned',
     } as const;
 
+    export interface OnlinePerformanceRow {
+      /** UUID of the validation run that recorded these metrics. */
+      validation_run_id: string;
+      /** Date the predictions were made for (UTC). */
+      prediction_date: string;
+      /** Prediction horizon, in days, the predictions were made under. */
+      horizon_days: number;
+      /** ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects. */
+      weekday: number;
+      /** UUID of the model that emitted the predictions. */
+      model_id: string;
+      /** Role the model had when it emitted the predictions: 'champion' or 'challenger'. */
+      emitted_role: string;
+      /** Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows. */
+      current_role: string;
+      /** Number of users the model scored on this date. */
+      n_scored: number;
+      /** Number of scored users who did the target event in the horizon. */
+      n_positive: number;
+      /** Fraction of scored users who did the target event (n_positive / n_scored). */
+      base_rate: number;
+      /**
+         * Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.
+         * @nullable
+         */
+      mean_p_y: number | null;
+      /**
+         * Realized ROC AUC against actual outcomes. Null when the date has one class only.
+         * @nullable
+         */
+      realized_auc: number | null;
+      /**
+         * Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+         * @nullable
+         */
+      realized_auc_ci_low: number | null;
+      /**
+         * Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+         * @nullable
+         */
+      realized_auc_ci_high: number | null;
+      /**
+         * Brier score. Lower is better.
+         * @nullable
+         */
+      brier_score: number | null;
+      /**
+         * Expected calibration error over 10 equal-width bins. Lower is better.
+         * @nullable
+         */
+      calibration_error: number | null;
+      /**
+         * Positives in the top 10% by score, relative to a random 10%.
+         * @nullable
+         */
+      lift_at_10: number | null;
+      /**
+         * Positives in the top 20% by score, relative to a random 20%.
+         * @nullable
+         */
+      lift_at_20: number | null;
+      /**
+         * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
+         * @nullable
+         */
+      calibration_bins: CalibrationBin[] | null;
+      /**
+         * 'single_class_no_auc' when every scored user had the same outcome, otherwise null.
+         * @nullable
+         */
+      warning: string | null;
+      /**
+         * When the validation run completed.
+         * @nullable
+         */
+      validated_at: string | null;
+    }
+
+    export interface OnlinePerformance {
+      /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
+      rows: OnlinePerformanceRow[];
+    }
+
     /**
      * * `eq` - eq
      * * `neq` - neq
@@ -65639,6 +65594,29 @@ export namespace Schemas {
       Number9: 9,
     } as const;
 
+    export interface OrganizationMemberNoticeAction {
+      /**
+         * Text on the button shown next to the notice.
+         * @maxLength 40
+         */
+      label: string;
+      /**
+         * Link the button opens in a new tab. Must use http or https.
+         * @maxLength 2000
+         */
+      url: string;
+    }
+
+    export interface OrganizationMemberNotice {
+      /**
+         * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+         * @maxLength 1000
+         */
+      message: string;
+      /** Optional link button shown on the right of the banner. */
+      action?: OrganizationMemberNoticeAction | null;
+    }
+
     export interface Organization {
       readonly id: string;
       /** @maxLength 64 */
@@ -65683,6 +65661,8 @@ export namespace Schemas {
          * @nullable
          */
       read_only_mcp_access?: boolean | null;
+      /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+      member_notice?: OrganizationMemberNotice | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -67511,33 +67491,6 @@ export namespace Schemas {
       results: IntegrationConfig[];
     }
 
-    export interface PaginatedInterviewInviteResultList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: InterviewInviteResult[];
-    }
-
-    export interface PaginatedInterviewLinkList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: InterviewLink[];
-    }
-
-    export interface PaginatedIntervieweeContextList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: IntervieweeContext[];
-    }
-
     export interface PaginatedKnowledgeGapSuggestionList {
       count: number;
       /** @nullable */
@@ -67601,15 +67554,6 @@ export namespace Schemas {
       results: LegalDocumentDTO[];
     }
 
-    export interface PaginatedLinkList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Link[];
-    }
-
     export interface PaginatedListOutputList {
       count: number;
       /** @nullable */
@@ -67617,15 +67561,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ListOutput[];
-    }
-
-    export interface PaginatedLiveDebuggerBreakpointList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: LiveDebuggerBreakpoint[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
@@ -68779,7 +68714,7 @@ export namespace Schemas {
       readonly credits_this_month: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
       readonly credits_used_against_limit: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached: boolean;
@@ -68791,8 +68726,6 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
       readonly updated_at: string;
-      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-      readonly feedback_themes: FeedbackThemes | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -68807,15 +68740,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReplayScanner[];
-    }
-
-    export interface PaginatedReplayScannerPromptSuggestionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ReplayScannerPromptSuggestion[];
     }
 
     export type RepoBaselineFilePaths = {[key: string]: string};
@@ -72803,84 +72727,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `abandoned` - Abandoned
-     * * `off-topic` - Off-topic
-     */
-    export type UserInterviewClassificationEnum = typeof UserInterviewClassificationEnum[keyof typeof UserInterviewClassificationEnum];
-
-
-    export const UserInterviewClassificationEnum = {
-      Abandoned: 'abandoned',
-      OffTopic: 'off-topic',
-    } as const;
-
-    export interface UserInterview {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /** @items.maxLength 254 */
-      interviewee_emails?: string[];
-      readonly interviewee_identifier: string;
-      /** @nullable */
-      readonly topic: string | null;
-      readonly transcript: string;
-      summary?: string;
-      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
-      classifications?: UserInterviewClassificationEnum[];
-      audio: string;
-    }
-
-    export interface PaginatedUserInterviewList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: UserInterview[];
-    }
-
-    export interface UserInterviewTopic {
-      readonly id: string;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      /**
-         * Email addresses of people to interview. May be combined with interviewee_distinct_ids.
-         * @items.maxLength 254
-         */
-      interviewee_emails?: string[];
-      /**
-         * PostHog distinct IDs of people to interview. May be combined with interviewee_emails.
-         * @items.maxLength 400
-         */
-      interviewee_distinct_ids?: string[];
-      /** The product, feature, or idea you want to ask interviewees about. */
-      topic: string;
-      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
-      agent_context?: string;
-      /** Ordered list of questions the voice agent should work through during the interview. */
-      questions?: string[];
-      /**
-         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
-         * @maxLength 255
-         */
-      invite_subject?: string;
-      /**
-         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
-         * @maxLength 1000
-         */
-      invite_message?: string;
-    }
-
-    export interface PaginatedUserInterviewTopicList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: UserInterviewTopic[];
-    }
-
-    /**
      * * `disabled` - disabled
      * * `toolbar` - toolbar
      */
@@ -75757,7 +75603,9 @@ export namespace Schemas {
 
     export interface PatchedEdge {
       readonly id?: string;
+      /** ID of the upstream node. */
       readonly source_id?: string;
+      /** ID of the downstream node. */
       readonly target_id?: string;
       dag?: string;
       readonly dag_name?: string;
@@ -77954,22 +77802,6 @@ export namespace Schemas {
       readonly installation_status?: InstallationStatusEnum | null;
     }
 
-    export interface PatchedIntervieweeContext {
-      readonly id?: string;
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      /**
-         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
-         * @maxLength 400
-         */
-      interviewee_identifier?: string;
-      /**
-         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
-         * @maxLength 10000
-         */
-      agent_context?: string;
-    }
-
     export interface PatchedJsSnippetVersion {
       /**
          * Version pin: null for latest, "1.358.0" for exact, "1" for major, "1.358" for minor
@@ -78106,54 +77938,6 @@ export namespace Schemas {
          * @maxLength 400
          */
       version_description?: string;
-    }
-
-    export interface PatchedLink {
-      readonly id?: string;
-      /**
-         * Destination the short link redirects to.
-         * @maxLength 2048
-         */
-      redirect_url?: string;
-      /**
-         * Domain the short link is hosted on. Only phog.gg is accepted.
-         * @maxLength 255
-         */
-      short_link_domain?: string;
-      /**
-         * The unique code/path that identifies the short link, e.g. 'abc123'
-         * @maxLength 255
-         */
-      short_code?: string;
-      /**
-         * Free-form note about what the link is for.
-         * @nullable
-         */
-      description?: string | null;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      /** User who created the link. Null when that user was deleted. */
-      readonly created_by?: UserBasic | null;
-      /** Folder path to file the link under in the project tree. */
-      _create_in_folder?: string;
-    }
-
-    export interface PatchedLiveDebuggerBreakpoint {
-      readonly id?: string;
-      /** @nullable */
-      repository?: string | null;
-      filename?: string;
-      /**
-         * @minimum 0
-         * @maximum 2147483647
-         */
-      line_number?: number;
-      enabled?: boolean;
-      /** @nullable */
-      condition?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedLogsAlertConfiguration {
@@ -78790,6 +78574,8 @@ export namespace Schemas {
          * @nullable
          */
       read_only_mcp_access?: boolean | null;
+      /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+      member_notice?: OrganizationMemberNotice | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -80320,7 +80106,7 @@ export namespace Schemas {
       readonly credits_this_month?: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month?: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
       readonly credits_used_against_limit?: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached?: boolean;
@@ -80332,8 +80118,6 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
-      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-      readonly feedback_themes?: FeedbackThemes | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -82727,54 +82511,6 @@ export namespace Schemas {
       custom_facets?: UserFacetSettingsEntry[];
     }
 
-    export interface PatchedUserInterview {
-      readonly id?: string;
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      /** @items.maxLength 254 */
-      interviewee_emails?: string[];
-      readonly interviewee_identifier?: string;
-      /** @nullable */
-      readonly topic?: string | null;
-      readonly transcript?: string;
-      summary?: string;
-      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
-      classifications?: UserInterviewClassificationEnum[];
-      audio?: string;
-    }
-
-    export interface PatchedUserInterviewTopic {
-      readonly id?: string;
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      /**
-         * Email addresses of people to interview. May be combined with interviewee_distinct_ids.
-         * @items.maxLength 254
-         */
-      interviewee_emails?: string[];
-      /**
-         * PostHog distinct IDs of people to interview. May be combined with interviewee_emails.
-         * @items.maxLength 400
-         */
-      interviewee_distinct_ids?: string[];
-      /** The product, feature, or idea you want to ask interviewees about. */
-      topic?: string;
-      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
-      agent_context?: string;
-      /** Ordered list of questions the voice agent should work through during the interview. */
-      questions?: string[];
-      /**
-         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
-         * @maxLength 255
-         */
-      invite_subject?: string;
-      /**
-         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
-         * @maxLength 1000
-         */
-      invite_message?: string;
-    }
-
     export interface PatchedUserProductList {
       readonly id?: string;
       readonly product_path?: string;
@@ -83910,36 +83646,6 @@ export namespace Schemas {
     export interface PreferencesLink {
       /** Token-gated URL where the recipient can manage their preferences. */
       preferences_url: string;
-    }
-
-    export interface PreviewInviteRequest {
-      /**
-         * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
-         * @maxLength 400
-         */
-      interviewee_identifier?: string;
-    }
-
-    export interface PreviewInviteResult {
-      /** The identifier (email or distinct ID) the preview was rendered for. */
-      interviewee_identifier: string;
-      /** The display name used in the email greeting, derived from the identifier. */
-      user_name: string;
-      /**
-         * The email address the invite would be sent to. Null for distinct-ID-only interviewees.
-         * @nullable
-         */
-      email: string | null;
-      /** The rendered subject line (saved topic subject, sanitized, or the default). */
-      subject: string;
-      /** The fully rendered, CSS-inlined HTML body of the invite email. Safe to display in a sandboxed iframe. */
-      html: string;
-      /** An illustrative placeholder interview link shown in the previewed email body. The preview never exposes a real per-recipient share token — that link is minted only when invites are sent. */
-      interview_url: string;
-      /** True if this interviewee has an email address and could actually receive the invite. */
-      emailable: boolean;
-      /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
-      is_preview_link: boolean;
     }
 
     export interface PreviewPathCleaningSuggestionResponse {
@@ -86932,6 +86638,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -89475,6 +89183,18 @@ export namespace Schemas {
       /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. Always false for deactivated organizations. */
       code_usage_billing_active: boolean;
     }
+
+    /**
+     * * `weighted-score` - weighted-score
+     * * `jev` - jev
+     */
+    export type RankerEnum = typeof RankerEnum[keyof typeof RankerEnum];
+
+
+    export const RankerEnum = {
+      WeightedScore: 'weighted-score',
+      Jev: 'jev',
+    } as const;
 
     export interface Rapid7InsightvmScannerFindingSignalExtra {
       severity: string | null;
@@ -92841,6 +92561,8 @@ export namespace Schemas {
       body: string;
       /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
       config?: SignalScoutConfigOptions;
+      /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
+      variant_analysis?: boolean;
     }
 
     /**
@@ -93716,6 +93438,75 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `none` - None
+     * * `emit` - Emit
+     * * `edit` - Edit
+     * * `both` - Both
+     */
+    export type ScoutRubricReportChannelEnum = typeof ScoutRubricReportChannelEnum[keyof typeof ScoutRubricReportChannelEnum];
+
+
+    export const ScoutRubricReportChannelEnum = {
+      None: 'none',
+      Emit: 'emit',
+      Edit: 'edit',
+      Both: 'both',
+    } as const;
+
+    export interface ScoutRubricReferenceTextDocument {
+      /** Path of the reference supplied to the generator. */
+      path: string;
+      /** Content type of the supplied reference. */
+      content_type: string;
+      /** Exact reference text supplied to the generator. */
+      content: string;
+    }
+
+    export interface ScoutRubricReferenceLimitsDocument {
+      /**
+         * Number of reference files not supplied.
+         * @minimum 0
+         */
+      omitted_files: number;
+      /** Reference paths whose supplied content was truncated. */
+      truncated_files: string[];
+    }
+
+    export interface ScoutRubricReferenceContextDocument {
+      /** Version of the saved reference-context format. */
+      schema_version: number;
+      /** Exact skill record used for generation. */
+      skill_id: string;
+      /** Name of the skill used for generation. */
+      skill_name: string;
+      /** Skill version used for generation. */
+      skill_version: number;
+      /** Scout description supplied to the generator. */
+      description: string;
+      /** Exact instructions supplied to the generator. */
+      instructions: string;
+      /** Whether the supplied instructions were truncated. */
+      instructions_truncated: boolean;
+      /** Report capabilities used to select the source rules.
+       *
+       * * `none` - None
+       * * `emit` - Emit
+       * * `edit` - Edit
+       * * `both` - Both */
+      report_channel: ScoutRubricReportChannelEnum;
+      /** Exact report-disposition rules supplied to the generator. */
+      report_disposition_instructions: string;
+      /** Reference-file inventory supplied to the generator. */
+      reference_files: string[];
+      /** Whether the reference-file inventory was truncated. */
+      reference_files_truncated: boolean;
+      /** Reference texts supplied to the generator. */
+      reference_texts: ScoutRubricReferenceTextDocument[];
+      /** Limits on the supplied reference texts. */
+      reference_limits: ScoutRubricReferenceLimitsDocument;
+    }
+
     export interface ScoutRubricGeneration {
       /** Identifier for this generation attempt. */
       id: string;
@@ -93757,6 +93548,8 @@ export namespace Schemas {
       suggestions: ScoutRubricCriterion[];
       /** Investigation summary and limitations. */
       summary: string;
+      /** Immutable governing source captured for this generation. */
+      readonly reference_context: ScoutRubricReferenceContextDocument | null;
     }
 
     export interface ScoutRubricDocument {
@@ -93773,6 +93566,13 @@ export namespace Schemas {
       criteria: ScoutRubricCriterion[];
       /** Latest background generation, if any. */
       generation: ScoutRubricGeneration | null;
+      /** Governing source explicitly adopted for the saved rubric. */
+      readonly reference_context: ScoutRubricReferenceContextDocument | null;
+      /**
+         * Generation whose governing source was adopted for the saved rubric.
+         * @nullable
+         */
+      readonly reference_generation_id: string | null;
     }
 
     export interface ScoutRubricGenerate {
@@ -93783,6 +93583,44 @@ export namespace Schemas {
       context?: string;
     }
 
+    export type ScoutRubricReportChannel = typeof ScoutRubricReportChannel[keyof typeof ScoutRubricReportChannel];
+
+
+    export const ScoutRubricReportChannel = {
+      None: 'none',
+      Emit: 'emit',
+      Edit: 'edit',
+      Both: 'both',
+    } as const;
+
+    export interface ScoutRubricReferenceText {
+      path: string;
+      content_type: string;
+      content: string;
+    }
+
+    export interface ScoutRubricReferenceLimits {
+      /** @minimum 0 */
+      omitted_files: number;
+      truncated_files: string[];
+    }
+
+    export interface ScoutRubricReferenceContext {
+      schema_version?: 1;
+      skill_id: string;
+      skill_name: string;
+      skill_version: number;
+      description: string;
+      instructions: string;
+      instructions_truncated: boolean;
+      report_channel: ScoutRubricReportChannel;
+      report_disposition_instructions: string;
+      reference_files: string[];
+      reference_files_truncated: boolean;
+      reference_texts: ScoutRubricReferenceText[];
+      reference_limits: ScoutRubricReferenceLimits;
+    }
+
     export interface ScoutRubricSave {
       /**
          * Revision read by the editor; stale saves return 409.
@@ -93791,6 +93629,11 @@ export namespace Schemas {
       revision: number;
       /** Complete set of criteria to save. */
       criteria: ScoutRubricCriterion[];
+      /**
+         * Use this completed generation's governing source for the whole saved rubric. Omit to keep its source.
+         * @nullable
+         */
+      adopt_generation_id?: string | null;
     }
 
     /**
@@ -93992,6 +93835,479 @@ export namespace Schemas {
       grantable_write_scopes: string[];
     }
 
+    export interface ScoutTrialComparisonVariant {
+      /** Variant identity. */
+      id: string;
+      /** Saved variant name. */
+      label: string;
+      /** Scout runs in this variant. */
+      launch_ids: string[];
+      /** Saved scout model. */
+      model: string;
+      /** Saved reasoning effort. */
+      reasoning_effort: string;
+      /** Hash of the saved scout instructions. */
+      skill_body_sha256: string;
+    }
+
+    /**
+     * * `not_started` - not_started
+     * * `starting` - starting
+     * * `running` - running
+     * * `judging` - judging
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `unknown` - unknown
+     */
+    export type ScoutTrialComparisonStatusEnum = typeof ScoutTrialComparisonStatusEnum[keyof typeof ScoutTrialComparisonStatusEnum];
+
+
+    export const ScoutTrialComparisonStatusEnum = {
+      NotStarted: 'not_started',
+      Starting: 'starting',
+      Running: 'running',
+      Judging: 'judging',
+      Completed: 'completed',
+      Failed: 'failed',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ScoutTrialEvaluationVariant {
+      /** Stable identity for this variant, independent of its display label. */
+      id: string;
+      /**
+         * Name shown in the comparison report.
+         * @maxLength 100
+         */
+      label: string;
+      /**
+         * Trial launches forming this variant's repeats.
+         * @minItems 1
+         * @maxItems 20
+         */
+      launch_ids: string[];
+    }
+
+    /**
+     * * `saved` - Saved
+     */
+    export type TrialRubricSourceEnum = typeof TrialRubricSourceEnum[keyof typeof TrialRubricSourceEnum];
+
+
+    export const TrialRubricSourceEnum = {
+      Saved: 'saved',
+    } as const;
+
+    export interface ScoutTrialEvaluationRequest {
+      /** Stable evaluation identity. Reuse for retries of this exact request. */
+      evaluation_id: string;
+      /** Variant to use as the baseline for descriptive differences. */
+      baseline_variant_id: string;
+      /** Up to 20 variant groups, each with up to 20 trial runs. */
+      variants: ScoutTrialEvaluationVariant[];
+      /** Judge every run against the scout's saved rubric, frozen when the trial starts.
+       *
+       * * `saved` - Saved */
+      rubric_source: TrialRubricSourceEnum;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `unknown` - Unknown
+     * * `not_started` - Not Started
+     */
+    export type TrialEvaluationStatusEnum = typeof TrialEvaluationStatusEnum[keyof typeof TrialEvaluationStatusEnum];
+
+
+    export const TrialEvaluationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Unknown: 'unknown',
+      NotStarted: 'not_started',
+    } as const;
+
+    export type TrialComparisonOutcomeStatusEnum = typeof TrialComparisonOutcomeStatusEnum[keyof typeof TrialComparisonOutcomeStatusEnum];
+
+
+    export const TrialComparisonOutcomeStatusEnum = {
+      Winner: 'winner',
+      Tie: 'tie',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    export interface TrialComparisonOutcome {
+      status: TrialComparisonOutcomeStatusEnum;
+      variant_ids?: string[];
+      summary: string;
+    }
+
+    export interface TrialEvaluationCriterion {
+      id: string;
+      title: string;
+      description: string;
+      pass_condition: string;
+      applicability: string;
+    }
+
+    export interface TrialCriterionAggregate {
+      criterion_id: string;
+      passed: number;
+      failed: number;
+      unknown: number;
+      not_applicable: number;
+      pass_rate: number | null;
+      coverage: number | null;
+      baseline_delta?: number | null;
+    }
+
+    export interface TrialVariantAggregate {
+      variant_id: string;
+      label: string;
+      is_baseline: boolean;
+      total_runs: number;
+      judged_runs: number;
+      excluded_runs: number;
+      judge_errors: number;
+      score: number | null;
+      coverage: number | null;
+      baseline_delta?: number | null;
+      criteria: TrialCriterionAggregate[];
+    }
+
+    export type TrialRunJudgmentStatusEnum = typeof TrialRunJudgmentStatusEnum[keyof typeof TrialRunJudgmentStatusEnum];
+
+
+    export const TrialRunJudgmentStatusEnum = {
+      Judged: 'judged',
+      Excluded: 'excluded',
+      JudgeError: 'judge_error',
+    } as const;
+
+    export type TrialCriterionVerdictVerdictEnum = typeof TrialCriterionVerdictVerdictEnum[keyof typeof TrialCriterionVerdictVerdictEnum];
+
+
+    export const TrialCriterionVerdictVerdictEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Unknown: 'unknown',
+      NotApplicable: 'not_applicable',
+    } as const;
+
+    export interface TrialCriterionEvidence {
+      /** @maxLength 100 */
+      source_id: string;
+      /**
+         * @minLength 1
+         * @maxLength 1000
+         */
+      quote: string;
+    }
+
+    export interface TrialCriterionVerdict {
+      /** @maxLength 100 */
+      criterion_id: string;
+      verdict: TrialCriterionVerdictVerdictEnum;
+      /**
+         * @minLength 1
+         * @maxLength 2000
+         */
+      reason: string;
+      confidence: ConfidenceTierEnum;
+      /** @maxItems 6 */
+      evidence: TrialCriterionEvidence[];
+    }
+
+    export interface TrialRunJudgment {
+      launch_id: string;
+      variant_id: string;
+      status: TrialRunJudgmentStatusEnum;
+      score?: number | null;
+      coverage?: number | null;
+      summary: string;
+      criteria?: TrialCriterionVerdict[];
+      error?: string | null;
+      input_tokens?: number | null;
+      output_tokens?: number | null;
+    }
+
+    export type TrialEvidenceSourceKindEnum = typeof TrialEvidenceSourceKindEnum[keyof typeof TrialEvidenceSourceKindEnum];
+
+
+    export const TrialEvidenceSourceKindEnum = {
+      Instructions: 'instructions',
+      Context: 'context',
+      Summary: 'summary',
+      Report: 'report',
+      Memory: 'memory',
+      Trace: 'trace',
+    } as const;
+
+    export interface TrialEvidenceFile {
+      /**
+         * @minLength 1
+         * @maxLength 100
+         */
+      id: string;
+      kind: TrialEvidenceSourceKindEnum;
+      /**
+         * @maxLength 120
+         * @pattern ^[a-z0-9][a-z0-9_-]*\.(txt|jsonl)$
+         */
+      filename: string;
+      /** @pattern ^[0-9a-f]{64}$ */
+      sha256: string;
+      /** @minimum 0 */
+      size_bytes: number;
+    }
+
+    export interface TrialEvidenceSource {
+      id: string;
+      kind: TrialEvidenceSourceKindEnum;
+      text: string;
+    }
+
+    export interface TrialRunEvidence {
+      launch_id: string;
+      variant_id: string;
+      run_id: string | null;
+      task_id: string | null;
+      task_run_id: string | null;
+      execution_status: string;
+      exclusion_reason?: string | null;
+      model: string;
+      runtime_adapter: RuntimeAdapterEnum;
+      service_tier?: string | null;
+      reasoning_effort: string;
+      skill_body_sha256: string;
+      input_tokens?: number | null;
+      output_tokens?: number | null;
+      files?: TrialEvidenceFile[];
+      sources?: TrialEvidenceSource[];
+      limitations?: string[];
+    }
+
+    export interface TrialComparisonReport {
+      version?: 1;
+      evaluation_id: string;
+      context_id: string;
+      created_at: string;
+      completed_at: string;
+      summary: string;
+      outcome?: TrialComparisonOutcome | null;
+      rubric_source: 'saved';
+      rubric_revision: number;
+      rubric_reference_context?: ScoutRubricReferenceContext | null;
+      rubric_reference_generation_id?: string | null;
+      criteria: TrialEvaluationCriterion[];
+      baseline_variant_id: string;
+      judge_model: string;
+      judge_prompt_version: string;
+      variants: TrialVariantAggregate[];
+      runs: TrialRunJudgment[];
+      evidence: TrialRunEvidence[];
+      limitations: string[];
+    }
+
+    export interface ScoutTrialEvaluation {
+      /** Immutable request for exact retries, including saved variant labels. */
+      request: ScoutTrialEvaluationRequest;
+      /** Stable identity for this saved evaluation. */
+      evaluation_id: string;
+      /** Starting context shared by every evaluated run. */
+      context_id: string;
+      /** Evaluation workflow status.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `unknown` - Unknown
+       * * `not_started` - Not Started */
+      status: TrialEvaluationStatusEnum;
+      /**
+         * Sanitized execution error, separate from quality verdicts.
+         * @nullable
+         */
+      error: string | null;
+      /** Saved comparison scores and their supporting evidence. */
+      report: TrialComparisonReport | null;
+    }
+
+    export interface ScoutTrialComparison {
+      /** Comparison and automatic evaluation identity. */
+      comparison_id: string;
+      /** Source scout configuration. */
+      config_id: string;
+      /** Frozen starting context shared by every run. */
+      context_id: string;
+      /** Time the comparison was saved. */
+      created_at: string;
+      /** Baseline variant identity. */
+      baseline_variant_id: string;
+      /** Reviewed rubric revision frozen before the runs started. */
+      rubric_revision: number;
+      /** Saved variant groups and runtime settings. */
+      variants: ScoutTrialComparisonVariant[];
+      /** Comparison lifecycle, including automatic judging.
+       *
+       * * `not_started` - not_started
+       * * `starting` - starting
+       * * `running` - running
+       * * `judging` - judging
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `unknown` - unknown */
+      status: ScoutTrialComparisonStatusEnum;
+      /**
+         * Sanitized comparison error, if any.
+         * @nullable
+         */
+      error: string | null;
+      /** Saved evaluation and report when available. */
+      evaluation: ScoutTrialEvaluation | null;
+    }
+
+    export interface ScoutTrialComparisonHistory {
+      /** This operator's most recent saved comparisons. */
+      results: ScoutTrialComparison[];
+      /** Whether more comparisons exist than the requested limit. */
+      has_more: boolean;
+    }
+
+    export interface ScoutTrialComparisonQuery {
+      /** Saved comparison identity. */
+      comparison_id: string;
+    }
+
+    export interface ScoutTrialComparisonVariantRequest {
+      /** Stable variant identity within this comparison. */
+      id: string;
+      /**
+         * Variant name shown in the report.
+         * @maxLength 100
+         */
+      label: string;
+      /**
+         * Stable run IDs for this variant's repeats.
+         * @minItems 1
+         * @maxItems 20
+         */
+      launch_ids: string[];
+      /**
+         * Scout model to run.
+         * @maxLength 200
+         */
+      model: string;
+      /**
+         * Reasoning effort supported by this model.
+         * @maxLength 20
+         */
+      reasoning_effort: string;
+      /**
+         * Replacement scout instructions. Omit to use the saved source instructions.
+         * @maxLength 100000
+         */
+      skill_body?: string;
+    }
+
+    export interface ScoutTrialComparisonRequest {
+      /** Stable comparison ID. Reuse for an exact request retry. */
+      comparison_id: string;
+      /** Variant used as the comparison baseline. */
+      baseline_variant_id: string;
+      /** Up to 20 variants, each with up to 20 scout runs. */
+      variants: ScoutTrialComparisonVariantRequest[];
+      /**
+         * Shared investigation note.
+         * @maxLength 1000
+         */
+      note?: string;
+      /**
+         * Source version shown in the editor. Refuse a new trial if the instructions changed since setup.
+         * @minimum 1
+         */
+      expected_skill_version?: number;
+    }
+
+    export interface ScoutTrialHistoryItem {
+      /** Launch identity for result retrieval. */
+      launch_id: string;
+      /** Saved starting context shared by comparison runs. */
+      context_id: string;
+      /** Operator label for this variant. */
+      variant: string;
+      /** Requested model identifier. */
+      model: string;
+      /** Requested reasoning effort. */
+      reasoning_effort: string;
+      /** Current underlying task execution status. */
+      status: string;
+      /** Task execution creation time. */
+      started_at: string;
+      /**
+         * Task execution completion time.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Scout run identity. */
+      run_id: string;
+      /** Task identity for existing log and cancellation tools. */
+      task_id: string;
+      /** Task execution identity for logs. */
+      task_run_id: string;
+    }
+
+    export interface ScoutTrialHistory {
+      /** Recent private runs started by this operator. */
+      results: ScoutTrialHistoryItem[];
+      /** Whether additional recent runs exceed the requested limit. */
+      has_more: boolean;
+    }
+
+    export interface ScoutTrialLaunch {
+      /** Unique launch ID. Reuse it only when retrying this exact request. */
+      launch_id: string;
+      /** Saved starting context from a previous launch in this comparison. */
+      context_id?: string;
+      /**
+         * Operator label for this variant.
+         * @maxLength 100
+         */
+      variant?: string;
+      /**
+         * Replacement skill body for this run. Supporting files and tool permissions stay pinned.
+         * @maxLength 100000
+         */
+      skill_body?: string;
+      /**
+         * Model identifier for this run.
+         * @maxLength 200
+         */
+      model?: string;
+      /**
+         * Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.
+         * @maxLength 20
+         */
+      reasoning_effort?: string;
+      /**
+         * Common investigation note, saved before applying any variant overrides.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
+    export interface ScoutTrialModelChoice {
+      /** Model identifier supported by the scout harness and this account. */
+      model: string;
+      /** Reasoning efforts supported by this model. */
+      reasoning_efforts: string[];
+    }
+
     /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
@@ -94030,6 +94346,167 @@ export namespace Schemas {
          * @nullable
          */
       created_by_run_url?: string | null;
+    }
+
+    /**
+     * Private memory replacements and deleted keys for this run.
+     */
+    export type ScoutTrialResultMemory = {[key: string]: ScratchpadEntry | null};
+
+    export type TrialReportDocument = {[key: string]: JsonValue};
+
+    export type TrialReportPayload = {[key: string]: JsonValue};
+
+    export type TrialReportEditsItem = {[key: string]: JsonValue};
+
+    export type TrialReportOperatorMetadata = {[key: string]: JsonValue};
+
+    export type TrialReportEvidenceItem = {[key: string]: JsonValue};
+
+    export type TrialReportArtefactsItem = {[key: string]: JsonValue};
+
+    export interface TrialReport {
+      id: string;
+      source_report_id?: string | null;
+      document: TrialReportDocument;
+      payload?: TrialReportPayload;
+      edits?: TrialReportEditsItem[];
+      operator_metadata?: TrialReportOperatorMetadata;
+      evidence?: TrialReportEvidenceItem[];
+      artefacts?: TrialReportArtefactsItem[];
+      content_revision_count?: number;
+      corroboration_count?: number;
+    }
+
+    export interface ScoutTrialResult {
+      /** Launch identity. */
+      launch_id: string;
+      /** Saved starting context identity. */
+      context_id: string;
+      /** Resolved model identifier. */
+      model: string;
+      /** Resolved reasoning effort. */
+      reasoning_effort: string;
+      /** Hash of the skill body delivered to this run. */
+      skill_body_sha256: string;
+      /**
+         * Private object-storage result reference, when exported.
+         * @nullable
+         */
+      result_key: string | null;
+      /**
+         * Whether the durable export needs a retry; inline results remain available.
+         * @nullable
+         */
+      export_error: string | null;
+      /**
+         * Execution start time.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * Execution completion time.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Scout run identity once the sandbox is prepared.
+         * @nullable
+         */
+      run_id: string | null;
+      /**
+         * Task identity for existing log and cancellation tools.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Task execution identity for logs and usage.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /** Execution status, or pending while the workflow prepares the run. */
+      status: string;
+      /**
+         * Underlying task status; cancel an active task if its workflow failed.
+         * @nullable
+         */
+      task_status: string | null;
+      /**
+         * Setup or workflow failure, including failures before a task was created.
+         * @nullable
+         */
+      error: string | null;
+      /** Scout close-out summary. */
+      summary: string;
+      /**
+         * Why this execution cannot be used for comparison.
+         * @nullable
+         */
+      invalid_reason: string | null;
+      /** Privately captured report creations and edits. */
+      reports: TrialReport[];
+      /** Private memory replacements and deleted keys for this run. */
+      memory: ScoutTrialResultMemory;
+      /**
+         * Attributed model cost when available; null means unknown.
+         * @nullable
+         */
+      cost_usd: number | null;
+      /**
+         * Input tokens reported by the agent runtime.
+         * @nullable
+         */
+      input_tokens: number | null;
+      /**
+         * Output tokens reported by the agent runtime.
+         * @nullable
+         */
+      output_tokens: number | null;
+    }
+
+    export interface ScoutTrialSetup {
+      /** Source scout configuration. */
+      config_id: string;
+      /** Source scout skill name. */
+      skill_name: string;
+      /** Source skill version shown in the comparison editor. */
+      skill_version: number;
+      /** Source skill body before applying variant changes. */
+      skill_body: string;
+      /** Whether deployment and source scout checks permit a comparison. */
+      ready: boolean;
+      /**
+         * Why a comparison cannot start yet.
+         * @nullable
+         */
+      blocked_reason: string | null;
+      /**
+         * Resolved source model before variant overrides.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Resolved source effort; null requires an explicit selection before launching.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+      /** Available models and their supported efforts. */
+      models: ScoutTrialModelChoice[];
+    }
+
+    export interface ScoutTrialStarted {
+      /** Retry-stable launch identity. */
+      launch_id: string;
+      /** Starting context to reuse across variants and repetitions. */
+      context_id: string;
+      /** Workflow dispatch identity. */
+      workflow_id: string;
+      /** Resolved model identifier. */
+      model: string;
+      /** Resolved reasoning effort. */
+      reasoning_effort: string;
+      /** Operator label for this variant. */
+      variant: string;
     }
 
     /**
@@ -94261,18 +94738,6 @@ export namespace Schemas {
       channel_id: string;
     }
 
-    export interface SendInvitesRequest {
-      /**
-         * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
-         * @maxLength 200
-         */
-      subject?: string;
-      /** Email address replies should go to. Defaults to the topic creator's email if blank. */
-      reply_to?: string;
-      /** If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately. */
-      send_async?: boolean;
-    }
-
     /**
      * * `positive` - positive
      * * `negative` - negative
@@ -94461,11 +94926,6 @@ export namespace Schemas {
       note?: string | null;
       readonly created_by_email: string;
       readonly is_active: boolean;
-    }
-
-    export interface SharedInterviewLink {
-      /** Public, unauthenticated URL any respondent can open to start a new interview for this topic. Backed by a topic-level SharingConfiguration access token — not tied to any specific interviewee. Each visit is a new anonymous respondent who self-identifies with a name; `distinct_id` and `session_id` query params on the URL are captured as best-effort person/session linkage. */
-      interview_url: string;
     }
 
     /**
@@ -100536,7 +100996,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -100548,7 +101008,7 @@ export namespace Schemas {
          * @maxItems 50
          */
       team_ids: number[];
-      /** Also lower organizations that are above the target mode. Once ingestion acts on mode 2, lowering an organization from 2 leaves a gap in the events table for the time it spent on 2. */
+      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
@@ -100618,7 +101078,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events, 1 and 2 read flag_evaluations. 2 also stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -101166,6 +101626,8 @@ export namespace Schemas {
       data?: unknown;
       /** Force regenerate summary, bypassing cache */
       force_refresh?: boolean;
+      /** Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title. */
+      compact_context?: boolean;
       /**
          * LLM model to use (defaults based on provider)
          * @nullable
@@ -104133,19 +104595,25 @@ export namespace Schemas {
      * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
      */
     export interface TasksTaskDefaults {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
-      start_in_plan_mode: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
-      auto_publish_cloud_runs: boolean;
+      /**
+         * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+         * @nullable
+         */
+      start_in_plan_mode: boolean | null;
+      /**
+         * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+         * @nullable
+         */
+      auto_publish_cloud_runs: boolean | null;
     }
 
     /**
      * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
      */
     export interface TasksTaskDefaultsUpdate {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
       start_in_plan_mode?: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
+      /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
       auto_publish_cloud_runs?: boolean;
     }
 
@@ -104790,13 +105258,6 @@ export namespace Schemas {
       results: TestHogTaggerResultItem[];
       /** Optional message, for example when no recent AI events were found. */
       message?: string;
-    }
-
-    export interface TestInterviewLink {
-      /** Public, unauthenticated URL the topic author opens to dogfood the voice interview themselves — does not count against the targeted interviewees. */
-      interview_url: string;
-      /** Most recent test interview completed by the topic author, or null if none yet. */
-      latest_test_interview: LatestTestInterview | null;
     }
 
     export interface TextReprMetadata {
@@ -105577,70 +106038,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `transcript` - transcript
-     * * `summary` - summary
-     */
-    export type UserInterviewSearchDocumentTypeEnum = typeof UserInterviewSearchDocumentTypeEnum[keyof typeof UserInterviewSearchDocumentTypeEnum];
-
-
-    export const UserInterviewSearchDocumentTypeEnum = {
-      Transcript: 'transcript',
-      Summary: 'summary',
-    } as const;
-
-    export interface UserInterviewSearchRequest {
-      /**
-         * Natural-language query to match semantically against interview transcripts and summaries.
-         * @maxLength 2000
-         */
-      query: string;
-      /**
-         * Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.
-         * @minItems 1
-         */
-      document_types?: UserInterviewSearchDocumentTypeEnum[];
-      /**
-         * Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.
-         * @nullable
-         */
-      topic_id?: string | null;
-      /**
-         * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
-         * @minItems 1
-         */
-      classifications?: UserInterviewClassificationEnum[];
-      /**
-         * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
-         * @minimum 1
-         * @maximum 50
-         */
-      limit?: number;
-    }
-
-    export interface UserInterviewSearchResult {
-      /** ID of the matched UserInterview. */
-      interview_id: string;
-      /** Which document type matched — `transcript` is the raw conversation, `summary` is the AI-generated abstract.
-       *
-       * * `transcript` - transcript
-       * * `summary` - summary */
-      document_type: UserInterviewSearchDocumentTypeEnum;
-      /** Cosine similarity in [0, 1]; higher is closer to the query. Computed as `1 - cosineDistance`. */
-      similarity: number;
-      /** Excerpt of the matched document (first 500 characters). */
-      content_snippet: string;
-      /** Email or PostHog distinct ID of the interviewee. */
-      interviewee_identifier: string;
-      /**
-         * ID of the UserInterviewTopic the interview was conducted for, or null if detached.
-         * @nullable
-         */
-      topic_id: string | null;
-      /** When the interview row was created. */
-      created_at: string;
-    }
-
-    /**
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web
@@ -105862,7 +106259,7 @@ export namespace Schemas {
     } as const;
 
     export interface ValidationWarning {
-      /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+      /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population, or each scoring run scores a rolling part of it: users never scored first, then users whose last score was oldest. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
       code: string;
       /** Human-readable warning description. */
       message: string;
@@ -105875,7 +106272,7 @@ export namespace Schemas {
     }
 
     export interface ValidatePipelineResponse {
-      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
+      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
       can_proceed: boolean;
       /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
       requires_acknowledgement: boolean;
@@ -106178,7 +106575,7 @@ export namespace Schemas {
       readonly credits_used: number;
       /** Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these. */
       readonly credits_settled: number;
-      /** Credits held by in-flight observations and running prompt tests across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
+      /** Credits held by in-flight observations across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
       readonly credits_reserved: number;
       /**
          * `credit_limit - credits_used`, floored at 0. Null when uncapped.
@@ -106579,6 +106976,11 @@ export namespace Schemas {
     export interface WatchFeedResponse {
       /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
       results: WatchFeedItem[];
+      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+       *
+       * * `weighted-score` - weighted-score
+       * * `jev` - jev */
+      ranker: RankerEnum;
     }
 
     export interface WebAnalyticsBotCondition {
@@ -110817,6 +111219,26 @@ export namespace Schemas {
       Ndjson: 'ndjson',
     } as const;
 
+    export type InternalFeedbackCreateBody = {
+      /**
+         * What the person wants to tell the developers.
+         * @maxLength 4000
+         */
+      comment: string;
+      /**
+         * URL of the page the feedback is about.
+         * @maxLength 2000
+         */
+      page_url: string;
+      /**
+         * CSS selector of the element the person selected. Empty for feedback about the whole page.
+         * @maxLength 1000
+         */
+      element_identifier?: string;
+      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+      screenshot?: Blob;
+    };
+
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
@@ -112909,6 +113331,15 @@ export namespace Schemas {
      * Maximum number of prior runs to return (default 5, at most 20).
      * @minimum 1
      * @maximum 20
+     */
+    limit?: number;
+    };
+
+    export type AutoresearchOnlinePerformanceRetrieveParams = {
+    /**
+     * Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.
+     * @minimum 1
+     * @maximum 180
      */
     limit?: number;
     };
@@ -119184,60 +119615,6 @@ export namespace Schemas {
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
 
-    export type LinksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LiveDebuggerBreakpointsListParams = {
-    filename?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    repository?: string;
-    };
-
-    export type LiveDebuggerBreakpointsActiveRetrieveParams = {
-    /**
-     * Only return enabled breakpoints
-     */
-    enabled?: boolean;
-    /**
-     * Filter breakpoints for a specific file
-     */
-    filename?: string;
-    /**
-     * Filter breakpoints for a specific repository (e.g., 'PostHog/posthog')
-     */
-    repository?: string;
-    };
-
-    export type LiveDebuggerBreakpointsBreakpointHitsRetrieveParams = {
-    /**
-     * Filter hits for specific breakpoints (repeat parameter for multiple IDs, e.g., ?breakpoint_ids=uuid1&breakpoint_ids=uuid2)
-     */
-    breakpoint_ids?: string;
-    /**
-     * Number of hits to return (default: 100, max: 1000)
-     */
-    limit?: number;
-    /**
-     * Pagination offset for retrieving additional results (default: 0)
-     */
-    offset?: number;
-    };
-
     export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -121874,6 +122251,52 @@ export namespace Schemas {
     tags?: string;
     };
 
+    export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type SignalsScoutConfigTrialComparisonRetrieveParams = {
+    /**
+     * Saved comparison identity.
+     */
+    comparison_id: string;
+    };
+
+    export type SignalsScoutConfigTrialEvaluationRetrieveParams = {
+    /**
+     * Saved evaluation identity to inspect without starting a judge.
+     */
+    evaluation_id: string;
+    };
+
+    export type SignalsScoutConfigTrialHistoryParams = {
+    /**
+     * Maximum number of recent private runs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type SignalsScoutConfigTrialResultParams = {
+    /**
+     * Launch identity returned by the trial action.
+     */
+    launch_id: string;
+    };
+
+    export type SignalsScoutConfigTrialSetupParams = {
+    /**
+     * Saved comparison context to inspect instead of the current source skill.
+     */
+    context_id?: string;
+    };
+
     export type SignalsScoutConfigSyncParams = {
     /**
      * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.
@@ -123207,48 +123630,6 @@ export namespace Schemas {
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
 
-    export type UserInterviewTopicsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type UserInterviewTopicsIntervieweesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type UserInterviewsListParams = {
-    /**
-     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
-     */
-    classifications?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    topic?: string;
-    };
-
     export type UserProductListListParams = {
     /**
      * Number of results to return per page.
@@ -123371,6 +123752,10 @@ export namespace Schemas {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -123594,6 +123979,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123649,6 +124038,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123703,6 +124096,10 @@ export namespace Schemas {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -123767,20 +124164,13 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
-    };
-
-    export type VisionScannersPromptSuggestionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {

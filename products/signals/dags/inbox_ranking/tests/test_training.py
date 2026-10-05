@@ -47,10 +47,12 @@ from products.signals.backend.ranking.model_contract import (
     readable_head_names,
     trained_head_files,
 )
+from products.signals.backend.ranking.overrides import PromotionOverride, RankingOverrides
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
     DEFAULT_MODEL_KIND,
+    PINNED_ROLE,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
@@ -76,6 +78,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     _EXTRA_SNAPSHOT_TABLES,
     METADATA_FILE,
     _delete_other_objects,
+    _pinned_models,
     _publish_manifest,
     _train_candidate,
     candidate_metadata,
@@ -118,6 +121,8 @@ from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
     PromotionDecision,
+    PromotionOutcome,
+    apply_promotion_override,
     decide_promotion,
 )
 from products.signals.dags.inbox_ranking.training.served import served_events, served_metadata, served_score_rows
@@ -138,7 +143,12 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     unseen_report_graded_events,
     unseen_score_events,
 )
-from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_grade, train_head
+from products.signals.dags.inbox_ranking.training.train import (
+    HoldoutGrade,
+    _head_readable,
+    booster_holdout_grade,
+    train_head,
+)
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
@@ -1378,10 +1388,31 @@ class _ModelStoreS3:
     def __init__(self, objects: dict[str, bytes]):
         self.objects = objects
 
+    def head_object(self, *, Bucket, Key):
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        return {"ContentLength": len(self.objects[Key])}
+
     def get_object(self, *, Bucket, Key):
         if Key not in self.objects:
             raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
         return {"Body": io.BytesIO(self.objects[Key])}
+
+
+class _DeniedPrefixS3(_ModelStoreS3):
+    def __init__(self, objects: dict[str, bytes], *, denied_prefix: str):
+        super().__init__(objects)
+        self.denied_prefix = denied_prefix
+
+    def head_object(self, *, Bucket, Key):
+        if Key.startswith(self.denied_prefix):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "HeadObject")
+        return super().head_object(Bucket=Bucket, Key=Key)
+
+    def get_object(self, *, Bucket, Key):
+        if Key.startswith(self.denied_prefix):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")
+        return super().get_object(Bucket=Bucket, Key=Key)
 
 
 def test_load_unseen_models_skips_a_family_with_nothing_to_score_that_day(monkeypatch):
@@ -1500,6 +1531,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
                     birth_day_positives=1,
                     example_window_start=datetime.date(2026, 7, 1),
                     example_cap_bound=True,
+                    pairs_skipped_missing_label_columns=0,
                 )
             },
         ),
@@ -1507,7 +1539,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             partition_key="2026-08-25",
             run_id="run-1",
             model_name=TABULAR_MODEL_NAME,
-            decision=PromotionDecision(promote=True, reason="no champion yet"),
+            decision=PromotionDecision(promote=True, reason="no champion yet", skipped_heads=("discuss",)),
+            outcome=PromotionOutcome(promote=True, override=None),
             promoted=False,
             champion_version="none",
             incumbent_champion_version="none",
@@ -1588,6 +1621,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "would_promote": True,
         "promoted": False,
         "incumbent_champion_version": "none",
+        "skipped_heads": ["discuss"],
         "champion_open_auc_on_this_holdout": 0.6,
         "champion_open_ece_on_this_holdout": 0.05,
     }.items() <= promotion_props.items()
@@ -1728,8 +1762,69 @@ def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
     champion = {**_metadata("d1", open=0.60), "promoted_at": "2026-08-10T00:00:00+00:00"}
     assert decide_promotion(candidate, champion, now=NOW, min_days_between=3).promote
     # Paired on this holdout the champion is stronger than its stored number said.
-    paired = decide_promotion(candidate, champion, now=NOW, min_days_between=3, champion_aucs={"open": 0.75})
+    paired = decide_promotion(
+        candidate, champion, now=NOW, min_days_between=3, champion_grades={"open": _grade(auc=0.75, positives=50)}
+    )
     assert not paired.promote and "regressed" in paired.reason
+
+
+def _grade(*, auc: float | None, positives: int, ece: float | None = None) -> HoldoutGrade:
+    return HoldoutGrade(auc=auc, expected_calibration_error=ece, positives=positives)
+
+
+def _head(name: str, auc: float, *, readable: bool) -> dict:
+    return {"head": name, "holdout_auc": auc, "readable": readable}
+
+
+@pytest.mark.parametrize(
+    "candidate_heads,discuss_grade,expected_promote,reason_fragment,expected_skipped",
+    [
+        # The shared holdout is too thin to read discuss on either model: no evidence, not a regression.
+        (
+            [_head("open", 0.70, readable=True), _head("discuss", 0.77, readable=False)],
+            _grade(auc=0.70, positives=26),
+            True,
+            "skipped: discuss",
+            ("discuss",),
+        ),
+        # A thin holdout must not hide a head the candidate lost.
+        ([_head("open", 0.70, readable=True)], _grade(auc=0.70, positives=0), False, "discuss not trained", ()),
+        # Enough positives, the candidate sits inside its null and well under the champion: its numbers fail it.
+        (
+            [_head("open", 0.70, readable=True), _head("discuss", 0.55, readable=False)],
+            _grade(auc=0.70, positives=40),
+            False,
+            "discuss regressed",
+            (),
+        ),
+        (
+            [_head("open", 0.70, readable=True), _head("discuss", 0.71, readable=True)],
+            _grade(auc=0.70, positives=40),
+            True,
+            "every readable head",
+            (),
+        ),
+    ],
+    ids=["thin_holdout_skipped", "head_not_trained", "unreadable_regressed", "both_readable"],
+)
+def test_decide_promotion_skips_heads_the_shared_holdout_cannot_read(
+    candidate_heads, discuss_grade, expected_promote, reason_fragment, expected_skipped
+):
+    candidate = {"model_version": "d2", "heads": candidate_heads}
+    champion = {**_metadata("d1", open=0.70, discuss=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
+
+    decision = decide_promotion(
+        candidate,
+        champion,
+        now=NOW,
+        min_days_between=3,
+        champion_grades={"open": _grade(auc=0.70, positives=60), "discuss": discuss_grade},
+        min_holdout_positives={"open": 50, "discuss": 30},
+    )
+
+    assert decision.promote is expected_promote
+    assert reason_fragment in decision.reason
+    assert decision.skipped_heads == expected_skipped
 
 
 @pytest.mark.parametrize(
@@ -1748,12 +1843,137 @@ def test_decide_promotion_refuses_a_worse_calibrated_candidate(candidate_ece, ch
     candidate["heads"][0]["holdout_expected_calibration_error"] = candidate_ece
     champion = {**_metadata("d1", open=0.66), "promoted_at": "2026-08-10T00:00:00+00:00"}
 
-    decision = decide_promotion(
-        candidate, champion, now=NOW, min_days_between=3, champion_aucs={"open": 0.66}, champion_eces=champion_eces
-    )
+    grade = _grade(auc=0.66, ece=(champion_eces or {}).get("open"), positives=50)
+    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3, champion_grades={"open": grade})
 
     assert decision.promote is expected_promote
     assert expected_promote or "open calibration regressed" in decision.reason
+
+
+_RECENT_CHAMPION = {**_metadata("d1", open=0.70), "promoted_at": "2026-08-19T00:00:00+00:00"}
+
+
+@pytest.mark.parametrize(
+    "gate,candidate,champion,grades,expected_reason",
+    [
+        ("min_days", _metadata("d2", open=0.70), _RECENT_CHAMPION, {}, "less than 3d ago"),
+        (
+            "ece",
+            {
+                "model_version": "d2",
+                "heads": [{**_head("open", 0.70, readable=True), "holdout_expected_calibration_error": 0.3}],
+            },
+            {**_metadata("d1", open=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            {"open": _grade(auc=0.70, ece=0.05, positives=60)},
+            "open calibration regressed",
+        ),
+        (
+            "min_holdout_positives",
+            {
+                "model_version": "d2",
+                "heads": [
+                    _head("open", 0.70, readable=True),
+                    {**_head("discuss", 0.60, readable=False), "holdout_positives": 4},
+                ],
+            },
+            {**_metadata("d1", open=0.70, discuss=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            {},
+            "discuss readable on champion but not on candidate",
+        ),
+    ],
+)
+def test_a_skipped_gate_waives_only_that_check(gate, candidate, champion, grades, expected_reason):
+    kwargs = {
+        "now": NOW,
+        "min_days_between": 3,
+        "champion_grades": grades,
+        "min_holdout_positives": {"open": 50, "discuss": 30},
+    }
+    refused = decide_promotion(candidate, champion, **kwargs)
+    assert not refused.promote and expected_reason in refused.reason
+
+    assert decide_promotion(candidate, champion, **kwargs, skip_gates={gate}).promote
+    other_gates = {"min_days", "ece", "min_holdout_positives"} - {gate}
+    assert not decide_promotion(candidate, champion, **kwargs, skip_gates=other_gates).promote
+
+
+def test_a_waived_holdout_floor_still_blocks_a_head_the_candidate_lost():
+    candidate = _metadata("d2", open=0.70)
+    champion = {**_metadata("d1", open=0.70, action=0.65), "promoted_at": "2026-08-10T00:00:00+00:00"}
+
+    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3, skip_gates={"min_holdout_positives"})
+
+    assert not decision.promote
+
+
+_REFUSED = PromotionDecision(promote=False, reason="open regressed: 0.600 vs champion 0.700")
+_PROMOTED = PromotionDecision(promote=True, reason="candidate at or above champion on every readable head")
+_OLDER_CHAMPION = {**_metadata("2026-08-10", open=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
+
+
+@pytest.mark.parametrize(
+    "decision,candidate,override,expected",
+    [
+        (
+            _PROMOTED,
+            _metadata("2026-08-19", open=0.70),
+            PromotionOverride(),
+            PromotionOutcome(promote=True, override=None),
+        ),
+        (
+            _PROMOTED,
+            _metadata("2026-08-19", open=0.70),
+            PromotionOverride(freeze=True),
+            PromotionOutcome(promote=False, override="frozen"),
+        ),
+        (
+            _REFUSED,
+            _metadata("2026-08-19", open=0.60),
+            PromotionOverride(force=True),
+            PromotionOutcome(promote=True, override="forced"),
+        ),
+        # Force never moves the pointer backwards, or onto a model with nothing readable.
+        (
+            _REFUSED,
+            _metadata("2026-08-10", open=0.90),
+            PromotionOverride(force=True),
+            PromotionOutcome(promote=False, override=None),
+        ),
+        (
+            _REFUSED,
+            _metadata("2026-08-19", open=None),
+            PromotionOverride(force=True),
+            PromotionOutcome(promote=False, override=None),
+        ),
+        (
+            _REFUSED,
+            _metadata("2026-08-19", open=0.60),
+            PromotionOverride(skip_gates=frozenset({"ece"})),
+            PromotionOutcome(promote=False, override="skipped_gates"),
+        ),
+    ],
+    ids=["none", "freeze", "force", "force_not_newer", "force_unreadable", "skip_gates"],
+)
+def test_apply_promotion_override(decision, candidate, override, expected):
+    assert apply_promotion_override(decision, candidate, _OLDER_CHAMPION, override) == expected
+
+
+def test_a_forced_promotion_records_the_reason_the_rule_refused_it():
+    event = promotion_event(
+        partition_key="2026-08-19",
+        run_id="run-1",
+        model_name=EMBEDDINGS_MODEL_NAME,
+        decision=_REFUSED,
+        outcome=PromotionOutcome(promote=True, override="forced"),
+        promoted=True,
+        champion_version="2026-08-19",
+        incumbent_champion_version="2026-08-10",
+        champion_aucs={},
+        champion_eces={},
+    )
+    assert {"would_promote": False, "promoted": True, "reason": _REFUSED.reason, "override": "forced"}.items() <= (
+        event.properties.items()
+    )
 
 
 class _FakeS3:
@@ -2614,6 +2834,39 @@ def test_the_cap_drops_cross_family_entries_before_the_paired_read():
     ]
 
 
+def test_a_pinned_model_is_kept_and_capped_before_the_paired_read():
+    families = [
+        FamilyModels(
+            name=EMBEDDINGS_MODEL_NAME,
+            candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
+            champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        ),
+        FamilyModels(
+            name=TABULAR_MODEL_NAME, candidate=None, champion=_serving_metadata(TABULAR_MODEL_NAME, "2026-08-10")
+        ),
+    ]
+    pinned = [_serving_metadata(EMBEDDINGS_MODEL_NAME, f"2026-08-0{day}", readable=False) for day in range(1, 5)]
+    # A pin of a model the manifest already names gains no second entry.
+    pinned.append(_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
+
+    decision = compose_manifest(
+        families,
+        served_family=EMBEDDINGS_MODEL_NAME,
+        prefix="inbox_ranking",
+        now=datetime.datetime(2026, 8, 19, 6, tzinfo=datetime.UTC),
+        pinned=pinned,
+    )
+
+    assert decision.manifest is not None
+    assert [(entry.roles[0], entry.model_version) for entry in decision.manifest.models] == [
+        (SERVED_ROLE, "2026-08-15"),
+        (DAILY_CANDIDATE_ROLE, "2026-08-19"),
+        (PINNED_ROLE, "2026-08-01"),
+        (PINNED_ROLE, "2026-08-02"),
+        (PINNED_ROLE, "2026-08-03"),
+    ]
+
+
 def test_a_model_published_before_model_kind_existed_reads_as_xgboost():
     # Every champion promoted so far was written without the field; reading it as missing would
     # leave the model store with nothing to dispatch on.
@@ -2669,6 +2922,7 @@ def _run_serving_manifest(
     store: _AppObjectStore,
     dataset_objects: dict[str, bytes] | None = None,
     mirror: _AppObjectStore | None = None,
+    dataset_client: _ModelStoreS3 | None = None,
 ) -> _FakeClient:
     partition_key = "2026-08-19"
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
@@ -2678,7 +2932,7 @@ def _run_serving_manifest(
         "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
         (ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),),
     )
-    client = (
+    client = dataset_client or (
         _ModelStoreS3(dataset_objects) if dataset_objects is not None else _serving_dataset_s3(prefix, partition_key)
     )
     monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: client)
@@ -2791,6 +3045,45 @@ def test_no_manifest_is_written_when_the_served_family_has_no_champion(monkeypat
         },
     )
     assert store.objects == {}
+
+
+def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    client = _serving_dataset_s3(prefix, "2026-08-19")
+    pin_version = "2026-08-01"
+    pin_metadata = {
+        **_serving_metadata(EMBEDDINGS_MODEL_NAME, pin_version, heads=("open",)),
+        "feature_set": REPORT_EMBEDDINGS_FEATURE_SET.name,
+        "feature_schema_version": REPORT_EMBEDDINGS_FEATURE_SET.schema_version,
+        "feature_names": list(REPORT_EMBEDDINGS_FEATURE_SET.feature_names),
+    }
+    # The metadata is there, but the booster is not, so a copy of this pin would fail the publish.
+    client.objects[model_object_key(prefix, EMBEDDINGS_MODEL_NAME, pin_version, METADATA_FILE)] = json.dumps(
+        pin_metadata
+    ).encode()
+    missing_key = model_key(EMBEDDINGS_MODEL_NAME, pin_version)
+    absent_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-07-01")
+    denied_key = model_key(EMBEDDINGS_MODEL_NAME, "2026-06-01")
+    pins = (missing_key, absent_key, denied_key)
+    monkeypatch.setattr(
+        "products.signals.dags.inbox_ranking.training.dag.read_ranking_overrides",
+        lambda now: RankingOverrides(pin=pins),
+    )
+    denied_client = _DeniedPrefixS3(
+        client.objects, denied_prefix=model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-06-01", "")
+    )
+    store = _AppObjectStore()
+
+    _run_serving_manifest(monkeypatch, store, dataset_client=denied_client)
+
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert not set(pins) & {entry.key for entry in manifest.models}
+    assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
+    _, dropped = _pinned_models(denied_client, "bucket", prefix, pins)
+    assert dropped.keys() == set(pins)
+    assert "missing boosters" in dropped[missing_key]
+    assert METADATA_FILE in dropped[absent_key]
+    assert "AccessDenied" in dropped[denied_key]
 
 
 def test_the_serving_prefix_layout_is_stable():

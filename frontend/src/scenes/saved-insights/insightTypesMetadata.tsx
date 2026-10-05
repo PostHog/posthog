@@ -21,7 +21,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import {
     IconAction,
-    IconBracketsChart,
+    IconSQL,
     IconInsightCalendarHeatmap,
     IconInsightFunnels,
     IconInsightLifecycle,
@@ -234,7 +234,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.DataVisualizationNode]: {
         name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: false,
     },
     [NodeKind.SavedInsightNode]: {
@@ -258,25 +258,25 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'SQL',
         description: 'Direct SQL query.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
     },
     [NodeKind.HogQLMetadata]: {
         name: 'SQL Metadata',
         description: 'Metadata for a SQL query.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
     },
     [NodeKind.HogQLAutocomplete]: {
         name: 'SQL Autocomplete',
         description: 'Autocomplete for the SQL query editor.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: false,
     },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
     },
     [NodeKind.WebOverviewQuery]: {
@@ -743,7 +743,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',
-        icon: IconBracketsChart,
+        icon: IconSQL,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },

@@ -927,41 +927,6 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
- */
-export const VisionScannersPromptSuggestionsApplyCreateBody = /* @__PURE__ */ zod.object({
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged."
-        ),
-})
-
-/**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
- */
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 100
-
-export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */ zod.object({
-    session_limit: zod
-        .number()
-        .min(1)
-        .max(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax)
-        .default(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault)
-        .describe(
-            'How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.'
-        ),
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config."
-        ),
-})
-
-/**
  * Create a scout that watches this scanner, recorded as belonging to it.
  */
 export const visionScannersScoutsCreateBodyDisplayNameMax = 200
@@ -996,6 +961,8 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
+
+export const visionScannersScoutsCreateBodyVariantAnalysisDefault = false
 
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1178,6 +1145,12 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
+            ),
+        variant_analysis: zod
+            .boolean()
+            .default(visionScannersScoutsCreateBodyVariantAnalysisDefault)
+            .describe(
+                "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
             ),
     })
     .describe(

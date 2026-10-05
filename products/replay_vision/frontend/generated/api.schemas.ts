@@ -629,6 +629,12 @@ export const ScannerTypeEnumApi = {
 } as const
 
 /**
+ * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+ * @nullable
+ */
+export type ScannerSnapshotApiVariantSamplingRates = { [key: string]: number } | null
+
+/**
  * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
  */
 export interface ScannerSnapshotApi {
@@ -652,27 +658,11 @@ export interface ScannerSnapshotApi {
     emits_signals: boolean
     /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
     scanner_config: unknown
-    /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
-    verify_positives: string
-}
-
-/**
- * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
- */
-export interface VerificationRecordApi {
-    /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
-    mode: string
-    /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
-    draws: string[]
-    /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
-    resolved_verdict: string
-    /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
-    served_verdict: string
     /**
-     * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
+     * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
      * @nullable
      */
-    skipped_reason: string | null
+    variant_sampling_rates?: ScannerSnapshotApiVariantSamplingRates
 }
 
 /**
@@ -686,8 +676,6 @@ export interface ScannerResultApi {
      * @minimum 0
      */
     signals_count: number
-    /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
-    verification: VerificationRecordApi | null
     /**
      * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
      * @nullable
@@ -791,7 +779,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -941,7 +929,7 @@ export interface VisionQuotaApi {
     readonly credits_used: number
     /** Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these. */
     readonly credits_settled: number
-    /** Credits held by in-flight observations and running prompt tests across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
+    /** Credits held by in-flight observations across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
     readonly credits_reserved: number
     /**
      * `credit_limit - credits_used`, floored at 0. Null when uncapped.
@@ -1046,33 +1034,6 @@ export interface ScannerExperimentTargetingApi {
      * @nullable
      */
     variant?: string | null
-}
-
-export interface FeedbackThemeSessionApi {
-    /** Observation whose feedback comment backs this theme. */
-    observation_id: string
-    /** Session recording the feedback comment was about. */
-    session_id: string
-}
-
-export interface FeedbackThemeApi {
-    /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
-    theme: string
-    /** How many feedback comments describe this failure mode. */
-    count: number
-    /** Up to two short representative quotes from the feedback comments. */
-    examples: string[]
-    /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
-    sessions: FeedbackThemeSessionApi[]
-}
-
-export interface FeedbackThemesApi {
-    /** Recurring failure modes, most frequent first. */
-    themes: FeedbackThemeApi[]
-    /** Number of thumbs-down feedback comments the summary was generated from. */
-    feedback_count: number
-    /** When the summary was generated. */
-    generated_at: string
 }
 
 /**
@@ -1180,7 +1141,7 @@ export interface ReplayScannerApi {
     readonly credits_this_month: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month: number
-    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
     readonly credits_used_against_limit: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached: boolean
@@ -1192,8 +1153,6 @@ export interface ReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
     readonly updated_at: string
-    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-    readonly feedback_themes: FeedbackThemesApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1315,7 +1274,7 @@ export interface PatchedReplayScannerApi {
     readonly credits_this_month?: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month?: number
-    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
     readonly credits_used_against_limit?: number
     /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
     readonly limit_reached?: boolean
@@ -1327,8 +1286,6 @@ export interface PatchedReplayScannerApi {
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null
     readonly updated_at?: string
-    /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-    readonly feedback_themes?: FeedbackThemesApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1800,158 +1757,6 @@ export interface ObservationStatsApi {
 }
 
 /**
- * * `pending` - Pending
- * * `applied` - Applied
- * * `dismissed` - Dismissed
- * * `superseded` - Superseded
- * * `no_change` - No change
- */
-export type PromptSuggestionStatusEnumApi =
-    (typeof PromptSuggestionStatusEnumApi)[keyof typeof PromptSuggestionStatusEnumApi]
-
-export const PromptSuggestionStatusEnumApi = {
-    Pending: 'pending',
-    Applied: 'applied',
-    Dismissed: 'dismissed',
-    Superseded: 'superseded',
-    NoChange: 'no_change',
-} as const
-
-export interface PromptEvaluationResultApi {
-    /** The rated session that was re-run with the suggested prompt. */
-    session_id: string
-    /** The original rated observation the comparison is against. */
-    observation_id: string
-    /** The team's rating of the original output (thumbs up = true). */
-    rated_correct: boolean
-    /**
-     * The original output's primary outcome.
-     * @nullable
-     */
-    before: string | null
-    /**
-     * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
-     * @nullable
-     */
-    after: string | null
-    /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
-    outcome: string
-    /**
-     * Why this session's re-run failed, when it did.
-     * @nullable
-     */
-    error: string | null
-}
-
-export interface PromptEvaluationSummaryApi {
-    /** Thumbs-up sessions whose output is unchanged. */
-    kept: number
-    /** Thumbs-up sessions whose output changed. */
-    regressed: number
-    /** Thumbs-down sessions whose output changed. */
-    fixed: number
-    /** Thumbs-down sessions whose output is unchanged. */
-    still_wrong: number
-    /** Sessions whose re-run failed. */
-    errors: number
-}
-
-export interface PromptSuggestionEvaluationApi {
-    /** running, succeeded, or failed. */
-    status: string
-    /** When the evaluation started. */
-    started_at: string
-    /**
-     * When the evaluation finished, if it has.
-     * @nullable
-     */
-    finished_at: string | null
-    /** How many rated sessions are being re-run. */
-    total: number
-    /** The rated set the evaluation ran against. */
-    labels_fingerprint: string
-    /** Per-session outcomes, in completion order. */
-    results: PromptEvaluationResultApi[]
-    /** Outcome counts. Null while the evaluation is running. */
-    summary: PromptEvaluationSummaryApi | null
-}
-
-export interface ReplayScannerPromptSuggestionApi {
-    readonly id: string
-    /** pending (current), applied, dismissed, or superseded by a newer suggestion.
-     *
-     * * `pending` - Pending
-     * * `applied` - Applied
-     * * `dismissed` - Dismissed
-     * * `superseded` - Superseded
-     * * `no_change` - No change */
-    readonly status: PromptSuggestionStatusEnumApi
-    /** The full rewritten prompt, ready to apply to the scanner. */
-    readonly suggested_prompt: string
-    /** The scanner prompt this suggestion was generated against, for diffing. */
-    readonly base_prompt: string
-    /** The scanner config this suggestion was generated against. */
-    readonly base_config: unknown
-    /** The full proposed scanner config, ready to apply. */
-    readonly suggested_config: unknown
-    /** Typed per-field diff entries driving the change cards. */
-    readonly changes: unknown
-    /** What the rewrite changed and why, grounded in the ratings. */
-    readonly rationale: string
-    /** Thumbs-up ratings the suggestion was based on. */
-    readonly based_on_up: number
-    /** Thumbs-down ratings the suggestion was based on. */
-    readonly based_on_down: number
-    /** The scanner version whose prompt this suggestion was generated against. */
-    readonly scanner_version: number
-    readonly created_at: string
-    /** User who requested this suggestion; null for automatic refreshes. */
-    readonly created_by: UserBasicApi | null
-    /** @nullable */
-    readonly applied_at: string | null
-    /** User who applied this suggestion to the scanner; null unless applied. */
-    readonly applied_by: UserBasicApi | null
-    /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
-    readonly evaluation: PromptSuggestionEvaluationApi | null
-}
-
-export interface PaginatedReplayScannerPromptSuggestionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ReplayScannerPromptSuggestionApi[]
-}
-
-export interface ApplyPromptSuggestionRequestApi {
-    /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
-    config?: unknown
-}
-
-export interface EvaluatePromptSuggestionRequestApi {
-    /**
-     * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
-     * @minimum 1
-     * @maximum 100
-     */
-    session_limit?: number
-    /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
-    config?: unknown
-}
-
-export interface CurrentPromptSuggestionApi {
-    /** The newest suggestion for this scanner, or null when none has been generated yet. */
-    suggestion: ReplayScannerPromptSuggestionApi | null
-    /** True when the team's ratings changed since the newest suggestion was generated. */
-    stale: boolean
-    /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
-    rated_count: number
-    /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
-    evaluation_session_cap: number
-}
-
-/**
  * * `small` - small
  * * `medium` - medium
  * * `large` - large
@@ -2158,6 +1963,8 @@ export interface ScannerScoutCreateApi {
     body: string
     /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
     config?: SignalScoutConfigOptionsApi
+    /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
+    variant_analysis?: boolean
 }
 
 /**
@@ -2396,6 +2203,143 @@ export interface ScannerScoutCreateResponseApi {
     created: boolean
     /** The scout's config, including the source recorded for it. */
     config: SignalScoutConfigApi
+}
+
+export interface VariantsExperimentApi {
+    /** The experiment's id. */
+    id: number
+    /** The experiment's name. */
+    name: string
+    /** draft, running, paused, exposure_frozen, or stopped. */
+    status: string
+    /**
+     * When the experiment launched.
+     * @nullable
+     */
+    start_date: string | null
+    /**
+     * When the experiment ended; null while it runs.
+     * @nullable
+     */
+    end_date: string | null
+    /**
+     * The experiment's recommended running time in days, when one was set.
+     * @nullable
+     */
+    planned_duration_days: number | null
+    /**
+     * The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.
+     * @nullable
+     */
+    current_day: number | null
+}
+
+export interface VariantsWindowApi {
+    /** Succeeded observations of this scanner, attributed to a variant or not. */
+    total_observations: number
+    /**
+     * When the earliest of those observations completed.
+     * @nullable
+     */
+    first_observation_at: string | null
+    /**
+     * When the latest of those observations completed.
+     * @nullable
+     */
+    last_observation_at: string | null
+}
+
+export interface VariantAnalysisLineApi {
+    /** A short label for the theme, shared across variants. */
+    theme: string
+    /** How the theme shows up for this variant. */
+    statement: string
+    /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
+    count: number
+    /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
+    example_observation_ids: string[]
+}
+
+export interface VariantReadoutApi {
+    /** The variant key. */
+    key: string
+    /** Succeeded observations attributed to this variant. */
+    observations: number
+    /** Distinct people (by distinct id) behind those observations. */
+    distinct_people: number
+    /**
+     * Median scanned session length in seconds; null with no observations.
+     * @nullable
+     */
+    median_session_duration_s: number | null
+    /**
+     * The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /**
+     * Summaries of this variant the analysis read: the denominator of its digest and difference counts. Null without a current analysis.
+     * @nullable
+     */
+    analysis_observations: number | null
+    /**
+     * This variant's most notable themes from the variant analysis. Null without a current analysis.
+     * @nullable
+     */
+    digest: VariantAnalysisLineApi[] | null
+    /** This variant's most recent observations, newest first. */
+    latest_observations: ReplayObservationApi[]
+}
+
+/**
+ * Summaries the analysis read that show the theme, per variant key, as the scout counted them.
+ */
+export type VariantAnalysisDifferenceApiCounts = { [key: string]: number }
+
+export interface VariantAnalysisDifferenceApi {
+    /** The theme the difference rests on. */
+    theme: string
+    /** What differs between the variants. */
+    statement: string
+    /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
+    counts: VariantAnalysisDifferenceApiCounts
+}
+
+export interface VariantsAnalysisStateApi {
+    /** The variant analysis scout's config id. */
+    scout_config_id: string
+    /** Whether the scout runs on its schedule. */
+    scout_enabled: boolean
+    /**
+     * When the run behind the newest analysis started; null before its first run.
+     * @nullable
+     */
+    recorded_at: string | null
+    /**
+     * The scanner version the newest analysis covered.
+     * @nullable
+     */
+    scanner_version: number | null
+    /** Whether the newest analysis covers the scanner's current version. When false, digests and differences are null until the scout's next run. */
+    current: boolean
+}
+
+export interface ExperimentVariantsReadoutApi {
+    /** The watched experiment; null if it was deleted. */
+    experiment: VariantsExperimentApi | null
+    /** The span of observations the counts cover. */
+    window: VariantsWindowApi
+    /** One entry per watched variant, plus any variant still holding observations. */
+    variants: VariantReadoutApi[]
+    /**
+     * What differs between variants, from the variant analysis. Null without a current analysis.
+     * @nullable
+     */
+    differences: VariantAnalysisDifferenceApi[] | null
+    /** Succeeded observations with no attributed variant. */
+    unattributed_count: number
+    /** The scanner's variant analysis scout and its newest run; null when none is set up. */
+    analysis: VariantsAnalysisStateApi | null
 }
 
 /**
@@ -2799,11 +2743,27 @@ export interface WatchFeedItemApi {
 }
 
 /**
+ * * `weighted-score` - weighted-score
+ * * `jev` - jev
+ */
+export type RankerEnumApi = (typeof RankerEnumApi)[keyof typeof RankerEnumApi]
+
+export const RankerEnumApi = {
+    WeightedScore: 'weighted-score',
+    Jev: 'jev',
+} as const
+
+/**
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
+    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+     *
+     * * `weighted-score` - weighted-score
+     * * `jev` - jev */
+    ranker: RankerEnumApi
 }
 
 export type VisionAlertsListParams = {
@@ -2916,6 +2876,10 @@ export type VisionObservationsRetrieveParams = {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -3140,6 +3104,10 @@ export type VisionScannersObservationsListParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3195,6 +3163,10 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3249,6 +3221,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -3313,20 +3289,13 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
-}
-
-export type VisionScannersPromptSuggestionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type VisionScannersWatchFeedRetrieveParams = {
