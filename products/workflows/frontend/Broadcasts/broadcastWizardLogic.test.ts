@@ -335,9 +335,15 @@ describe('broadcastWizardLogic', () => {
     )
 
     it.each([
-        { sender: 'a sender that still exists', integrationId: 1, expected: [] },
-        { sender: 'a deleted sender', integrationId: 7, expected: [DELETED_SENDER_ERROR] },
-    ])('flags $sender on the content step and once on review', async ({ integrationId, expected }) => {
+        { sender: 'a sender that still exists', integrationId: 1, integrationIds: undefined, expected: [] },
+        { sender: 'a deleted sender', integrationId: 7, integrationIds: undefined, expected: [DELETED_SENDER_ERROR] },
+        {
+            sender: 'a deleted sender in the rotation',
+            integrationId: 1,
+            integrationIds: [1, 7],
+            expected: [DELETED_SENDER_ERROR],
+        },
+    ])('flags $sender on the content step and once on review', async ({ integrationId, integrationIds, expected }) => {
         integrationsLogic.mount()
         await expectLogic(integrationsLogic, () => {
             integrationsLogic.actions.loadIntegrations()
@@ -345,7 +351,7 @@ describe('broadcastWizardLogic', () => {
 
         logic.actions.setEmail({
             ...DEFAULT_BROADCAST_EMAIL,
-            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId },
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId, integrationIds },
             subject: 'Spring sale',
             html: '<p>Hi</p>',
         })

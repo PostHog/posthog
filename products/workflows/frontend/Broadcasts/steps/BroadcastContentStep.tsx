@@ -11,7 +11,13 @@ import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
-import { BroadcastEmailValue, DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from '../broadcastWizardLogic'
+import {
+    BroadcastEmailValue,
+    DEFAULT_BROADCAST_EMAIL,
+    broadcastWizardLogic,
+    getMissingSenderIds,
+    getSenderIds,
+} from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
     const { email, stepValidationErrors, selectedSender, emailSettings } = useValues(broadcastWizardLogic)
@@ -24,9 +30,19 @@ export function BroadcastContentStep(): JSX.Element {
 
     const hasSenders = !!integrations?.some((integration) => integration.kind === 'email')
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
-    // A deleted sender would otherwise show as its bare id, so the picker shows nothing chosen instead.
-    const senderMissing = !!email.from?.integrationId && !!integrations && !selectedSender
-    const editorValue = senderMissing ? { ...email, from: { ...email.from, integrationId: undefined } } : email
+    // A deleted sender would otherwise show as its bare id, so the picker leaves it out.
+    const missingSenderIds = integrations ? getMissingSenderIds(email.from, integrations) : []
+    const remainingSenderIds = getSenderIds(email.from).filter((id) => !missingSenderIds.includes(id))
+    const editorValue = missingSenderIds.length
+        ? {
+              ...email,
+              from: {
+                  ...email.from,
+                  integrationId: remainingSenderIds[0],
+                  integrationIds: remainingSenderIds.length > 1 ? remainingSenderIds : undefined,
+              },
+          }
+        : email
 
     // Closing the modal after Continue also keeps the sender it created or verified.
     const closeSenderSetup = (integrationId?: number): void => {

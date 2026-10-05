@@ -19,7 +19,17 @@ describe('getSenderLaunchError', () => {
         ['senders still loading', 1, null, true, 'Checking the email sender. Try again in a moment.'],
         ['senders failed to load', 1, null, false, SENDERS_LOAD_FAILED_ERROR],
         ['a sender that was deleted', 7, [sender(1, true)], false, DELETED_SENDER_ERROR],
-    ])('blocks launch for %s', (_, integrationId, integrations, integrationsLoading, expected) => {
-        expect(getSenderLaunchError(integrationId, integrations, integrationsLoading)).toBe(expected)
+        ['a deleted sender in the rotation', [1, 7], [sender(1, true)], false, DELETED_SENDER_ERROR],
+        [
+            'an unverified sender in the rotation',
+            [1, 2],
+            [sender(1, true), sender(2, false)],
+            false,
+            "Verify the sender's domain before sending",
+        ],
+        ['a verified rotation', [1, 2], [sender(1, true), sender(2, true)], false, null],
+    ])('blocks launch for %s', (_, ids, integrations, integrationsLoading, expected) => {
+        const from = Array.isArray(ids) ? { integrationId: ids[0], integrationIds: ids } : { integrationId: ids }
+        expect(getSenderLaunchError(from, integrations, integrationsLoading)).toBe(expected)
     })
 })
