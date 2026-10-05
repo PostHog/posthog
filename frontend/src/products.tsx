@@ -1149,7 +1149,7 @@ export const productConfiguration: Record<string, any> = {
     VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
     PipelineOverview: {
         projectBased: true,
-        name: 'ETL',
+        name: 'ELT',
         description: 'Every source you import from and every destination you write to, with the health of each.',
         iconType: 'data_pipeline',
         docsHref: 'https://posthog.com/docs/data-warehouse',
@@ -2087,10 +2087,10 @@ export type ProductTreePath =
     | 'Data warehouse'
     | 'Datasets'
     | 'Early access features'
+    | 'ELT'
     | 'Endpoints'
     | 'Engineering analytics'
     | 'Error tracking'
-    | 'ETL'
     | 'Evaluations'
     | 'Experiments'
     | 'Feature flags'
@@ -2338,7 +2338,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
-        path: 'ETL',
+        path: 'ELT',
         intents: [ProductKey.DATA_WAREHOUSE],
         category: ProductItemCategory.TOOLS,
         iconType: 'data_pipeline',

@@ -256,7 +256,7 @@
             "intents": ["visual_review"]
         },
         {
-            "path": "ETL",
+            "path": "ELT",
             "category": "Tools",
             "iconType": "data_pipeline",
             "type": null,
