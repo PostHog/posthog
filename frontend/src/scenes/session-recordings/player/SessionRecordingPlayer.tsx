@@ -8,7 +8,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
-import { AnalysisNudge } from 'products/replay_vision/frontend/components/AnalysisNudge'
 import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
@@ -122,7 +121,6 @@ function SessionRecordingPlayerInternal({
                                 ) : null
                             }
                         />
-                        <AnalysisNudge />
                     </>
                 )}
             </div>
