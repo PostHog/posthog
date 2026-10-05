@@ -202,6 +202,19 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert decide.call_args.args[0].properties == {"action_id": "action-1"}
 
+    def test_rejects_a_signed_in_user_without_a_service_token(self) -> None:
+        self.client.force_login(self.user)
+
+        with patch(_DECIDE) as decide:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/workflow_ai_decisions/",
+                {"invocation_id": "inv-1", "action_id": "action-1", "state": {}},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        decide.assert_not_called()
+
     def test_rejects_a_token_minted_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
 
@@ -472,22 +485,46 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("gateway_refusal", {}, patch(_DECIDE, side_effect=DecisionGatewayError(400, "bad")), "gateway_status"),
-            ("unreadable_state", {"state": {"reply": _too_deep_to_read()}}, patch(_DECIDE), "unreadable_state"),
+            ("succeeded", {}, patch(_DECIDE, return_value=_pick_one_result()), ("succeeded", "", "")),
+            (
+                "gateway_refusal",
+                {},
+                patch(_DECIDE, side_effect=DecisionGatewayError(400, "bad")),
+                ("failed", "model_refused", "gateway_status"),
+            ),
+            (
+                "unreadable_state",
+                {"state": {"reply": _too_deep_to_read()}},
+                patch(_DECIDE),
+                ("failed", "model_refused", "unreadable_state"),
+            ),
             (
                 "answer_does_not_fit_question",
                 {},
                 patch(_DECIDE, return_value=_answer_with_unknown_option()),
-                "answer_does_not_fit_question",
+                ("failed", "model_refused", "answer_does_not_fit_question"),
+            ),
+            ("team_throttled", {}, patch(_CONSUME, return_value=_DENIED), ("throttled", "", "team")),
+            (
+                "gateway_throttled",
+                {},
+                patch(_DECIDE, side_effect=DecisionGatewayError(429, "slow down")),
+                ("throttled", "", "gateway"),
+            ),
+            (
+                "gateway_error",
+                {},
+                patch(_DECIDE, side_effect=DecisionGatewayError(502, "oops")),
+                ("unavailable", "", "gateway_error"),
             ),
         ]
     )
-    def test_counts_each_refusal_by_its_reason(
-        self, _name: str, body: dict[str, Any], gateway: Any, reason: str
+    def test_counts_each_outcome_by_its_code_and_reason(
+        self, _name: str, body: dict[str, Any], cause: Any, outcome: tuple[str, str, str]
     ) -> None:
-        labels = {"outcome": "failed", "code": "model_refused", "reason": reason}
+        labels = dict(zip(("outcome", "code", "reason"), outcome))
         before = REGISTRY.get_sample_value("workflows_ai_decision_outcomes_total", labels) or 0
-        with gateway:
+        with cause:
             self._post(body)
 
         assert REGISTRY.get_sample_value("workflows_ai_decision_outcomes_total", labels) == before + 1

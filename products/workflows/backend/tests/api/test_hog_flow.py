@@ -6714,6 +6714,9 @@ def _ai_decision_flag(enabled: bool | None) -> Any:
     )
 
 
+_PRO_PLAN_FILTERS = {"properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}]}
+
+
 def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None, failure_edge: bool = True) -> dict:
     config = {
         "question": "Which onboarding track fits this signup?",
@@ -6851,20 +6854,23 @@ class TestAIDecisionActionValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("continue_on_error", None, status.HTTP_400_BAD_REQUEST),
-            ("abort_on_error", "abort", status.HTTP_201_CREATED),
+            ("continue_on_error", None, None, status.HTTP_400_BAD_REQUEST),
+            ("abort_on_error", "abort", None, status.HTTP_201_CREATED),
+            ("abort_with_filters_that_skip_people", "abort", _PRO_PLAN_FILTERS, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_a_decision_needs_its_failure_edge_unless_it_aborts(
-        self, _name: str, on_error: str | None, expected_status: int
+    def test_a_decision_needs_its_failure_edge_unless_it_aborts_and_skips_no_one(
+        self, _name: str, on_error: str | None, filters: dict | None, expected_status: int
     ) -> None:
         flow = _ai_decision_flow({}, failure_edge=False)
-        flow["actions"][1]["on_error"] = on_error
+        flow["actions"][1] = {**flow["actions"][1], "on_error": on_error, "filters": filters}
 
         response = self._post(flow, flag_enabled=True)
 
         assert response.status_code == expected_status, response.json()
-        assert ("missing its 'continue' edge" in str(response.json())) == (on_error is None), response.json()
+        assert ("missing its 'continue' edge" in str(response.json())) == (
+            expected_status == status.HTTP_400_BAD_REQUEST
+        ), response.json()
 
     def test_stores_the_defaults_the_runtime_branches_on(self) -> None:
         response = self._post(

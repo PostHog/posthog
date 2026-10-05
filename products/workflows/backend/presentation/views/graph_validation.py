@@ -34,10 +34,15 @@ def _branch_slot_count(action: dict) -> int:
     return 0
 
 
+def _follows_continue(action: dict) -> bool:
+    # The runtime skips a step whose filters do not match the person and follows 'continue', whatever on_error says.
+    return action.get("on_error") != "abort" or action.get("filters") is not None
+
+
 def missing_ai_decision_edges(actions: list[dict], edges: list[dict]) -> list[str]:
     """The runtime follows the branch edge of the answer the model gives, and the 'continue' edge when the
-    decision fails. A missing one stops the run for that person, so each must exist before the step can run.
-    A step set to abort on error ends the run instead of following 'continue'."""
+    decision fails or the step's filters skip the person. A missing one stops the run for that person, so each
+    must exist before the step can run."""
     # An edge only counts when its target exists, because a dangling one strands the person just the same.
     action_ids = {action.get("id") for action in actions}
     wired = [edge for edge in edges if edge.get("to") in action_ids]
@@ -54,10 +59,11 @@ def missing_ai_decision_edges(actions: list[dict], edges: list[dict]) -> list[st
             for index in range(_branch_slot_count(action))
             if (action_id, index) not in branch_keys
         )
-        if action.get("on_error") != "abort" and action_id not in continue_sources:
+        if _follows_continue(action) and action_id not in continue_sources:
             errors.append(
-                f"ai_decision '{action_id}' is missing its 'continue' edge, which a failed decision follows. "
-                "Add it, or set on_error to 'abort' to end the run when the decision fails."
+                f"ai_decision '{action_id}' is missing its 'continue' edge. A failed decision follows it, and so "
+                "does a person the step's filters skip. Add it, or, for a step without filters, set on_error to "
+                "'abort' to end the run when the decision fails."
             )
     return errors
 
