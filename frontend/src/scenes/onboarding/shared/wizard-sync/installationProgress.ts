@@ -3,6 +3,7 @@ import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api
 import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import { startedByFromSession } from './helpers'
 import type {
+    InstallationError,
     InstallationPhase,
     InstallationProgress,
     InstallationStep,
@@ -99,7 +100,7 @@ export function cloudProgress(
     runStartedAt: string | null = null
 ): InstallationProgress {
     let phase: InstallationPhase
-    let stalledError: { title: string; detail: string | null } | null = null
+    let stalledError: InstallationError | null = null
     if (!taskRunState && isStalled) {
         // The stream never delivered any run state (deleted or access-revoked run, a stream that
         // stayed silent past taskRunStreamLogic's no-state window). `idle` renders as a spinner with
@@ -109,6 +110,7 @@ export function cloudProgress(
         stalledError = {
             title: 'Setup lost contact',
             detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            kind: 'lost_contact',
         }
     } else if (!taskRunState) {
         phase = taskConnectionStatus === 'connecting' ? 'connecting' : 'idle'
@@ -119,6 +121,7 @@ export function cloudProgress(
         stalledError = {
             title: "Setup hasn't started",
             detail: 'The run has been queued for a while without starting. Please try again in a bit.',
+            kind: 'failed',
         }
     } else if (taskRunState.status === 'completed') {
         phase = 'completed'
@@ -234,6 +237,7 @@ export function cloudProgress(
                   title: taskRunState?.status === 'cancelled' ? 'Run cancelled' : 'Installation failed',
                   detail:
                       taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
+                  kind: 'failed' as const,
               })
             : null
 
@@ -309,16 +313,18 @@ export function localProgress(
         detail: null,
     }))
 
-    let error: { title: string; detail: string | null } | null = null
+    let error: InstallationError | null = null
     if (latestSession.run_phase === 'error') {
         error = {
             title: 'Wizard hit an error',
             detail: (latestSession.error as { message?: string } | null)?.message ?? null,
+            kind: 'failed',
         }
     } else if (stalled) {
         error = {
             title: 'Setup lost contact',
             detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            kind: 'lost_contact',
         }
     }
 
@@ -343,7 +349,7 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
         steps: handle.tasks.map((t) => ({ id: t.id, label: t.title, status: stepStatus(t.status), detail: null })),
         error:
             handle.runPhase === 'error'
-                ? { title: 'Wizard hit an error', detail: handle.error?.message ?? null }
+                ? { title: 'Wizard hit an error', detail: handle.error?.message ?? null, kind: 'failed' }
                 : null,
         prUrl: null,
         prMerged: false,

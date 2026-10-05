@@ -78,6 +78,15 @@ export function isRunStale(
     return !Number.isNaN(silentSince) && now - silentSince > STALE_RUN_SILENCE_MS
 }
 
+/**
+ * Whether the run stopped reporting rather than failing. The widget treats this apart from a real
+ * failure: the user has nothing to act on, so the card must not take over a scene that has nothing
+ * to do with setup, and the run retires itself instead of waiting to be dismissed.
+ */
+export function isLostContact(progress: InstallationProgress): boolean {
+    return progress.error?.kind === 'lost_contact'
+}
+
 // What the widgets print where the elapsed clock goes. A stale run's clock is meaningless, so it is
 // replaced by the reason it stopped mattering.
 export function elapsedLabel(elapsedSeconds: number, stale: boolean = false): string {
