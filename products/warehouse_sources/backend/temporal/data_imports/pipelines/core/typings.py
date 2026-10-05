@@ -8,8 +8,8 @@ class PipelineResult(TypedDict):
     writes the terminal job status, releases the v3 sync lock, and starts the post-import
     workflow:
 
-    - False / absent (v2, and every failure path — an activity that raises returns no result):
-      the workflow finalizes in its `finally` block.
+    - False / absent (a zero-batch run, and every failure path — an activity that raises returns
+      no result): the workflow finalizes in its `finally` block.
     - True: the v3 load consumer finalizes after loading the final batch, and the workflow must
       keep its hands off all three.
 
@@ -20,7 +20,7 @@ class PipelineResult(TypedDict):
     `import_data_sync`'s terminal-retry skip, is a run some other party already finalized, where
     True likewise means "workflow: hands off".
     Making this a pure version property requires an empty-final-batch queue message so the
-    consumer hears about every v3 run — deferred until the v2 pipeline is deleted.
+    consumer hears about every v3 run.
 
     `fast_returned` marks a run completed on a negative source probe, before any extraction.
     It always rides with `skip_post_import_activities=True` (which does the actual skipping);
