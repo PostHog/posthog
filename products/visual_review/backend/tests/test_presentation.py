@@ -122,15 +122,17 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         github = MagicMock()
         github.get_default_branch.return_value = "master"
         github.api_request.return_value = MagicMock(status_code=200, json=lambda: {"sha": "abc123"})
-        integration = {"return_value": github}
+        integration_error = None
         if github_state == "head_unknown":
             github.api_request.return_value = MagicMock(status_code=502)
         elif github_state == "no_integration":
-            integration = {"side_effect": errors.GitHubIntegrationNotFoundError("none")}
+            integration_error = errors.GitHubIntegrationNotFoundError("none")
         elif github_state == "rate_limited":
             github.get_default_branch.side_effect = GitHubRateLimitError("limited", retry_after=30)
 
-        with patch.object(github_api, "get_github_integration_for_repo", **integration):
+        with patch.object(
+            github_api, "get_github_integration_for_repo", return_value=github, side_effect=integration_error
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
                 {"identifier": "Button"},
