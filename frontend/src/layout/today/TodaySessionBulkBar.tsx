@@ -15,6 +15,7 @@ import {
 import { TodaySessionBulkArchiveDialog } from './TodaySessionBulkArchiveDialog'
 import { sessionsLabel } from './todaySessionSelection'
 import { TodayBulkAction, todaySessionSelectionLogic } from './todaySessionSelectionLogic'
+import { todayShellLogic } from './todayShellLogic'
 import { TodaySpaceFileList } from './TodaySpaceFileList'
 import { todaySpacesLogic } from './todaySpacesLogic'
 
@@ -56,10 +57,20 @@ function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButton
 }
 
 export function TodaySessionBulkBar(): JSX.Element {
-    const { selectedSessionIds, bulkPinDirection } = useValues(todaySessionSelectionLogic)
-    const { pinSelected, fileSelectedTo, requestBulkArchive, clearSelection } = useActions(todaySessionSelectionLogic)
+    const { selectedSessionIds, bulkPinDirection, bulkArchiveConfirm, bulkAction } =
+        useValues(todaySessionSelectionLogic)
+    const {
+        pinSelected,
+        fileSelectedTo,
+        requestBulkArchive,
+        clearSelection,
+        closeBulkArchiveConfirm,
+        archiveSelected,
+    } = useActions(todaySessionSelectionLogic)
     const { spaces } = useValues(todaySpacesLogic)
+    const { phoneLayout } = useValues(todayShellLogic)
     const count = selectedSessionIds.length
+    const minimum = phoneLayout ? 1 : 2
     const sessions = sessionsLabel(count)
     const pin = bulkPinDirection === 'pin'
 
@@ -67,9 +78,9 @@ export function TodaySessionBulkBar(): JSX.Element {
         <>
             {/* The bar is the only sign of a selection and unmounts below two, so the announcement lives outside it. */}
             <span aria-live="polite" className="sr-only">
-                {count > 1 ? `${sessions} selected` : ''}
+                {count >= minimum ? `${sessions} selected` : ''}
             </span>
-            {count > 1 && (
+            {count >= minimum && (
                 <div
                     className="-mx-3 flex items-center justify-between gap-2 border-t border-border px-3 py-1.5"
                     data-attr="today-session-bulk-bar"
@@ -78,9 +89,11 @@ export function TodaySessionBulkBar(): JSX.Element {
                         <Text size="xs" weight="medium" render={<span />} className="shrink-0">
                             {`${count} selected`}
                         </Text>
-                        <Text size="xxs" variant="muted" render={<span />} className="truncate">
-                            Esc to clear
-                        </Text>
+                        {!phoneLayout && (
+                            <Text size="xxs" variant="muted" render={<span />} className="truncate">
+                                Esc to clear
+                            </Text>
+                        )}
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
                         <BulkButton
@@ -126,7 +139,13 @@ export function TodaySessionBulkBar(): JSX.Element {
                     </div>
                 </div>
             )}
-            <TodaySessionBulkArchiveDialog />
+            <TodaySessionBulkArchiveDialog
+                confirm={bulkArchiveConfirm}
+                archiving={bulkAction === 'archive'}
+                onCancel={closeBulkArchiveConfirm}
+                onConfirm={archiveSelected}
+                dataAttrPrefix="today-session-bulk"
+            />
         </>
     )
 }

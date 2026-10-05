@@ -338,17 +338,22 @@ def _post_slack_user_feedback(
     A thread post whose root has been deleted is skipped rather than posted — see
     ``post_slack_thread_reply``. That counts as "nothing reached Slack", which is
     accurate: the user retracted the message this feedback answers."""
+    # Every caller runs inside the Slack webhook, so the SDK's 30 second default would
+    # outlast the acknowledgement window. The client is held in a local because
+    # ``SlackIntegration.client`` builds a new one on every access.
+    client = slack.client
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
     if prefer_thread_message:
         try:
-            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
+            return post_slack_thread_reply(client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_thread_post_failed", channel=channel, slack_user_id=slack_user_id)
 
     try:
-        slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+        client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
         try:
-            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
+            return post_slack_thread_reply(client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_failed", channel=channel, slack_user_id=slack_user_id)
             return False
@@ -2007,7 +2012,13 @@ def _post_user_resolution_failure_reply(
     """
     if not channel or not thread_ts or not slack_user_id:
         return False
-    text = user_resolution_failure_reply(failure_reason, slack_email=slack_email)
+    linking_available = is_slack_app_oauth_enabled(probe)
+    text = user_resolution_failure_reply(
+        failure_reason,
+        slack_email=slack_email,
+        linking_available=linking_available,
+        home_tab_url=app_home_url(probe) if linking_available else None,
+    )
     if text is None:
         return False
     slack_client = SlackIntegration(probe)
@@ -2023,7 +2034,7 @@ def _post_user_resolution_failure_reply(
     posted = _post_slack_user_feedback(
         slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True
     )
-    if failure_reason == "user_not_found" and is_slack_app_oauth_enabled(probe):
+    if failure_reason == "user_not_found" and linking_available:
         invite_url = build_invite_url(
             slack_user_id=slack_user_id,
             slack_team_id=probe.integration_id,

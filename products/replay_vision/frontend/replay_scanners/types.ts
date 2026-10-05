@@ -21,6 +21,7 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     classifier: 'completion',
     scorer: 'warning',
     summarizer: 'success',
+    experiment: 'highlight',
 }
 
 export const OBSERVATION_TRIGGER_TAG: Record<
@@ -124,6 +125,7 @@ export type FailureKind =
     | 'infra_transient'
     | 'internal_error'
     | 'orphaned'
+    | 'pii_detected'
 
 type FailureKindInfo = {
     label: string
@@ -174,6 +176,12 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
     orphaned: {
         label: 'Interrupted',
         description: 'The scan was interrupted before it finished, and PostHog cleaned it up. Retry the scan.',
+        retryWorthwhile: true,
+    },
+    pii_detected: {
+        label: 'Personal data in the answer',
+        description:
+            "The AI's answer included personal data the scanner didn't ask for, so PostHog didn't save it. Retry the scan, or rephrase the scanner prompt if it keeps happening.",
         retryWorthwhile: true,
     },
 }
@@ -387,6 +395,7 @@ const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
     classifier: 'a category from a set you define',
     scorer: 'a number score',
     summarizer: 'a text summary',
+    experiment: 'a text summary per exposed session',
 }
 
 export function scannerTypeOutputHint(scannerType: ScannerType): string {
@@ -399,6 +408,7 @@ export const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
     summarizer: 'Summary',
     monitor: 'Verdict',
     scorer: 'Score',
+    experiment: 'Summary',
 }
 
 export function createdByLabel(user: ScannerCreatedBy | null): string {
@@ -454,11 +464,21 @@ export interface ScorerScannerConfig {
     scale: { min: number; max: number; label?: string }
 }
 
+export interface ExperimentScannerConfig {
+    prompt: string
+    length?: 'short' | 'medium' | 'long'
+    experiment_id: number
+    /** Variant keys to watch; null or absent means every variant. */
+    variants?: string[] | null
+    balance_variants?: boolean
+}
+
 export type ScannerConfig =
     | MonitorScannerConfig
     | SummarizerScannerConfig
     | ClassifierScannerConfig
     | ScorerScannerConfig
+    | ExperimentScannerConfig
 
 export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 
@@ -518,7 +538,12 @@ export interface ScorerScanner extends BaseReplayScanner {
     scanner_config: ScorerScannerConfig
 }
 
-export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
+export interface ExperimentScanner extends BaseReplayScanner {
+    scanner_type: 'experiment'
+    scanner_config: ExperimentScannerConfig
+}
+
+export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | ExperimentScanner
 
 // The editor form's values: the API scanner plus UI-only state that is stripped before every API write.
 // `credit_limit_enabled` keeps "limit toggle on, amount still empty" representable so it can block the save.

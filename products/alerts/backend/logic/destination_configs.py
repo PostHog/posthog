@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
-from products.alerts.backend.facade.contracts import (
+from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationAction,
     AlertDestinationConfig,
     AlertDestinationData,

@@ -152,6 +152,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
         categoriesWithCounts,
         search,
         selectedCategory,
+        selectedCategoryLabel,
         hasCrossCategoryMatches,
         registeredInterestSources,
         sourceRequestModalOpen,
@@ -212,7 +213,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                     <div className="flex flex-col gap-1">
                         {hasCrossCategoryMatches ? (
                             <div className="text-muted text-sm">
-                                No sources match "{search.trim()}" in {selectedCategory}.{' '}
+                                No sources match "{search.trim()}" in {selectedCategoryLabel}.{' '}
                                 <Link onClick={() => setSelectedCategory('all')}>Search all categories</Link> or request
                                 one below.
                             </div>

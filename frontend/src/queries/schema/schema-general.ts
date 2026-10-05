@@ -524,6 +524,8 @@ export interface HogQLQueryModifiers {
     sessionIdPushdown?: boolean
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -937,6 +939,13 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+export interface HogQLMetadataColumn {
+    /** Output column name, in the same order as the SELECT list. */
+    name: string
+    /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+    type: string
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
@@ -949,6 +958,8 @@ export interface HogQLMetadataResponse {
     query_status?: never
     table_names?: string[]
     ch_table_names?: string[]
+    /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+    output_columns?: HogQLMetadataColumn[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -1052,6 +1063,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     debug?: boolean
     /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
     indexUsage?: boolean
+    /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
+    includeOutputTypes?: boolean
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -4901,6 +4914,9 @@ export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryRespons
 export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
     kind: NodeKind.MetricsHistogramQuery
     metricName: string
+    /** Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one
+     * type, and the heatmap must grid only the distribution series. */
+    metricType?: MetricsOtelType
     filters?: MetricsQueryFilter[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
@@ -5423,7 +5439,6 @@ export type FileSystemIconType =
     | 'session_profile'
     | 'survey'
     | 'product_tour'
-    | 'user_interview'
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
@@ -5433,8 +5448,6 @@ export type FileSystemIconType =
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
-    | 'link'
-    | 'live_debugger'
     | 'logs'
     | 'tracing'
     | 'metrics'
@@ -5527,6 +5540,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     intents?: ProductKey[]
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
+    /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {
@@ -9105,8 +9120,6 @@ export enum ProductKey {
     HISTORY = 'history',
     INGESTION_WARNINGS = 'ingestion_warnings',
     INTEGRATIONS = 'integrations',
-    LINKS = 'links',
-    LIVE_DEBUGGER = 'live_debugger',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',
@@ -9145,7 +9158,6 @@ export enum ProductKey {
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
     METRICS = 'metrics',
-    USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',

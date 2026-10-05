@@ -1,27 +1,10 @@
-export type TraceNodeKind = 'trace' | 'span' | 'generation' | 'embedding'
+import type { TraceNodeApi } from '../../generated/api.schemas'
+
+export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline'
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
-
-export interface NodeStats {
-    costUsd: number | null
-    inputTokens: number | null
-    outputTokens: number | null
-    cacheReadTokens: number | null
-    cacheWriteTokens: number | null
-    latencyMs: number | null
-}
-
-export interface TraceTreeNode {
-    id: string
-    kind: TraceNodeKind
-    name: string
-    model: string | null
-    stats: NodeStats
-    hasError: boolean
-    children: TraceTreeNode[]
-}
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -107,14 +90,4 @@ export type EvalsState =
 export interface LabeledLink {
     label: string
     href: string
-}
-
-export interface TimelineRowData {
-    id: string
-    kind: TraceNodeKind
-    name: string
-    depth: number
-    startMs: number
-    durationMs: number | null
-    hasError: boolean
 }

@@ -997,9 +997,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     # the schema to what came back instead of failing the Arrow build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                    for rows in fetch_row_batches(
-                        cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
-                    ):
+                    for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in rows),
                             read_schema,

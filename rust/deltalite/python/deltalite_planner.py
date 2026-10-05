@@ -12,7 +12,8 @@ module relies on:
   costs roughly its write buffer (`target_file_size`, 100 MB by default) plus
   in-flight row groups.
 * `max_parallel_files` ("mpf") is a wall-clock dial with little memory effect of its
-  own -- decoded data in flight is capped by the byte budget, not by mpf.
+  own -- decoded data in flight is capped by the byte budget, and fetched (still
+  compressed) row groups by the fetch budget (`max_fetch_bytes`), not by mpf.
 * Upserts running as threads in one process share the interpreter/runtime overhead
   and do not peak simultaneously, so a process fits noticeably more than
   N x (single-upsert peak).

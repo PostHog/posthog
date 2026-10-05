@@ -407,9 +407,8 @@ def _create_person_in_persons_db(create_kwargs: dict[str, Any], dids: list[str])
 def delete_person(person: Person) -> None:
     """Soft-delete a person in ClickHouse and unseed the personhog fake.
 
-    Mirrors posthog.models.person.util.delete_person: writes CH tombstones with
-    version + 100 (so the delete wins over normal updates) for the person and each
-    of its distinct IDs, then removes it from the fake.
+    Writes CH tombstones at version + 100 for the person and each of its distinct IDs, so the
+    delete wins over any row a test wrote before it, then removes the person from the fake.
     """
     fake = _get_active_fake()
     if fake is None:

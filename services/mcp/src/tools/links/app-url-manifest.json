@@ -144,6 +144,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityScorer": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityScorers": {
         "template": "/ai-evals/evaluations/scorers",
         "params": [],
@@ -316,6 +321,16 @@
     },
     "canvas": {
         "template": "/canvas",
+        "params": [],
+        "scope": "project"
+    },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
         "params": [],
         "scope": "project"
     },
@@ -909,6 +924,11 @@
         "params": ["skillName"],
         "scope": "project"
     },
+    "inboxScoutTrials": {
+        "template": "/scout-trials",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
         "params": [],
@@ -1036,21 +1056,6 @@
     },
     "legalDocuments": {
         "template": "/legal",
-        "params": [],
-        "scope": "project"
-    },
-    "link": {
-        "template": "/link/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "links": {
-        "template": "/links",
-        "params": [],
-        "scope": "project"
-    },
-    "liveDebugger": {
-        "template": "/live-debugger",
         "params": [],
         "scope": "project"
     },
@@ -1669,8 +1674,23 @@
         "params": [],
         "scope": "project"
     },
+    "taskNewSession": {
+        "template": "/spaces/new",
+        "params": [],
+        "scope": "project"
+    },
     "taskSpace": {
         "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceNewSession": {
+        "template": "/spaces/{id}/new",
         "params": ["id"],
         "scope": "project"
     },
@@ -1696,6 +1716,11 @@
     },
     "toolbarLaunch": {
         "template": "/toolbar",
+        "params": [],
+        "scope": "project"
+    },
+    "tools": {
+        "template": "/tools",
         "params": [],
         "scope": "project"
     },
@@ -1729,21 +1754,6 @@
         "params": [],
         "scope": "project"
     },
-    "userInterview": {
-        "template": "/user_research/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "userInterviewResponse": {
-        "template": "/user_research/{topicId}/response/{responseId}",
-        "params": ["topicId", "responseId"],
-        "scope": "project"
-    },
-    "userInterviews": {
-        "template": "/user_research",
-        "params": [],
-        "scope": "project"
-    },
     "variable": {
         "template": "/data-management/variables/{id}",
         "params": ["id"],
@@ -1771,6 +1781,16 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "views": {
+        "template": "/views",
+        "params": [],
+        "scope": "project"
+    },
+    "viewsNew": {
+        "template": "/views/new",
         "params": [],
         "scope": "project"
     },
