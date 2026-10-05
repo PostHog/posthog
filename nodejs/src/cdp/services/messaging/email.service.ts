@@ -12,7 +12,7 @@ import {
     IntegrationType,
     MessageAssetRow,
 } from '~/cdp/types'
-import { MAX_LOG_LENGTH, createAddLogFunction, logEntry, sanitizeLogMessage } from '~/cdp/utils'
+import { MAX_UNTRUNCATED_LOG_LENGTH, createAddLogFunction, logEntry, sanitizeLogMessage } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { logger } from '~/common/utils/logger'
 
@@ -384,6 +384,40 @@ function sandboxAddressList(value?: string): string[] {
         .map((entry) => entry.trim())
         .filter(Boolean)
         .map((entry) => angleAddress(entry) ?? entry)
+}
+
+const BLOCKED_ADDRESSES_LABEL = 'Blocked addresses: '
+
+function splitByLength(text: string, maxLength: number): string[] {
+    const chunks = ['']
+    for (const character of text) {
+        if (chunks[chunks.length - 1].length + character.length > maxLength) {
+            chunks.push('')
+        }
+        chunks[chunks.length - 1] += character
+    }
+    return chunks
+}
+
+function packAddressRows(addresses: string[], maxLength: number): string[] {
+    const rows: string[] = []
+    let row = ''
+    for (const piece of addresses.flatMap((address) => splitByLength(address, maxLength))) {
+        const joined = row ? `${row}, ${piece}` : piece
+        if (row && joined.length > maxLength) {
+            rows.push(row)
+            row = piece
+        } else {
+            row = joined
+        }
+    }
+    return [...rows, row]
+}
+
+function blockedAddressLogRows(addresses: string[]): string[] {
+    return packAddressRows(addresses, MAX_UNTRUNCATED_LOG_LENGTH - BLOCKED_ADDRESSES_LABEL.length).map(
+        (addressList) => `${BLOCKED_ADDRESSES_LABEL}${addressList}`
+    )
 }
 
 export class EmailService {
@@ -984,19 +1018,8 @@ export class EmailService {
             return
         }
         addLog('info', `${explanation}. ${guidance}`)
-        const chunkLength = Math.floor(MAX_LOG_LENGTH / 2)
-        for (const address of addresses) {
-            let chunk = ''
-            let prefix = 'Blocked address: '
-            for (const character of address) {
-                if (chunk.length + character.length > chunkLength) {
-                    addLog('info', `${prefix}${chunk}`)
-                    prefix = 'Blocked address (continued): '
-                    chunk = ''
-                }
-                chunk += character
-            }
-            addLog('info', `${prefix}${chunk}`)
+        for (const row of blockedAddressLogRows(addresses)) {
+            addLog('info', row)
         }
     }
 

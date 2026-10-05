@@ -387,10 +387,10 @@ describe('EmailService', () => {
             it.each(
                 [false, true].flatMap((isTest) => [false, true].map((checkFailed) => [isTest, checkFailed] as const))
             )(
-                'keeps all blocked addresses and guidance in long logs (isTest=%s, checkFailed=%s)',
+                'packs all blocked addresses and guidance into few long log rows (isTest=%s, checkFailed=%s)',
                 async (isTest, checkFailed) => {
                     const outside = Array.from(
-                        { length: 49 },
+                        { length: 200 },
                         (_, index) =>
                             `${'a'.repeat(60)}${index}@${'b'.repeat(48)}.${'c'.repeat(48)}.${'d'.repeat(48)}.example.com`
                     )
@@ -401,7 +401,8 @@ describe('EmailService', () => {
                     service = createSandboxService(true, null, undefined, membersPostgres)
                     invocation.queueParameters = createSandboxParams({
                         from: { integrationId: 4 },
-                        cc: outside.join(', '),
+                        cc: outside.slice(0, 100).join(', '),
+                        bcc: outside.slice(100).join(', '),
                     })
 
                     const result = await service.executeSendEmail(invocation, isTest)
@@ -414,6 +415,9 @@ describe('EmailService', () => {
                     for (const email of checkFailed ? [memberEmail(), ...outside] : outside) {
                         expect(messages).toContain(email)
                     }
+                    expect(
+                        result.logs.filter(({ message }) => outside.some((email) => message.includes(email)))
+                    ).toHaveLength(5)
                     expect(messages.toLowerCase()).toContain('verify your own domain to send to anyone.')
                     expect(messages).not.toContain('(truncated)')
                     expect(capture).toHaveBeenCalledTimes(1)
@@ -423,7 +427,7 @@ describe('EmailService', () => {
                         {
                             reason: checkFailed ? 'check_failed' : 'recipient_not_member',
                             is_test: isTest,
-                            blocked_recipient_count: checkFailed ? 50 : 49,
+                            blocked_recipient_count: checkFailed ? 201 : 200,
                         }
                     )
                 }
@@ -495,37 +499,53 @@ describe('EmailService', () => {
 
             it.each(
                 [false, true].flatMap((isTest) =>
-                    ['Example colleague', '"member@example.com"', '"Example, colleague"', '"Example" Colleague'].map(
-                        (name) => [isTest, name] as const
+                    [
+                        'Example colleague',
+                        '"member@example.com"',
+                        '"Example, colleague"',
+                        '"Example" Colleague',
+                    ].flatMap((name) =>
+                        [false, true].map((storedMixedCase) => [isTest, name, storedMixedCase] as const)
                     )
                 )
-            )('matches bare addresses without case sensitivity (isTest=%s, name=%s)', async (isTest, name) => {
-                service = createSandboxService(true)
-                invocation.queueParameters = createSandboxParams({
-                    from: { integrationId: 4 },
-                    to: { email: memberEmail().toUpperCase() },
-                    cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
-                    bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
-                })
+            )(
+                'matches bare addresses without case sensitivity (isTest=%s, name=%s, storedMixedCase=%s)',
+                async (isTest, name, storedMixedCase) => {
+                    if (storedMixedCase) {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[])',
+                            [memberIds],
+                            'test:store-mixed-case-sandbox-members'
+                        )
+                    }
+                    service = createSandboxService(true)
+                    invocation.queueParameters = createSandboxParams({
+                        from: { integrationId: 4 },
+                        to: { email: memberEmail().toUpperCase() },
+                        cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
+                        bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
+                    })
 
-                const result = await service.executeSendEmail(invocation, isTest)
+                    const result = await service.executeSendEmail(invocation, isTest)
 
-                expect(result).toMatchObject({ finished: true })
-                expect(result.skipped).not.toBe(true)
-                expect(result.error).toBeUndefined()
-                expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
-                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
-                    ToAddresses: [memberEmail().toUpperCase()],
-                    CcAddresses: [memberEmail('cc').toUpperCase()],
-                    BccAddresses: [memberEmail('bcc').toUpperCase()],
-                })
-                expect(capture).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: team.id }),
-                    'workflows sandbox email sent',
-                    { recipient_count: 3, source: isTest ? 'test' : 'workflow', is_test: isTest }
-                )
-            })
+                    expect(result).toMatchObject({ finished: true })
+                    expect(result.skipped).not.toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect((sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination).toEqual({
+                        ToAddresses: [memberEmail().toUpperCase()],
+                        CcAddresses: [memberEmail('cc').toUpperCase()],
+                        BccAddresses: [memberEmail('bcc').toUpperCase()],
+                    })
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email sent',
+                        { recipient_count: 3, source: isTest ? 'test' : 'workflow', is_test: isTest }
+                    )
+                }
+            )
 
             it.each(
                 [false, true].flatMap((isTest) =>
