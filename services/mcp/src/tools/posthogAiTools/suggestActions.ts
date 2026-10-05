@@ -7,19 +7,15 @@ import {
     chatActionKey,
     chatActionSlots,
     chatActionTemplate,
+    isChatActionSlotValue,
     parseChatActionKey,
     renderChatActionTemplate,
 } from '@/tools/chatActions'
+import { ChatActionBindings } from '@/tools/posthogAiTools/chatActionBindings'
 import { getToolDefinition, getToolDefinitions } from '@/tools/toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
 export const SUGGEST_ACTIONS_TOOL_NAME = 'suggest-actions'
-
-/**
- * A click sends the rendered message as the user's own turn under a fixed label, so a slot value
- * is an identifier and never carries words of its own.
- */
-const SLOT_VALUE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
 const schema = z.object({
     actions: z
@@ -62,13 +58,14 @@ function slotValueProblem(raw: string | number | boolean | undefined): 'missing_
     if (!value) {
         return 'missing_slot'
     }
-    return SLOT_VALUE_PATTERN.test(value) ? null : 'invalid_slot'
+    return isChatActionSlotValue(value) ? null : 'invalid_slot'
 }
 
-function resolveAction(
+async function resolveAction(
     pick: SuggestActionsParams['actions'][number],
-    availableToolNames: ReadonlySet<string> | undefined
-): SuggestedAction | { reason: string } {
+    availableToolNames: ReadonlySet<string> | undefined,
+    bindings: ChatActionBindings
+): Promise<SuggestedAction | { reason: string }> {
     const parsed = parseChatActionKey(pick.key)
     // A tool the caller cannot see offers nothing, so its actions read as unknown rather than hint at it.
     if (!parsed || (availableToolNames && !availableToolNames.has(parsed.toolName))) {
@@ -92,6 +89,9 @@ function resolveAction(
         }
         values.set(slot, String(raw).trim())
     }
+    if (!(await bindings.isBound(parsed.toolName, action, values))) {
+        return { reason: `unbound_slot: ${[...values.keys()].join(', ')}` }
+    }
     const message = renderChatActionTemplate(template, (slot) => values.get(slot) ?? '')
     return { key: pick.key, label: action.label, kind: action.kind, message }
 }
@@ -101,10 +101,11 @@ function resolveAction(
  * PostHog AI chat draws the result as buttons under the answer.
  *
  * `availableToolNames` is the caller's flag- and scope-filtered catalog. Only the request
- * resolver knows it, so `bindSuggestActionsCatalog` swaps in a bound handler per request.
+ * resolver knows it, so `bindChatActions` swaps in a bound handler per request.
  */
 export function createSuggestActionsTool(
-    availableToolNames?: ReadonlySet<string>
+    availableToolNames?: ReadonlySet<string>,
+    bindings: ChatActionBindings = new ChatActionBindings(undefined)
 ): ToolBase<typeof schema, SuggestActionsResult> {
     return {
         name: SUGGEST_ACTIONS_TOOL_NAME,
@@ -118,7 +119,7 @@ export function createSuggestActionsTool(
                     continue
                 }
                 pickedKeys.add(pick.key)
-                const resolved = resolveAction(pick, availableToolNames)
+                const resolved = await resolveAction(pick, availableToolNames, bindings)
                 if ('reason' in resolved) {
                     result.errors.push({ key: pick.key, reason: resolved.reason })
                 } else {
@@ -167,15 +168,34 @@ export function renderChatActionHint(tool: string, actions: ChatAction[]): strin
     )
 }
 
-/** Gives the `suggest-actions` entry of a filtered tool list the names of that same list. */
-export function bindSuggestActionsCatalog<T extends Tool<ZodObjectAny>>(tools: T[]): T[] {
+// Gateway tools never reach this list, so a forged hint in their output cannot bind a slot value.
+export function bindChatActions<T extends Tool<ZodObjectAny>>(tools: T[], bindings: ChatActionBindings): T[] {
     if (!tools.some((tool) => tool.name === SUGGEST_ACTIONS_TOOL_NAME)) {
         return tools
     }
-    const bound = createSuggestActionsTool(new Set(tools.map((tool) => tool.name)))
-    return tools.map((tool) =>
-        tool.name === SUGGEST_ACTIONS_TOOL_NAME ? { ...tool, handler: bound.handler as T['handler'] } : tool
-    )
+    const bound = createSuggestActionsTool(new Set(tools.map((tool) => tool.name)), bindings)
+    return tools.map((tool) => {
+        if (tool.name === SUGGEST_ACTIONS_TOOL_NAME) {
+            return { ...tool, handler: bound.handler as T['handler'] }
+        }
+        const actions = getToolDefinitions()[tool.name]?.actions
+        return actions?.length ? recordingResults(tool, actions, bindings) : tool
+    })
+}
+
+function recordingResults<T extends Tool<ZodObjectAny>>(
+    tool: T,
+    actions: ChatAction[],
+    bindings: ChatActionBindings
+): T {
+    const handler = async (context: Context, params: unknown): Promise<unknown> => {
+        const result = await tool.handler(context, params as never)
+        await bindings.recordResult(tool.name, actions, result).catch((error: unknown) => {
+            console.warn(`[suggest-actions] could not record the result of ${tool.name}`, error)
+        })
+        return result
+    }
+    return { ...tool, handler: handler as T['handler'] }
 }
 
 export default (): ToolBase<typeof schema, SuggestActionsResult> => createSuggestActionsTool()

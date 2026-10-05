@@ -44,6 +44,16 @@ export const ChatActionListSchema = z.array(ChatActionSchema).superRefine((actio
     })
 })
 
+/**
+ * A click sends the rendered message as the user's own turn under a fixed label, so a slot value
+ * is an identifier and never carries words of its own.
+ */
+const SLOT_VALUE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+export function isChatActionSlotValue(value: string): boolean {
+    return SLOT_VALUE_PATTERN.test(value)
+}
+
 const SLOT_RE = /\{([a-zA-Z0-9_]+)\}/g
 
 /** The text a click inserts or sends, before its slots are filled. */

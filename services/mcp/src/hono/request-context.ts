@@ -13,6 +13,7 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
+import type { ChatActionBindingCache } from '@/tools/posthogAiTools/chatActionBindings'
 import type { Context, Env, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
@@ -91,6 +92,20 @@ export class RequestContext {
             )
         }
         return this.sessionScopedCacheInstance
+    }
+
+    get chatActionBindingCache(): ChatActionBindingCache | undefined {
+        const session = this.props.taskId ?? resolveSessionKey(this.requestContext)
+        if (!session || !this.props.userHash) {
+            return undefined
+        }
+        const digest = createHash('sha256').update(`${this.props.userHash}:${session}`).digest()
+        return new RedisCache<Record<string, true>>(
+            `chat-actions:${digest.subarray(0, 16).toString('base64url')}`,
+            this.redis,
+            'session',
+            SESSION_CACHE_TTL_SECONDS
+        )
     }
 
     private async readCachedOAuthClientName(): Promise<string | undefined> {

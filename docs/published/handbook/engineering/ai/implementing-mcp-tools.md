@@ -338,7 +338,7 @@ Product teams own their definitions and control which operations are exposed as 
            label: Enable the thing # button label
            kind: run # insert (fills the composer) | send (sends the message) | run (sends the message; `tool` must be visible). Write the message so it names the intent and its ids
            tool: things-enable # required for `run`, forbidden otherwise; must be visible to the caller
-           message: Enable thing {id}. # `{slot}` markers are filled from the agent's args (identifiers only); defaults to the label
+           message: Enable thing {id}. # `{slot}` markers are filled from the agent's args (identifiers this tool returned); defaults to the label
    ```
 
    For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
@@ -350,7 +350,9 @@ Product teams own their definitions and control which operations are exposed as 
    `suggest-actions` tool in exec mode for the PostHog AI chat. The exec command reference lists every
    declared action, and the agent picks the ones that fit at the end of its turn. A slot value must be an
    identifier (letters, digits, `_` and `-`, up to 64 characters), because a click sends the rendered message
-   as the user's own turn. The same hint also rides on the result of the offering
+   as the user's own turn. A slot also names a top-level field of the offering tool's result: `suggest-actions`
+   accepts a value only when the same session got it back from a successful call of that tool, so `{id}` must be
+   an `id` the tool returned. Otherwise the pick fails with `unbound_slot`. The same hint also rides on the result of the offering
    tool: after a successful `call`, exec appends a trailing text block with the `suggest-actions` command for that
    tool and a `<slot>` placeholder per slot, so the agent reads it at the moment it matters. Handwritten tools declare `actions`
    the same way in `services/mcp/schema/tool-definitions.json`.

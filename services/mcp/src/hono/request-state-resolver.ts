@@ -10,7 +10,8 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
-import { bindSuggestActionsCatalog, SUGGEST_ACTIONS_TOOL_NAME } from '@/tools/posthogAiTools/suggestActions'
+import { ChatActionBindings } from '@/tools/posthogAiTools/chatActionBindings'
+import { bindChatActions, SUGGEST_ACTIONS_TOOL_NAME } from '@/tools/posthogAiTools/suggestActions'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import {
     type FlagGatedTool,
@@ -239,12 +240,13 @@ export class RequestStateResolver {
         // is_staff gate on top of the catalog's plain scope filter.
         // `suggest-actions` validates `run` targets against this caller's catalog, which only
         // exists here, so the bound handler is attached after every filter ran.
-        const allTools = bindSuggestActionsCatalog(
+        const allTools = bindChatActions(
             await filterStaffOnlyTools(
                 this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
                 _apiKey ?? { scopes: [] },
                 () => context.stateManager.getUser()
-            )
+            ),
+            new ChatActionBindings(reqCtx.chatActionBindingCache)
         )
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
