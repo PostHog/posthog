@@ -6,6 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.management.commands.fix_orphaned_ch_persons import run as run_orphan_repair
 from posthog.models.person.deletion import OrphanedPerson, find_orphaned_ch_persons, tombstone_orphaned_ch_persons
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
@@ -183,3 +184,29 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         assert self._ch_mapping_state(shared_did) == before
         expected_drift = [(shared_did, other_uuid)] if other == "deleted_mapping_of_live_person" else []
         assert result.reverse_drift_mappings == expected_drift
+
+    @parameterized.expand(
+        [
+            # (name, other live ClickHouse persons, --force, expect the repair to run)
+            ("over_the_limit_is_refused", 0, False, False),
+            ("force_overrides_the_limit", 0, True, True),
+            ("within_the_limit_runs", 20, False, True),
+        ]
+    )
+    def test_the_command_refuses_to_tombstone_a_large_share_of_a_team(
+        self, _name: str, others: int, force: bool, expect_repair: bool
+    ):
+        uuid = str(uuid4())
+        self._seed_ch_only_person(uuid, ["did-a"], version=5)
+        for _ in range(others):
+            self._seed_ch_only_person(str(uuid4()), [], version=1)
+        options = {"team_id": self.team.pk, "person_uuid": [uuid], "all": False, "dry_run": False, "force": force}
+
+        if expect_repair:
+            run_orphan_repair(options)
+        else:
+            with self.assertRaises(SystemExit):
+                run_orphan_repair(options)
+
+        assert self._stored(uuid) == ((True, 6) if expect_repair else None)
+        assert self._ch_person_state(uuid) == ((1, 6) if expect_repair else (0, 5))

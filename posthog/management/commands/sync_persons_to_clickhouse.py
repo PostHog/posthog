@@ -17,6 +17,7 @@ import structlog
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.group.util import raw_create_group_ch
+from posthog.models.person.deletion import orphan_share_refusal
 from posthog.models.person.util import (
     PersonVersionFloor,
     VersionFloorOutcome,
@@ -51,6 +52,11 @@ class Command(BaseCommand):
             help="process deletes for data in ClickHouse but not Postgres",
         )
         parser.add_argument("--live-run", action="store_true", help="Run changes, default is dry-run")
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Process deletes even when persons missing from Postgres are more than 5%% of ClickHouse's.",
+        )
 
     def handle(self, *args, **options):
         run(options)
@@ -67,7 +73,7 @@ def run(options):
     team_id = options["team_id"]
 
     if options["person"]:
-        run_person_sync(team_id, live_run, deletes)
+        run_person_sync(team_id, live_run, deletes, force=options.get("force", False))
 
     if options["person_distinct_id"]:
         run_distinct_id_sync(team_id, live_run, deletes)
@@ -80,7 +86,7 @@ def run(options):
     logger.info("Kafka producer queue flushed.")
 
 
-def run_person_sync(team_id: int, live_run: bool, deletes: bool):
+def run_person_sync(team_id: int, live_run: bool, deletes: bool, force: bool = False):
     logger.info("Running person table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
     with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
@@ -137,6 +143,7 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
         logger.info("Processing person deletions")
         postgres_uuids = {person["uuid"] for person in persons}
         tombstone_versions = _postgres_person_tombstone_versions(team_id)
+        stored: list[tuple[UUID, int]] = []
         floors: list[PersonVersionFloor] = []
         for uuid, version in ch_persons_to_version.items():
             if uuid in postgres_uuids:
@@ -145,13 +152,22 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
             tombstone_version = tombstone_versions.get(uuid)
             if tombstone_version is not None and tombstone_version > ch_version:
                 logger.info(f"Deleting person with uuid={uuid} at version {tombstone_version}")
-                if live_run:
-                    _publish_person_tombstone(team_id, uuid, tombstone_version)
+                stored.append((uuid, tombstone_version))
                 continue
             # No Postgres row outranks ClickHouse, so Postgres takes a tombstone above it first; publishing
             # above Postgres alone would hide the next revival.
             logger.info(f"Deleting person with uuid={uuid} at version {ch_version + 1} or above")
             floors.append(PersonVersionFloor(uuid=UUID(str(uuid)), min_version=ch_version + 1))
+        missing = sum(1 for floor in floors if floor.uuid not in tombstone_versions)
+        refusal = orphan_share_refusal(team_id, missing, len(ch_persons_to_version))
+        if refusal:
+            if live_run and not force:
+                logger.error(refusal)
+                exit(1)
+            logger.warning(refusal)
+        if live_run:
+            for uuid, tombstone_version in stored:
+                _publish_person_tombstone(team_id, uuid, tombstone_version)
         if live_run and floors:
             for result in ensure_person_version_floors(team_id, floors):
                 if result.outcome == VersionFloorOutcome.LIVE:

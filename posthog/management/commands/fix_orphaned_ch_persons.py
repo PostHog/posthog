@@ -6,7 +6,13 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.kafka_client.routing import flush_all_producers
-from posthog.models.person.deletion import OrphanRepairResult, find_orphaned_ch_persons, tombstone_orphaned_ch_persons
+from posthog.models.person.deletion import (
+    OrphanRepairResult,
+    count_live_ch_persons,
+    find_orphaned_ch_persons,
+    orphan_share_refusal,
+    tombstone_orphaned_ch_persons,
+)
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -40,6 +46,11 @@ class Command(BaseCommand):
             default=True,
             help="Report what would change without writing (default: on). Pass --no-dry-run to apply.",
         )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Apply even when the orphans are more than 5%% of the team's live ClickHouse persons.",
+        )
 
     def handle(self, *args, **options):
         run(options)
@@ -71,6 +82,13 @@ def run(options) -> None:
                 team_id=team_id,
                 not_orphaned=not_orphaned,
             )
+
+    refusal = orphan_share_refusal(team_id, len(orphans), count_live_ch_persons(team_id)) if orphans else None
+    if refusal:
+        if not dry_run and not options.get("force"):
+            logger.error(refusal)
+            exit(1)
+        logger.warning(refusal)
 
     result = tombstone_orphaned_ch_persons(team_id, orphans, dry_run=dry_run)
     _log_result(team_id, result)

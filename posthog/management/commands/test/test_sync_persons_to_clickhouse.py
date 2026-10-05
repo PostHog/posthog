@@ -98,7 +98,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
 
         with fake_personhog_client() as personhog:
-            run_person_sync(self.team.pk, live_run=True, deletes=True)
+            # The only ClickHouse person is missing from Postgres, which is over the share limit.
+            run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
             stored = personhog.stored_person(self.team.pk, uuid)
 
         # Postgres takes the tombstone first, so a later revival lands above the ClickHouse row.
@@ -111,13 +112,25 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(ch_persons, [(UUID(uuid), self.team.pk, "{}", False, 6, True)])
 
+    def test_deletes_refuse_a_large_share_of_persons_missing_from_postgres(self):
+        uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123})
+
+        with fake_personhog_client() as personhog, self.assertRaises(SystemExit):
+            run_person_sync(self.team.pk, live_run=True, deletes=True)
+
+        assert personhog.stored_person(self.team.pk, uuid) is None
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
+        self.assertEqual(ch_persons, [(5, False)])
+
     def test_a_person_live_on_the_postgres_primary_is_not_tombstoned(self):
         uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123})
 
         # The sync's replica read misses the person; the primary, which the floor call reads, holds it live.
         with fake_personhog_client() as personhog:
             personhog.add_person(team_id=self.team.pk, person_id=1, uuid=uuid, version=5)
-            run_person_sync(self.team.pk, live_run=True, deletes=True)
+            run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
 
         ch_persons = sync_execute(
             "SELECT version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
@@ -605,6 +618,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             "person_override": True,
             "group": True,
             "deletes": True,
+            # Two of its six ClickHouse persons are missing from Postgres, over the share limit.
+            "force": True,
         }
         with fake_personhog_client():
             run(options)

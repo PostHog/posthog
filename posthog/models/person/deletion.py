@@ -272,6 +272,34 @@ class OrphanRepairResult:
     dry_run: bool = False
 
 
+# A team with more of its live ClickHouse persons missing from the persons DB lost them, so it needs a restore.
+ORPHAN_TOMBSTONE_SHARE_LIMIT = 0.05
+
+
+def count_live_ch_persons(team_id: int) -> int:
+    rows = sync_execute(
+        """
+            SELECT count() FROM (
+                SELECT id FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING argMax(is_deleted, version) = 0
+            )
+        """,
+        {"team_id": team_id},
+    )
+    return int(rows[0][0])
+
+
+def orphan_share_refusal(team_id: int, to_tombstone: int, live_ch_persons: int) -> Optional[str]:
+    """Return why tombstoning this many ClickHouse-only persons is refused, or None when it is within the limit."""
+    if to_tombstone <= ORPHAN_TOMBSTONE_SHARE_LIMIT * live_ch_persons:
+        return None
+    return (
+        f"Refusing to tombstone {to_tombstone} of the {live_ch_persons} live ClickHouse persons of team {team_id}, "
+        f"more than {ORPHAN_TOMBSTONE_SHARE_LIMIT:.0%}. A team whose persons-DB persons were lost, for example by "
+        "an interrupted project deletion, needs a restore, and tombstoning destroys the ClickHouse copy the restore "
+        "reads from. Pass --force only if these persons should really be deleted."
+    )
+
+
 def find_orphaned_ch_persons(team_id: int, uuids: Optional[list[str]] = None) -> list[OrphanedPerson]:
     """Return ClickHouse person rows that are live in CH but have no persons-DB row.
 
