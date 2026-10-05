@@ -174,6 +174,22 @@ class TestMatchCoreEvents(BaseTest):
         # A partial answer is not cached, so the second search asks every request again.
         assert client.decide.call_count == 2 * requests_per_search
 
+    def test_reports_partial_when_a_failed_chunk_leaves_no_match_above_threshold(self) -> None:
+        client = _model_that_believes({}, failing_label="Autocapture")
+        with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE):
+            answer = match_core_events(self._search("browser capture"))
+
+        assert answer == EventMatchAnswer(matches=[], outcome=EventMatchOutcome.PARTIAL)
+
+    def test_reports_partial_when_a_failed_chunk_leaves_only_not_ingested_matches(self) -> None:
+        # Not created as an EventDefinition, so it reads as not ingested regardless of the chunk failure.
+        late_event = list(CORE_EVENT_CANDIDATES)[-1]
+        client = _model_that_believes({CORE_EVENT_CANDIDATES[late_event].label: 0.9}, failing_label="Autocapture")
+        with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE):
+            answer = match_core_events(self._search("browser capture"))
+
+        assert answer == EventMatchAnswer(matches=[], outcome=EventMatchOutcome.PARTIAL)
+
     def test_a_partial_answer_fails_when_every_event_must_be_answered(self) -> None:
         client = _model_that_believes({"Autocapture": 0.95}, failing_label="Autocapture")
         with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE), self.assertRaises(SystemOneRequestFailed):

@@ -157,9 +157,22 @@ def likely_core_events(
     The model reads the search with its values replaced by placeholders, and nothing when only values are left.
     With `require_complete`, a failed request raises instead of leaving its events out of the answer.
     """
+    likely, _complete = _likely_core_events(
+        team_id, query, use_cache=use_cache, require_complete=require_complete, model=model
+    )
+    return likely
+
+
+def _likely_core_events(
+    team_id: int, query: str, *, use_cache: bool, require_complete: bool, model: str | None
+) -> tuple[list[EventMatch], bool]:
+    """Same as `likely_core_events`, plus whether every core event was actually asked about.
+
+    A cache hit is always complete, since a partial answer is never cached (see below).
+    """
     model_query = redact_values(query)
     if model_query is None:
-        return []
+        return [], True
     model = model or EVENT_MATCH_MODEL.current()
     key = _cache_key(team_id, model_query, model)
     if use_cache:
@@ -167,7 +180,7 @@ def likely_core_events(
         # The Django cache pickles what it stores, so matches go in as JSON text and come out schema-validated.
         if isinstance(cached, str):
             try:
-                return _CACHED_MATCHES.validate_json(cached)
+                return _CACHED_MATCHES.validate_json(cached), True
             except ValidationError:
                 pass
     answers = _probabilities(team_id, model_query, model)
@@ -185,7 +198,7 @@ def likely_core_events(
     # A partial answer is not cached, so the next search asks again for the events that failed.
     if use_cache and answers.complete:
         cache.set(key, _CACHED_MATCHES.dump_json(likely).decode(), CACHE_TTL_SECONDS)
-    return likely
+    return likely, answers.complete
 
 
 def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
@@ -207,12 +220,19 @@ def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> 
         return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.WRONG_LENGTH)
     if redact_values(query) is None:
         return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.ONLY_VALUES)
-    likely = likely_core_events(request.team_id, query, use_cache=use_cache)
+    likely, complete = _likely_core_events(
+        request.team_id, query, use_cache=use_cache, require_complete=False, model=None
+    )
     if not likely:
-        return EventMatchAnswer(matches=[], outcome=EventMatchOutcome.NOTHING_LIKELY)
+        # A failed chunk leaves its events unasked, so an empty answer is not conclusive unless every chunk answered.
+        return EventMatchAnswer(
+            matches=[], outcome=EventMatchOutcome.NOTHING_LIKELY if complete else EventMatchOutcome.PARTIAL
+        )
     # A suggestion for an event the project never sent would lead to an empty insight.
     ingested = _ingested(request.project_id, [match.name for match in likely])
     matches = [match for match in likely if match.name in ingested]
+    if matches:
+        return EventMatchAnswer(matches=matches, outcome=EventMatchOutcome.MATCHED)
     return EventMatchAnswer(
-        matches=matches, outcome=EventMatchOutcome.MATCHED if matches else EventMatchOutcome.NOT_INGESTED
+        matches=[], outcome=EventMatchOutcome.NOT_INGESTED if complete else EventMatchOutcome.PARTIAL
     )
