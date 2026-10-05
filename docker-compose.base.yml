@@ -17,6 +17,12 @@ services:
             CADDYFILE: |
                 {
                 ${CADDY_TLS_BLOCK:-}
+                # Honour X-Forwarded-* from a reverse proxy in front of Caddy (nginx or a cloud
+                # LB on the same host or VPC). Without this Caddy overwrites X-Forwarded-Proto
+                # with http, Django sees an insecure request, and SAML responses are rejected.
+                servers {
+                    trusted_proxies static private_ranges
+                }
                 }
                 ${CADDY_HOST:-http://localhost:8000} {
                     @replay-capture {
