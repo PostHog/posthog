@@ -231,25 +231,23 @@ describe('weekly flaky report', () => {
             classification: 'confirmed_flake',
             same_commit_recovery_run_count: 1,
         }
-        const xfailOnly = {
+        const expectedFailure = {
             ...common,
+            selector: 'expected.py::test_marked_xfail_by_its_author',
             classification: 'quarantined',
             failed_run_count: 0,
             failed_pr_count: 0,
             quarantined_failed_run_count: 2,
         }
-        const fileQuarantined = { ...xfailOnly, selector: 'quarantined.py::test_quarantined' }
-        const expectedFailure = { ...xfailOnly, selector: 'expected.py::test_marked_xfail_by_its_author' }
         const master = { ...common, selector: 'master.py::test_master', master_failed_run_count: 1 }
         const getEnrichment = async () => () => ({ evidence: [] })
         const candidatePools = await fetchCandidatePools(['pytest'], onMasterResolver, async () => ({
-            items: [...plainRegressions, trunked, confirmed, fileQuarantined, expectedFailure, master],
+            items: [...plainRegressions, trunked, confirmed, expectedFailure, master],
         }))
         const [{ candidates }] = await buildRunnerReports(
             candidatePools,
             getEnrichment,
-            async () => (item) => (item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null),
-            () => (item) => (item.selector === fileQuarantined.selector ? { expires: '2026-08-01' } : null)
+            async () => (item) => (item === trunked ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null)
         )
 
         assert.deepEqual(
@@ -257,17 +255,18 @@ describe('weekly flaky report', () => {
             [
                 [confirmed.selector, 6],
                 [trunked.selector, 6],
-                [fileQuarantined.selector, 2],
             ]
         )
 
         const [{ candidates: candidatesWithoutTrunk }] = await buildRunnerReports(
-            [{ runner: 'pytest', candidates: [plainRegressions[0]] }],
+            [{ runner: 'pytest', candidates: [plainRegressions[0], expectedFailure] }],
             getEnrichment,
-            async () => null,
-            () => () => null
+            async () => null
         )
-        assert.deepEqual(candidatesWithoutTrunk, [plainRegressions[0]])
+        assert.deepEqual(
+            candidatesWithoutTrunk.map((candidate) => candidate.selector),
+            [plainRegressions[0].selector]
+        )
     })
 
     it('ranks and limits each runner independently', async () => {
