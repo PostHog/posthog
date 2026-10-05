@@ -4317,70 +4317,42 @@ async fn test_ensure_person_version_floors_outcomes_and_idempotence() {
     ctx.cleanup().await.ok();
 }
 
-#[derive(Debug, Clone, Copy)]
-enum TombstoneWrite {
-    PersonFloor,
-}
-
-#[rstest]
-#[case::person_floor(TombstoneWrite::PersonFloor)]
 #[tokio::test]
-async fn test_ingestion_revives_above_the_written_tombstone(#[case] write: TombstoneWrite) {
+async fn test_ingestion_revives_above_the_written_tombstone() {
     let ctx = TestContext::new().await;
     let uuid = Uuid::now_v7();
     let distinct_id = "revived";
-    // (person version, distinct id version) after the revival.
-    let expected_versions = match write {
-        TombstoneWrite::PersonFloor => {
-            ctx.storage
-                .ensure_person_version_floors(ctx.team_id, &[(uuid, 5)])
-                .await
-                .unwrap();
-            ctx.add_distinct_id_to_person(person_id_of(&ctx, uuid).await, distinct_id)
-                .await
-                .unwrap();
-            set_distinct_id_state(&ctx, distinct_id, Some(0), true).await;
-            (6, 1)
-        }
-    };
+    ctx.storage
+        .ensure_person_version_floors(ctx.team_id, &[(uuid, 5)])
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person_id_of(&ctx, uuid).await, distinct_id)
+        .await
+        .unwrap();
+    set_distinct_id_state(&ctx, distinct_id, Some(0), true).await;
 
     assert_eq!(
         revive_with_ingestion_upsert(&ctx, uuid, distinct_id).await,
         2
     );
 
-    let (person_version, distinct_id_version) = expected_versions;
     assert_eq!(
         person_state(&ctx, uuid).await,
-        Some((
-            Some(person_version),
-            false,
-            serde_json::json!({"revived": true})
-        ))
+        Some((Some(6), false, serde_json::json!({"revived": true})))
     );
     assert_eq!(
         distinct_id_state(&ctx, distinct_id).await,
-        Some((
-            person_id_of(&ctx, uuid).await,
-            Some(distinct_id_version),
-            false
-        ))
+        Some((person_id_of(&ctx, uuid).await, Some(1), false))
     );
 
     ctx.cleanup().await.ok();
 }
 
-#[derive(Debug, Clone, Copy)]
-enum RaceTarget {
-    Person,
-}
-
 #[rstest]
-#[case::person_insert_commits(RaceTarget::Person, true, VersionFloorOutcome::Live)]
-#[case::person_insert_rolls_back(RaceTarget::Person, false, VersionFloorOutcome::TombstoneInserted)]
+#[case::person_insert_commits(true, VersionFloorOutcome::Live)]
+#[case::person_insert_rolls_back(false, VersionFloorOutcome::TombstoneInserted)]
 #[tokio::test]
 async fn test_ensure_version_floors_wait_for_a_concurrent_insert(
-    #[case] target: RaceTarget,
     #[case] commit: bool,
     #[case] expected_outcome: VersionFloorOutcome,
 ) {
@@ -4391,17 +4363,15 @@ async fn test_ensure_version_floors_wait_for_a_concurrent_insert(
         .fetch_one(&mut *holder)
         .await
         .unwrap();
-    match target {
-        RaceTarget::Person => sqlx::query(
-            r#"INSERT INTO posthog_person
-            (id, uuid, team_id, properties, properties_last_updated_at,
-             properties_last_operation, created_at, version, is_identified)
-            VALUES ($1, $2, $3, '{}', '{}', '{}', NOW(), 0, false)"#,
-        )
-        .bind(rand::thread_rng().gen_range(1_000_000i64..100_000_000))
-        .bind(uuid)
-        .bind(ctx.team_id),
-    }
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified)
+        VALUES ($1, $2, $3, '{}', '{}', '{}', NOW(), 0, false)"#,
+    )
+    .bind(rand::thread_rng().gen_range(1_000_000i64..100_000_000))
+    .bind(uuid)
+    .bind(ctx.team_id)
     .execute(&mut *holder)
     .await
     .unwrap();
@@ -4409,12 +4379,10 @@ async fn test_ensure_version_floors_wait_for_a_concurrent_insert(
     let storage = ctx.storage.clone();
     let team_id = ctx.team_id;
     let request = tokio::spawn(async move {
-        match target {
-            RaceTarget::Person => storage
-                .ensure_person_version_floors(team_id, &[(uuid, 3)])
-                .await
-                .map(|results| (results[0].outcome, results[0].version)),
-        }
+        storage
+            .ensure_person_version_floors(team_id, &[(uuid, 3)])
+            .await
+            .map(|results| (results[0].outcome, results[0].version))
     });
     // Only the ON CONFLICT insert can wait here: the locking reads skip uncommitted rows.
     wait_until_blocked_by(&ctx, holder_pid).await;
@@ -4427,12 +4395,10 @@ async fn test_ensure_version_floors_wait_for_a_concurrent_insert(
     // The committed insert is live at version 0, which the call leaves unchanged.
     let (version, is_deleted) = if commit { (0, false) } else { (3, true) };
     assert_eq!(request.await.unwrap().unwrap(), (expected_outcome, version));
-    match target {
-        RaceTarget::Person => assert_eq!(
-            person_state(&ctx, uuid).await,
-            Some((Some(version), is_deleted, serde_json::json!({})))
-        ),
-    }
+    assert_eq!(
+        person_state(&ctx, uuid).await,
+        Some((Some(version), is_deleted, serde_json::json!({})))
+    );
 
     ctx.cleanup().await.ok();
 }
