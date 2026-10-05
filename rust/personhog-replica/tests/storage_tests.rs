@@ -2084,6 +2084,7 @@ async fn test_delete_persons_large_batch_tombstones_every_chunk() {
 
     // 150 persons with chunk_size=50 make 3 chunks in one transaction, and every chunk must be tombstoned
     let mut uuids = Vec::new();
+    let mut persons_with_extra_ids = Vec::new();
     for i in 0..150 {
         let p = ctx
             .insert_person(&format!("large_batch_del_{i}"), None)
@@ -2096,6 +2097,7 @@ async fn test_delete_persons_large_batch_tombstones_every_chunk() {
                     .await
                     .unwrap();
             }
+            persons_with_extra_ids.push(p.id);
         }
         uuids.push(p.uuid);
     }
@@ -2118,6 +2120,17 @@ async fn test_delete_persons_large_batch_tombstones_every_chunk() {
                 .unwrap()
                 .is_none(),
             "Person {i} should have been deleted"
+        );
+    }
+
+    for person_id in persons_with_extra_ids {
+        let (is_deleted, _, _, distinct_ids) =
+            tombstone_state(&ctx.pool, ctx.team_id, person_id).await;
+        assert!(is_deleted, "Person {person_id} should be tombstoned");
+        assert_eq!(distinct_ids.len(), 6);
+        assert!(
+            distinct_ids.iter().all(|(is_deleted, _)| *is_deleted),
+            "Every distinct id of person {person_id} should be tombstoned"
         );
     }
 
