@@ -50,3 +50,6 @@ tools:
             urgent first.
         feature_flag: today-rail-nav
         feature_flag_behavior: enable
+    today-reports-page-retrieve:
+        operation: today_reports_page_retrieve
+        enabled: false
