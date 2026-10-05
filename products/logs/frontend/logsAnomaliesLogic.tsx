@@ -2,10 +2,12 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { DateRange } from '~/queries/schema/schema-general'
 
+import { stepAnomaliesWindow } from 'products/logs/frontend/anomaliesDateWindow'
 import { serviceViewerUrl } from 'products/logs/frontend/components/LogsServices/serviceViewerUrl'
 import { logsAnomaliesSeriesBandsCreate } from 'products/logs/frontend/generated/api'
 import type { LogsSeriesBandSeriesApi, LogsSeriesBandsResponseApi } from 'products/logs/frontend/generated/api.schemas'
@@ -57,6 +59,9 @@ export interface logsAnomaliesLogicActions {
     setServiceName: (serviceName: string | null) => {
         serviceName: string | null
     }
+    stepDateRange: (direction: -1 | 1) => {
+        direction: -1 | 1
+    }
     showMoreSeries: () => {
         value: true
     }
@@ -86,6 +91,7 @@ export const logsAnomaliesLogic = kea<logsAnomaliesLogicType>([
     actions({
         setServiceName: (serviceName: string | null) => ({ serviceName }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        stepDateRange: (direction: -1 | 1) => ({ direction }),
         showMoreSeries: true,
         openLogsForBucket: (severity: string, dateRange: DateRange) => ({ severity, dateRange }),
     }),
@@ -171,6 +177,12 @@ export const logsAnomaliesLogic = kea<logsAnomaliesLogicType>([
         setDateRange: () => {
             if (values.serviceName) {
                 actions.loadSeriesBands({})
+            }
+        },
+        stepDateRange: ({ direction }) => {
+            const dateRange = stepAnomaliesWindow(values.dateRange, direction, dayjs())
+            if (dateRange) {
+                actions.setDateRange(dateRange)
             }
         },
         openLogsForBucket: ({ severity, dateRange }) => {
