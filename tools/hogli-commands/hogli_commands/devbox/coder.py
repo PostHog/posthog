@@ -497,10 +497,13 @@ def _tailscale_routes_accepted() -> bool:
     return not any(_ACCEPT_ROUTES_HEALTH_FRAGMENT in (msg or "") for msg in health)
 
 
-def ensure_tailscale_routes_accepted() -> None:
-    """Enable Tailscale subnet route acceptance when peers advertise routes."""
+def ensure_tailscale_routes_accepted() -> bool:
+    """Enable Tailscale subnet route acceptance when peers advertise routes.
+
+    Returns whether this call enabled it.
+    """
     if _tailscale_routes_accepted():
-        return
+        return False
 
     # The fix below is silent, so without this the number of hosts that land
     # here stays unknowable.
@@ -508,7 +511,7 @@ def ensure_tailscale_routes_accepted() -> None:
 
     tailscale_path = _resolve_tailscale()
     if not tailscale_path:
-        return
+        return False
 
     click.echo("Enabling Tailscale subnet routes (required for devbox access)...")
     cmd = [tailscale_path, "set", "--accept-routes"]
@@ -522,6 +525,7 @@ def ensure_tailscale_routes_accepted() -> None:
             f"Failed to enable Tailscale subnet routes. Run manually: {manual}",
             cause="accept_routes_failed",
         )
+    return True
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
@@ -705,7 +709,7 @@ def _diagnose_blocked_route(
     )
 
 
-def ensure_coder_reachable() -> None:
+def ensure_coder_reachable(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     """Fail fast with a structured diagnosis when the Coder ALB is unreachable.
 
     Tailscale reporting ``BackendState=Running`` with ``--accept-routes`` does
@@ -713,8 +717,17 @@ def ensure_coder_reachable() -> None:
     and packets still blackhole. Probe the API directly, and on failure pick
     the single most-likely cause + next step instead of dumping a list of
     commands the engineer has to interpret themselves.
+
+    The Tailscale checks run only after a failed probe. A host inside the
+    Coder network, such as a devbox, reaches the API without Tailscale, and
+    accepting a subnet route that covers its own network sends local traffic
+    through the tailnet and disconnects its workspace agent.
     """
     if coder_reachable():
+        return
+
+    ensure_tailscale_connected(setup_hint)
+    if ensure_tailscale_routes_accepted() and coder_reachable():
         return
 
     diagnosis = _diagnose_unreachable_coder()
@@ -923,8 +936,6 @@ def ensure_coder_authenticated() -> None:
 
 def ensure_runtime_ready() -> None:
     """Verify runtime prerequisites without mutating host setup."""
-    ensure_tailscale_connected()
-    ensure_tailscale_routes_accepted()
     ensure_coder_reachable()
 
     if not coder_installed():
