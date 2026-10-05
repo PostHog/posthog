@@ -7,6 +7,8 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import RoleMembership
 
 from ee.api.scim.auth import generate_scim_token
@@ -152,6 +154,94 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert data["itemsPerPage"] == 0
         assert data["Resources"] == []
 
+    @parameterized.expand([("put", "put"), ("patch_add", "add"), ("patch_replace", "replace")])
+    def test_default_role_applies_to_provisioning_and_reactivation(self, _name: str, activation: str) -> None:
+        self.organization.available_product_features += [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": "Role-based access"},
+        ]
+        role = self.organization.roles.create(name="Default role")
+        self.organization.default_role = role
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), role=role, access_level="none"
+        )
+        user_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "provisioned@example.com",
+            "emails": [{"value": "provisioned@example.com", "primary": True}],
+            "active": True,
+        }
+        response = self.client.post(
+            f"/scim/v2/{self.config.scim_slug}/Users", data=user_data, content_type="application/scim+json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        user = User.objects.get(email="provisioned@example.com")
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        assert RoleMembership.objects.get(user=user, role=role).organization_member_id == membership.id
+        assert UserAccessControl(user, self.team).get_user_access_level(self.team) == "none"
+
+        url = f"/scim/v2/{self.config.scim_slug}/Users/{user.id}"
+        response = self.client.patch(
+            url,
+            data={
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "replace", "path": "active", "value": False}],
+            },
+            content_type="application/scim+json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert not RoleMembership.objects.filter(user=user, role=role).exists()
+
+        for _ in range(2):
+            if activation == "put":
+                response = self.client.put(url, data=user_data, content_type="application/scim+json")
+            else:
+                response = self.client.patch(
+                    url,
+                    data={
+                        "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                        "Operations": [{"op": activation, "path": "active", "value": True}],
+                    },
+                    content_type="application/scim+json",
+                )
+            assert response.status_code == status.HTTP_200_OK
+            membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+            assert membership.level == OrganizationMembership.Level.MEMBER
+            assert RoleMembership.objects.get(user=user, role=role).organization_member_id == membership.id
+            assert UserAccessControl(user, self.team).get_user_access_level(self.team) == "none"
+
+        self.client.credentials()
+        self.client.force_login(user)
+        assert self.client.get(f"/api/projects/{self.team.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reactivation_with_invalid_default_role_leaves_user_inactive(self) -> None:
+        other_org = Organization.objects.create(name="Other organization")
+        self.organization.default_role = other_org.roles.create(name="Other role")
+        self.organization.save()
+        user = User.objects.create_user(email="inactive@example.com", password=None, first_name="Inactive")
+        provision = SCIMProvisionedUser.objects.create(
+            user=user,
+            identity_provider_config=self.config,
+            username=user.email,
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=False,
+        )
+
+        response = self.client.patch(
+            f"/scim/v2/{self.config.scim_slug}/Users/{user.id}",
+            data={
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "replace", "path": "active", "value": True}],
+            },
+            content_type="application/scim+json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        provision.refresh_from_db()
+        assert provision.active is False
+
     def test_create_user(self):
         user_data = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
@@ -210,6 +300,9 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert User.objects.get(pk=existing.pk).email == "iuser@example.com"
 
     def test_existing_user_is_added_to_org(self):
+        role = self.organization.roles.create(name="Default role")
+        self.organization.default_role = role
+        self.organization.save()
         # Create user in different org
         other_org = Organization.objects.create(name="Other Org")
         existing_user = User.objects.create_user(
@@ -237,6 +330,8 @@ class TestSCIMUsersAPI(APILicensedTest):
         # User should now be member of both orgs
         assert OrganizationMembership.objects.filter(user=existing_user, organization=self.organization).exists()
         assert OrganizationMembership.objects.filter(user=existing_user, organization=other_org).exists()
+        membership = OrganizationMembership.objects.get(user=existing_user, organization=self.organization)
+        assert RoleMembership.objects.get(user=existing_user, role=role).organization_member_id == membership.id
 
         # Verify SCIM provisioned user record was created for this domain
         scim_user = SCIMProvisionedUser.objects.get(user=existing_user, identity_provider_config=self.config)
@@ -418,6 +513,9 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert not SCIMProvisionedUser.objects.filter(user=user, identity_provider_config=self.config).exists()
 
     def test_put_user(self):
+        role = self.organization.roles.create(name="Default role")
+        self.organization.default_role = role
+        self.organization.save()
         user = User.objects.create_user(
             email="old@example.com", password=None, first_name="Old", last_name="Name", is_email_verified=True
         )
@@ -450,6 +548,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert user.first_name == "Replaced"
         assert user.last_name == "User"
         assert user.email == "put@example.com"
+        assert not RoleMembership.objects.filter(user=user, role=role).exists()
 
         # Verify SCIM provisioned user was updated
         scim_user = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
