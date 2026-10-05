@@ -226,6 +226,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             size="small"
                             icon={<IconRefresh />}
                             tooltip="Sync now — re-runs the warehouse sync for this table"
+                            data-attr="sync-warehouse-profile-property"
                             onClick={() => source && triggerSync({ sourceId: source.id })}
                             loading={triggering || running}
                             disabledReason={disabledReason}
@@ -233,6 +234,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                         <LemonButton
                             size="small"
                             tooltip="Backfill — reads the whole table to fill in historical rows"
+                            data-attr="backfill-warehouse-profile-property"
                             onClick={() => source && triggerBackfill({ sourceId: source.id })}
                             loading={triggering || running}
                             disabledReason={disabledReason}
@@ -243,6 +245,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             size="small"
                             icon={<IconPencil />}
                             tooltip="Edit"
+                            data-attr="edit-warehouse-profile-property"
                             onClick={() => openEditModal(definition)}
                             disabledReason={restrictionReason}
                         />
@@ -251,6 +254,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             status="danger"
                             icon={<IconTrash />}
                             tooltip="Delete"
+                            data-attr="delete-warehouse-profile-property"
                             onClick={() => confirmDelete(definition)}
                             disabledReason={deleteRestrictionReason}
                         />
@@ -269,6 +273,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     // Lock the target: this page only manages one target, so the modal shouldn't offer
                     // the "Attach to" switch.
                     onClick={() => openCreateModal(targetType as CustomPropertyTargetType, true)}
+                    data-attr="add-warehouse-profile-property"
                     disabledReason={restrictionReason}
                 >
                     Add {labels.entity} property
