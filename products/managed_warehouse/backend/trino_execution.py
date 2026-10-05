@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 _Result = TypeVar("_Result")
 
-TRINO_QUERY_SECONDS = 30 * 60
+TRINO_QUERY_SECONDS = 90 * 60
 _executor = ThreadPoolExecutor(thread_name_prefix="trino-model")
 
 
