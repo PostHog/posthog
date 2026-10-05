@@ -6,7 +6,7 @@
 //! worker processes a key's messages in order. A response that breaks the
 //! contract is a protocol error.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::key_queues::KeyRun;
 use super::request_class::RequestClass;
@@ -58,6 +58,12 @@ pub struct KeyOutcome {
 pub enum ResolveError {
     #[error("returned message {topic}/{partition}@{offset} was not in the request")]
     Unknown {
+        topic: String,
+        partition: i32,
+        offset: i64,
+    },
+    #[error("returned message {topic}/{partition}@{offset} appears more than once")]
+    Duplicate {
         topic: String,
         partition: i32,
         offset: i64,
@@ -136,6 +142,7 @@ impl InFlightRequest {
 
         let mut returned_by_run: Vec<Vec<(usize, SerializedKafkaMessage)>> =
             self.runs.iter().map(|_| Vec::new()).collect();
+        let mut seen: HashSet<(usize, usize)> = HashSet::new();
         for message in returned {
             let Some(&(run_index, message_index)) =
                 position.get(&(message.topic.as_str(), message.partition, message.offset))
@@ -146,6 +153,13 @@ impl InFlightRequest {
                     offset: message.offset,
                 });
             };
+            if !seen.insert((run_index, message_index)) {
+                return Err(ResolveError::Duplicate {
+                    topic: message.topic,
+                    partition: message.partition,
+                    offset: message.offset,
+                });
+            }
             returned_by_run[run_index].push((message_index, message));
         }
 
@@ -176,6 +190,8 @@ impl InFlightRequest {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::batcher::test_support::{message, offsets};
 
@@ -233,25 +249,25 @@ mod tests {
         );
     }
 
-    #[test]
-    fn returned_messages_that_skip_an_accepted_one_are_a_protocol_error() {
+    #[rstest]
+    #[case::skips_an_accepted_message(
+        vec![message("a", 0, 2)],
+        ResolveError::NotASuffix { routing_key: "a".to_string() },
+    )]
+    #[case::outside_the_request(
+        vec![message("a", 0, 99)],
+        ResolveError::Unknown { topic: "events".to_string(), partition: 0, offset: 99 },
+    )]
+    #[case::more_copies_than_the_run_holds(
+        vec![message("b", 0, 10), message("b", 0, 10)],
+        ResolveError::Duplicate { topic: "events".to_string(), partition: 0, offset: 10 },
+    )]
+    fn a_response_outside_the_contract_is_a_protocol_error(
+        #[case] returned: Vec<SerializedKafkaMessage>,
+        #[case] expected: ResolveError,
+    ) {
         let (mut requests, id) = request();
         let request = requests.take(id).expect("registered");
-        assert_eq!(
-            request.resolve(vec![message("a", 0, 2)]).err(),
-            Some(ResolveError::NotASuffix {
-                routing_key: "a".to_string()
-            })
-        );
-    }
-
-    #[test]
-    fn a_returned_message_outside_the_request_is_a_protocol_error() {
-        let (mut requests, id) = request();
-        let request = requests.take(id).expect("registered");
-        assert!(matches!(
-            request.resolve(vec![message("a", 0, 99)]),
-            Err(ResolveError::Unknown { offset: 99, .. })
-        ));
+        assert_eq!(request.resolve(returned).err(), Some(expected));
     }
 }
