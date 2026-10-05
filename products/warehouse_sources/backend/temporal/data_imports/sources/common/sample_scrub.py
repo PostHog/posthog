@@ -54,6 +54,8 @@ REDACT_FIELD_NAMES: frozenset[str] = frozenset(
         # name and would otherwise reach captured samples raw (the source's own `redact_fields`
         # strips it from synced rows, but that runs after, not before, sample capture).
         "imap_password",
+        # Synthesia's webhooks endpoint returns each webhook signing secret under this key.
+        "secret",
     }
 )
 
