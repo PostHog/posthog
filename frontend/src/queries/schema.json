@@ -6155,6 +6155,9 @@
                     },
                     "type": "array"
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "dateField": {
                     "anyOf": [
                         {
@@ -29386,6 +29389,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
