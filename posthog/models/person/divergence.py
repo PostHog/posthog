@@ -191,7 +191,11 @@ def scan_hidden_persons(
     on_found: Callable[[DivergentPerson], None],
     log: Callable[[str], None],
 ) -> ScanSummary:
-    """Persons live in Postgres whose newest ClickHouse row is a legacy (version 100 or above) tombstone."""
+    """Persons live in Postgres whose newest ClickHouse row is a legacy (version 100 or above) tombstone.
+
+    Run it, then repair what it finds, right before every ClickHouse deletion sweep while such
+    tombstones remain: the sweep deletes every ClickHouse row of these persons.
+    """
     return _scan_divergent_persons(
         sql=_HIDDEN_SQL,
         settings=_HIDDEN_SETTINGS,

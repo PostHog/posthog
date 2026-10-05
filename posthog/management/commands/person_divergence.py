@@ -5,7 +5,9 @@ Usage:
     python manage.py person_divergence scan swept --output swept.csv
     python manage.py person_divergence scan stale --window-days 60 --output stale.csv
 
-Scans only read.
+Scans only read. While legacy (version 100 or above) tombstones remain in ClickHouse, run the hidden
+scan right before every ClickHouse deletion sweep, because the sweep deletes the rows of every person
+it finds, and run the swept scan soon after the sweep.
 """
 
 import csv
@@ -34,7 +36,8 @@ _DIVERGENT_SCANS: dict[str, tuple[Callable[..., ScanSummary], int, str]] = {
     "hidden": (
         scan_hidden_persons,
         HIDDEN_TEAM_STEP,
-        "Persons live in Postgres whose newest ClickHouse row is a legacy (version 100 or above) tombstone.",
+        "Persons live in Postgres whose newest ClickHouse row is a legacy (version 100 or above) tombstone. "
+        "Run it right before every ClickHouse deletion sweep: the sweep deletes the rows of every person it finds.",
     ),
     "swept": (
         scan_swept_persons,
@@ -71,7 +74,7 @@ class Command(BaseCommand):
             if name == "stale":
                 divergent.add_argument(
                     "--window-days",
-                    type=int,
+                    type=_positive_int,
                     default=60,
                     help="Only persons written in the last N days (default: %(default)s).",
                 )
@@ -100,6 +103,9 @@ class Command(BaseCommand):
 
     def _scan(self, options: dict[str, Any]) -> None:
         name = options["scan"]
+        # An empty team range scans nothing and would read as a clean fleet.
+        if options["max_team_id"] is not None and options["max_team_id"] <= options["min_team_id"]:
+            raise CommandError("--max-team-id must be above --min-team-id")
         with _open_output(options["output"]) as handle:
             if name in _DIVERGENT_SCANS:
                 scan_fn, _, _ = _DIVERGENT_SCANS[name]
