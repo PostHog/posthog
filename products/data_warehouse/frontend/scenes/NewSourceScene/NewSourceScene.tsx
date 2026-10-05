@@ -673,8 +673,14 @@ function WebhookSetupStep({
 }: {
     sourceWizardLogicProps?: SourceWizardLogicProps
 }): JSX.Element {
-    const { webhookResult, webhookCreating, selectedConnector, databaseSchema, isWebhookFieldInputsSubmitting } =
-        useValues(sourceWizardLogic)
+    const {
+        webhookResult,
+        webhookCreating,
+        webhookAutoCreationBlockedReason,
+        selectedConnector,
+        databaseSchema,
+        isWebhookFieldInputsSubmitting,
+    } = useValues(sourceWizardLogic)
     const { createWebhook } = useActions(sourceWizardLogic)
 
     const webhookTables = databaseSchema
@@ -689,6 +695,7 @@ function WebhookSetupStep({
             webhookResult={webhookResult}
             webhookCreating={webhookCreating}
             webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
+            autoCreationBlockedReason={webhookAutoCreationBlockedReason}
             onCreateWebhook={createWebhook}
             formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"

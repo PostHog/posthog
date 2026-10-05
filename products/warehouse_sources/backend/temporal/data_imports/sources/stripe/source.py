@@ -516,6 +516,16 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             auth_method=config.auth_method.selection,
         )
 
+    def webhook_creation_blocked_reason(self, config: StripeSourceConfig, team_id: int) -> str | None:
+        # An OAuth connection acts on a connected account, and Stripe never lets a connected
+        # account create a webhook endpoint. Reconnecting can't change that, so skip the button.
+        if config.auth_method.selection != "oauth":
+            return None
+        return (
+            "Stripe doesn't let apps create webhooks, so PostHog can't create this webhook for you. "
+            "Set it up manually using the steps below."
+        )
+
     def get_desired_webhook_events(
         self, config: StripeSourceConfig, eligible_schema_names: list[str]
     ) -> list[str] | None:

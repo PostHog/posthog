@@ -355,6 +355,18 @@ class TestStripeSource:
         assert ok is False
         assert message == expected_message
 
+    @pytest.mark.parametrize(
+        "auth_method,blocked",
+        [
+            (StripeAuthMethodConfig(selection="oauth", stripe_integration_id=42), True),
+            (StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_test_123"), False),
+        ],
+    )
+    def test_webhook_creation_blocked_only_for_oauth(self, auth_method: StripeAuthMethodConfig, blocked: bool) -> None:
+        reason = self.source.webhook_creation_blocked_reason(StripeSourceConfig(auth_method=auth_method), team_id=1)
+
+        assert (reason is not None) is blocked
+
     def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
         # Webhook cleanup runs when a source is deleted, by which point the OAuth integration may
         # already be gone and `get_oauth_integration` raises "Integration not found". delete_webhook
