@@ -143,6 +143,20 @@ class TestSendDigestForUser(_DigestTestBase):
         assert outcome == DigestOutcome.DRY_RUN
         self.mock_email_class.assert_not_called()
 
+    @parameterized.expand([("dry_run", {"dry_run": True}), ("test_send", {"test": True})])
+    def test_simulated_run_does_not_enroll_the_member(self, _name, mode):
+        _send_digest_for_user(
+            user=self.user,
+            org=self.organization,
+            membership=self.organization_membership,
+            team_digest_data={self.team.id: _make_team_digest(self.team)},
+            date_suffix="2025-15",
+            **mode,
+        )
+
+        self.user.refresh_from_db()
+        assert "web_analytics_weekly_digest_project_enabled" not in (self.user.partial_notification_settings or {})
+
     def test_returns_failed_when_email_send_raises(self):
         self.mock_message.send.side_effect = RuntimeError("smtp blew up")
         outcome = _send_digest_for_user(

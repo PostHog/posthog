@@ -386,10 +386,11 @@ def build_team_digests(teams: Iterable[Team]) -> TeamDigestBuild:
     return TeamDigestBuild(digests=digests, failed_teams=failed_teams)
 
 
-def auto_select_project_for_user(user: User, team_traffic_data: dict[int, dict]) -> bool:
+def auto_select_project_for_user(user: User, team_traffic_data: dict[int, dict], persist: bool = True) -> bool:
     """For first-time users who have no WA digest project settings, auto-select the project with the most visitors.
 
-    Returns True if settings were updated (caller should refresh_from_db).
+    ``persist=False`` keeps the decision in memory so a simulated run routes recipients the same way
+    without enrolling anyone. Returns True only when settings were written to the database.
     """
     from posthog.tasks.email_utils import auto_select_digest_project
 
@@ -398,4 +399,5 @@ def auto_select_project_for_user(user: User, team_traffic_data: dict[int, dict])
         team_data=team_traffic_data,
         setting_key="web_analytics_weekly_digest_project_enabled",
         sort_key=lambda d: d.get("visitors", {}).get("current", 0),
+        persist=persist,
     )
