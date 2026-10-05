@@ -57,6 +57,11 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
             "403 Client Error: Forbidden for url: https://api.rollbar.com": "Rollbar denied access. Please check that your project access token has the read scope.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # fetch exhausts its backoff on a 429 or 5xx, then re-raises so Temporal retries the
+        # activity. The import self-recovers, so log at warning instead of opening an issue.
+        return {"Rollbar API error (retryable)"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
