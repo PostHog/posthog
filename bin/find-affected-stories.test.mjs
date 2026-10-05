@@ -3,7 +3,9 @@ import { describe, test } from 'node:test'
 
 import {
     affectedStoriesFor,
+    estimateDuration,
     requiresFullRun,
+    suggestShards,
     unresolvedRuntimeFiles,
 } from './find-affected-stories'
 
@@ -49,6 +51,25 @@ describe('find-affected-stories', () => {
         assert.deepEqual(unresolvedRuntimeFiles(['frontend/src/scenes/experiments/newLogic.ts']), [
             'frontend/src/scenes/experiments/newLogic.ts',
         ])
+    })
+
+    test('sizes selective shards from the measured render time of the affected story files', () => {
+        const timings = {
+            'frontend/src/scenes/max/Max.stories.tsx': 176,
+            'frontend/src/scenes/experiments/stories/Experiments.stories.tsx': 40,
+            'frontend/src/scenes/data-warehouse/editor/SqlEditor.stories.tsx': 10,
+        }
+
+        assert.equal(
+            estimateDuration(
+                ['frontend/src/scenes/max/Max.stories.tsx', 'frontend/src/scenes/new/New.stories.tsx'],
+                timings
+            ),
+            216
+        )
+        assert.equal(suggestShards(0), 1)
+        assert.equal(suggestShards(estimateDuration(Object.keys(timings), timings)), 1)
+        assert.equal(suggestShards(8 * 60 * 3 + 1), 4)
     })
 
     test('ignores unresolved backend, test, and README files', () => {

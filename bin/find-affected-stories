@@ -64,10 +64,9 @@ const NON_RUNTIME_FILE_RE =
     /(^|\/)(__tests__|tests?)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)README\.md$|^(frontend|playwright)\/snapshots\.yml$/
 
 const MAX_CHANGED_FILES = 100
-// Rough per-story render cost (see ci-storybook.yml matrix); used only for
-// the savings-estimate row in the job summary.
-const AVG_STORY_DURATION_SECONDS = 6
-const TARGET_SHARD_SECONDS = 10 * 60
+const TARGET_SHARD_SECONDS = 8 * 60
+const DEFAULT_STORY_FILE_SECONDS = 20
+const TIMINGS_PATH = new URL('../common/storybook/storybook-timings.json', import.meta.url)
 const STORY_RE = /\.stories\.(tsx?|mdx|jsx?)$/
 
 // -----------------------------------------------------------------------------
@@ -112,18 +111,16 @@ function emitFull(reason, totalStories) {
     process.stdout.write(JSON.stringify({ mode: 'full', reason, total_story_count: totalStories }) + '\n')
 }
 
-function emitSelective(affected, totalStories, unresolved) {
-    const affectedDuration = affected.length * AVG_STORY_DURATION_SECONDS
-    const totalDuration = totalStories * AVG_STORY_DURATION_SECONDS
-    // 2x safety factor keeps selective shards below the target under variance.
-    const suggestedShards = Math.max(1, Math.floor((affectedDuration * 2) / TARGET_SHARD_SECONDS) + 1)
+function emitSelective(affected, allStories, unresolved, timings) {
+    const affectedDuration = estimateDuration(affected, timings)
+    const totalDuration = estimateDuration(allStories, timings)
     process.stdout.write(
         JSON.stringify({
             mode: 'selective',
             affected_stories: affected,
             affected_story_count: affected.length,
-            total_story_count: totalStories,
-            suggested_shards: suggestedShards,
+            total_story_count: allStories.length,
+            suggested_shards: suggestShards(affectedDuration),
             affected_duration_seconds: Math.round(affectedDuration),
             total_duration_seconds: Math.round(totalDuration),
             unresolved_changed_files: unresolved,
@@ -151,6 +148,33 @@ export function normalize(p) {
     return p.replace(/^\.\//, '').replace(/^\/+/, '')
 }
 
+export function loadStoryTimings(timingsPath = TIMINGS_PATH) {
+    let raw
+    try {
+        raw = JSON.parse(fs.readFileSync(timingsPath, 'utf-8'))
+    } catch {
+        return null
+    }
+    const seconds = {}
+    for (const [file, perBrowser] of Object.entries(raw)) {
+        const chromium = perBrowser && typeof perBrowser === 'object' ? perBrowser.chromium : undefined
+        if (typeof chromium === 'number') {
+            seconds[normalize(file)] = chromium
+        }
+    }
+    return seconds
+}
+
+export function estimateDuration(storyFiles, timings) {
+    const known = Object.values(timings ?? {}).sort((a, b) => a - b)
+    const unknownSeconds = known.length > 0 ? known[Math.floor(known.length / 2)] : DEFAULT_STORY_FILE_SECONDS
+    return storyFiles.reduce((total, file) => total + (timings?.[normalize(file)] ?? unknownSeconds), 0)
+}
+
+export function suggestShards(affectedDurationSeconds) {
+    return Math.max(1, Math.ceil(affectedDurationSeconds / TARGET_SHARD_SECONDS))
+}
+
 function loadGraph(graphPath) {
     const raw = fs.readFileSync(graphPath, 'utf-8')
     const data = JSON.parse(raw)
@@ -165,10 +189,8 @@ function loadGraph(graphPath) {
     return { modules: data.modules, byName }
 }
 
-function countStories(modules) {
-    let n = 0
-    for (const m of modules) if (STORY_RE.test(m.name)) n++
-    return n
+function storyFiles(modules) {
+    return modules.filter((m) => m && typeof m.name === 'string' && STORY_RE.test(m.name)).map((m) => normalize(m.name))
 }
 
 export function affectedStoriesFor(changedFiles, graph) {
@@ -240,27 +262,27 @@ export function main() {
     // If the graph is unreadable/missing, fall back to a full-run recommendation
     // without a count (caller will treat 0 as "unknown total").
     let graph
-    let totalStories = 0
+    let allStories = []
     try {
         graph = loadGraph(args.graph)
-        totalStories = countStories(graph.modules)
+        allStories = storyFiles(graph.modules)
     } catch (err) {
         emitFull(`module-graph.json unavailable: ${err.message}`, 0)
         return
     }
 
     if (process.env.FORCE_FULL_STORIES) {
-        emitFull('FORCE_FULL_STORIES env var set', totalStories)
+        emitFull('FORCE_FULL_STORIES env var set', allStories.length)
         return
     }
     if (changed.length > MAX_CHANGED_FILES) {
-        emitFull(`too many changed files (${changed.length} > ${MAX_CHANGED_FILES})`, totalStories)
+        emitFull(`too many changed files (${changed.length} > ${MAX_CHANGED_FILES})`, allStories.length)
         return
     }
     for (const f of changed) {
         const reason = requiresFullRun(f)
         if (reason) {
-            emitFull(reason, totalStories)
+            emitFull(reason, allStories.length)
             return
         }
     }
@@ -268,11 +290,11 @@ export function main() {
     const { affected, unresolved } = affectedStoriesFor(changed, graph)
     const unresolvedRuntime = unresolvedRuntimeFiles(unresolved)
     if (unresolvedRuntime.length > 0) {
-        emitFull(`changed frontend file missing from module graph: ${unresolvedRuntime[0]}`, totalStories)
+        emitFull(`changed frontend file missing from module graph: ${unresolvedRuntime[0]}`, allStories.length)
         return
     }
-    process.stderr.write(`Affected stories: ${affected.length} / ${totalStories} (unresolved: ${unresolved.length})\n`)
-    emitSelective(affected, totalStories, unresolved)
+    process.stderr.write(`Affected stories: ${affected.length} / ${allStories.length} (unresolved: ${unresolved.length})\n`)
+    emitSelective(affected, allStories, unresolved, loadStoryTimings())
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
