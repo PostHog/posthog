@@ -511,6 +511,7 @@ the row lists both.
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
 | metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
+| microsoft_defender_cloud_apps    | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mintlify                         | HTTP                        | requests                                                        | ✅                          |
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
@@ -1244,7 +1245,6 @@ doesn't conflict with concurrent PRs.
 - microsoft_365_usage_reports
 - microsoft_advertising
 - microsoft_dataverse
-- microsoft_defender_cloud_apps
 - microsoft_defender_endpoint
 - microsoft_defender_for_cloud
 - microsoft_entra_id
