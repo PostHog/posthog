@@ -1080,7 +1080,7 @@ export class ApiClient {
                 // The API expects a QueryRequest object with the query wrapped
                 const queryRequest: any = {
                     query: validated,
-                    ...(refresh ? { refresh: 'blocking' } : {}),
+                    ...(refresh ? { refresh: 'force_blocking' } : {}),
                 }
 
                 const result = await this.fetchJson<ExperimentExposureQueryResponse>(
@@ -1177,7 +1177,7 @@ export class ApiClient {
 
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refresh ? { refresh: 'force_blocking' } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
@@ -1207,7 +1207,7 @@ export class ApiClient {
 
                             const queryRequest = {
                                 query: queryBody,
-                                ...(refresh ? { refresh: 'blocking' } : {}),
+                                ...(refresh ? { refresh: 'force_blocking' } : {}),
                             }
 
                             const result = await this.fetchJson<unknown>(
